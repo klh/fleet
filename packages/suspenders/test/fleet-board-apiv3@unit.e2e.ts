@@ -4,15 +4,15 @@
 // — scratch HOME, OS-chosen port.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { realpathSync } from "node:fs";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 type Row = Record<string, unknown>;
 const { HOME, REPO, BASE, run, q, getDecisions, post, fork, addWork } =
-	await boardFixture(0, afterAll);
+	await boardFixture(0, test.afterAll);
 
-describe("board api v3 (docs/board-api.md)", () => {
+test.describe("board api v3 (docs/board-api.md)", () => {
 	// the temp repo has a bare .git dir (no refs) — projectIdentity() falls
 	// back to the cwd realpath, /var/folders symlinks resolve to /private/var
 	const proj = realpathSync(REPO);

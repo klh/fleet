@@ -1,15 +1,14 @@
 // fleet-board-sessions-verdict.test.ts — W378: /api/data sessions ride the
 // shared lane-liveness verdict. Recipe: fleet-board.test.ts (board fixture:
 // scratch HOME + board, direct sqlite seeds against the fixture DB).
-import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-setDefaultTimeout(30_000); // spawn-heavy: board fixture + /api/data polls
-const { HOME, MY_PROJ, getData } = await boardFixture(0, afterAll);
+const { HOME, MY_PROJ, getData } = await boardFixture(0, test.afterAll);
 
 const db = new Database(`${HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 
 // W378 shape: three rows the verdict face must split honestly — fresh-hb
 // RUNNING rides alive; stale-hb RUNNING with no transcript (the W378 lie
@@ -39,12 +38,16 @@ type SessionFeed = {
 	}[];
 };
 
-describe("/api/data sessions ride the liveness verdict (W378)", () => {
+test.describe("/api/data sessions ride the liveness verdict (W378)", () => {
 	test("fresh-hb RUNNING is alive; stale-hb and CLOSED are not", async () => {
 		// the board memoizes /api/data for 1.5s (W663) — the fixture's own
 		// startup probe cached the pre-seed payload; poll past the TTL
 		let d: SessionFeed = { sessions: [] };
-		for (let i = 0; i < 20 && !d.sessions.some((s) => s.sid.startsWith("w378-")); i++) {
+		for (
+			let i = 0;
+			i < 20 && !d.sessions.some((s) => s.sid.startsWith("w378-"));
+			i++
+		) {
 			d = (await getData()) as SessionFeed;
 			await new Promise((r) => setTimeout(r, 250));
 		}
@@ -62,4 +65,3 @@ describe("/api/data sessions ride the liveness verdict (W378)", () => {
 		expect(closed?.live).toBe(false);
 	});
 });
-

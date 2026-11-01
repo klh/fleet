@@ -4,12 +4,12 @@
 // scratch HOME; the OS chooses unused ports, isolating concurrent runs.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { join } from "node:path";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const { HOME, REPO, env, bin, MY_PROJ, post, addWork, run, sleep } =
-	await boardFixture(0, afterAll);
+	await boardFixture(0, test.afterAll);
 
 const DB = `${HOME}/.cache/claude-governor/governor.db`;
 
@@ -48,7 +48,7 @@ function itemRow(id: string): Record<string, unknown> | null {
 	return row;
 }
 
-describe("W182 release", () => {
+test.describe("W182 release", () => {
 	test("validation: missing id 400, unknown item 404, unclaimed 409", async () => {
 		expect((await post("/api/release", { project: MY_PROJ })).status).toBe(400);
 		expect(
@@ -112,7 +112,7 @@ describe("W182 release", () => {
 	});
 });
 
-describe("W182 reassign", () => {
+test.describe("W182 reassign", () => {
 	test("validation: unknown item 404, READY item 409", async () => {
 		expect(
 			(
@@ -180,7 +180,7 @@ async function interposeMove(
 	return false;
 }
 
-describe("W873 release-leg recovery", () => {
+test.describe("W873 release-leg recovery", () => {
 	test("work reclaim accepts --force (board release leg regression)", () => {
 		const id = addWork("w873 reclaim force CLI item");
 		claim(id, "s-w873-cli");
@@ -234,7 +234,7 @@ describe("W873 release-leg recovery", () => {
 	});
 });
 
-describe("W182 cancel", () => {
+test.describe("W182 cancel", () => {
 	test("validation: missing reason 400, unknown item 404, terminal 409", async () => {
 		expect(
 			(await post("/api/cancel", { project: MY_PROJ, id: "W1" })).status,
@@ -279,7 +279,7 @@ describe("W182 cancel", () => {
 	});
 });
 
-describe("W182 second-opinion", () => {
+test.describe("W182 second-opinion", () => {
 	test("validation: missing executor 400, unknown executor 400, bad llm legs 409", async () => {
 		expect(
 			(await post("/api/second-opinion", { project: MY_PROJ, id: "W1" }))
@@ -347,7 +347,7 @@ describe("W182 second-opinion", () => {
 	});
 });
 
-describe("W182 review-lane e2e (stub leg)", () => {
+test.describe("W182 review-lane e2e (stub leg)", () => {
 	test("stub leg lands fact + work.review event + NOTE", async () => {
 		let captured = "";
 		const stub = Bun.serve({
