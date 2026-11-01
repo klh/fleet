@@ -7,7 +7,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { z } from "zod";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import {
 	resolveSettings,
@@ -15,6 +14,7 @@ import {
 	toLegacyProfile,
 	warnDeprecated,
 } from "@klh/settings";
+import { z } from "zod";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
