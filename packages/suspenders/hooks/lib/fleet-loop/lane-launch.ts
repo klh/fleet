@@ -63,9 +63,7 @@ import {
 	readLaunchBackoff,
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
-import { admitModel } from "./model-admission.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
-import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -82,6 +80,7 @@ import {
 	renewLaunchLease,
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
+import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
@@ -142,6 +141,7 @@ import {
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import { fenceBriefLine } from "../work/work-transition.ts";
+import { admitModel } from "./model-admission.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references

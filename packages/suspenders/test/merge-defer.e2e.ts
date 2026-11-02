@@ -247,9 +247,7 @@ test.describe("@unit", () => {
 			]);
 			expect(anyMergeDeferred(r, (l) => lines.push(l))).toBe(true);
 		});
-		expect(lines.filter((l) => l.includes("DEFER-UNREADABLE"))).toHaveLength(
-			1,
-		);
+		expect(lines.filter((l) => l.includes("DEFER-UNREADABLE"))).toHaveLength(1);
 		expect(lines.some((l) => l.includes("bad%2ZZ.json"))).toBe(true);
 		expect(
 			existsSync(join(r, ".fleet/merge-defer", "bad%2ZZ.json.rejected")),

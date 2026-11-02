@@ -1,17 +1,18 @@
 // Regression (W228 grammar): the claude recipe must never write a raw model
 // id into ANTHROPIC_MODEL — raw ids 400 client-side ("unrecognized_model").
 // The opus alias carries the remap; belt routes by the remapped id.
-import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import {
+	applyInsertion,
 	INSERTION_RECIPES,
 	insertionCtx,
-	applyInsertion,
 } from "../scripts/lib/insertion.ts";
-import type { StackConfig } from "../hooks/lib/stack-config.ts";
 
-const stackWith = (
-	executors: StackConfig["executors"],
-): StackConfig => ({ hubs: {}, executors });
+const stackWith = (executors: StackConfig["executors"]): StackConfig => ({
+	hubs: {},
+	executors,
+});
 
 describe("insertion recipes", () => {
 	test("claude recipe pins the opus alias + OPUS_MODEL remap, never the raw id", () => {
@@ -96,7 +97,9 @@ describe("insertion stack config (W230)", () => {
 				{},
 				null,
 				"copilot",
-				stackWith({ copilot: { openai_base: "http://row:9/v1", model: "m-row" } }),
+				stackWith({
+					copilot: { openai_base: "http://row:9/v1", model: "m-row" },
+				}),
 			),
 		);
 		expect(env.COPILOT_PROVIDER_BASE_URL).toBe("http://row:9/v1");

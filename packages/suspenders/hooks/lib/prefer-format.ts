@@ -1,7 +1,7 @@
 import { lstatSync, readFileSync } from "node:fs";
 import {
-	parsePostureOverlay,
 	type PostureOverlay,
+	parsePostureOverlay,
 } from "./posture/posture.zod.ts";
 
 /** null means legacy lines; invalid JSON objects never enter that plane. */

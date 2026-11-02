@@ -13,7 +13,6 @@
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { splitTags } from "../work/work-tags.ts";
 import type { WireModelMatch } from "./wire-model-check.ts";
-import { wireModelMatch } from "./wire-model-check.ts";
 
 /** The tag that marks a protected-family item. */
 export const PROTECTED_FAMILY_TAG = "glm53-only";
@@ -70,5 +69,4 @@ export const protectedWireMismatch = (o: {
 	match: WireModelMatch | null | undefined;
 	verdict: string;
 	family: boolean;
-}): boolean =>
-	o.match === "mismatch" && (o.verdict === "PASS" || o.family);
+}): boolean => o.match === "mismatch" && (o.verdict === "PASS" || o.family);

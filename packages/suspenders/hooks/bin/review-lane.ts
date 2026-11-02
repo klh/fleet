@@ -24,6 +24,10 @@ import {
 	fingerprintVerdict,
 	workspaceFingerprint,
 } from "../lib/gates/proof-fingerprint.ts";
+import {
+	protectedFamily,
+	protectedWireMismatch,
+} from "../lib/gates/protected-family.ts";
 import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
 	parseFallbackModels,
@@ -41,10 +45,6 @@ import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
-import {
-	protectedFamily,
-	protectedWireMismatch,
-} from "../lib/gates/protected-family.ts";
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";

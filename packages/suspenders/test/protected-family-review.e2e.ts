@@ -7,11 +7,11 @@
 // change: untagged items keep the W2194 repin + W1313/W2344 ladders.
 import { expect, test } from "@playwright/test";
 import {
+	PROTECTED_FAMILY_TAG,
+	PROTECTED_REVIEW_CLASS,
 	protectedFamily,
 	protectedFamilyRefusal,
 	protectedWireMismatch,
-	PROTECTED_FAMILY_TAG,
-	PROTECTED_REVIEW_CLASS,
 } from "../hooks/lib/gates/protected-family.ts";
 import {
 	reviewRequestKey,
@@ -107,13 +107,21 @@ test("protectedFamilyRefusal names the class and the escape", () => {
 // ── the strict wire assertion ───────────────────────────────────────────────
 test("protectedWireMismatch: mismatch is fatal for every verdict on family items", () => {
 	expect(
-		protectedWireMismatch({ match: "mismatch", verdict: "PASS", family: false }),
+		protectedWireMismatch({
+			match: "mismatch",
+			verdict: "PASS",
+			family: false,
+		}),
 	).toBe(true);
 	expect(
 		protectedWireMismatch({ match: "mismatch", verdict: "FAIL", family: true }),
 	).toBe(true);
 	expect(
-		protectedWireMismatch({ match: "mismatch", verdict: "FAIL", family: false }),
+		protectedWireMismatch({
+			match: "mismatch",
+			verdict: "FAIL",
+			family: false,
+		}),
 	).toBe(false);
 	expect(
 		protectedWireMismatch({ match: "match", verdict: "PASS", family: true }),

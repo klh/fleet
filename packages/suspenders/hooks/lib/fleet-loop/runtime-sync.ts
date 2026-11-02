@@ -14,11 +14,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { setting } from "@klh/settings";
-import { readStamp } from "../../../scripts/lib/auto-install.ts";
 import {
 	skipHoldoffActive,
 	syncSettled,
 } from "../../../scripts/lib/activation-readiness.ts";
+import { readStamp } from "../../../scripts/lib/auto-install.ts";
 import { suspendersRoot } from "./maintenance.ts";
 // W2561: the per-item merge defer gates the sync sweep too — a held landing
 // must not publish+restart surfaces (root #101230)

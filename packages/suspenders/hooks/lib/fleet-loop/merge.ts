@@ -42,7 +42,11 @@ import {
 	noteStuckDefer,
 } from "./ladder-repair.ts";
 // W2561: the per-item merge defer (a branch-scoped merge-hold)
-import { deferFileName, MERGE_DEFER_DIR, mergeDeferredActive } from "./merge-defer.ts";
+import {
+	deferFileName,
+	MERGE_DEFER_DIR,
+	mergeDeferredActive,
+} from "./merge-defer.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 import { reviewEvalsAfterMerge } from "./review-evals.ts";
@@ -191,7 +195,9 @@ export function createMergeLadder(
 		// W2561: the per-item defer (branch-scoped) — a DONE-item branch an
 		// operator parks mid-install; provenance + expiry identical to a hold
 		if (mergeDeferredActive(REPO, b)) {
-			log(`MERGE-DEFER ${b} — per-item defer (${MERGE_DEFER_DIR}/${deferFileName(b)})`);
+			log(
+				`MERGE-DEFER ${b} — per-item defer (${MERGE_DEFER_DIR}/${deferFileName(b)})`,
+			);
 			return {
 				branch: b,
 				outcome: "deferred",

@@ -313,10 +313,7 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 
 describe("W2570 model= pin: executor + model on one lane", () => {
 	test("model= pins the executor's model: copilot lane launches with the id", () => {
-		writeFileSync(
-			join(REPO, ".prefer"),
-			"must=copilot\nmodel=gpt-6-sol\n",
-		);
+		writeFileSync(join(REPO, ".prefer"), "must=copilot\nmodel=gpt-6-sol\n");
 		const p = execPick(0, REPO);
 		expect(p.name).toBe("copilot");
 		expect(p.bin).toBe("copilot");
@@ -333,10 +330,7 @@ describe("W2570 model= pin: executor + model on one lane", () => {
 	});
 
 	test("a directive's own model pin outranks the repo model= pin", () => {
-		writeFileSync(
-			join(REPO, ".prefer"),
-			"must=glm-5.3-flash\nmodel=glm-5.3\n",
-		);
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\nmodel=glm-5.3\n");
 		const p = execPick(0, REPO);
 		expect(p.model).toBe("glm-5.3-flash");
 		rmSync(join(REPO, ".prefer"));
@@ -399,10 +393,7 @@ describe("W2570 amendment: machine-conf executors row is the model default", () 
 
 	test("a directive's own pin beats both conf row and repo pin", () => {
 		stackOf({ copilot: { model: "gpt-6-sol" } });
-		writeFileSync(
-			join(REPO, ".prefer"),
-			"must=glm-5.3-flash\nmodel=glm-5.3\n",
-		);
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\nmodel=glm-5.3\n");
 		expect(execPick(0, REPO).model).toBe("glm-5.3-flash");
 		rmSync(join(REPO, ".prefer"));
 	});

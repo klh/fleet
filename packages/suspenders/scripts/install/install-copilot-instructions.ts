@@ -37,17 +37,11 @@ export interface CopilotInstructionsResult {
 }
 
 export function installCopilotInstructions(
-	options: {
-		home?: string;
-		copilotHome?: string;
-		dryRun?: boolean;
-	} = {},
+	options: { home?: string; copilotHome?: string; dryRun?: boolean } = {},
 ): CopilotInstructionsResult {
 	const home = options.home ?? process.env.HOME ?? "";
 	const copilotHome =
-		options.copilotHome ??
-		process.env.COPILOT_HOME ??
-		join(home, ".copilot");
+		options.copilotHome ?? process.env.COPILOT_HOME ?? join(home, ".copilot");
 	const loaded = join(copilotHome, "copilot-instructions.md");
 	if (existsSync(loaded)) {
 		return {

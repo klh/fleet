@@ -1,7 +1,6 @@
-import { expect, test } from "@playwright/test";
 import {
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -9,11 +8,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installPolicyAdapters } from "../scripts/install/install-policy-adapters.ts";
+import { expect, test } from "@playwright/test";
 import {
 	COPILOT_GLOBAL_INSTRUCTIONS,
 	installCopilotInstructions,
 } from "../scripts/install/install-copilot-instructions.ts";
+import { installPolicyAdapters } from "../scripts/install/install-policy-adapters.ts";
 
 const home = mkdtempSync(join(tmpdir(), "policy-adapter-"));
 const prefix = join(import.meta.dir, "../hooks");
@@ -179,9 +179,9 @@ test("canonical instructions.md stays byte-untouched; pointer written beside it 
 	writeFileSync(join(legacy, ".copilot/instructions.md"), "# legacy fleet\n");
 	installCopilotInstructions({ home: legacy });
 	// the canonical file is NEVER moved or rewritten.
-	expect(
-		readFileSync(join(legacy, ".copilot/instructions.md"), "utf8"),
-	).toBe("# legacy fleet\n");
+	expect(readFileSync(join(legacy, ".copilot/instructions.md"), "utf8")).toBe(
+		"# legacy fleet\n",
+	);
 	// the loaded path gets the pointer — and it names instructions.md.
 	const pointer = readFileSync(
 		join(legacy, ".copilot/copilot-instructions.md"),
@@ -191,9 +191,9 @@ test("canonical instructions.md stays byte-untouched; pointer written beside it 
 	expect(pointer).toContain("instructions.md");
 	// idempotent: re-runs rewrite neither file.
 	installCopilotInstructions({ home: legacy });
-	expect(
-		readFileSync(join(legacy, ".copilot/instructions.md"), "utf8"),
-	).toBe("# legacy fleet\n");
+	expect(readFileSync(join(legacy, ".copilot/instructions.md"), "utf8")).toBe(
+		"# legacy fleet\n",
+	);
 	expect(
 		readFileSync(join(legacy, ".copilot/copilot-instructions.md"), "utf8"),
 	).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
