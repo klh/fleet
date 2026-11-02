@@ -82,6 +82,10 @@ export async function boardFixture(
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME,
+		// coord-child-store-binding lesson: pin every spawned work/coord child
+		// to THIS fixture's governor.db — an inherited GOVERNOR_STORE_URL would
+		// silently redirect them to the live fleet store (test pollution).
+		GOVERNOR_STORE_URL: "local",
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 		// W810 → W1119.1: the advise panel's oracle legs ride the gated Buckle
 		// client — on a machine with a live gate they would ANSWER, the panel

@@ -6,6 +6,11 @@
 // manual setViewportSize calls retire from the specs. Shared pre-flight
 // (chromium warm + vendor check) lives in global-setup.ts. Browsers
 // resolve from the machine cache — never a CDN fetch.
+// W2267.3: board-recovery-actions moved into the unit corpus
+// (**/*.e2e.ts, test/playwright.config.ts) per the one-framework law —
+// its @ui tests ride the same shared fixtures, and the unit config's
+// `use:` block (headless chromium, 1440×900, trace retain-on-failure)
+// covers the same guarantees this config's globalSetup warmed.
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({

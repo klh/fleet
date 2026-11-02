@@ -486,26 +486,11 @@ function cancelItem(id, proj, reason, btn){
     else toast('cancel failed: ' + String((j && j.error) || 'unknown error'));
   });
 }
-// W970 — FAILED-card requeue: /api/retry mirrors the W761 CLI verb;
-// operator-gated items (open NEED_DECISION or the 'operator' tag) need a
-// force confirm, mirroring unclaim's live-lane confirm.
-function retryItem(id, proj, btn, force){
-  var k = proj + '\u0000' + id;
-  if (starting[k]) return;
-  starting[k] = true;
-  if (btn) btn.disabled = true;
-  postJSON('/api/retry', { project: proj, id: id, force: !!force }).then(function(j){
-    delete starting[k];
-    if (btn) btn.disabled = false;
-    if (j && j.ok) { toast('requeued ' + id + ' — READY, dispatch picks it up'); pollTasks(); return; }
-    if (j && j.operatorGated && !force) {
-      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the requeue to READY? Auto-dispatch will spawn a lane for it.')) retryItem(id, proj, null, true);
-      return;
-    }
-    toast('retry failed: ' + String((j && j.error) || 'unknown error'));
-    pollTasks();
-  });
-}
+// W970/W2267.3 — FAILED-card requeue delegates to the shared recovery
+// helpers (actions-retry.ts): retryItem now means recover + fresh attempt.
+var retryItem = function(id, proj, btn, force){
+  window.__klhRecovery.retryExecItem(id, proj, btn, force, null);
+};
 // W182 — second opinion: spawns a read-only REVIEW lane on the item; the
 // verdict lands as a work.review event on the drawer timeline.
 function secondOpinion(id, proj, executor, btn){

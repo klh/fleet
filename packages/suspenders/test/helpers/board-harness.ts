@@ -7,7 +7,13 @@
 // both import it, and helpers only throw plain Errors. The hub world and the
 // local world share NOTHING — separate scratch HOMEs are the structural
 // scope isolation the GUI test proves.
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -122,6 +128,14 @@ function boardEnv(
 	return {
 		...process.env,
 		HOME,
+		// coord-child-store-binding lesson: the lane shell's GOVERNOR_STORE_URL
+		// (when set) would redirect spawned work/coord children to the LIVE
+		// fleet store — pin every board-world child to the local fixture db.
+		GOVERNOR_STORE_URL: "local",
+		// W2267.3: retry's dispatch leg must never spawn a real lane from a
+		// test — pin the carrier to the stub exit-0 binary (the W810 pattern;
+		// dispatch-failure specs override this with an absent path).
+		SUSPENDERS_CLAUDE_BIN: join(HOME, ".local", "bin", "claude"),
 		SUSPENDERS_LLM_URL: "http://127.0.0.1:1/v1/chat/completions",
 		SUSPENDERS_MDNS: "0",
 		SUSPENDERS_BELT_URL: "http://127.0.0.1:1",
@@ -136,6 +150,13 @@ export async function startBoard(
 ): Promise<Board> {
 	const HOME = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `sb-e2e-${label}-repo-`));
+	// W2267.3: the stub carrier binary boardEnv pins (dispatch legs in tests
+	// resolve it and the spawned stub exits 0 — never a real agent).
+	const stubBin = join(HOME, ".local", "bin");
+	mkdirSync(stubBin, { recursive: true });
+	writeFileSync(join(stubBin, "claude"), "#!/bin/sh\nexit 0\n", {
+		mode: 0o755,
+	});
 	// W1294.2: a REAL repo from t0 — projectIdentity() keys the graph on the
 	// git common dir, and the done-gate's product-evidence check needs the
 	// completion commit to touch a non-dotfile path; the fake-.git shell

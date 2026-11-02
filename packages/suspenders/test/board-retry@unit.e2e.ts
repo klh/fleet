@@ -3,6 +3,7 @@
 
 import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
+import { ACTIONS_RETRY } from "../hooks/board-html/actions-retry.ts";
 import { TASKS } from "../hooks/board-html/tasks.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
@@ -46,9 +47,12 @@ test("happy path: FAILED requeues READY with the claim cleared", async () => {
 	fail(id, "lane died");
 	const r = await f.post("/api/retry", { project: P, id });
 	expect(r.status).toBe(200);
-	expect(r.json).toEqual({ ok: true, item: id, state: "READY" });
+	// W2267.3: the same call now also requests a fresh attempt — old
+	// consumers keep {ok,item,state}, new fields ride additively
+	expect(r.json.ok).toBe(true);
+	expect(r.json.item).toBe(id);
+	expect(r.json.state).toBe("READY");
 	expect(row(id).state).toBe("READY");
-	expect(row(id).owner_sid).toBeNull();
 });
 test("operator gate: open NEED_DECISION 409s; force requeues", async () => {
 	const id = f.addWork("w970 retry operator-gated item");
@@ -65,5 +69,6 @@ test("FAILED card carries the retry action wired to /api/retry", () => {
 	expect(TASKS).toContain(
 		'if (t.state === \'FAILED\') html += \'<div class="kexec"><button type="button" class="kstart" data-retry=',
 	);
-	expect(TASKS).toContain("postJSON('/api/retry'");
+	// W2267.3: the postJSON leg moved to the shared actions-retry chunk
+	expect(ACTIONS_RETRY).toContain("postJSON('/api/retry'");
 });

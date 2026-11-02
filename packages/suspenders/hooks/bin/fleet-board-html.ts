@@ -33,6 +33,7 @@ import { RENDERS } from "../board-html/renders.ts";
 import { REPORT } from "../board-html/report.ts";
 import { SETUP } from "../board-html/setup.ts";
 import { SHIP } from "../board-html/ship.ts";
+import { ACTIONS_RETRY } from "../board-html/actions-retry.ts";
 import { TABS } from "../board-html/tabs.ts";
 import { TAIL } from "../board-html/tail.ts";
 import { TASKS } from "../board-html/tasks.ts";
@@ -517,7 +518,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${TABS}${ORCH}${FEEDS}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
