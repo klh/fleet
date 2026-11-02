@@ -119,6 +119,8 @@ export const PostureLayerSchema = z.strictObject({
 						line: z.number().int().positive(),
 					})
 					.nullable(),
+				/** W2570: `model=<id>` executor-plane pin, null when absent. */
+				model: z.string().nullable(),
 			}),
 			errors: z.array(z.string()),
 		})

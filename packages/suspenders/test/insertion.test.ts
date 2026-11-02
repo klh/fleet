@@ -23,6 +23,13 @@ describe("insertion recipes", () => {
 		expect(env.KLH_LANE).toBe("claude");
 	});
 
+	test("W2570: a pinned executor model lands on COPILOT_MODEL (copilot lane)", () => {
+		const env: Record<string, string> = {};
+		applyInsertion(env, "copilot", insertionCtx({}, "gpt-6-sol"));
+		expect(env.COPILOT_MODEL).toBe("gpt-6-sol");
+		expect(env.COPILOT_PROVIDER_TYPE).toBe("openai");
+	});
+
 	test("recipe table never emits a raw id through ANTHROPIC_MODEL", () => {
 		const raw = INSERTION_RECIPES.claude?.ANTHROPIC_MODEL;
 		expect(typeof raw).toBe("function");
