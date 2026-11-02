@@ -2,6 +2,7 @@
 // the free routes. The key is read from a local 0600 file and never stored in
 // the snapshot. Buckle forwards through the owned LiteLLM engine.
 import {
+	existsSync,
 	lstatSync,
 	readFileSync,
 	renameSync,
@@ -11,6 +12,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { z } from "zod";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 export const OPENROUTER_CATALOG_URL =
@@ -21,9 +23,9 @@ export const OPENROUTER_FREE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
 const ZERO_PRICE = /^0(?:\.0+)?$/;
 const FREE_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*:free$/i;
-const supportedFreeId = (id: string): boolean =>
+export const supportedFreeId = (id: string): boolean =>
 	FREE_ID.test(id) || id === "openrouter/free";
-const groupForId = (id: string): string =>
+export const groupForId = (id: string): string =>
 	id === "openrouter/free" ? id : `openrouter/${id}`;
 
 type CatalogModel = {
@@ -67,6 +69,36 @@ const routeForId = (id: string): FreeRoute => ({
 	adapter_config: { proxy_kind: "litellm" },
 	model: groupForId(id),
 });
+
+// W2546.2 root review (#102805): strict, FIELD-based route validation —
+// JSON.stringify equality rejected byte-equivalent snapshots whose route
+// objects listed properties in a different order. strict() rejects added
+// fields; the literals pin dialect/adapter/key/proxy; url+model equality
+// pins the rest. Property order never matters.
+const FreeRouteSchema = z
+	.object({
+		url: z.string(),
+		dialect: z.literal("openai"),
+		adapter: z.literal("openai-compat"),
+		api_key_env: z.literal("LITELLM_KEY"),
+		adapter_config: z.object({ proxy_kind: z.literal("litellm") }).strict(),
+		model: z.string(),
+	})
+	.strict();
+const RouteListSchema = z.array(FreeRouteSchema).length(1);
+
+/** A snapshot group entry the generator would never emit itself. */
+const routeInvalid = (group: string, deployments: unknown): boolean => {
+	const id =
+		group === "openrouter/free" ? group : group.slice("openrouter/".length);
+	if (group !== groupForId(id) || !supportedFreeId(id)) return true;
+	const parsed = RouteListSchema.safeParse(deployments);
+	if (!parsed.success) return true;
+	const [route] = parsed.data;
+	if (!route) return true;
+	const expected = routeForId(id);
+	return route.url !== expected.url || route.model !== expected.model;
+};
 
 const textCapable = (model: CatalogModel): boolean => {
 	const arch = model.architecture;
@@ -293,6 +325,125 @@ export function writeFreeSnapshot(
 	return routesChanged;
 }
 
+// ─── stale-snapshot preflight (W2546.2) ───
+// Mirror of the Z.ai preflight (deploy/zai-catalog.ts refreshStaleZaiSnapshot,
+// W1469): a snapshot whose only defect is age is revalidated against the live
+// public+account catalogs and refreshed in place when the route groups are
+// byte-identical — the timestamp repair the 2026-11-02 seedLocalLlm failure
+// needed. A real group change, a bad key, or a network failure NEVER writes.
+
+const invalidSnapshotMessage = "invalid OpenRouter free catalog snapshot";
+
+// W2546.2 schema law (W1238.4): the snapshot on disk is a config-file boundary
+// — a named Zod schema safeParse's it, never a hand cast. Proven rejects:
+// arrays-as-groups, null, unparseable timestamps, wrong version/source.
+export const FreeSnapshotShapeSchema = z.object({
+	version: z.literal(1),
+	source: z.literal(OPENROUTER_CATALOG_URL),
+	account_source: z.literal(OPENROUTER_ACCOUNT_CATALOG_URL),
+	generated_at: z
+		.string()
+		.refine(
+			(s) => Number.isFinite(Date.parse(s)),
+			"generated_at is not a parseable timestamp",
+		),
+	public_model_count: z.number(),
+	account_model_count: z.number(),
+	excluded_free_models: z.array(
+		z.object({ id: z.string(), reason: z.string() }).loose(),
+	),
+	groups: z.record(z.string(), RouteListSchema),
+});
+export type FreeSnapshotShape = z.infer<typeof FreeSnapshotShapeSchema>;
+
+export class OpenRouterSnapshotStaleError extends Error {
+	constructor(readonly snapshot: FreeSnapshot) {
+		super("OpenRouter free catalog snapshot is stale");
+		this.name = "OpenRouterSnapshotStaleError";
+	}
+}
+
+/** Throws only `OpenRouterSnapshotStaleError` for an otherwise-valid-but-old
+ *  snapshot; rethrows parse/shape errors as Error for a bounded diagnostic.
+ *  null = no snapshot at all (the generator's rows stay empty without a key). */
+export function readStaleFreeSnapshot(
+	path: string,
+	now = Date.now(),
+): FreeSnapshot | null {
+	if (!existsSync(path)) return null;
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(path, "utf8"));
+	} catch {
+		throw new Error(invalidSnapshotMessage);
+	}
+	const parsed = FreeSnapshotShapeSchema.safeParse(raw);
+	if (!parsed.success) throw new Error(invalidSnapshotMessage);
+	const doc: FreeSnapshot = parsed.data;
+	for (const [group, deployments] of Object.entries(doc.groups)) {
+		if (routeInvalid(group, deployments))
+			throw new Error(
+				`invalid OpenRouter free catalog route: ${sanitizeRouteGroup(group)}`,
+			);
+	}
+	const age = now - Date.parse(doc.generated_at);
+	if (age < 0) throw new Error(invalidSnapshotMessage);
+	if (age <= OPENROUTER_FREE_MAX_AGE_MS) return doc;
+	throw new OpenRouterSnapshotStaleError(doc);
+}
+
+/** Route-group names for diagnostics — the snapshot's own field names, never
+ *  file bytes (unbounded) and never key material. */
+export const sanitizeRouteGroup = (group: string): string =>
+	group.replace(/[^\w./:-]+/g, "_").slice(0, 120);
+
+export type OpenRouterStaleResult =
+	| { kind: "refreshed"; groups: number }
+	| { kind: "delta"; added: string[]; removed: string[] }
+	| { kind: "failed"; why: string };
+
+/** Timestamp-only stale snapshot: refresh in place only when the live public
+ *  catalog yields identical route groups. `fetchFreeSnapshot` intersects the
+ *  public catalog with the ACCOUNT catalog, so identical groups already prove
+ *  account eligibility — a revoked id drops out of `live.groups` and lands in
+ *  `removed` (blocked, never silently accepted). Fresh/absent snapshots cost
+ *  no key read and no network. Never names the key itself. */
+export async function refreshStaleOpenRouterSnapshot(
+	path: string,
+	fetcher: typeof fetch = fetch,
+	inferenceKey: () => string = readInferenceKey,
+): Promise<OpenRouterStaleResult | null> {
+	let stale: FreeSnapshot;
+	try {
+		const doc = readStaleFreeSnapshot(path);
+		if (doc !== null) return null; // fresh — nothing to repair
+		return null; // absent — the generator emits no rows without a snapshot
+	} catch (error) {
+		if (!(error instanceof OpenRouterSnapshotStaleError))
+			return {
+				kind: "failed",
+				why: error instanceof Error ? error.message : String(error),
+			};
+		stale = error.snapshot;
+	}
+	try {
+		const live = await fetchFreeSnapshot(fetcher, inferenceKey());
+		const added = Object.keys(live.groups).filter((g) => !(g in stale.groups));
+		const removed = Object.keys(stale.groups).filter(
+			(g) => !(g in live.groups),
+		);
+		if (added.length > 0 || removed.length > 0)
+			return { kind: "delta", added, removed };
+		writeFreeSnapshot(path, live);
+		return { kind: "refreshed", groups: Object.keys(live.groups).length };
+	} catch (error) {
+		return {
+			kind: "failed",
+			why: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
 export function mergedHubUpstreams(
 	hub: HubProfile,
 	now = Date.now(),
@@ -322,15 +473,7 @@ export function mergedHubUpstreams(
 			"OpenRouter free catalog snapshot is stale; refresh before hubctl push",
 		);
 	for (const [group, deployments] of Object.entries(doc.groups)) {
-		const id =
-			group === "openrouter/free" ? group : group.slice("openrouter/".length);
-		if (
-			group !== groupForId(id) ||
-			!supportedFreeId(id) ||
-			!Array.isArray(deployments) ||
-			deployments.length !== 1 ||
-			JSON.stringify(deployments[0]) !== JSON.stringify(routeForId(id))
-		)
+		if (routeInvalid(group, deployments))
 			throw new Error("invalid OpenRouter free catalog route");
 	}
 	return { ...doc.groups, ...explicit };

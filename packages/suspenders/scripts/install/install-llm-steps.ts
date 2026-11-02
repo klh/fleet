@@ -38,6 +38,10 @@ import {
 	refreshStaleZaiSnapshot,
 	type ZaiStaleResult,
 } from "../../deploy/zai-catalog.ts";
+import {
+	refreshStaleOpenRouterSnapshot,
+	type OpenRouterStaleResult,
+} from "../../deploy/openrouter-free.ts";
 import { scrubRules } from "../../hooks/lib/gates/scrub.ts";
 import { writeHubRegistry } from "../../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "../belt-bin-overlay.ts";
@@ -204,6 +208,13 @@ export interface RegenDeps {
 	run?: (argv: string[], homeRoot: string) => Promise<void>;
 	/** Z.ai account-catalog fetcher override (tests); default global fetch */
 	zaiFetcher?: typeof fetch;
+	/** W2546.2: OpenRouter catalog fetcher override (tests); default global
+	 *  fetch — also the ambient-endpoint isolation seam for runner tests. */
+	openRouterFetcher?: typeof fetch;
+	/** W2546.2: inference-key resolver override (tests); default reads the
+	 *  0600 key file under the CURRENT HOME — canonical installs resolve the
+	 *  same path because the regen child pins HOME to the flat home's root. */
+	openRouterKey?: () => string;
 }
 
 // W1205: regeneration diagnostics stay bounded + sanitized — the a81
@@ -304,6 +315,8 @@ export interface RegenOutcome {
 
 const ZAI_ACCEPT =
 	"bun packages/suspenders/deploy/zai-catalog-sync.ts sync --hub <hub>";
+const OPENROUTER_ACCEPT =
+	"bun packages/suspenders/deploy/openrouter-free-sync.ts sync --output <absolute openrouter-free.json path>";
 
 // A stale snapshot the preflight could not refresh: bounded, actionable, loud.
 const zaiBlockedNote = (
@@ -317,6 +330,21 @@ const zaiBlockedNote = (
 	];
 	const more = ids.length > 6 ? ` …+${ids.length - 6} more` : "";
 	return `Z.ai catalog snapshot is stale and the live account model set changed (${ids.slice(0, 6).join(" ")}${more}); accept: ${ZAI_ACCEPT}`;
+};
+
+// W2546.2: the OpenRouter twin of zaiBlockedNote — bounded, actionable,
+// names the supported sync command, never key material or file bytes.
+const openRouterBlockedNote = (
+	r: Exclude<OpenRouterStaleResult, { kind: "refreshed" }>,
+): string => {
+	if (r.kind === "failed")
+		return `OpenRouter free catalog snapshot is stale and could not be revalidated against the live catalogs (${sanitizeDiagnostic(r.why)}); refresh: ${OPENROUTER_ACCEPT}`;
+	const ids = [
+		...r.added.map((id) => `+${id}`),
+		...r.removed.map((id) => `-${id}`),
+	];
+	const more = ids.length > 6 ? ` …+${ids.length - 6} more` : "";
+	return `OpenRouter free catalog snapshot is stale and the live free route set changed (${ids.slice(0, 6).join(" ")}${more}); accept: ${OPENROUTER_ACCEPT}`;
 };
 
 export async function regenGatewayConfig(
@@ -342,6 +370,19 @@ export async function regenGatewayConfig(
 			ok: false,
 			note: `gateway config regen FAILED (${zaiBlockedNote(zai)}) — last good litellm.yaml stays`,
 		};
+	// W2546.2: the OpenRouter snapshot gets the same stale preflight BEFORE
+	// the generator spawns — openRouterFreeRows would otherwise die on age
+	// (the 2026-11-02 exit-1) after the belt closure already healed.
+	const openRouter = await refreshStaleOpenRouterSnapshot(
+		join(ctx.llmHome, "openrouter-free.json"),
+		deps.openRouterFetcher,
+		deps.openRouterKey,
+	);
+	if (openRouter && openRouter.kind !== "refreshed")
+		return {
+			ok: false,
+			note: `gateway config regen FAILED (${openRouterBlockedNote(openRouter)}) — last good litellm.yaml stays`,
+		};
 	try {
 		await (deps.run ?? defaultRun)(
 			[process.execPath, generator],
@@ -356,9 +397,12 @@ export async function regenGatewayConfig(
 	const refreshed = zai
 		? `Z.ai catalog snapshot refreshed (stale timestamp, ${zai.models} live models unchanged); `
 		: "";
+	const openRouterRefreshed = openRouter
+		? `OpenRouter free catalog snapshot refreshed (stale timestamp, ${openRouter.groups} route groups unchanged); `
+		: "";
 	return {
 		ok: true,
-		note: `${refreshed}gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`,
+		note: `${refreshed}${openRouterRefreshed}gateway config regenerated from the healed kit (${join(ctx.llmHome, "litellm.yaml")}; activate: kill :4100 between fan-outs)`,
 	};
 }
 
