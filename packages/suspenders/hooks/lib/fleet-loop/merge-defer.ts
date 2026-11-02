@@ -42,8 +42,15 @@ const encodeBranch = (branch: string): string =>
 const decodeBranch = (file: string): string =>
 	decodeURIComponent(file.slice(0, -".json".length));
 
+/** W2580 (N3a, review #103237): the REAL on-disk file name for a branch's
+ * defer — what an operator copies from a log line must be the encoded path
+ * the scan reads (`suspenders%2FW2561.json`), never the raw branch nesting
+ * a directory the readdir never sees. */
+export const deferFileName = (branch: string): string =>
+	`${encodeBranch(branch)}.json`;
+
 const deferPath = (repo: string, branch: string): string =>
-	join(repo, MERGE_DEFER_DIR, `${encodeBranch(branch)}.json`);
+	join(repo, MERGE_DEFER_DIR, deferFileName(branch));
 
 // reuse the hold's provenance validation (owner/reason/expiresAt, ISO or ms,
 // ≤7-day cap) — one source for the contract shape, never two
@@ -82,15 +89,50 @@ export function mergeDeferredActive(repo: string, branch: string): boolean {
 	return readMergeDefer(repo, branch).state === "active";
 }
 
-/** Every branch that has a defer file, any state — the sync-gate scan. */
-export function deferredBranches(repo: string): string[] {
+/** Every branch that has a defer file, any state — the sync-gate scan.
+ * W2580 (N3b, review #103237): one bad-percent filename no longer disables
+ * the ENTIRE scan (the old catch-all returned [] silently). The undecodable
+ * file is QUARANTINED aside (the setAside semantics — `.json.rejected`), so
+ * the warning + NEED_DECISION fire exactly ONCE, never per scan (the scan
+ * runs from both enforcement and the sync gate every cycle); every OTHER
+ * defer keeps gating. A missing/unreadable dir still reads as no defers. */
+export function deferredBranches(
+	repo: string,
+	warn: (line: string) => void = console.error,
+): string[] {
+	let files: string[];
 	try {
-		return readdirSync(join(repo, MERGE_DEFER_DIR))
-			.filter((f) => f.endsWith(".json"))
-			.map(decodeBranch);
+		files = readdirSync(join(repo, MERGE_DEFER_DIR));
 	} catch {
 		return [];
 	}
+	const branches: string[] = [];
+	for (const f of files) {
+		if (!f.endsWith(".json")) continue;
+		try {
+			branches.push(decodeBranch(f));
+		} catch (e) {
+			const why = e instanceof Error ? e.message : String(e);
+			const file = join(repo, MERGE_DEFER_DIR, f);
+			let quarantined = false;
+			try {
+				renameSync(file, `${file}.rejected`);
+				quarantined = true;
+			} catch {
+				/* rename raced or dir readonly — warn every scan until fixed */
+			}
+			warn(
+				`DEFER-UNREADABLE ${MERGE_DEFER_DIR}/${f} — bad percent-encoding (${why}); ${quarantined ? "set aside" : "could not set aside"}, scan continues`,
+			);
+			if (quarantined)
+				emitLoopEvent("NEED_DECISION", "merge-defer", {
+					project: projectIdentity(repo),
+					reason: `defer file ${f} is not decodable (${why}); quarantined as ${f}.rejected — rename or remove it`,
+					file: `${MERGE_DEFER_DIR}/${f}`,
+				});
+		}
+	}
+	return branches;
 }
 
 /** Set a non-active defer aside (.expired / .rejected suffix); never throws. */
@@ -112,7 +154,7 @@ function expireDefer(
 ) {
 	setAside(repo, branch, "expired");
 	log?.(
-		`DEFER-EXPIRED ${MERGE_DEFER_DIR}/${branch}.json — owner=${defer.owner} expired at ${new Date(defer.expiresAt).toISOString()}; set aside, ladder+sync resume for ${branch}`,
+		`DEFER-EXPIRED ${MERGE_DEFER_DIR}/${deferFileName(branch)} — owner=${defer.owner} expired at ${new Date(defer.expiresAt).toISOString()}; set aside, ladder+sync resume for ${branch}`,
 	);
 	emitLoopEvent("NEED_DECISION", "merge-defer", {
 		project: projectIdentity(repo),
@@ -132,7 +174,7 @@ export function anyMergeDeferred(
 	log?: (line: string) => void,
 ): boolean {
 	let active = false;
-	for (const branch of deferredBranches(repo)) {
+	for (const branch of deferredBranches(repo, log)) {
 		const view = readMergeDefer(repo, branch);
 		if (view.state === "active") active = true;
 		else if (view.state === "expired")
@@ -149,7 +191,7 @@ export function enforceMergeDefers(
 	repo: string,
 	log: (line: string) => void,
 ): void {
-	for (const branch of deferredBranches(repo)) {
+	for (const branch of deferredBranches(repo, log)) {
 		const view = readMergeDefer(repo, branch);
 		if (view.state === "expired") {
 			expireDefer(repo, branch, view.defer, log);
@@ -158,7 +200,7 @@ export function enforceMergeDefers(
 		if (view.state === "malformed") {
 			setAside(repo, branch, "rejected");
 			log(
-				`DEFER-REJECTED ${MERGE_DEFER_DIR}/${branch}.json — ${view.why}; set aside, ladder+sync resume for ${branch}`,
+				`DEFER-REJECTED ${MERGE_DEFER_DIR}/${deferFileName(branch)} — ${view.why}; set aside, ladder+sync resume for ${branch}`,
 			);
 			emitLoopEvent("NEED_DECISION", "merge-defer", {
 				project: projectIdentity(repo),

@@ -39,7 +39,9 @@ import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
 // W2561: the per-item merge defer (branch-scoped hold) + its enforcement
 import {
+	deferFileName,
 	enforceMergeDefers,
+	MERGE_DEFER_DIR,
 	mergeDeferredActive,
 } from "../lib/fleet-loop/merge-defer.ts";
 // W1302.1: the hold as a contract — the predicate + controller enforcement
@@ -423,7 +425,9 @@ if (MODE === "flush") {
 		// W2561: the per-item defer — the sweep's own branch-scoped gate (same
 		// position as the hold, before the DONE+exact predicate)
 		if (mergeDeferredActive(REPO, b)) {
-			log(`FLUSH-DEFER ${b} — per-item defer (.fleet/merge-defer/${b}.json)`);
+			log(
+				`FLUSH-DEFER ${b} — per-item defer (${MERGE_DEFER_DIR}/${deferFileName(b)})`,
+			);
 			deferred++;
 			continue;
 		}

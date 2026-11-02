@@ -6,12 +6,13 @@
 // mergeOne/FLUSH-DEFER wiring rides the same gate position as the W1072.2
 // operator hold (proven flush-level in fleet-loop-flush.test.ts).
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import {
 	anyMergeDeferred,
+	deferFileName,
 	deferredBranches,
 	enforceMergeDefers,
 	mergeDeferredActive,
@@ -61,6 +62,20 @@ test.describe("@unit", () => {
 		} finally {
 			process.env.HOME = hadHome;
 			process.env.GOVERNOR_STORE_URL = hadUrl;
+		}
+	};
+	// hermetic maintenance gate (#102613, runtime-sync.test.ts pattern):
+	// operations may flip the machine fleet_loop.maintenance to false (live
+	// acceptance did); the runtimeSync test pins the documented env override
+	// ON around its calls and restores the prior env either way.
+	const withMaintenancePinned = (body: () => void): void => {
+		const prev = process.env.SUSPENDERS_MAINTENANCE;
+		process.env.SUSPENDERS_MAINTENANCE = "1";
+		try {
+			body();
+		} finally {
+			if (prev === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
+			else process.env.SUSPENDERS_MAINTENANCE = prev;
 		}
 	};
 
@@ -172,7 +187,11 @@ test.describe("@unit", () => {
 		});
 		writeStamp(stamps, "aaa");
 		defer(r, "suspenders/W9");
-		expect(runtimeSync()).toEqual({
+		let first: ReturnType<typeof runtimeSync> | null = null;
+		withMaintenancePinned(() => {
+			first = runtimeSync();
+		});
+		expect(first).toEqual({
 			ran: false,
 			labels: [],
 			reason: "merge-defer",
@@ -191,8 +210,52 @@ test.describe("@unit", () => {
 			},
 		});
 		withScratchStore(worlds[worlds.length - 1].home, () => {
-			expect(retry().ran).toBe(true);
+			withMaintenancePinned(() => {
+				expect(retry().ran).toBe(true);
+			});
 		});
 		expect(spawned).toBe(1);
+	});
+
+	// W2580 (N3a, review #103237): the logged path IS the encoded on-disk
+	// file name — an operator copying it never creates the nested directory
+	// the readdir scan cannot see.
+	test("deferFileName percent-encodes the namespaced branch the scan reads", () => {
+		expect(deferFileName("suspenders/W2561")).toBe("suspenders%2FW2561.json");
+		expect(deferFileName("a%b/c")).toBe("a%25b%2Fc.json");
+		const r = repo();
+		defer(r, "suspenders/W9");
+		expect(
+			existsSync(join(r, ".fleet/merge-defer", deferFileName("suspenders/W9"))),
+		).toBe(true);
+	});
+
+	// W2580 (N3b): one bad-percent filename is quarantined aside (ONE
+	// warning + NEED_DECISION, never per scan — root #103341: repeated
+	// scans stay non-spamming), and the scan keeps gating every other
+	// defer instead of silently returning [].
+	test("a bad-percent defer filename is quarantined once; other defers keep scanning, repeated scans stay quiet", () => {
+		const w = scratchWorld({ prefix: "w2580-badpct-" });
+		worlds.push(w);
+		const r = w.repo;
+		defer(r, "suspenders/W9");
+		writeFileSync(join(r, ".fleet/merge-defer", "bad%2ZZ.json"), "{}");
+		const lines: string[] = [];
+		withScratchStore(w.home, () => {
+			expect(deferredBranches(r, (l) => lines.push(l))).toEqual([
+				"suspenders/W9",
+			]);
+			expect(anyMergeDeferred(r, (l) => lines.push(l))).toBe(true);
+		});
+		expect(lines.filter((l) => l.includes("DEFER-UNREADABLE"))).toHaveLength(
+			1,
+		);
+		expect(lines.some((l) => l.includes("bad%2ZZ.json"))).toBe(true);
+		expect(
+			existsSync(join(r, ".fleet/merge-defer", "bad%2ZZ.json.rejected")),
+		).toBe(true);
+		expect(deferredBranches(r, (l) => lines.push(l))).toEqual([
+			"suspenders/W9",
+		]);
 	});
 });

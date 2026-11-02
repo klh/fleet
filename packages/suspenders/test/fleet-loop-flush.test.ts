@@ -709,7 +709,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		const r = flush(repo);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(
-			`FLUSH-DEFER suspenders/${held} — per-item defer (.fleet/merge-defer/suspenders/${held}.json)`,
+			`FLUSH-DEFER suspenders/${held} — per-item defer (.fleet/merge-defer/suspenders%2F${held}.json)`,
 		);
 		expect(log(repo)).toContain(`MERGED suspenders/${other}`);
 		expect(log(repo)).toContain(
@@ -734,7 +734,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		const r = once(repo);
 		expect(r.code).toBe(0);
 		expect(log(repo)).toContain(
-			`MERGE-DEFER suspenders/${item} — per-item defer (.fleet/merge-defer/suspenders/${item}.json)`,
+			`MERGE-DEFER suspenders/${item} — per-item defer (.fleet/merge-defer/suspenders%2F${item}.json)`,
 		);
 		expect(log(repo)).not.toContain("RETIRED suspenders/");
 		expect(branchGone(repo, item)).toBe(false);
