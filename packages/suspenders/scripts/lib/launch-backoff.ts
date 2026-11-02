@@ -1,7 +1,7 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
-import { launchSchema } from "./launch-fencing.ts";
+import { launchSchema, mergeRequeueState } from "./launch-fencing.ts";
 
 export type LaunchFailureKind =
 	| "rate-limit"
@@ -181,9 +181,22 @@ export function scheduleLaunchBackoff(
 	appended: string | null = null,
 ): LaunchBackoff {
 	const previous = readLaunchBackoff(store, project, item);
+	const prior = previous
+		? { requeueAt: previous.eligibleAt, count: previous.failures }
+		: null;
 	const failure = classifyLaunchFailure(appended ?? "", now);
+	// W2330 monotone merge (Kueue SetRequeueState, launch-fencing.ts): the
+	// count advances ONLY on attempt-scoped evidence (W1165) — an
+	// evidence-free re-arm re-presents the prior count, never a fresh rung —
+	// and the wall is max(candidate, pending prior): an earlier wall never
+	// clobbers a later one.
+	const { count } = mergeRequeueState(
+		prior,
+		{ requeueAt: now, count: (previous?.failures ?? 0) + 1 },
+		appended !== null,
+	);
 	const index = Math.min(
-		Math.max(step, previous?.failures ?? 0, 0),
+		Math.max(step, count - 1, 0),
 		RETRY_STEPS_MS.length - 1,
 	);
 	const jitter = Number(Bun.hash(`${project}:${item}:${step}`) % 2_000n);
@@ -196,8 +209,12 @@ export function scheduleLaunchBackoff(
 		attempt: step,
 		firstAt: previous?.firstAt ?? now,
 		lastAt: now,
-		eligibleAt: now + delay,
-		failures: (previous?.failures ?? 0) + 1,
+		eligibleAt: mergeRequeueState(
+			prior,
+			{ requeueAt: now + delay, count },
+			true,
+		).requeueAt,
+		failures: count,
 		log,
 	};
 	store
