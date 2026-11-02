@@ -7,15 +7,14 @@ export const TABS = String.raw`// --- 7: tab shell (location.hash driven, deep-l
 function pollActiveTab(){
   if (curTab === 'tasks' || curTab === 'lanes') pollTasks();
   else if (curTab === 'activity') pollAct();
-  else if (curTab === 'decisions') pollHist(); // no-op while history is collapsed
+  else if (curTab === 'decisions') { if (feeds && feeds.kick) feeds.kick('hist', true); } // no-op while history is collapsed (url() gates)
   else if (curTab === 'setup') pollSetup();
   else if (curTab === 'usage') pollUsage();
   else if (curTab === 'report') pollReport(); // W1198 live work-report pane
   // governor rides /api/data
 }
 function renderTab(){
-  if (curTab === 'decisions') renderHist();
-  else if (curTab === 'tasks') renderTasks();
+  if (curTab === 'tasks') renderTasks();
   else if (curTab === 'lanes') renderKanban();
   else if (curTab === 'activity') renderAct();
   else if (curTab === 'usage') pollUsage();
@@ -39,7 +38,9 @@ function setTab(id, fromHash){
 nav.addEventListener('tab-select', function(e){ setTab(e.detail); });
 byId('boardSearch').addEventListener('input', function(e){
   boardQuery = String(e.target.value || '').trim();
-  renderTasks(); renderKanban(); renderDecisions();
+  renderTasks(); renderKanban();
+  var el = document.querySelector('klh-decisions-mediator');
+  if (el && el.refresh) el.refresh(); // the decisions family re-filters itself
 });
 // W775.1: the enterprise zone registers its tab when the overlay is
 // entitled (the zone probes /api/entitlements; a core SKU never fires
@@ -200,19 +201,11 @@ byId('setupBody').addEventListener('click', function(e){
   var fix = b.getAttribute('data-fix') || '';
   navigator.clipboard.writeText(fix).then(function(){ toast('copied to clipboard'); }, function(){ toast('copy failed — select the command text'); });
 });
-byId('decToggle').addEventListener('click', function(){ setCollapsed(!decCollapsed); });
 byId('needsn').addEventListener('click', function(){
   setTab('decisions');
-  if (decCollapsed) setCollapsed(false);
-  byId('decisions').scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
-byId('histHead').addEventListener('click', function(){
-  histOpen = !histOpen;
-  byId('histHead').setAttribute('aria-expanded', histOpen ? 'true' : 'false');
-  setText(byId('histCaret'), histOpen ? '-' : '+');
-  byId('histBody').style.display = histOpen ? 'block' : 'none';
-  if (histOpen) pollHist();
-  renderHist();
+  setCollapsed(false);
+  var sec = document.getElementById('decisions');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 byId('fleetHead').addEventListener('click', function(){
   var b = byId('fleetBody');
@@ -237,14 +230,11 @@ document.addEventListener('keydown', function(e){
   setCollapsed(true); // collapses the section, not the decisions
 });
 sel.addEventListener('change', function(){
-  projBaseline = true; // fresh scope — re-baseline toasts
-  lastDec = null; decLoaded = false; decErr = null; decOkAt = 0;
-  histData = null; histLoaded = false; histErr = null; histOkAt = 0;
+  lastDec = null; decLoaded = false; decOkAt = 0; // openDecs re-fills from the store
   actData = null; actLoaded = false; actErr = null; actOkAt = 0; actDrill = null;
-  byId('histBody').replaceChildren();
   fleetHistoryPage = 0;
   renderAll();
-  feeds.rescope(); // abort the old scope's in-flight requests, fetch the new one
+  feeds.rescope(); // abort the old scope's in-flight requests, fetch the new one (dec/hist ride the same store — the mediator re-baselines its toasts off #proj)
   tick();
 });
 ['originHub', 'peerHub'].forEach(function(id){
