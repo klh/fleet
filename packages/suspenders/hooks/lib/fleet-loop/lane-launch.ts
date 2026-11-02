@@ -543,7 +543,8 @@ export const dispatchLane = async (
 		}
 		// The model admission gates (model-admission.ts): W2263 pool
 		// placement may reroute the model, W1712 wire-pick may switch the
-		// executor, route health may WAIT — each may block the launch.
+		// executor, route health may WAIT, W2572 served-models may refuse —
+		// each may block the launch.
 		const admitted = await admitModel({
 			store,
 			project,
@@ -559,6 +560,10 @@ export const dispatchLane = async (
 			routeAdmission,
 			governanceRefusals,
 			launchWaits,
+			// W2572: the destination the spawn will pin (same hubPick chain
+			// the env insertion below uses) — served-list validation target.
+			hubPick: pick.hub ?? policyForRepo(CALLER_REPO)?.hub ?? null,
+			noBelt: NO_BELT,
 		});
 		if (admitted.verdict !== "proceed") return null;
 		pick = admitted.pick;
