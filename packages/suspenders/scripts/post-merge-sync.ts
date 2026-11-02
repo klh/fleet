@@ -16,18 +16,24 @@
 // a successful publish (never restart services onto an unsynced prefix) and
 // only where a proven package change demands one. Exit 0 synced/up-to-date/
 // waiting · 1 sync failed.
-import { appendFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { fleetRootOf, readStamp, writeStamp } from "./lib/auto-install.ts";
+import { fleetRootOf } from "./lib/auto-install.ts";
+import { readPostMergeStamp } from "./lib/activation-readiness.ts";
+import { appendLog, buildPostMergeDeps } from "./lib/post-merge-live.ts";
+import { runPostMergeSync } from "./lib/post-merge-runner.ts";
 import { decideRuntimeSync } from "./lib/runtime-sync.ts";
 
 const USAGE = `Usage: post-merge-sync.ts [--repo <packages/suspenders path>] [options]
 
-The W821 post-merge runtime sync: syncHarness the installed prefix from the
+The W2546 post-merge runtime sync: syncHarness the installed prefix from the
 pinned checkout when fleet main moved past the last-synced stamp, then
-kickstart only the serve surfaces (belt-swarm, belt dashboard, buckle-spoke,
-board) whose packages the drift range touched.
+activate only the serve surfaces (belt-swarm, belt dashboard, buckle-spoke,
+board) whose packages the drift range touched. Publication and activation
+are SEPARATE successes: the stamp's activation ledger records verified /
+kickFailed / unready / needsReviewedUpgrade per label, and a published-but-
+unverified stamp never reads "up-to-date" — the next cycle retries exactly
+the missing labels.
 
   --repo <path>       package root to sync FROM (required, or
                       SUSPENDERS_REPO env — the fleet-loop sweep passes the
@@ -35,11 +41,17 @@ board) whose packages the drift range touched.
   --state <path>      stamp file (default
                       ~/.local/state/suspenders/post-merge-sync.json)
   --check             evaluate the decision, print JSON, change nothing
-  --skip-kick         publish without kickstarting any label
+  --skip-kick         publish without activating any label (recorded in the
+                      stamp; the sweep catches the activation up after a
+                      bounded holdoff)
+  --budget-ms <n>     per-label readiness budget in ms (default 30000)
   --log <path>        log file (default ~/.claude-insights/post-merge-sync.log)
   -h, --help          this help
 
-Exit codes: 0 synced / up-to-date / waiting, 1 sync failed.`;
+Exit codes: 0 settled / up-to-date / waiting / honest --skip-kick · 1 sync
+failed (stamp untouched, will retry) · 2 activation incomplete (the stamp
+carries the truthful partial ledger: verified / kickFailed / unready /
+needsReviewedUpgrade).`;
 
 const STATE_DEFAULT = `${homedir()}/.local/state/suspenders/post-merge-sync.json`;
 const LOG_DEFAULT = `${homedir()}/.claude-insights/post-merge-sync.log`;
@@ -79,10 +91,13 @@ const main = (): number => {
 	const logPath = flagValue("--log") ?? LOG_DEFAULT;
 	const checkOnly = hasFlag("--check");
 	const skipKick = hasFlag("--skip-kick");
+	const budgetMs = Number(flagValue("--budget-ms") ?? 30_000);
 
 	const head = sh(["git", "-C", fleetRoot, "rev-parse", "main"]);
 	const headSha = head.code === 0 ? head.out.trim() || null : null;
-	const stamp = readStamp(statePath);
+	const stamp = readPostMergeStamp(
+		existsSync(statePath) ? readFileSync(statePath, "utf8") : null,
+	);
 	const paths = stamp?.main
 		? sh([
 				"git",
@@ -99,7 +114,7 @@ const main = (): number => {
 			: null;
 	const decision = decideRuntimeSync({
 		head: headSha,
-		stamp: stamp?.main ?? null,
+		stamp,
 		paths: driftPaths,
 	});
 
@@ -109,6 +124,15 @@ const main = (): number => {
 				decision,
 				head: headSha,
 				stamp: stamp?.main ?? null,
+				activation: stamp?.activation
+					? {
+							verified: stamp.activation.verified.length,
+							kickFailed: stamp.activation.kickFailed.length,
+							unready: stamp.activation.unready.length,
+							needsReviewedUpgrade:
+								stamp.activation.needsReviewedUpgrade.length,
+						}
+					: null,
 				paths: driftPaths?.length ?? null,
 			}),
 		);
@@ -122,62 +146,19 @@ const main = (): number => {
 	log(
 		`syncing main ${headSha} (labels: ${decision.labels.length > 0 ? decision.labels.join(",") : "none"})`,
 	);
-	const install = sh(
-		[
-			process.execPath,
-			join(repo, "scripts/install.ts"),
-			"--step",
-			"syncHarness",
-			"--yes",
-		],
-		repo,
-	);
-	if (install.code !== 0) {
-		const tail = install.out
-			.trim()
-			.split("\n")
-			.filter(Boolean)
-			.slice(-5)
-			.join(" | ");
-		appendFileSync(
-			logPath,
-			`${new Date().toISOString()} syncHarness FAILED rc=${install.code} (main ${headSha}): ${tail}\n`,
-		);
-		log(`sync failed rc=${install.code} — stamp not advanced, will retry`);
-		return 1;
-	}
-	writeStamp(statePath, headSha ?? "");
-	appendFileSync(
+	const deps = buildPostMergeDeps(repo, statePath, logPath);
+	const result = runPostMergeSync(deps, {
+		head: headSha ?? "",
+		labels: decision.labels,
+		prior: stamp,
+		skipKick,
+		readinessBudgetMs: budgetMs,
+	});
+	appendLog(
 		logPath,
-		`${new Date().toISOString()} synced main ${headSha}\n`,
+		`exit ${result.exit} — ${result.activation?.note ?? "publication failed"}`,
 	);
-
-	if (skipKick || decision.labels.length === 0) {
-		log(
-			`synced (kicks: skipped${decision.labels.length > 0 ? " by flag" : ""})`,
-		);
-		return 0;
-	}
-	if (process.platform !== "darwin") {
-		log(
-			`synced; kicks skipped: not darwin (labels ${decision.labels.join(",")})`,
-		);
-		return 0;
-	}
-	for (const label of decision.labels) {
-		const kick = sh([
-			"/bin/launchctl",
-			"kickstart",
-			"-k",
-			`gui/${process.getuid()}/${label}`,
-		]);
-		appendFileSync(
-			logPath,
-			`${new Date().toISOString()} kickstart ${label} rc=${kick.code} ${kick.out.trim().slice(-200)}\n`,
-		);
-		log(`kickstart ${label} rc=${kick.code}`);
-	}
-	return 0;
+	return result.exit;
 };
 
 process.exit(main());

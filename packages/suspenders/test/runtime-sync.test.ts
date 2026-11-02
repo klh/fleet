@@ -2,13 +2,14 @@
 // decision core (label rules + drift decision), the fleet-loop sweep (spawn
 // injected — no real children), and the runner resolution guard.
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	labelsForChanges,
 	decideRuntimeSync,
 } from "../scripts/lib/runtime-sync.ts";
+import type { PostMergeStamp } from "../scripts/lib/activation-readiness.ts";
 import { createRuntimeSync } from "../hooks/lib/fleet-loop/runtime-sync.ts";
 import { suspendersRoot } from "../hooks/lib/fleet-loop/maintenance.ts";
 import { writeStamp } from "../scripts/lib/auto-install.ts";
@@ -36,13 +37,20 @@ describe("labelsForChanges (W821)", () => {
 });
 
 describe("decideRuntimeSync (W821)", () => {
-	test("git failure never syncs; equal head+stamp is up-to-date", () => {
+	test("git failure never syncs; same-head v1 stamp re-enters (W2546)", () => {
 		expect(
 			decideRuntimeSync({ head: null, stamp: "a", paths: ["x"] }).action,
 		).toBe("skip");
-		expect(
-			decideRuntimeSync({ head: "a", stamp: "a", paths: null }).action,
-		).toBe("skip");
+		const v1 = { main: "a", installedAt: new Date().toISOString() };
+		expect(decideRuntimeSync({ head: "a", stamp: v1, paths: null })).toEqual({
+			action: "sync",
+			labels: [
+				"com.suspenders.belt-swarm",
+				"com.belt.dashboard",
+				"com.suspenders.buckle-spoke",
+				"com.suspenders.board",
+			],
+		});
 	});
 	test("first run (no stamp) syncs without kicks; unreadable diff syncs bare", () => {
 		const first = decideRuntimeSync({ head: "a", stamp: null, paths: null });
@@ -51,13 +59,45 @@ describe("decideRuntimeSync (W821)", () => {
 		expect(bare).toEqual({ action: "sync", labels: [] });
 	});
 	test("drift paths derive the kick labels", () => {
+		// v2 stamp with a settled ledger: drift derivation only (a v1
+		// stamp now conservatively unions all labels — the migration case
+		// has its own test below).
 		expect(
 			decideRuntimeSync({
 				head: "b",
-				stamp: "a",
+				stamp: {
+					main: "a",
+					installedAt: new Date().toISOString(),
+					activation: {
+						requested: ["com.suspenders.buckle-spoke"],
+						verified: ["com.suspenders.buckle-spoke"],
+						kickFailed: [],
+						unready: [],
+						needsReviewedUpgrade: [],
+					},
+				},
 				paths: ["packages/buckle/src/server.ts", "README.md"],
 			}),
 		).toEqual({ action: "sync", labels: ["com.suspenders.buckle-spoke"] });
+	});
+	test("v1 stamp at a NEW head conservatively unions all serving labels", () => {
+		// the migration case (W2546.1): a legacy {main, installedAt} stamp
+		// whose requested set is UNKNOWN cannot drop an unverified old
+		// Buckle just because the drift window touched only suspenders.
+		const decision = decideRuntimeSync({
+			head: "b",
+			stamp: { main: "a", installedAt: new Date().toISOString() },
+			paths: ["packages/suspenders/scripts/lib/runtime-sync.ts"],
+		});
+		expect(decision.action).toBe("sync");
+		if (decision.action !== "sync") return;
+		// rule order: belt labels, buckle, suspenders (RUNTIME_SYNC_LABEL_RULES)
+		expect(decision.labels).toEqual([
+			"com.suspenders.board",
+			"com.suspenders.belt-swarm",
+			"com.belt.dashboard",
+			"com.suspenders.buckle-spoke",
+		]);
 	});
 });
 
@@ -80,6 +120,21 @@ const mkDeps = (head: string) => ({
 	ahead: () => 0,
 });
 
+// hermetic maintenance gate (#102613): operations may flip the machine
+// fleet_loop.maintenance to false (live acceptance did); the sweep tests
+// pin the documented env override ON around each createRuntimeSync call
+// and restore the prior env either way.
+const withMaintenancePinned = (body: () => void): void => {
+	const prev = process.env.SUSPENDERS_MAINTENANCE;
+	process.env.SUSPENDERS_MAINTENANCE = "1";
+	try {
+		body();
+	} finally {
+		if (prev === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
+		else process.env.SUSPENDERS_MAINTENANCE = prev;
+	}
+};
+
 describe("runtime-sync sweep (W821)", () => {
 	test("runner resolves at the package root", () => {
 		expect(
@@ -87,44 +142,77 @@ describe("runtime-sync sweep (W821)", () => {
 		).toBe(true);
 	});
 	test("drift spawns the runner child; up-to-date never spawns", () => {
-		writeStamp(stampsPath, "aaa");
-		const seen: string[][] = [];
-		const { runtimeSync } = createRuntimeSync(mkDeps("bbb"), {
-			statePath: stampsPath,
-			spawn: (cmd) => {
-				seen.push(cmd);
-				return { code: 0, out: "" };
-			},
+		withMaintenancePinned(() => {
+			writeStamp(stampsPath, "aaa");
+			const seen: string[][] = [];
+			const { runtimeSync } = createRuntimeSync(mkDeps("bbb"), {
+				statePath: stampsPath,
+				spawn: (cmd) => {
+					seen.push(cmd);
+					return { code: 0, out: "" };
+				},
+			});
+			const r = runtimeSync();
+			expect(r.ran).toBe(true);
+			expect(seen[0].slice(-2)).toEqual([
+				"--repo",
+				join(tmp, "packages/suspenders"),
+			]);
+			expect(seen[0][1].endsWith("post-merge-sync.ts")).toBe(true);
 		});
-		const r = runtimeSync();
-		expect(r.ran).toBe(true);
-		expect(seen[0].slice(-2)).toEqual([
-			"--repo",
-			join(tmp, "packages/suspenders"),
-		]);
-		expect(seen[0][1].endsWith("post-merge-sync.ts")).toBe(true);
 	});
-	test("up-to-date: equal head+stamp is a silent no-op", () => {
-		writeStamp(stampsPath, "ccc");
-		const { runtimeSync } = createRuntimeSync(mkDeps("ccc"), {
-			statePath: stampsPath,
-			spawn: () => {
-				throw new Error("must not spawn");
-			},
+	test("up-to-date: settled same-head stamp is a silent no-op", () => {
+		withMaintenancePinned(() => {
+			const settled: PostMergeStamp = {
+				main: "ccc",
+				installedAt: new Date().toISOString(),
+				activation: {
+					requested: ["com.suspenders.board"],
+					verified: ["com.suspenders.board"],
+					kickFailed: [],
+					unready: [],
+					needsReviewedUpgrade: [],
+				},
+			};
+			writeFileSync(stampsPath, JSON.stringify(settled));
+			const { runtimeSync } = createRuntimeSync(mkDeps("ccc"), {
+				statePath: stampsPath,
+				spawn: () => {
+					throw new Error("must not spawn");
+				},
+			});
+			const r = runtimeSync();
+			expect(r.ran).toBe(false);
 		});
-		const r = runtimeSync();
-		expect(r.ran).toBe(false);
+	});
+	test("W2546: unsettled same-head stamp re-enters the runner child", () => {
+		withMaintenancePinned(() => {
+			writeStamp(stampsPath, "ccc"); // v1 shape = published-not-verified
+			const seen: string[][] = [];
+			const { runtimeSync } = createRuntimeSync(mkDeps("ccc"), {
+				statePath: stampsPath,
+				spawn: (cmd) => {
+					seen.push(cmd);
+					return { code: 0, out: "" };
+				},
+			});
+			const r = runtimeSync();
+			expect(r.ran).toBe(true); // activation pending → the child retries labels
+			expect(seen.length).toBe(1);
+		});
 	});
 	test("git failure waits (no spawn)", () => {
-		rmSync(stampsPath, { force: true });
-		const { runtimeSync } = createRuntimeSync(mkDeps(""), {
-			statePath: stampsPath,
-			spawn: () => {
-				throw new Error("must not spawn");
-			},
+		withMaintenancePinned(() => {
+			rmSync(stampsPath, { force: true });
+			const { runtimeSync } = createRuntimeSync(mkDeps(""), {
+				statePath: stampsPath,
+				spawn: () => {
+					throw new Error("must not spawn");
+				},
+			});
+			const r = runtimeSync();
+			expect(r.ran).toBe(false);
+			expect(r.reason).toBe("git-failed");
 		});
-		const r = runtimeSync();
-		expect(r.ran).toBe(false);
-		expect(r.reason).toBe("git-failed");
 	});
 });

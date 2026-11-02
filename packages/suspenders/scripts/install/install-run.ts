@@ -43,6 +43,7 @@ import {
 } from "../lib/prefer-hub-line.ts";
 import { sourcePaths, syncHarness } from "../sync-harness.ts";
 import { upgradeGateway } from "../upgrade-gateway.ts";
+import { activateGateway } from "./install-activate-gateway.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -479,6 +480,7 @@ const impls: Partial<Record<StepName, StepImpl>> = {
 	registerGitHooks,
 	registerLaunchd,
 	upgradeGateway,
+	activateGateway,
 	syncHarness,
 	ensureShims,
 	migrateConf,

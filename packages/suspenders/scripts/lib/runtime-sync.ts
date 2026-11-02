@@ -2,8 +2,16 @@
 // after merges land, the installed prefix is synced (syncHarness) and the
 // serve surfaces whose packages changed are kickstarted — else the fleet
 // serves stale code all day (2026-10-19: W812/W813/W819 landed+merged but no
-// tick ever ran syncHarness, and no service was kicked). Pure so the
-// fleet-loop sweep and the post-merge-sync.ts entry share ONE decision.
+// tick ever ran syncHarness, and no service was kicked). W2546: publication
+// and activation are separate successes — the decision also re-enters sync
+// when the stamp sits at head with an UNSETTLED activation ledger (the W821
+// stamp lied "up-to-date" while services ran old code, #101007). Pure so
+// the fleet-loop sweep and the post-merge-sync.ts entry share ONE decision.
+import {
+	skipHoldoffActive,
+	syncSettled,
+	type PostMergeStamp,
+} from "./activation-readiness.ts";
 
 /** Serve-surface rules, data not branches (recovery-map doctrine): a changed
  * path under a package prefix → the launchd labels serving that package's
@@ -30,25 +38,60 @@ export function labelsForChanges(paths: string[]): string[] {
 	return labels;
 }
 
+/** Every serving label the rules know (the unknown requested set of a v1
+ * stamp at a NEW head — the migration run re-verifies them all, then the
+ * ledger exists; also the same-head v1 fallback). */
+export const allServingLabels = (): string[] => [
+	...new Set(RUNTIME_SYNC_LABEL_RULES.flatMap((r) => [...r.labels])),
+];
+
 export type RuntimeSyncDecision =
 	| { action: "sync"; labels: string[] }
 	| { action: "skip"; reason: string };
 
-/** One honest verdict, in evaluation order: git → stamp → drift paths. Any
- * "skip" is a waiting/no-op state. A diff that cannot be read still syncs
- * (publish beats staleness) but labels nothing — a kick needs proven need. */
+/** One honest verdict, in evaluation order: git → stamp → holdoff → drift
+ * paths → pending activation. Any "skip" is a waiting/no-op state. A diff
+ * that cannot be read still syncs (publish beats staleness) but labels
+ * nothing — a kick needs proven need. */
 export function decideRuntimeSync(input: {
 	/** `git rev-parse <main>` in the fleet root; null = git failed */
 	head: string | null;
-	/** last-synced main sha from the stamp; null = never synced */
-	stamp: string | null;
-	/** `git diff --name-only <stamp>..<head>`; null = diff unreadable */
+	/** the last-synced stamp (full shape); null = never synced */
+	stamp: PostMergeStamp | null;
+	/** `git diff --name-only <stamp.main>..<head>`; null = diff unreadable */
 	paths: string[] | null;
+	/** clock for the --skip-kick holdoff window (default real time). */
+	now?: number;
 }): RuntimeSyncDecision {
 	if (input.head === null) return { action: "skip", reason: "git-failed" };
-	if (input.stamp === input.head)
-		return { action: "skip", reason: "up-to-date" };
-	if (input.stamp === null || input.paths === null)
+	const stamp = input.stamp;
+	if (stamp !== null && stamp.main === input.head) {
+		if (syncSettled(stamp, input.head))
+			return { action: "skip", reason: "up-to-date" };
+		if (skipHoldoffActive(stamp, input.now ?? Date.now()))
+			return { action: "skip", reason: "skip-kick holdoff" };
+		return {
+			action: "sync",
+			labels: stamp.activation?.requested ?? allServingLabels(),
+		};
+	}
+	if (stamp === null || input.paths === null)
 		return { action: "sync", labels: [] };
-	return { action: "sync", labels: labelsForChanges(input.paths) };
+	// New head (#101358): the drift labels activate anew AND every prior
+	// UNRESOLVED request rides along — a Buckle carry that failed last main
+	// must not vanish because this commit only touched board/docs. Verified
+	// prior labels are NOT carried (same-head retention only, #101118).
+	// A v1 stamp (no activation ledger at all) is the migration case: its
+	// unknown requested set unions ALL serving labels conservatively — the
+	// comment's own promise — so a legacy old-Buckle state can never ride
+	// a drift window that happens not to touch its files.
+	const prior = stamp.activation;
+	const unresolved =
+		prior === undefined
+			? allServingLabels()
+			: prior.requested.filter((l) => !prior.verified.includes(l));
+	return {
+		action: "sync",
+		labels: [...new Set([...labelsForChanges(input.paths), ...unresolved])],
+	};
 }

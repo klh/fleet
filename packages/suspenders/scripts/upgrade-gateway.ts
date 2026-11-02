@@ -43,26 +43,45 @@ function plist(bytes: string, format: "json" | "xml1"): string {
 	if (result.exitCode !== 0) throw new Error("Gateway unit cannot be parsed");
 	return result.stdout.toString();
 }
-/** Exact loaded argv + PID birth snapshot; PID replacement is a new review. */
+/** Exact loaded argv + PID birth snapshot; PID replacement is a new review.
+ * A PROVEN-absent daemon (launchd's explicit not-found line) observes as a
+ * stable sentinel so the failed-load retry can run the fenced load through
+ * this same upgrader (#101322 seam 2). A REGISTERED-but-not-running job
+ * (print rc 0, `state = not running`, arguments present, no pid — the
+ * child exited; recovery-map's degraded launchd row) is a known stable
+ * launchd state and observes as its exact args+state snapshot (#101817):
+ * a failed activation with a dead process stays repairable instead of
+ * wedging prepare in pending. Unknown/unparseable print output still
+ * throws — unknown inspection is pending, never guessed. */
 export function observeGateway(): string {
 	const print = () => {
 		const result = Bun.spawnSync(
 			["/bin/launchctl", "print", `gui/${process.getuid()}/${LABEL}`],
-			{ stdout: "pipe", stderr: "ignore" },
+			{ stdout: "pipe", stderr: "pipe" },
 		);
-		if (result.exitCode !== 0)
+		if (result.exitCode !== 0) {
+			const said = `${result.stdout.toString()}${result.stderr.toString()}`;
+			if (/Could not find (specified )?service/.test(said))
+				return digestUnit(JSON.stringify({ absent: true, label: LABEL }));
 			throw new Error("Gateway supervised identity unavailable");
+		}
 		const text = result.stdout.toString(),
 			pid = Number(/\n\s*pid = (\d+)/.exec(text)?.[1]);
 		const block = /\n\s*arguments = \{([\s\S]*?)\n\s*\}/.exec(text)?.[1];
-		const birth =
-			Number.isSafeInteger(pid) && pid > 1 ? processBirth(pid) : null;
-		if (!birth || !block)
+		const notRunning = /^\s*state = not running\s*$/m.test(text);
+		if (block === undefined)
 			throw new Error("Gateway supervised identity unknown");
 		const args = block
 			.split("\n")
 			.map((value) => value.trim())
 			.filter(Boolean);
+		if (notRunning && !Number.isSafeInteger(pid))
+			return digestUnit(
+				JSON.stringify({ notRunning: true, args, label: LABEL }),
+			);
+		const birth =
+			Number.isSafeInteger(pid) && pid > 1 ? processBirth(pid) : null;
+		if (!birth) throw new Error("Gateway supervised identity unknown");
 		return digestUnit(JSON.stringify({ pid, args, birth }));
 	};
 	const first = print();
