@@ -246,7 +246,7 @@ test("first paint uses the measured width, not the 240px floor (W2514 B1)", {
 						"",
 				),
 		)
-		.toBe("0 0 360 28");
+		.toBe("0 0 360 40");
 });
 
 test("hairline duration/scale is keyboard exposed (W2514 B2)", {

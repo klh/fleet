@@ -17,11 +17,44 @@ export const ActivityPointSchema = z.tuple([
 	z.number(),
 ]);
 
-/** AttemptTimeline (hooks/board/attempt-timeline.ts) — kept opaque here:
- *  the card lane owns wiring; this component passes it through. */
-export const AttemptTimelineSchema = z.looseObject({
+/** AttemptTimeline (hooks/board/attempt-timeline.ts), W2267.4.2.1: the
+ *  FULL zod/mini wire contract — the wiring leaf parses what the renderer
+ *  consumes (segment kinds, boundaries, milestones), drift fails loud.
+ *  Field semantics are the backend's own (see its header): firstByteAt is
+ *  the first attributed ledger request timestamp, tool segments derive
+ *  from request rows, uncovered gaps stay `unknown`. */
+export const AttemptSegmentKindSchema = z.enum([
+	"queue",
+	"firstbyte",
+	"tool",
+	"pause",
+	"unknown",
+]);
+export const AttemptSegmentSchema = z.object({
+	kind: AttemptSegmentKindSchema,
+	start: z.number(),
+	end: z.number(),
+});
+export const AttemptMilestoneSchema = z.object({
+	ts: z.number(),
+	commit: z.string(),
+	stage: z.string(),
+});
+export const AttemptTimelineSchema = z.object({
 	windowStart: z.number(),
 	windowEnd: z.number(),
+	binMs: z.number(),
+	bins: z.number(),
+	attempt: z.object({
+		sid: z.string(),
+		index: z.number(),
+		claimStart: z.number(),
+		claimEnd: z.nullable(z.number()),
+		created: z.nullable(z.number()),
+		firstByteAt: z.nullable(z.number()),
+		segments: z.array(AttemptSegmentSchema),
+	}),
+	milestones: z.array(AttemptMilestoneSchema),
 });
 
 export const CardActivitySchema = z.looseObject({
@@ -34,6 +67,10 @@ export const CardActivitySchema = z.looseObject({
 });
 
 export type ActivityPoint = z.infer<typeof ActivityPointSchema>;
+export type AttemptSegmentKind = z.infer<typeof AttemptSegmentKindSchema>;
+export type AttemptSegment = z.infer<typeof AttemptSegmentSchema>;
+export type AttemptMilestone = z.infer<typeof AttemptMilestoneSchema>;
+export type AttemptTimeline = z.infer<typeof AttemptTimelineSchema>;
 export type CardActivityData = z.infer<typeof CardActivitySchema>;
 
 /** Semantic helpers shared by the component and its tests: the constants
@@ -50,4 +87,7 @@ export const ACTIVITY_CONTRACT = {
 	/** axis type: ~10px, 11-12px line-height, one line total. */
 	axisFontPx: 10,
 	axisLineHeightPx: 12,
+	/** the plot height band (owner contract): the spectral strip renders
+	 *  40-55 CSS px tall at every card width — never the legacy 28px. */
+	plotHeightPx: 40,
 } as const;
