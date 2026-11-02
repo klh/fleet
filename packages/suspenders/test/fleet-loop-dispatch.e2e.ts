@@ -144,7 +144,8 @@ test.describe("codex dispatch workspace parity", () => {
 });
 
 test("direct launch survives registry loss, rejects duplicate and retains budget after reclaim", async () => {
-	test.setTimeout(30000);
+	// three full dispatch cycles; the wait loop must outlive fleet-load slowness
+	test.setTimeout(120000);
 	const newItem =
 		(tool("work.ts", "add", "direct crash fence fixture").out.match(/W\d+/) ??
 			[])[0] ?? "";
@@ -202,6 +203,13 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		);
 	}
 	expect(first.code).toBe(0);
+	// the lane daemonizes before the marker lands — bounded wait, not a race
+	for (
+		let n = 0;
+		n < 150 && !existsSync(marker) && !existsSync(stop);
+		n++
+	)
+		await Bun.sleep(100);
 	expect(existsSync(marker)).toBe(true);
 	expect(JSON.parse(tool("work.ts", "show", newItem, "--json").out).state).toBe(
 		"RUNNING",
@@ -232,10 +240,11 @@ test("direct launch survives registry loss, rejects duplicate and retains budget
 		).run(Date.now(), newItem);
 		const capped = await launch();
 		expect(capped.code).not.toBe(0);
-		expect(capped.err).toContain("launch budget exhausted; READY after");
+		// W2316: exhaustion lands FAILED (work retry recovers), never READY parking
+		expect(capped.err).toContain("FAILED on the graph");
 		expect(
 			JSON.parse(tool("work.ts", "show", newItem, "--json").out).state,
-		).toBe("READY");
+		).toBe("FAILED");
 	} finally {
 		writeFileSync(stop, "stop");
 		db.close();

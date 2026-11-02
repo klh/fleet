@@ -192,7 +192,7 @@ export async function runDispatch(
 			);
 			console.error(
 				parked
-					? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+					? `FAIL ${item} — launch budget exhausted; FAILED on the graph (work retry recovers; evidence ${parked.log})`
 					: `REFUSED ${item} — launch budget exhausted; claim changed`,
 			);
 			releaseLaunchLease(store, project, sid, nonce);
