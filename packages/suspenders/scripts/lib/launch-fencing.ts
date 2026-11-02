@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { type GovernorStore, openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
+import { TERMINAL_WORK_STATES } from "./intent-reconcile.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {
@@ -334,6 +335,16 @@ export function heldLaunchReport(
 	for (const row of rows) {
 		const verdict = inspect(row);
 		if (verdict === "dead") continue;
+		// W2262: a terminal-work intent (DONE/SUPERSEDED/CANCELLED/FAILED
+		// item) is dead weight even when its process verdict is unknown —
+		// no live claim exists for the fence to protect. Fenced row-state
+		// reconciliation (reconcileTerminalLaunchIntents) owns the actual
+		// state flip + audit; this read just stops the phantom slot from
+		// counting. A live or ambiguous NONTERMINAL intent keeps holding.
+		const w = store
+			.query("SELECT state FROM work_items WHERE project=? AND id=?")
+			.get(project, row.item) as { state: string } | null;
+		if (w && TERMINAL_WORK_STATES.includes(w.state)) continue;
 		const step = reprobeStep(store, row, verdict, now);
 		if (step === "exhausted" || step === "still-exhausted") {
 			const prior = readReprobeSpec(store, row.project, row.item);
@@ -347,8 +358,7 @@ export function heldLaunchReport(
 			});
 		} else held.add(row.item);
 	}
-	return { held, surfaced };
-}
+	return { held, surfaced };}
 function command(args: string[]): string | null {
 	const result = Bun.spawnSync(args, { stdout: "pipe", stderr: "ignore" });
 	return result.exitCode === 0 ? result.stdout.toString().trim() : null;
