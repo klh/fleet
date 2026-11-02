@@ -8,9 +8,10 @@
 // read-only fleet faces. The final test asserts registry parity — a verb
 // added without a matrix scenario fails here.
 import { spawnSync } from "node:child_process";
-import { expect, test } from "@playwright/test";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { cliFixture } from "./helpers/cli-e2e-harness.ts";
+
 test.describe("@unit", () => {
 	test.setTimeout(30_000); // spawn-heavy suite (memory: 5s default in the flake floor)
 
@@ -520,6 +521,52 @@ console.log(createHash("sha256").update(readFileSync(${JSON.stringify(KDB)}, "ut
 			expect(r.out).toContain(
 				"kev-review: 0 stored · 0 dropped · 0 still pending · 0 expired",
 			);
+		});
+	});
+
+	test.describe("coord verb matrix — W2569 --json contracts", () => {
+		test("every converted verb emits the versioned envelope, parseable", () => {
+			coord("bootstrap", "--as", "lane-a");
+			// seed a kb row here: this test must not depend on the kb-add
+			// scenario's ordering for its search-hit face
+			expect(
+				coord("kb", "add", "probe problem", "--solution", "probe solution")
+					.code,
+			).toBe(0);
+			// verb → argv for the --json face; each must parse and carry the
+			// schema_version/verb envelope (W1131 pattern, W2569 generalization)
+			const faces: [string, string[], string][] = [
+				["state", ["state", "--as", "lane-a"], "state"],
+				["poll", ["poll", "--as", "lane-a"], "poll"],
+				["inbox", ["inbox", "--as", "lane-a"], "inbox"],
+				["fact get", ["fact", "get", "w2569.nokey"], "fact"],
+				["fact list", ["fact", "list"], "fact"],
+				["kb stats", ["kb", "stats"], "kb"],
+				["kb list", ["kb", "list"], "kb"],
+				["consults", ["consults", "--as", "lane-a"], "consults"],
+				["who-knows", ["who-knows", "anything"], "who-knows"],
+				["executor-cv", ["executor-cv"], "executor-cv"],
+				["wisdom", ["wisdom"], "wisdom"],
+				["metrics", ["metrics", "--days", "1"], "metrics"],
+				["bootstrap", ["bootstrap", "--as", "lane-a"], "bootstrap"],
+				["doctor-session", ["doctor-session", "lane-a"], "doctor-session"],
+				["governance", ["governance"], "governance"],
+			];
+			for (const [label, args, verb] of faces) {
+				const r = coord(...args, "--json");
+				expect(r.code, `${label} --json exit`).toBe(0);
+				const out = JSON.parse(r.out);
+				expect(out.schema_version, `${label} schema_version`).toBe(1);
+				expect(out.verb, `${label} verb`).toBe(verb);
+			}
+			// kb search honours both faces: seeded hit (exit 0) and the honest
+			// miss (parseable JSON + exit 1)
+			const hit = coord("kb", "search", "probe problem", "--json");
+			expect(hit.code).toBe(0);
+			expect(JSON.parse(hit.out).sub).toBe("search");
+			const miss = coord("kb", "search", "zz no such lesson", "--json");
+			expect(miss.code).toBe(1);
+			expect(JSON.parse(miss.out).match).toBeNull();
 		});
 	});
 

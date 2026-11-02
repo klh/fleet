@@ -43,6 +43,10 @@ export interface PreferExecutor {
 	hub: string | null;
 	hubUrls: string[];
 	can: { value: string; line: number } | null;
+	/** W2570: `model=<id>` pins the MODEL the picked executor rides (an
+	 * executor lane's slot.model is null by design — W422 — so a repo pin
+	 * is the only per-repo way to say copilot+model on one lane). */
+	model: string | null;
 }
 
 export function parseExecutorPrefer(text: string): PreferExecutor {
@@ -51,6 +55,7 @@ export function parseExecutorPrefer(text: string): PreferExecutor {
 		hub: null,
 		hubUrls: [],
 		can: null,
+		model: null,
 	};
 	for (const [index, line] of text.split("\n").entries()) {
 		const eq = line.indexOf("=");
@@ -65,6 +70,7 @@ export function parseExecutorPrefer(text: string): PreferExecutor {
 				.filter(Boolean))
 				out.directives.push({ value: target, kind: key, line: index + 1 });
 		} else if (key === "can") out.can = { value, line: index + 1 };
+		else if (key === "model") out.model = value;
 		else if (key === "hub") out.hub = value;
 		else if (key === "hub-url")
 			out.hubUrls = value

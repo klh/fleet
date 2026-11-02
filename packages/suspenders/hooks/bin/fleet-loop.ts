@@ -29,8 +29,27 @@ import { broadcastNote } from "../coord/bus.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
+// W2242 config-over-code: watch mode's cadence (and the refill targets the
+// dispatch script resolves) come from the machine stack conf's fleet_loop
+// block — the launchd plist hardcodes nothing. An explicit --every flag
+// stays a one-shot override that wins for this process.
+import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
+import { describeError, loopDie } from "../lib/fleet-loop/loop-errors.ts";
 import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
+// W2561: the per-item merge defer (branch-scoped hold) + its enforcement
+import {
+	deferFileName,
+	enforceMergeDefers,
+	MERGE_DEFER_DIR,
+	mergeDeferredActive,
+} from "../lib/fleet-loop/merge-defer.ts";
+// W1302.1: the hold as a contract — the predicate + controller enforcement
+import {
+	enforceMergeHold,
+	mergeHoldActive,
+} from "../lib/fleet-loop/merge-hold.ts";
+import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 // fork E (hub-of-one): one controller supervises every registered repo
 import {
 	projectChildArgs,
@@ -38,13 +57,6 @@ import {
 	projectTargets,
 } from "../lib/fleet-loop/multi-project.ts";
 import { supervisedProjects } from "../lib/fleet-loop/project-registry.ts";
-// W1302.1: the hold as a contract — the predicate + controller enforcement
-import {
-	enforceMergeHold,
-	mergeHoldActive,
-} from "../lib/fleet-loop/merge-hold.ts";
-import { describeError, loopDie } from "../lib/fleet-loop/loop-errors.ts";
-import { flushOnDoneWait } from "../lib/fleet-loop/merge-on-done.ts";
 import { createReclaimSweep } from "../lib/fleet-loop/reclaim-sweep.ts";
 import { createRetire } from "../lib/fleet-loop/retire.ts";
 import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
@@ -69,12 +81,6 @@ import {
 	readPosture,
 	writePosture,
 } from "../lib/plaid/plaid.ts";
-
-// W2242 config-over-code: watch mode's cadence (and the refill targets the
-// dispatch script resolves) come from the machine stack conf's fleet_loop
-// block — the launchd plist hardcodes nothing. An explicit --every flag
-// stays a one-shot override that wins for this process.
-import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
 import {
 	effectiveDispatchTarget,
 	fleetLoopRegistry,
@@ -201,6 +207,16 @@ async function cycle(): Promise<void> {
 	} catch (e) {
 		log(
 			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
+		);
+	}
+	// W2561: same refuse/age-out for the per-item defers — an expired or
+	// malformed `.fleet/merge-defer/<branch>.json` never defers a branch or
+	// gates the sync sweep forever. Fail-isolated.
+	try {
+		enforceMergeDefers(REPO, log);
+	} catch (e) {
+		log(
+			`MERGE-DEFER enforcement failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 	// 1. never enter a cycle with leftover merge state. MERGE_HEAD is either
@@ -352,6 +368,15 @@ if (MODE === "flush") {
 			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
 		);
 	}
+	// W2561: per-item defers get the same entry sweep (expired/malformed set
+	// aside) so the branch gate below never reads a stale defer as active.
+	try {
+		enforceMergeDefers(REPO, log);
+	} catch (e) {
+		log(
+			`MERGE-DEFER enforcement failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
 	if (existsSync(`${REPO}/.git/MERGE_HEAD`)) {
 		const live = mergeRunnerAlive();
 		if (live) {
@@ -394,6 +419,15 @@ if (MODE === "flush") {
 		// defers the whole sweep loudly without touching any branch.
 		if (mergeHoldActive(REPO)) {
 			log(`FLUSH-DEFER ${b} — operator merge hold (.fleet/merge-hold)`);
+			deferred++;
+			continue;
+		}
+		// W2561: the per-item defer — the sweep's own branch-scoped gate (same
+		// position as the hold, before the DONE+exact predicate)
+		if (mergeDeferredActive(REPO, b)) {
+			log(
+				`FLUSH-DEFER ${b} — per-item defer (${MERGE_DEFER_DIR}/${deferFileName(b)})`,
+			);
 			deferred++;
 			continue;
 		}
@@ -443,6 +477,16 @@ if (MODE === "ship") {
 	} catch (e) {
 		log(
 			`MERGE-HOLD enforcement failed (fail-isolated, loop.hold_enforcement_failed): ${describeError(e)}`,
+		);
+	}
+	// W2561: per-item defers get the same entry sweep (expired/malformed set
+	// aside) — a stale `.fleet/merge-defer/<branch>.json` never vetoes a
+	// one-click ship forever.
+	try {
+		enforceMergeDefers(REPO, log);
+	} catch (e) {
+		log(
+			`MERGE-DEFER enforcement failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
 		);
 	}
 	// W101 ship-vs-daemon race: same merge-liveness discipline as cycle

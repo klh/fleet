@@ -41,6 +41,10 @@ import {
 	finishReviewRequest,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
+import {
+	protectedFamily,
+	protectedWireMismatch,
+} from "../lib/gates/protected-family.ts";
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";
@@ -284,21 +288,26 @@ const operatorFallbacks = (model: string): string[] =>
 			process.env.SUSPENDERS_REVIEW_FALLBACK_MODELS,
 	).filter((m) => m !== model);
 const fallbacks = legModel ? operatorFallbacks(legModel) : [];
-const walkModels = legModel
-	? [
-			legModel,
-			...fallbacks,
-			// explicit operator ladder wins — the synthetic rung only fills
-			// an EMPTY ladder (never reorders one)
-			...(fallbacks.length === 0
-				? stepdownRungOf(
-						legModel,
-						process.env.SUSPENDERS_REVIEW_STEPDOWN_CLASSES,
-						pickHealthyGroup(readModelHealthFacts(db), legModel),
-					)
-				: []),
-		]
-	: ["local"];
+// W2571: a protected-family item walks the pin ONLY — no operator fallback
+// ladder, no stepdown rung. A flash rung can never be appended downstream.
+const familyItem = protectedFamily(db, project, item);
+const walkModels = !legModel
+	? ["local"]
+	: familyItem
+		? [legModel]
+		: [
+				legModel,
+				...fallbacks,
+				// explicit operator ladder wins — the synthetic rung only fills
+				// an EMPTY ladder (never reorders one)
+				...(fallbacks.length === 0
+					? stepdownRungOf(
+							legModel,
+							process.env.SUSPENDERS_REVIEW_STEPDOWN_CLASSES,
+							pickHealthyGroup(readModelHealthFacts(db), legModel),
+						)
+					: []),
+			];
 async function requestLlm(
 	url: string,
 	model: string,
@@ -679,7 +688,14 @@ const answeredModel = legModel
 	? (walk.trail.findLast((a) => a.ok)?.leg ?? requestedModel)
 	: requestedModel;
 const wireAudit = wireModelAudit(answeredModel, legWireModel);
-const wireMismatch = wireAudit?.match === "mismatch" && verdict === "PASS";
+// W2571: for a protected-family item the strict assertion holds for EVERY
+// verdict — a served wire id outside the requested class grades ERROR (the
+// scheduler refunds and retries), never a silently-accepted fallback leg.
+const wireMismatch = protectedWireMismatch({
+	match: wireAudit?.match,
+	verdict,
+	family: familyItem,
+});
 const wireHeadline = wireMismatch
 	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
 	: "";

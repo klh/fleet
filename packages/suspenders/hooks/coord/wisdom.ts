@@ -10,9 +10,18 @@
 // NEED_DECISION per class per subject per 24h (facts wisdom.<C>.<subject>),
 // suppressed detections park in the finding.wisdom.queue digest.
 import { spawnSync } from "node:child_process";
-import { db, green, dim, projectIdentity } from "./shared.ts";
+import { z } from "zod";
 import { projectRootOf } from "../lib/govdb/govdb.ts";
 import { emitEvent } from "./bus.ts";
+import { verbContract, wantsJson } from "./json-out.ts";
+import { db, dim, green, projectIdentity } from "./shared.ts";
+
+// W2569: the wisdom machine contract — the sweep verdict, unparsed.
+const wisdomContract = verbContract({
+	flagged: z.number().int(),
+	emitted: z.number().int(),
+	rules: z.array(z.string()),
+});
 
 // rules-as-data (spec §4.5): a ruling can promote one of these into a
 // reflex-tier gate without new code.
@@ -217,8 +226,18 @@ export function wisdomSweep(): { flagged: number; emitted: number } {
 }
 
 // CLI face: `coord wisdom` — one manual sweep pass
-export async function cmdWisdom(_rest: string[]): Promise<void> {
+export async function cmdWisdom(rest: string[]): Promise<void> {
 	const r = wisdomSweep();
+	if (wantsJson(rest)) {
+		wisdomContract.emit({
+			schema_version: 1,
+			verb: "wisdom",
+			flagged: r.flagged,
+			emitted: r.emitted,
+			rules: RULES.map((x) => x.id),
+		});
+		return;
+	}
 	console.log(
 		`${green("✓")} wisdom sweep: ${r.flagged} flagged, ${r.emitted} emitted${dim(` (${RULES.map((x) => x.id).join("/")})`)}`,
 	);
