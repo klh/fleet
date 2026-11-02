@@ -281,6 +281,14 @@ const ReusableReceiptSchema = z.object({
 });
 type ReusableReceipt = z.infer<typeof ReusableReceiptSchema>;
 
+/** A shipped member manifest's dependency face (#102998): the reuse gate
+ *  reads declared dependencies through the same named-schema law — a
+ *  manifest that fails to parse refuses reuse (the normal repair publish
+ *  heals it), never a hand-cast record and never a thrown sync. */
+const ManifestDependenciesSchema = z.object({
+	dependencies: z.record(z.string(), z.string()).optional(),
+});
+
 export function reusableGeneration(
 	ctx: StepContext,
 	revision: string,
@@ -335,10 +343,13 @@ export function reusableGeneration(
 		cwd: join(root, ".harness"),
 	})) {
 		const manifestPath = join(root, ".harness", manifest);
-		const declared = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-			dependencies?: Record<string, string>;
-		};
-		for (const [name, spec] of Object.entries(declared.dependencies ?? {})) {
+		const declared = ManifestDependenciesSchema.safeParse(
+			JSON.parse(readFileSync(manifestPath, "utf8")),
+		);
+		if (!declared.success) return null; // malformed manifest repairs, never throws
+		for (const [name, spec] of Object.entries(
+			declared.data.dependencies ?? {},
+		)) {
 			if (spec.startsWith("workspace:") || spec.startsWith("file:")) continue;
 			let resolved = false;
 			for (
