@@ -1,4 +1,4 @@
-import{n,e,r}from"./lit-df39549a6b261b0c.js";import{o}from"./lit-ffc154e6abb8ef7a.js";var c=n`
+import{n,e,r}from"./lit-96e87015cf7d620b.js";import{a}from"./lit-5e71342cb6e5645a.js";var c=n`
 	.hint {
 		font-size: 10.5px;
 		color: var(--klh-dim);
@@ -67,7 +67,7 @@ import{n,e,r}from"./lit-df39549a6b261b0c.js";import{o}from"./lit-ffc154e6abb8ef7
 		font-size: 11px;
 		cursor: pointer;
 	}
-`;class l extends r{static properties={heading:{type:String},options:{type:Array},chain:{state:!0},pick:{state:!0}};static styles=[o,c];constructor(){super();this.heading="executor preference order",this.options=[],this.chain=[],this.pick=""}get carrier(){return this.querySelector('input[name="default_executors"]')}connectedCallback(){super.connectedCallback();let t=this.carrier?.value??"";this.chain=t.split(",").map((i)=>i.trim()).filter(Boolean)}set(t){this.chain=t;let i=this.carrier;if(i)i.value=t.join(",")}move(t,i){let s=t+i;if(s<0||s>=this.chain.length)return;let a=[...this.chain];[a[t],a[s]]=[a[s],a[t]],this.set(a)}add(){let i=this.renderRoot.querySelector("select")?.value??this.pick;if(i&&!this.chain.includes(i))this.set([...this.chain,i])}render(){return e`<h2>${this.heading}</h2>
+`;class o extends r{static properties={heading:{type:String},options:{type:Array},chain:{state:!0},pick:{state:!0}};static styles=[a,c];constructor(){super();this.heading="executor preference order",this.options=[],this.chain=[],this.pick=""}get carrier(){return this.querySelector('input[name="default_executors"]')}connectedCallback(){super.connectedCallback();let t=this.carrier?.value??"";this.chain=t.split(",").map((i)=>i.trim()).filter(Boolean)}set(t){this.chain=t;let i=this.carrier;if(i)i.value=t.join(",")}move(t,i){let l=t+i;if(l<0||l>=this.chain.length)return;let s=[...this.chain];[s[t],s[l]]=[s[l],s[t]],this.set(s)}add(){let i=this.renderRoot.querySelector("select")?.value??this.pick;if(i&&!this.chain.includes(i))this.set([...this.chain,i])}render(){return e`<h2>${this.heading}</h2>
 			<p class="hint">
 				dispatch walks this order as its fallback chain — first entry first; a
 				dead lane re-dispatch advances to the next; the same-model tail rides
@@ -111,11 +111,11 @@ import{n,e,r}from"./lit-df39549a6b261b0c.js";import{o}from"./lit-ffc154e6abb8ef7
 			<button
 				type="button"
 				aria-label="remove ${t}"
-				@click=${()=>this.set(this.chain.filter((s,a)=>a!==i))}
+				@click=${()=>this.set(this.chain.filter((l,s)=>s!==i))}
 			>
 				✕
 			</button>
-		</li>`}}if(!customElements.get("klh-executor-editor"))customElements.define("klh-executor-editor",l);class d extends r{static properties={heading:{type:String},lines:{type:Array}};static styles=[o,n`
+		</li>`}}if(!customElements.get("klh-executor-editor"))customElements.define("klh-executor-editor",o);class d extends r{static properties={heading:{type:String},lines:{type:Array}};static styles=[a,n`
 			pre {
 				background: var(--klh-bg);
 				border: 1px solid var(--klh-edge);
