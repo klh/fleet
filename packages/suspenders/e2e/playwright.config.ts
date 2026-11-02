@@ -16,7 +16,9 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
 	globalSetup: "./global-setup.ts",
 	testDir: ".",
-	testMatch: "*.spec.ts",
+	// W1294: spec suites are *.spec.ts, migrating waves land tagged *.e2e.ts
+	// (klh-task-card.e2e.ts is first) — both collected by the one config.
+	testMatch: ["*.spec.ts", "*.e2e.ts"],
 	timeout: 60_000,
 	expect: { timeout: 15_000 },
 	// file-level parallelism: tests within a file stay ordered in one
