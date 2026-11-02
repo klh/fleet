@@ -42,6 +42,7 @@ import {
 	cmdGc,
 	cmdKb,
 	cmdLeaseRelease,
+	cmdReviewUnpark,
 } from "../coord/facts.ts";
 import {
 	cmdBootstrap,
@@ -199,6 +200,13 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: lease-release <path...> --as <sid>",
 		lax: true,
 		run: (p) => cmdLeaseRelease(p.rest),
+	}),
+	defineVerb({
+		name: "review-unpark",
+		usage:
+			"usage: review-unpark <item-id> [--as <sid>] — release a W2548 review-transport park",
+		lax: true,
+		run: (p) => cmdReviewUnpark(p.rest),
 	}),
 	defineVerb({
 		name: "kb",
