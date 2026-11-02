@@ -83,6 +83,12 @@ byId('tasksTbl').addEventListener('click', function(e){
   if (b) openTask(b.getAttribute('data-task'), b.getAttribute('data-proj'), b);
 });
 byId('kanban').addEventListener('click', function(e){
+  // W2267.4.2.2 — a click composed out of the Lit card's shadow DOM
+  // retargets to the host element, so every interior click would match
+  // .kcard below and pop the drawer. The card's typed events
+  // (task-card-action-requested / task-card-open-requested) own ALL
+  // semantics inside a host card; the legacy fallthrough never fires there.
+  if (e.target.closest && e.target.closest('klh-task-card-host')) return;
   var o = e.target.closest && e.target.closest('[data-orch]');
   if (o) { activateOrchForTask(o.getAttribute('data-orch'), o.getAttribute('data-orchproj')); return; }
   var s = e.target.closest && e.target.closest('[data-start]');
@@ -125,6 +131,64 @@ byId('kanban').addEventListener('change', function(e){
   if (!s) return;
   var card = s.closest('.kcard');
   if (card) execPick[(card.getAttribute('data-kproj') || '') + '\u0000' + (card.getAttribute('data-kid') || '')] = s.value;
+});
+// W2267.4.2.2 — the Lit card's typed events (composed: they bubble out of
+// the card's shadow footer through the host's light DOM to here). One
+// listener per event name; the live footer select value rides the shadow
+// query (the card's draft stays shadow-scoped, the verb needs the value).
+function cardLivePick(host){
+  var card = host.querySelector('klh-task-card');
+  if (!card || !card.shadowRoot) return '';
+  var sel = card.shadowRoot.querySelector('select.seg');
+  return sel ? sel.value : '';
+}
+function cardLiveEffort(host){
+  var card = host.querySelector('klh-task-card');
+  if (!card || !card.shadowRoot) return '';
+  var sels = card.shadowRoot.querySelectorAll('select.seg');
+  for (var i = 0; i < sels.length; i++)
+    if ((sels[i].getAttribute('aria-label') || '').indexOf('reasoning effort') >= 0) return sels[i].value;
+  return '';
+}
+byId('kanban').addEventListener('task-card-action-requested', function(e){
+  var host = e.target instanceof Element ? e.target.closest('klh-task-card-host') : null;
+  if (!host) return;
+  var a = e.action, id = e.id, proj = e.project || '';
+  var pick = cardLivePick(host);
+  // W2267.4.2.2 (#103127) — mediator-owned pending state, data-down to the
+  // card model: the stamp lives in the rebuild-proof cardPending map (a
+  // structural render re-creates hosts), the verbs still refuse concurrent
+  // fire through their own starting/recoveryBusy maps, and the stamp clears
+  // when the verb's promise settles — every leg now returns it, network
+  // failure included. The leaf card never self-serves: it renders the state.
+  var pk = proj + '\u0000' + id;
+  var run = null;
+  if (a === 'start') run = startItem(id, proj, null, pick || 'claude', cardLiveEffort(host));
+  else if (a === 'retry') run = window.__klhRecovery.retryExecItem(id, proj, null, false, pick || null);
+  else if (a === 'recover') run = window.__klhRecovery.recoverItem(id, proj, null, false);
+  else if (a === 'reassign') run = reassignItem(id, proj, null, pick || 'claude');
+  else if (a === 'release') run = unclaimItem(id, proj, null, false);
+  else if (a === 'prompt') activateOrchForTask(id, proj);
+  else if (a === 'report') window.open('/api/report/' + encodeURIComponent(id) + '?project=' + encodeURIComponent(proj), '_blank', 'noopener');
+  if (run && typeof run.then === 'function') {
+    cardPending[pk] = a;
+    host.pendingAction = a;
+    var settle = function(){
+      delete cardPending[pk];
+      // the host may have been re-created by a structural render; clear
+      // whatever element currently carries the card's identity
+      var live = document.querySelectorAll('klh-task-card-host[data-kid="' + CSS.escape(id) + '"][data-kproj="' + CSS.escape(proj) + '"]');
+      for (var i = 0; i < live.length; i++) live[i].pendingAction = '';
+    };
+    run.then(settle, settle);
+  }
+});
+byId('kanban').addEventListener('task-card-open-requested', function(e){
+  var host = e.target instanceof Element ? e.target.closest('klh-task-card-host') : null;
+  if (!host) return;
+  var card = host.querySelector('klh-task-card');
+  var tidBtn = card && card.shadowRoot ? card.shadowRoot.querySelector('.tid') : null;
+  openTask(e.id, e.project || '', tidBtn);
 });
 var theadEl = document.querySelector('#tasksTbl thead');
 if (theadEl) theadEl.addEventListener('click', function(e){

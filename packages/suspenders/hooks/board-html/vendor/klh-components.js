@@ -1,4 +1,4 @@
-import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var h=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],p={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class g extends r{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=n`
+import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var h=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],p={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class g extends n{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -125,7 +125,7 @@ import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var h=[["prompt.condense","conden
 				</div>
 			</details>
 			${this.body()}
-		`}}customElements.define("klh-prompt-preview",g);class m extends r{static properties={view:{state:!0},err:{state:!0},note:{state:!0}};static styles=n`
+		`}}customElements.define("klh-prompt-preview",g);class m extends n{static properties={view:{state:!0},err:{state:!0},note:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -241,7 +241,7 @@ import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var h=[["prompt.condense","conden
 						`)}
 				</tbody>
 			</table>
-		`}}customElements.define("klh-posture-panel",m);class v extends r{static properties={trace:{attribute:!1},events:{attribute:!1},execution:{attribute:!1},loading:{type:Boolean},error:{type:String}};static styles=n`
+		`}}customElements.define("klh-posture-panel",m);class v extends n{static properties={trace:{attribute:!1},events:{attribute:!1},execution:{attribute:!1},loading:{type:Boolean},error:{type:String}};static styles=r`
 		:host { display: block; border-top: 1px solid var(--klh-edge, #5d5a52); padding: 12px 0; }
 		h2 { margin: 0 0 8px; font: 600 13px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
 		h3 { margin: 12px 0 5px; font: 600 12px/1.3 ui-sans-serif, system-ui; color: var(--klh-ink, #e8e4da); }
@@ -288,7 +288,7 @@ import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var h=[["prompt.condense","conden
 						<span class="sub">${[o.endpoint,o.ms==null?null:`${o.ms} ms`,o.inputTokens==null?null:`${o.inputTokens} in`,o.outputTokens==null?null:`${o.outputTokens} out`,o.cacheReadTokens==null?null:`${o.cacheReadTokens} cache read`,o.status,o.traceId?`trace ${o.traceId}`:"trace unavailable (older request)",`request ${o.requestId.slice(0,12)}`].filter(Boolean).join(" · ")}</span>
 					</div>
 				</li>`)}</ol></details>`:e`<p>No Buckle requests for this lane in the selected window.</p>`}
-			`:i&&!i.lane?e`<p>No dispatched lane recorded for this item.</p>`:""}`}}customElements.define("klh-task-trace",v);class b extends r{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=n`
+			`:i&&!i.lane?e`<p>No dispatched lane recorded for this item.</p>`:""}`}}customElements.define("klh-task-trace",v);class b extends n{static properties={eventId:{type:Number,attribute:"event-id"},count:{state:!0},latest:{state:!0},busy:{state:!0},err:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin-top: 6px;

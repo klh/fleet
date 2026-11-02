@@ -1,10 +1,13 @@
-// hooks/board-html/klh-card-activity.ts — W2267.2: the board card's
-// spectral activity plot + duration hairline, one focused Lit component.
+// hooks/board-html/klh-card-activity.ts — W2267.2/W2267.4.2.1: the board
+// card's ONE activity strip — spectral spend plot + attempt timeline, one
+// focused Lit component switching contents in place (never a second chart).
 // Data truth is the pure lib (hooks/lib/board/activity-scale.ts — W1203
-// measured-width, end-pinned, REAL 3-minute bins); this file renders what
-// those helpers compute. The card lane (W2267.4) wires spendSeries points
-// + spend.wall_ms (+ attemptData, a W1188 passthrough) into it through the
-// typed contract (hooks/lib/board/activity-contract.ts).
+// measured-width, end-pinned, REAL 3-minute bins, W2267.4.2.1 ONE honest
+// plotted=labeled=inspectable domain); this file renders what those helpers
+// compute. The card lane (W2267.4) wires spendSeries points + spend.wall_ms
+// + attemptData into it through the typed contract (hooks/lib/board/
+// activity-contract.ts). SVG children ride svg`` templates — html`` would
+// mint XHTML-namespace rects with 0x0 bbox (root-proven W2267.4.2.1).
 //
 // Layout law (owner contract 2026-10-29, "tight time rail"): the hairline
 // is exactly 1 CSS px tall with ZERO own margin/padding, flush against the
@@ -12,30 +15,58 @@
 // wall time grows symmetrically from the midpoint on ONE shared 24h scale
 // — never a progress bar, zero/unknown draws nothing, overflow saturates
 // and says so.
-import { css, html, LitElement, type TemplateResult } from "lit";
+import { html, LitElement, svg, type TemplateResult } from "lit";
 import {
 	ACTIVITY_BAR_PX,
 	durationSpan,
 	fmtDurationExact,
+	fmtHHmm,
 	fmtScaleLabel,
 	spectralBins,
 	type SpectralBins,
 } from "../lib/board/activity-scale.ts";
-import { dualShort, dualStamp } from "../lib/wallclock.ts";
+import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
+import {
+	attemptRows,
+	attemptTip,
+	type AttemptHit,
+} from "../lib/board/attempt-render.ts";
+import {
+	attemptAxis,
+	attemptIntervalStamp,
+	attemptPlot,
+	attemptStripHandlers,
+	attemptStripStyles,
+	attemptWallMs,
+	type AttemptStripHost,
+	type AttemptTipRef,
+} from "./attempt-strip.ts";
+import {
+	humanZoneWord,
+	localDate,
+	utcDate,
+	utcShort,
+} from "../lib/wallclock.ts";
+import { CARD_ACTIVITY_STYLES } from "./klh-card-activity-css.ts";
 
-class KlhCardActivity extends LitElement {
+/** The ONE activity strip (definition only — registration rides the
+ * workspace entry klh-board-register.ts, root pointer #103173). */
+export class KlhCardActivity extends LitElement {
 	static properties = {
 		points: { attribute: false },
 		wallMs: { attribute: false },
 		attempt: { attribute: false },
+		mode: { attribute: false },
 		_width: { state: true },
 		_tip: { state: true },
 		_slot: { state: true },
 	};
 	declare points: [number, number, number, number][];
 	declare wallMs: number | null;
-	/** AttemptTimeline passthrough (W1188) — the card lane owns the view. */
-	declare attempt: unknown | null;
+	/** AttemptTimeline (the wiring leaf validates through the contract). */
+	declare attempt: AttemptTimeline | null;
+	/** which strip contents render: "spend" (default) or "attempt". */
+	declare mode: "spend" | "attempt";
 	/** the MEASURED track width (W2514 B1: reactive state — assigning it in
 	 *  firstUpdated re-renders, so the first paint after upgrade already
 	 *  bins at the real card width instead of the 240px floor). */
@@ -44,87 +75,25 @@ class KlhCardActivity extends LitElement {
 	declare _tip: string | null;
 	/** keyboard-focused bin index (-1 = none). */
 	declare _slot: number;
+	/** identity of the inspected attempt row (poll retention contract). */
+	declare _tipRef: AttemptTipRef | null;
+	/** identity of the inspected spend bin — its START timestamp, never a
+	 *  numeric slot (the window re-derives every poll; W2267.4.2.1.1). */
+	declare _tipTs: number | null;
 
-	static styles = css`
-		:host {
-			display: block;
-			font: 11px/1.5 ui-sans-serif, system-ui;
-		}
-		.plot {
-			display: block;
-			width: 100%;
-			height: 28px;
-		}
-		.plot:focus-visible {
-			outline: 2px solid var(--klh-accent, #d8900f);
-			outline-offset: 1px;
-		}
-		.plot rect.spark-fresh {
-			fill: var(--klh-accent, #d8900f);
-		}
-		.plot rect.spark-cached {
-			fill: var(--klh-ok, #5c7a35);
-		}
-		.axis {
-			display: flex;
-			justify-content: space-between;
-			gap: 8px;
-			margin: 0;
-			padding: 0;
-			font: 400 10px/12px ui-monospace, SFMono-Regular, monospace;
-			color: var(--klh-chart-axis, #898781);
-			font-variant-numeric: tabular-nums;
-			white-space: nowrap;
-			overflow: hidden;
-		}
-		/* the duration hairline: exactly 1 CSS px, zero own margin/padding,
-		   flush under the plot's bottom edge (owner tight-rail contract). */
-		.hairline {
-			display: block;
-			height: 1px;
-			margin: 0;
-			padding: 0;
-			background: transparent;
-			position: relative;
-		}
-		.hairline .span {
-			position: absolute;
-			top: 0;
-			bottom: 0;
-			background: var(--klh-accent, #d8900f);
-		}
-		.hairline.saturated .span {
-			background: var(--klh-danger, #af2f12);
-		}
-		/* B2 (W2514): the hairline carries exact duration text — keyboard
-		   focus must be visible, same ring as the plot. */
-		.hairline:focus-visible {
-			outline: 2px solid var(--klh-accent, #d8900f);
-			outline-offset: 1px;
-		}
-		.tip {
-			position: fixed;
-			z-index: 1000;
-			max-width: 260px;
-			padding: 6px 8px;
-			border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.12));
-			border-radius: 6px;
-			background: var(--klh-surface, #1c1b19);
-			color: var(--klh-ink, #e8e6e1);
-			font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
-			white-space: pre-line;
-			pointer-events: none;
-		}
-	`;
+	static styles = [CARD_ACTIVITY_STYLES, attemptStripStyles];
 
 	constructor() {
 		super();
 		this.points = [];
 		this.wallMs = null;
 		this.attempt = null;
+		this.mode = "spend";
 		this._width = 0;
 		this._tip = null;
 		this._slot = -1;
+		this._tipRef = null;
+		this._tipTs = null;
 	}
 
 	// the measured track (W1203): recompute on width change.
@@ -141,6 +110,11 @@ class KlhCardActivity extends LitElement {
 				}
 			});
 		}
+		// W2267.4.2.1 repair (behavior proof 4): a MOVED/RECONNECTED host
+		// never gets firstUpdated again — re-observe immediately so the
+		// geometry tracks the new position/size from the first frame back.
+		const el = this._plotEl();
+		if (el && this._ro) this._ro.observe(el);
 	}
 
 	disconnectedCallback(): void {
@@ -155,6 +129,67 @@ class KlhCardActivity extends LitElement {
 			this._width = el.clientWidth;
 			this._ro.observe(el);
 		}
+	}
+
+	// W2267.4.2.1 repair (behavior proof 4): mode switches swap the plot
+	// element — the RO must observe the NEW node or geometry freezes at
+	// the old element. Re-observing is idempotent for a same node.
+	protected updated(): void {
+		const el = this._plotEl();
+		if (el && this._ro) this._ro.observe(el);
+	}
+
+	// W2267.4.2.1 repair (behavior proof 5) + W2267.4.2.1.1 poll retention
+	// (root #102925): a payload refresh keeps the inspection while the
+	// referenced row REMAINS — re-texted from the FRESH payload (a grown
+	// segment shows its new duration; the tip is derived state, never a
+	// stale copy) and the keyboard walk index follows the matched row's
+	// fresh position (rows may be inserted before it). Dismisses when the
+	// source is gone: spend data empty, attempt payload empty, or the
+	// referenced attempt row no longer present.
+	protected update(changed: Map<string, unknown>): void {
+		super.update(changed);
+		if (!changed.has("points") && !changed.has("attempt")) return;
+		if (this.mode === "attempt") {
+			if (!this.attempt || !this._tipRef) {
+				this._hideTip();
+				return;
+			}
+			const { milestones, segs } = attemptRows(this.attempt);
+			const rows = [...milestones, ...segs];
+			const ref = this._tipRef;
+			const idx = rows.findIndex(
+				(r) => r.kind === ref.kind && r.start === ref.start,
+			);
+			if (idx < 0) {
+				this._hideTip();
+				return;
+			}
+			this._tip = attemptTip(
+				rows[idx] as AttemptHit,
+				this.attempt,
+				attemptIntervalStamp,
+				fmtDurationExact,
+			);
+			this._slot = idx;
+			return;
+		}
+		// spend mode: the inspected bin is its START timestamp, never a slot
+		// index — the window re-derives every poll (W2267.4.2.1.1, #102929).
+		const spec = this._spec;
+		if (!spec.hasData || this._tipTs === null) {
+			if (!spec.hasData) this._hideTip();
+			return;
+		}
+		const slot = Math.floor(
+			(this._tipTs - (spec.windowStart ?? 0)) / spec.slotMs,
+		);
+		if (slot < 0 || slot >= spec.count) {
+			this._hideTip(); // the bin left the window — stale inspection out
+			return;
+		}
+		this._slot = slot;
+		this._tip = this._tipText(spec, slot);
 	}
 
 	private _plotEl(): SVGSVGElement | null {
@@ -186,6 +221,7 @@ class KlhCardActivity extends LitElement {
 		);
 		this._slot = slot;
 		this._tip = this._tipText(spec, slot);
+		this._tipTs = (spec.windowStart ?? 0) + slot * spec.slotMs;
 		this.requestUpdate();
 		this._placeTip(e.clientX, e.clientY);
 	};
@@ -208,6 +244,7 @@ class KlhCardActivity extends LitElement {
 		const slot = Math.max(0, Math.min(spec.count - 1, this._slot + dir));
 		this._slot = slot;
 		this._tip = this._tipText(spec, slot);
+		this._tipTs = (spec.windowStart ?? 0) + slot * spec.slotMs;
 		this.requestUpdate();
 		const svgEl = this._plotEl();
 		if (svgEl) {
@@ -219,16 +256,23 @@ class KlhCardActivity extends LitElement {
 	private _hideTip(): void {
 		this._tip = null;
 		this._slot = -1;
+		this._tipRef = null;
+		this._tipTs = null;
 	}
 
-	/** exact tooltip text for one bin (W902 dual stamps, exact counts). */
+	/** exact tooltip text for one bin — ONE compact human stamp line
+	 *  (owner-approved 2026-11-02: the dual UTC/local pair repeated three
+	 *  times per hover was noise), exact counts below it. */
 	private _tipText(spec: SpectralBins, slot: number): string {
 		const b = spec.bins[slot];
 		const t0 = (spec.windowStart ?? 0) + slot * spec.slotMs;
-		const t1 = t0 + spec.slotMs;
+		// #103191/#103233 exact owner pattern: line 1 `2 Nov 2026 · 21:51
+		// UTC+01:00`, line 2 `20:51 UTC · 3-minute bin` — the UTC twin
+		// carries its date ONLY when it differs from the line-1 local date
+		// (utcShort rule); no interval repeat, no seconds.
 		const lines = [
-			dualStamp(t0),
-			`bin ${spec.slotMs / 60000} min · ${dualShort(t0)} → ${dualShort(t1)}`,
+			humanZoneWord(t0),
+			`${utcShort(t0, localDate(t0) !== utcDate(t0))} · ${spec.slotMs / 60000}-minute bin`,
 		];
 		if (b) {
 			lines.push(`Fresh input ${b.fresh.toLocaleString("en-US")}`);
@@ -255,16 +299,36 @@ class KlhCardActivity extends LitElement {
 				const x = i * step + (step - ACTIVITY_BAR_PX) / 2;
 				bars.push(this._barRects(b, x, maxV));
 			}
-		return html`${bars}`;
+		if (!bars.length) return html``;
+		// W2267.4.2.2 (#103177): svg`` template — html`` here would mint
+		// XHTML-namespace defs/gradient/stop elements the renderer ignores
+		// (the same bug class the rects already fixed). ONE defs pair for
+		// the whole plot; each bar fades along its own height
+		// (objectBoundingBox) — STRONG at the baseline, faint at the tips
+		// (approved 09 direction). Identical defs across strips make the
+		// duplicate-id resolution benign (first match wins, all equal).
+		return svg`<defs>
+			<linearGradient id="klh-spec-fresh" x1="0" y1="1" x2="0" y2="0">
+				<stop offset="0" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="1" />
+				<stop offset="1" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="0.45" />
+			</linearGradient>
+			<linearGradient id="klh-spec-cached" x1="0" y1="1" x2="0" y2="0">
+				<stop offset="0" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.9" />
+				<stop offset="1" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.4" />
+			</linearGradient>
+		</defs>
+		${bars}`;
 	}
 
-	/** fresh stacked over cached, sparkSvg parity: 0.5px floor, 1px inset. */
+	/** fresh stacked over cached, sparkSvg parity: 0.5px floor, 1px inset.
+	 *  svg`` templates — html`` here mints XHTML-namespace rects the
+	 *  browser refuses to size (0x0 bbox, root-proven W2267.4.2.1). */
 	private _barRects(
 		b: { fresh: number; cached: number },
 		x: number,
 		maxV: number,
 	): TemplateResult {
-		const h = 28;
+		const h = 40;
 		const parts: TemplateResult[] = [];
 		let used = 0;
 		const stack: [number, string][] = [
@@ -275,7 +339,7 @@ class KlhCardActivity extends LitElement {
 			if (val <= 0) continue;
 			const bh = Math.max(0.5, (val / maxV) * (h - 2));
 			parts.push(
-				html`<rect
+				svg`<rect
 					class=${cls}
 					x=${x.toFixed(1)}
 					y=${Math.max(1, h - 1 - used - bh).toFixed(1)}
@@ -292,13 +356,13 @@ class KlhCardActivity extends LitElement {
 	 *  scale, center-out; zero/unknown → nothing rendered at all. */
 	private _hairlineHtml(): TemplateResult | null {
 		const w = this._width || 240;
-		const span = durationSpan(this.wallMs, w);
+		const span = durationSpan(this._hairWallMs(), w);
 		if (!span.visible) return null;
 		return html`<div
 			class="hairline${span.saturated ? " saturated" : ""}"
 			role="img"
-			aria-label="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
-			title="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
+			aria-label="elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
+			title="elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -316,11 +380,15 @@ class KlhCardActivity extends LitElement {
 	 *  (never the pointer, which never came). */
 	private _hairFocus = (): void => {
 		const w = this._width || 240;
-		const span = durationSpan(this.wallMs, w);
+		const span = durationSpan(this._hairWallMs(), w);
 		if (!span.visible) return;
 		this._slot = -1;
+		// the hairline is its OWN inspection kind — drop row/bin identities so
+		// a later poll cannot overwrite it with a re-texted row tip.
+		this._tipRef = null;
+		this._tipTs = null;
 		this._tip =
-			`elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ` +
+			`elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ` +
 			`${fmtScaleLabel()} scale` +
 			(span.saturated ? " — saturated at full width" : "");
 		this.requestUpdate();
@@ -342,18 +410,21 @@ class KlhCardActivity extends LitElement {
 		}
 	};
 
-	/** the one-line axis: visible window start | TZ + bin width | window
-	 *  end — the ACTUAL window, never the first-ever request. */
+	/** the one-line axis: compact local HH:mm window start | TZ + bin width
+	 *  | compact end (owner-approved W2267.4.2.1 form — the full dual
+	 *  UTC/local stamps stay on the hover/keyboard inspector, never here).
+	 *  Both ends come from the ONE honest domain: what is labeled is what
+	 *  is plotted, hoverable and keyboard-walkable. */
 	private _axisHtml(spec: SpectralBins): TemplateResult {
 		const tz = this._tzLabel();
 		return html`<div class="axis">
-			<span>${spec.hasData ? dualShort(spec.windowStart ?? 0) : ""}</span>
+			<span>${spec.hasData ? fmtHHmm(spec.windowStart ?? 0) : ""}</span>
 			<span
 				>${
 					spec.hasData ? `${tz} · ${spec.slotMs / 60000}m/bin` : "no activity"
 				}</span
 			>
-			<span>${spec.hasData ? dualShort(spec.windowEnd ?? 0) : ""}</span>
+			<span>${spec.hasData ? fmtHHmm(spec.windowEnd ?? 0) : ""}</span>
 		</div>`;
 	}
 
@@ -370,22 +441,86 @@ class KlhCardActivity extends LitElement {
 		return html`<div class="tip" role="tooltip">${this._tip}</div>`;
 	}
 
-	/** viewport-safe placement: right of the cursor, flip above when tight. */
+	/** viewport-safe placement: right of the cursor, flip above when tight.
+	 *  W2267.4.2.1 repair (behavior proof 5): the FIRST pointer event sets
+	 *  _tip and asks Lit to render the .tip — synchronously the element
+	 *  does not exist yet, so the placement defers to updateComplete and
+	 *  runs once the tip is really in the DOM (correctly positioned, not
+	 *  merely present). */
 	private _placeTip(x: number, y: number): void {
+		const place = (): void => {
+			const tip = this.renderRoot.querySelector<HTMLElement>(".tip");
+			if (!tip) return;
+			const left = Math.min(x + 10, window.innerWidth - tip.offsetWidth - 8);
+			const above = y - tip.offsetHeight - 10;
+			tip.style.left = `${Math.max(8, left)}px`;
+			tip.style.top = `${above >= 8 ? above : y + 12}px`;
+		};
 		const tip = this.renderRoot.querySelector<HTMLElement>(".tip");
-		if (!tip) return;
-		const left = Math.min(x + 10, window.innerWidth - tip.offsetWidth - 8);
-		const above = y - tip.offsetHeight - 10;
-		tip.style.left = `${Math.max(8, left)}px`;
-		tip.style.top = `${above >= 8 ? above : y + 12}px`;
+		if (tip) {
+			place();
+			return;
+		}
+		this.updateComplete.then(place).catch(() => undefined);
+	}
+
+	// ── attempt mode (W2267.4.2.1): the SAME strip assembly — one 40px
+	// plot band, hairline, compact axis — attempt geometry inside (the
+	// contents module: attempt-strip.ts). Never a second chart: mode
+	// switches the CONTENTS in place.
+
+	/** the hairline's duration source: spend wall or attempt claim. */
+	private _hairWallMs(): number | null {
+		return this.mode === "attempt" && this.attempt
+			? attemptWallMs(this.attempt)
+			: this.wallMs;
+	}
+
+	/** the host face attempt-strip handlers drive (tip/slot/place/ref). */
+	private get _stripHost(): AttemptStripHost {
+		return {
+			setTip: (text, slot, ref) => {
+				this._tip = text;
+				this._slot = slot;
+				this._tipRef = ref ?? null;
+				this.requestUpdate();
+			},
+			placeTip: (x, y) => this._placeTip(x, y),
+			hide: () => {
+				this._hideTip();
+				this.requestUpdate();
+			},
+			slot: () => this._slot,
+		};
+	}
+
+	private _attemptHandlers = attemptStripHandlers(this._stripHost);
+
+	/** attempt-mode render: same plot band + hairline + axis assembly. */
+	private _renderAttempt(): TemplateResult {
+		const a = this.attempt;
+		const w = this._width || 240;
+		if (!a) {
+			// explicit empty state — never a zero-valued success trace
+			return html`<div class="attempt-empty" role="img">
+					no attempt in the fixed 90-minute window
+				</div>`;
+		}
+		return html`
+			${attemptPlot(a, w, this._attemptHandlers)}
+			${this._hairlineHtml()}
+			${attemptAxis(a, this._tzLabel())}
+			${this._tip ? this._tipHtml() : null}
+		`;
 	}
 
 	protected render() {
+		if (this.mode === "attempt") return this._renderAttempt();
 		const spec = this._spec;
 		return html`
 			<svg
 				class="plot"
-				viewBox="0 0 ${this._width || 240} 28"
+				viewBox="0 0 ${this._width || 240} 40"
 				preserveAspectRatio="none"
 				role="img"
 				aria-label="Fresh and cached input tokens in ${spec.slotMs / 60000}-minute bins across the measured track"
@@ -402,5 +537,3 @@ class KlhCardActivity extends LitElement {
 		`;
 	}
 }
-
-customElements.define("klh-card-activity", KlhCardActivity);

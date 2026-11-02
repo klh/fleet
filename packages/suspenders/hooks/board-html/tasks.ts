@@ -1,6 +1,10 @@
 // hooks/board-html/tasks.ts — tasks table + kanban + drawer (W157 client chunk).
 // String.raw matches the original single-template semantics; bun's
 // non-ASCII escaping in String.raw reproduces the served page bytes.
+// W2267.4.2.2: kanban cards render through the Lit bridge
+// (<klh-task-card-host> — the approved 09 card + activity strip); this
+// chunk keeps the table, drawer, feeds and delegated verbs. Card html
+// below is host markup, not the legacy .kcard string.
 import { embedDualShort, embedDualStamp } from "../lib/wallclock.ts";
 import { executionSummary } from "../lib/work/work-execution.ts";
 
@@ -223,7 +227,8 @@ function spendStripHtml(t, cls){
   // no attributed spend = no spend strip (the pre-W970 guard, lost in the port)
   var spendPart = sp ? '<div class="kspend' + (cls ? ' ' + cls : '') + ' dim"><div class="ksparkplot"><span class="kspark" data-spark="' + key + '"></span><div class="ksparkaxis"><span>first request</span><span>latest</span></div></div><span class="kspendtxt" title="Attributed totals for this work item">' + esc(spendStripInner(sp)) + '</span></div>' : '';
   var attemptPart = '';
-  if (attemptView) attemptPart = '<div class="kattemptwrap dim"><span class="kattemptlabel">current attempt · fixed 90 min · 3 min/bin</span><span class="kattempt" data-attempt="' + key + '"></span></div>';
+  // W2267.4.2.2: drawer-only — the card's Lit strip owns its own mode
+  if (cls && attemptView) attemptPart = '<div class="kattemptwrap dim"><span class="kattemptlabel">current attempt · fixed 90 min · 3 min/bin</span><span class="kattempt" data-attempt="' + key + '"></span></div>';
   return spendPart + attemptPart;
 }
 function displayState(t){
@@ -391,6 +396,7 @@ function toggleAttemptView(){
 }
 var starting = {}; // 'proj\u0000id' -> start POST in flight (rebuild-proof)
 var execPick = {}; // 'proj\u0000id' -> chosen executor (survives card rebuilds)
+var cardPending = {}; // 'proj\u0000id' -> verb in flight (W2267.4.2.2: mediator-owned, rebuild-proof)
 var execOpts = [
   { value: 'claude', label: 'claude', plane: 'remote', reasoningEffort: false },
   { value: 'codex', label: 'codex', plane: 'remote', reasoningEffort: false },
@@ -434,10 +440,16 @@ function startItem(id, proj, btn, agent, effort){
   if (btn) btn.disabled = true;
   var body = { project: proj, id: id, agent: agent || 'claude' };
   if (effort) body.effort = effort; // W183.1 — copilot reasoning-effort dial
-  postJSON('/api/start', body).then(function(j){
+  return postJSON('/api/start', body).then(function(j){
     delete starting[k];
     if (j && j.ok) toast('dispatching ' + id + ' on ' + (agent || 'claude') + ' — lane ' + String(j.sid || ''));
     else toast('start failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  }).catch(function(){
+    // W2267.4.2.2 — postJSON rejects on timeout/network; without this the
+    // starting key stays locked forever (the card's busy state would strand).
+    delete starting[k];
+    toast('start ' + id + ' failed: network error');
     pollTasks();
   });
 }
@@ -450,10 +462,14 @@ function reassignItem(id, proj, btn, agent){
   if (starting[k]) return;
   starting[k] = true;
   if (btn) btn.disabled = true;
-  postJSON('/api/reassign', { project: proj, id: id, agent: agent || 'claude' }).then(function(j){
+  return postJSON('/api/reassign', { project: proj, id: id, agent: agent || 'claude' }).then(function(j){
     delete starting[k];
     if (j && j.ok) toast(j.dispatched === false ? 'old lane signalled to bank + exit — re-dispatch when it retires' : 'reassigning ' + id + ' to ' + (agent || 'claude'));
     else toast('reassign failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  }).catch(function(){
+    delete starting[k]; // W2267.4.2.2 — unlock on network failure, never strand
+    toast('reassign ' + id + ' failed: network error');
     pollTasks();
   });
 }
@@ -462,16 +478,19 @@ function unclaimItem(id, proj, btn, force){
   if (starting[k]) return;
   starting[k] = true;
   if (btn) btn.disabled = true;
-  postJSON('/api/release', { project: proj, id: id, force: !!force }).then(function(j){
+  return postJSON('/api/release', { project: proj, id: id, force: !!force }).then(function(j){
     delete starting[k];
     if (j && j.ok) toast('released ' + id + (j.forced ? ' — lane signalled to bank + exit' : ''));
     else if (j && j.live && !force) {
-      delete starting[k];
-      if (confirm('Lane looks live — force? It will be signalled to bank its capsule and exit.')) unclaimItem(id, proj, null, true);
-      else pollTasks();
+      if (confirm('Lane looks live — force? It will be signalled to bank its capsule and exit.')) return unclaimItem(id, proj, null, true);
+      pollTasks();
       return;
     }
     else toast('release failed: ' + String((j && j.error) || 'unknown error'));
+    pollTasks();
+  }).catch(function(){
+    delete starting[k]; // W2267.4.2.2 — unlock on network failure, never strand
+    toast('release ' + id + ' failed: network error');
     pollTasks();
   });
 }
@@ -525,70 +544,52 @@ function execOptions(pick){
 function klaneObservedTitle(ex){
   return esc(ex.source + ' · observed ' + new Date(ex.observed_at).toISOString());
 }
+// W2267.4.2.2 — the kanban card is the Lit bridge host: markup carries
+// ONLY the identity attributes the delegated handlers and deep-link
+// selection need; every visual/provenance/metric field rides the host's
+// properties (kanbanCardSync below), set per render from the live task.
+// The structural signature therefore covers card IDENTITY (id, project,
+// tone, nested marker), not per-second values — the host diffs inside.
 function kanbanCard(t, fam){
-  var od = t.open_decisions || 0;
-  var tone = workTone(displayState(t));
-  var startable = displayState(t) === 'READY' && !t.owner_sid;
-  var active = (t.state === 'CLAIMED' || t.state === 'RUNNING') && t.owner_sid;
   var kid = fam && fam.nested[String(t.id)];
   var kidStyle = '';
   if (kid) {
     if (kid.c) kidStyle += '--prefer:' + esc(kid.c) + ';';
     kidStyle += 'margin-left:' + (Math.min(kid.d, 2) * 14) + 'px';
   }
-  var html = '<div class="kcard' + (kid ? ' kkid' : '') + '"' + (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) + ' data-tone="' + tone + '" data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '" title="open details">';
-  if (kid) html += '<span class="kidmark">↳</span>';
-  html += '<div class="krow">' + taskPill(displayState(t)) +
-    (od ? '<span class="kdec">needs you</span>' : '') +
-    (t.requires ? '<span class="kdec mono" title="credential requires: ' + esc(String(t.requires)) + '">needs ' + esc(String(t.requires)) + '</span>' : '') +
-    (t.updated_at_utc ? '<span class="kcardstamp dim">' + compactStamp(t.updated_at_utc) + '</span>' : '') + '</div>' +
-    '<div class="kcardident"><button type="button" class="tidbtn mono" data-task="' + esc(t.id) + '" data-proj="' + esc(t.project || '') + '" aria-haspopup="dialog">' + esc(t.id) + '</button>' +
-    '<span class="kage dim" title="open ' + esc(ago(t.age_s)) + '">' + esc(agoShort(t.age_s)) + '</span></div>';
-  html += '<div class="ktitle">' + esc(String(t.title || '(untitled)')).slice(0, 140) + '</div>';
-  if (t.execution) {
-    var ex = t.execution;
-    var proof = ex.progress ? ex.progress.stage + ' · ' + new Date(ex.progress.ts).toISOString() : 'no artifact evidence in snapshot';
-    html += '<div class="klane dim" title="' + klaneObservedTitle(ex) + '">' + esc(ex.state + ' · ' + proof) + '</div>';
+  // W2267.4.2.2: the card IS the bridge host — markup carries only the
+  // identity the delegated handlers/deep-link need; all fields ride the
+  // host properties (kanbanCardSync), set right after every render pass.
+  return '<klh-task-card-host class="kcard' + (kid ? ' kkid' : '') + '"' +
+    (kid ? ' style="' + kidStyle + '"' : preferStyle(t)) +
+    ' data-tone="' + workTone(displayState(t)) + '"' +
+    ' data-kid="' + esc(t.id) + '" data-kproj="' + esc(t.project || '') + '"' +
+    (kid ? ' data-nested="1"' : '') +
+    '></klh-task-card-host>';
+}
+// One card → host inputs, per render. The series/attempt ride the parsed
+// /api/spend-series payload; safeParse at the task boundary happens inside
+// the host component (board side), points stay raw tuples.
+function kanbanCardSync(el, t){
+  var key = esc(String(t.project || '')) + '|' + esc(String(t.id));
+  el.t = t;
+  el.executors = execOpts;
+  el.executorPick = defaultPick(t);
+  el.effortOptions = EFFORT_LEVELS;
+  el.series = spendSeries[key] || null;
+  el.attempt = attemptView ? (attemptData[key] || null) : null;
+  el.attemptView = !!attemptView;
+  // W2267.4.2.2 — a structural rebuild re-creates hosts; the in-flight verb
+  // re-stamps from the rebuild-proof map so the busy state survives renders
+  el.pendingAction = cardPending[(t.project || '') + '\u0000' + t.id] || '';
+}
+// Sync every rendered host after a kanban render (structural or volatile).
+function kanbanSyncAll(root, shownAll){
+  var hosts = root.querySelectorAll('klh-task-card-host');
+  for (var i = 0; i < shownAll.length && i < hosts.length; i++) {
+    if (hosts[i].getAttribute('data-kid') !== shownAll[i].id) continue;
+    kanbanCardSync(hosts[i], shownAll[i]);
   }
-  if (displayState(t) === 'BLOCKED' && t.blocked_by && t.blocked_by.length)
-    html += '<div class="klane dim">waiting on ' + esc(t.blocked_by.join(', ')) + '</div>';
-  if (t.state === 'SHATTERED' && t.waiting_on && t.waiting_on.length)
-    html += '<div class="klane dim">split into ' + esc(t.waiting_on.join(', ')) + '</div>';
-  if (t.state === 'WAITING' && t.wait_reason)
-    html += '<div class="klane dim" title="' + esc(t.wait_reason) + '">' + esc(t.wait_kind || 'external') + ' · ' + esc(t.wait_reason) + '</div>';
-  var laneOwner = String(t.owner_label || t.owner_sid || 'unclaimed');
-  var laneOrigin = t.origin ? String(t.origin) : '';
-  html += '<div class="kmeta">';
-  if (t.model) html += '<span class="kmodel" title="model: ' + esc(String(t.model)) + (t.locality ? ' · ' + esc(String(t.locality)) : '') + '">' + esc(String(t.model)) + '</span>';
-  html += '<span class="klane dim" title="lane ' + esc(laneOwner) + (laneOrigin ? ' · ' + esc(laneOrigin) : '') + '">' + (laneOrigin ? 'via ' + esc(laneOrigin) : 'lane ' + esc(laneOwner)) + '</span></div>';
-  html += spendStripHtml(t);
-  if (t.state === 'FAILED' && t.failure_note) html += '<div class="kfailure" title="Open details for the full failure reason">' + esc(String(t.failure_note).split(';')[0]) + '</div>';
-  if (t.tail && t.tail.text) html += '<div class="ktail">' + esc(t.tail.text) + '</div>';
-  if (t.state === 'FAILED') html += '<div class="kexec"><button type="button" class="kstart" data-retry="' + esc(t.id) + '" data-retryproj="' + esc(t.project || '') + '" title="requeue — FAILED to READY; operator-gated items need a force confirm">↺ retry</button></div>';
-  if (t.signal) html += '<div class="ksignal dim">⚑ ' + esc(t.signal.class) + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%</div>';
-  if (t.report) html += '<a class="kreport dim" href="/api/report/' + encodeURIComponent(t.id) + '?project=' + encodeURIComponent(t.project || '') + '" target="_blank" rel="noopener" title="single-file HTML report — a generated view of the item\'s markdown record">report ▸</a>';
-  if (startable) {
-    var pick = defaultPick(t);
-    var opts = execOptions(pick);
-    var pickedOpt = execOpts.filter(function(o){ return o.value === pick; })[0];
-    var effOpts = '';
-    for (var ei = 0; ei < EFFORT_LEVELS.length; ei++)
-      effOpts += '<option value="' + EFFORT_LEVELS[ei] + '">' + EFFORT_LEVELS[ei] + '</option>';
-    var effortSel = (pickedOpt && pickedOpt.reasoningEffort)
-      ? '<select class="keffortsel" aria-label="reasoning effort for ' + esc(t.id) + '"><option value="">effort</option>' + effOpts + '</select>'
-      : '';
-    html += '<div class="kexec"><select class="kexecsel" aria-label="executor for ' + esc(t.id) + '">' + opts + '</select>' +
-      effortSel +
-      '<button type="button" class="kstart" data-start="' + esc(t.id) + '" data-startproj="' + esc(t.project || '') + '" title="dispatch on the chosen executor">▶</button></div>';
-  }
-  if (active) {
-    var pick2 = defaultPick(t);
-    html += '<div class="kexec"><select class="kexecsel" aria-label="reassign executor for ' + esc(t.id) + '">' + execOptions(pick2) + '</select>' +
-      '<button type="button" class="kstart" data-reassign="' + esc(t.id) + '" data-reassignproj="' + esc(t.project || '') + '" title="release + re-dispatch on the chosen executor (capsule is the handoff)">↻</button>' +
-      '<button type="button" class="kstart" data-unclaim="' + esc(t.id) + '" data-unclaimproj="' + esc(t.project || '') + '" title="release the claim — a live lane is asked to bank its capsule and exit">⏏</button></div>';
-  }
-  html += '<button type="button" class="korch" data-orch="' + esc(t.id) + '" data-orchproj="' + esc(t.project || '') + '" aria-label="Orchestrate for ' + esc(t.id) + '">prompt ↗</button>';
-  return html + '</div>';
 }
 // Keep in-column dependencies in provider-first order. The cards state
 // blocked_by and waiting_on explicitly; cross-column connector lines obscure
@@ -764,7 +765,7 @@ function renderKanban(){
   // only when the STRUCTURE changed; refresh ages + tails in place otherwise.
   var kstruct = kanbanStructural(html);
   var prevStructural = el.getAttribute('data-ksig') || '';
-  if (prevStructural === kstruct) { updateKanbanVolatile(el, shownAll); paintSparks(el); return; }
+  if (prevStructural === kstruct) { kanbanSyncAll(el, shownAll); updateKanbanVolatile(el, shownAll); paintSparks(el); return; }
   if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
   var page = document.scrollingElement || document.documentElement;
   var pageY = page.scrollTop, laneX = el.parentElement.scrollLeft;
@@ -772,41 +773,17 @@ function renderKanban(){
   sigSet(el, kstruct, html);
   page.scrollTop = pageY;
   el.parentElement.scrollLeft = laneX;
+  kanbanSyncAll(el, shownAll);
   updateKanbanVolatile(el, shownAll);
   paintSparks(el);
   trySelectCard(); // W890 ?w= deep link: highlight+scroll once the kanban renders the card
 }
+// W2267.4.2.2 — the card's interior is the Lit card's own shadow DOM now:
+// volatile refresh rides kanbanSyncAll (host properties), never page-DOM
+// text swaps. The pass stays because paintSparks still serves the drawer.
 function updateKanbanVolatile(el, shownAll){
-  var cards = el.querySelectorAll('.kcard');
-  for (var i = 0; i < shownAll.length && i < cards.length; i++) {
-    var t = shownAll[i], c = cards[i];
-    if (c.getAttribute('data-kid') !== t.id) continue;
-    var ageEl = c.querySelector('.kage');
-    if (ageEl) {
-      ageEl.textContent = agoShort(t.age_s);
-      ageEl.setAttribute('title', 'open ' + ago(t.age_s));
-    }
-    var stampEl = c.querySelector('.kcardstamp time');
-    if (stampEl && t.updated_at_utc) {
-      var sd = new Date(t.updated_at_utc);
-      if (!isNaN(sd.getTime())) {
-        stampEl.setAttribute('datetime', sd.toISOString());
-        stampEl.setAttribute('title', stampFull(sd));
-        stampEl.textContent = agoShort(msAgo(sd.getTime()));
-      }
-    }
-    var tailEl = c.querySelector('.ktail');
-    if (tailEl) tailEl.textContent = (t.tail && t.tail.text) ? t.tail.text : '';
-    var klaneEl = c.querySelector('.klane');
-    if (klaneEl && t.execution) klaneEl.setAttribute('title', klaneObservedTitle(t.execution));
-    var spendEl = c.querySelector('.kspendtxt');
-    if (spendEl && t.spend) {
-      spendEl.textContent = spendStripInner(t.spend);
-      spendEl.setAttribute('title', 'Attributed totals for this work item');
-    }
-    var sigEl = c.querySelector('.ksignal');
-    if (sigEl) sigEl.textContent = t.signal ? '⚑ ' + t.signal.class + ' · ' + Math.round((t.signal.confidence || 0) * 100) + '%' : '';
-  }
+  void el;
+  void shownAll;
 }
 var SVGNS = 'http://www.w3.org/2000/svg';
 // --- card sparklines: per-item request spend over time painted

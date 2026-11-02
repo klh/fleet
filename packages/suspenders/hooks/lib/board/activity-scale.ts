@@ -15,7 +15,9 @@
 //     normalization): zero/unknown draws nothing, overflow saturates and
 //     says so, elapsed time is never progress.
 export const ACTIVITY_STEP_PX = 6;
-export const ACTIVITY_BAR_PX = 4;
+/** W2267.4.2.2 (#103177): thin ~1.5px real-bin strokes — the approved 09
+ * spectral look. Bin spacing/count and data geometry are unchanged. */
+export const ACTIVITY_BAR_PX = 1.5;
 /** The design bin: a 6px cell ↔ 3 minutes — the board's one bin width. */
 export const ACTIVITY_BIN_MS = 180_000;
 /**
@@ -103,7 +105,14 @@ const EMPTY_BINS: SpectralBins = {
 	hasData: false,
 };
 
-/** Aggregate points into the measured-width, end-pinned spectral bins. */
+/** Aggregate points into the measured-width, end-pinned spectral bins.
+ *  W2267.4.2.1: ONE honest domain — the window the axis LABELS is the
+ *  window that is PLOTTED, hoverable and keyboard-walkable. Short data
+ *  clips `count` down to its own span, so no blank future bins occupy
+ *  the strip's right side (root-proven #100836: 38 real bins labeled to
+ *  09:52 while 63 inspect slots walked into empty 11:04+ future). Dense
+ *  data keeps the measured width-derived count with older points
+ *  clipping out (W1203 parity). */
 export function spectralBins(
 	points: readonly [number, number, number, number][],
 	trackPx: number,
@@ -117,21 +126,31 @@ export function spectralBins(
 		if (p[0] > last) last = p[0];
 	}
 	const w = activityWindow(last, trackPx);
-	// W1203: end-pinned on dense data (older points clip); short data
-	// left-aligns at its own first point — never empty future bins.
+	// end-pinned on dense data (older points clip); short data left-aligns
+	// at its own first point and its own span clips the count — never
+	// empty future bins, never a labeled end no slot reaches.
 	const start = forceStart ?? Math.max(w.start, first);
-	// honest end: the last bin holding data, never a future timestamp
-	const end = Math.min(start + w.count * w.slotMs, last + w.slotMs);
+	const spanBins = Math.ceil((last - start) / w.slotMs) + 1;
+	const count = Math.max(1, Math.min(w.count, spanBins));
 	return {
-		bins: binPoints(points, start, w.count),
+		bins: binPoints(points, start, count),
 		firstTs: first,
 		windowStart: start,
-		windowEnd: end,
-		count: w.count,
+		windowEnd: start + count * w.slotMs,
+		count,
 		slotMs: w.slotMs,
 		startClipped: start > first,
 		hasData: true,
 	};
+}
+
+/** `09:52` — the owner-approved compact local HH:mm for the visible axis
+ *  (W2267.4.2.1, root #100723); exact dual UTC/local stamps stay on the
+ *  hover/keyboard inspector, never on the axis itself. */
+export function fmtHHmm(t: number): string {
+	const d = new Date(t);
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export interface DurationSpan {

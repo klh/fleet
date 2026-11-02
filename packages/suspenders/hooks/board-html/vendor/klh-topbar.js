@@ -1,5 +1,5 @@
-import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358688ea55.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",h=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class l extends r{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=n`
-		${c(p)}
+import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{L,D,N}from"./lit-0906bd4fdaeb73f5.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${d(N)}
 		:host {
 			display: block;
 		}
@@ -130,7 +130,7 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 				<span class="cavbig">${o(a)}</span>
 				<span>
 					<span class="cavname">${a}</span><br />
-					<span class="cavsub">${h(t.tags??{})}</span>
+					<span class="cavsub">${l(t.tags??{})}</span>
 				</span>
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
@@ -150,11 +150,11 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 				<div class="klh-settings-panel" role="group" aria-label="settings">
 					<fieldset class="klh-theme">
 						<legend>theme</legend>
-						${d.map((t)=>e`
+						${D.map((t)=>e`
 								<label>
 									<input
 										type="radio"
-										name=${u}
+										name=${L}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}
@@ -188,4 +188,4 @@ import{c,n,e,r}from"./lit-df39549a6b261b0c.js";import{u,d,p}from"./lit-50e491358
 					</span>
 				</span>
 			</nav>
-		`}}customElements.define("klh-topbar",l);
+		`}}customElements.define("klh-topbar",c);

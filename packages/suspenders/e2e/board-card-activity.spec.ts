@@ -7,8 +7,9 @@
 // HTML-parser channel — UI-law clean) with the theme head inlined from
 // the lib; the component under test is the real built artifact, no
 // reimplementation.
+
+import { THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 import type { Locator, Page } from "@playwright/test";
-import { THEME_HEAD } from "../hooks/lib/theme.ts";
 import { expect, test } from "./fixtures";
 
 const T0 = 1_700_000_000_000;
@@ -33,7 +34,7 @@ async function mountActivity(
 			contentType: "text/html; charset=utf-8",
 			body:
 				`<!doctype html><html data-theme="${theme}"><head>${THEME_HEAD}` +
-				`<script type="module" src="/vendor/klh-card-activity.js"></script>` +
+				`<script type="module" src="/vendor/klh-board-register.js"></script>` +
 				`</head><body><klh-card-activity style="width:360px"></klh-card-activity></body></html>`,
 		}),
 	);
@@ -217,7 +218,7 @@ test("tooltip: exact bin values, keyboard reachable, stays in viewport", {
 					(el) => el.shadowRoot?.querySelector(".tip")?.textContent ?? "",
 				),
 		)
-		.toContain("3 min");
+		.toContain("3-minute bin");
 	await page.keyboard.press("Escape");
 	await expect
 		.poll(() =>
@@ -246,7 +247,7 @@ test("first paint uses the measured width, not the 240px floor (W2514 B1)", {
 						"",
 				),
 		)
-		.toBe("0 0 360 28");
+		.toBe("0 0 360 40");
 });
 
 test("hairline duration/scale is keyboard exposed (W2514 B2)", {

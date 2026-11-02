@@ -14,7 +14,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Board } from "../test/helpers/board-harness";
 import { expect, test } from "./fixtures";
-import { measureSpark } from "./spark-geom";
+import { measureSpark, measureStrip } from "./spark-geom";
 
 test.use({ boardOptions: { env: { SUSPENDERS_BUCKLE_DB: "" } } });
 
@@ -81,15 +81,16 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	// scope to the seeded card — the worker board may carry earlier claimed
 	// items whose strips paint too (strict mode)
 	const card = page.locator(`.kcard[data-kid="${wId}"]`);
-	// the strip text (fresh 500 · cached 60 → 11% cache) rides the card
-	await expect(card.locator(".kspend .kspendtxt")).toContainText("tok/m", {
-		timeout: 20_000,
-	});
-	await expect(card.locator(".kspend .kspendtxt")).toContainText("% cache");
-	// the sparkline painted as inline SVG (fresh + cached bars — the
-	// renderer draws stacked rect bars, not polylines)
-	await expect(card.locator(".kspark svg rect.spark-fresh")).toHaveCount(1);
-	await expect(card.locator(".kspark svg rect.spark-cached")).toHaveCount(1);
+	// W2267.4.2.2: the ONE Lit strip — stacked fresh/cached SVG bars with
+	// positive geometry (the retired legacy .kspark chunk no longer renders)
+	await expect(
+		card.locator("klh-card-activity rect.spark-fresh"),
+	).toHaveCount(1, { timeout: 20_000 });
+	await expect(card.locator("klh-card-activity rect.spark-cached")).toHaveCount(
+		1,
+	);
+	// the compact axis is visible (the Lit strip's own surface)
+	await expect(card.locator("klh-card-activity .axis")).toBeVisible();
 	// the tasks table carries the strip as the tok cell tooltip
 	await page.goto(`${cleanBoard.BASE}/#tasks`);
 	await expect(
@@ -129,19 +130,26 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 	await page.goto(`${cleanBoard.BASE}/#lanes`);
 	// the series paints after an async fetch — measure only once bars exist
 	await expect(
-		page.locator(`.kcard[data-kid="${wId}"] .kspark svg rect`).first(),
+		page.locator(`.kcard[data-kid="${wId}"] klh-card-activity rect`).first(),
 	).toBeVisible();
-	const card = await measureSpark(page, `.kcard[data-kid="${wId}"]`);
-	expect(Math.abs(card.svgW - card.trackW)).toBeLessThanOrEqual(0.6);
-	expect(card.barCount).toBe(Math.floor(card.spanW / 6));
+	// W2267.4.2.2: the card strip is the Lit component — its viewBox width
+	// IS its measured client width, so viewBox units are CSS px and the
+	// W1203 invariants (floor(track/6) bins, thin 1.5px strokes #103177,
+	// edge-to-edge) carry over
+	const card = await measureStrip(page, `.kcard[data-kid="${wId}"]`);
+	expect(Math.abs(card.viewBoxW - card.trackW)).toBeLessThanOrEqual(0.6);
+	expect(card.barCount).toBe(Math.floor(card.trackW / 6));
 	for (const w of card.barWidths)
-		expect(Math.abs(w - 4)).toBeLessThanOrEqual(0.6); // fixed pixel bars
-	expect(card.firstLeft).toBeGreaterThanOrEqual(0.5);
-	expect(card.firstLeft).toBeLessThanOrEqual(2);
-	expect(card.trackW - card.lastRight).toBeGreaterThanOrEqual(0.5);
-	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(2);
-	expect(card.axisLabel).toBe(card.axisExpected); // labels from actual span
-	await page.locator(`.kcard[data-kid="${wId}"] .tidbtn`).click();
+		expect(Math.abs(w - 1.5)).toBeLessThanOrEqual(0.6); // thin strokes #103177
+	// 1.5px bars center in their 6px cells: first stroke left = (6-1.5)/2
+	expect(card.firstLeft).toBeGreaterThanOrEqual(2);
+	expect(card.firstLeft).toBeLessThanOrEqual(2.5);
+	// the last painted bar sits in the LAST cell — its right edge lands
+	// within one cell-width (6px) of the track end (empty trailing bins
+	// inside the window paint nothing, the newest point rides the last bin)
+	expect(card.trackW - card.lastRight).toBeGreaterThanOrEqual(0.75);
+	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(6);
+	await page.locator(`.kcard[data-kid="${wId}"] klh-task-card .tid`).click();
 	await expect(
 		page.locator("#drawerBody .kspend-drawer .kspark svg rect").first(),
 	).toBeVisible();
@@ -170,9 +178,9 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 	for (const w of narrow.barWidths)
 		expect(Math.abs(w - 5)).toBeLessThanOrEqual(0.6); // bars never stretch
 	// the card tiles edge-to-edge too, whatever its track did at 320px
-	const cardNarrow = await measureSpark(page, `.kcard[data-kid="${wId}"]`);
+	const cardNarrow = await measureStrip(page, `.kcard[data-kid="${wId}"]`);
 	for (const w of cardNarrow.barWidths)
-		expect(Math.abs(w - 4)).toBeLessThanOrEqual(0.6);
-	expect(cardNarrow.firstLeft).toBeGreaterThanOrEqual(0.5);
-	expect(cardNarrow.trackW - cardNarrow.lastRight).toBeLessThanOrEqual(2);
+		expect(Math.abs(w - 1.5)).toBeLessThanOrEqual(0.6);
+	expect(cardNarrow.firstLeft).toBeGreaterThanOrEqual(2);
+	expect(cardNarrow.trackW - cardNarrow.lastRight).toBeLessThanOrEqual(4);
 });
