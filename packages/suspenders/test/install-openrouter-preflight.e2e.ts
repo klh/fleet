@@ -6,6 +6,10 @@
 // the REAL seedLocalLlm (belt closure heal + REAL generator spawn on the
 // happy path) against a kit scratchWorld repo + an isolated flat home —
 // no ambient machine state, fetchers injected, key file owned by the fixture.
+// W2546.2.2 fixture lifecycle: every world registers at mint and cleans in
+// afterEach even when setup or an assertion fails; the kit's env pins are
+// APPLIED to process.env (not just returned) so in-process reads and every
+// spawned helper see the isolated HOME/store/telemetry configuration.
 import { expect, test } from "@playwright/test";
 import {
 	existsSync,
@@ -16,7 +20,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { scratchWorld } from "@klh/test-kit";
+import { scratchWorld, type ScratchWorld } from "@klh/test-kit";
 import type { StepContext } from "../scripts/install/install-run.ts";
 import { seedLocalLlm } from "../scripts/install/install-llm-steps.ts";
 
@@ -28,9 +32,54 @@ const REPO = join(import.meta.dir, ".."); // packages/suspenders
 // kit world stays the fixture base (env pins, repo, clean() teardown); only
 // its mkdtemp parent moves under $HOME/.cache, like the legacy suite.
 const CACHE_BASE = join(process.env.HOME ?? "", ".cache", "w25462-tests");
-const worldFor = (label: string) => {
+
+// Fixture-pinned knobs (test-kit's world.env carries the first three; the
+// rest are the W2546.2.2 isolation seams): dead ports make every ambient
+// store/telemetry leg fail fast and quietly instead of reaching the real
+// control plane or hanging a request. Isolated git identity blocks config
+// writes to the operator's real ~/.gitconfig.
+const ENV_PINS: Record<string, string> = {
+	GOVERNOR_STORE_URL: "local",
+	SUSPENDERS_KEV_URL: "http://127.0.0.1:9",
+	SUSPENDERS_KNOWLEDGE_SINK_URL: "http://127.0.0.1:9",
+	SUSPENDERS_KNOWLEDGE_SINK_TIMEOUT_MS: "50",
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_CONFIG_SYSTEM: "/dev/null",
+};
+
+type Snapshot = Record<string, string | undefined>;
+
+const snapshotEnv = (keys: string[]): Snapshot => {
+	const snap: Snapshot = {};
+	for (const key of keys) snap[key] = process.env[key];
+	return snap;
+};
+
+/** Exact restore: originally absent keys are deleted again (an empty-string
+ *  restore would read as a SET knob), present ones get their value back. */
+const restoreEnv = (snap: Snapshot): void => {
+	for (const [key, value] of Object.entries(snap)) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+};
+
+const worlds: ScratchWorld[] = [];
+
+/** Mint an isolated world, APPLY its env pins to this process (in-process
+ *  reads and spawned helpers inherit them), and register it for guaranteed
+ *  afterEach cleanup — a failed assertion or setup error never leaks the
+ *  home/repo dirs again (the 2026-11-02 six-store-server incident). */
+const worldFor = (label: string): ScratchWorld => {
 	mkdirSync(CACHE_BASE, { recursive: true });
-	return scratchWorld({ prefix: `${label}-`, dir: CACHE_BASE });
+	const world = scratchWorld({ prefix: `${label}-`, dir: CACHE_BASE });
+	worlds.push(world);
+	// world.env (kit pins + HOME) first, then this suite's pins — never
+	// return-only: seedLocalLlm's spawned helpers inherit process.env.
+	for (const [key, value] of Object.entries(world.env))
+		if (value !== undefined) process.env[key] = value;
+	for (const [key, value] of Object.entries(ENV_PINS)) process.env[key] = value;
+	return world;
 };
 
 const OPENROUTER_PUBLIC =
@@ -154,17 +203,24 @@ function ctxFor(llmHome: string): StepContext {
 }
 
 test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
-	// seedLocalLlm's in-process reads (the key file) resolve process.env.HOME —
-	// pin it to the fixture for the test's lifetime and restore before teardown
-	// (bun-test-env-leak: restore precedes rmSync).
-	const realHome = process.env.HOME;
+	// W2546.2.2: snapshot exactly what worldFor pins — the kit world.env
+	// writes back process.env unchanged except its four pins (HOME, the two
+	// GIT_CONFIG_* files, GOVERNOR_STORE_URL), all covered by HOME ∪ ENV_PINS.
+	// Restore BEFORE the world teardown (restore-precedes-rmSync) and clean
+	// EVERY registered world even when an assertion or setup threw mid-test —
+	// clean()-after-assertions leaked homes on every failure (46 dirs
+	// survived the 2026-11-02 broken runs).
+	const envSnapshot = snapshotEnv(["HOME", ...Object.keys(ENV_PINS)]);
 	test.afterEach(() => {
-		process.env.HOME = realHome;
+		try {
+			restoreEnv(envSnapshot);
+		} finally {
+			for (const world of worlds.splice(0)) world.clean();
+		}
 	});
 
 	test("stale timestamp, groups unchanged: snapshot refreshed, REAL regen green", async () => {
 		const world = worldFor("w25462-heal");
-		process.env.HOME = world.home;
 		const { llm, snapshot } = staleHome(world.home);
 		const calls: string[] = [];
 		const res = await seedLocalLlm(ctxFor(llm), {
@@ -180,12 +236,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 		const yamlText = readFileSync(join(llm, "litellm.yaml"), "utf8");
 		expect(yamlText).toContain('model_name: "openrouter/free"');
 		expect(yamlText).not.toContain("old: yaml");
-		world.clean();
 	});
 
 	test("route objects with REORDERED properties stay valid (#102805 control)", async () => {
 		const world = worldFor("w25462-order");
-		process.env.HOME = world.home;
 		const { llm, snapshot } = staleHome(world.home);
 		// reverse each route object's property order — byte-equivalent JSON
 		const doc = JSON.parse(readFileSync(snapshot, "utf8")) as {
@@ -205,12 +259,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 		});
 		expect(res.status).toBe("ok");
 		expect(res.note).toContain("OpenRouter free catalog snapshot refreshed");
-		world.clean();
 	});
 
 	test("route with a CHANGED value or an ADDED field is invalid (#102805 control)", async () => {
 		const world = worldFor("w25462-value");
-		process.env.HOME = world.home;
 		for (const [label, mutate, invalidMsg] of [
 			[
 				"url",
@@ -246,12 +298,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			expect(readFileSync(snapshot, "utf8")).toBe(before);
 			expect(runs).toEqual([]);
 		}
-		world.clean();
 	});
 
 	test("real route-set delta: fails naming the delta, snapshot + yaml untouched, no regen", async () => {
 		const world = worldFor("w25462-delta");
-		process.env.HOME = world.home;
 		const { llm, snapshot } = staleHome(world.home);
 		const before = readFileSync(snapshot, "utf8");
 		const { runs, run } = recorder();
@@ -275,12 +325,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			"old: yaml",
 		);
 		expect(runs).toEqual([]);
-		world.clean();
 	});
 
 	test("unverifiable live catalog (HTTP 401; missing key file, zero fetches): bounded failure, preserved", async () => {
 		const world = worldFor("w25462-unver");
-		process.env.HOME = world.home;
 		for (const [key, cause, fetches] of [
 			[true, "HTTP 401", 2],
 			[false, "ENOENT", 0],
@@ -310,12 +358,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			expect(readFileSync(snapshot, "utf8")).toBe(before);
 			expect(runs).toEqual([]);
 		}
-		world.clean();
 	});
 
 	test("malformed snapshot, arrays-as-groups, null, bad timestamp: invalid, preserved", async () => {
 		const world = worldFor("w25462-malformed");
-		process.env.HOME = world.home;
 		const variants: Array<[string, string]> = [
 			["malformed", '{"version": 1, "groups": {"g": []}}'],
 			["array-groups", JSON.stringify({ version: 1, groups: [] })],
@@ -335,12 +381,10 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			expect(readFileSync(snapshot, "utf8")).toBe(raw);
 			expect(runs).toEqual([]);
 		}
-		world.clean();
 	});
 
 	test("fresh snapshot or none at all: zero fetches, no key read, regen proceeds", async () => {
 		const world = worldFor("w25462-fresh");
-		process.env.HOME = world.home;
 		// fresh: no fetch, the REAL generator spawns and stays green
 		const fresh = staleHome(world.home, { ageMs: 60_000 });
 		const calls: string[] = [];
@@ -366,6 +410,5 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 		});
 		expect(res2.status).toBe("ok");
 		expect(absentCalls).toEqual([]);
-		world.clean();
 	});
 });
