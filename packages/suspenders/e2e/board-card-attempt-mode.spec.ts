@@ -5,8 +5,8 @@
 // artifact milestones (regression for root #101559 — the first
 // ArrowRight threw TypeError), empty state, stale-tip dismissal, RO
 // re-observe after reconnect/resize, and the 380/600 both-theme geometry.
+import { THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 import type { Locator, Page } from "@playwright/test";
-import { THEME_HEAD } from "../hooks/lib/theme.ts";
 import { expect, test } from "./fixtures";
 
 // local midnight rollover: 23:50 → 01:20 next day (CET, UTC+01:00 in Nov)
