@@ -27,6 +27,14 @@ export function taskTone(state: string): TaskTone {
 	return "ready";
 }
 
+/** Display word for the status label (#100689): the canonical state stays
+ * untouched — only the label maps, so SHATTERED renders the board's
+ * established "split" vocabulary instead of the raw enum word. */
+export function taskStatusWord(state: string): string {
+	if (state === "SHATTERED") return "split";
+	return state.toLowerCase();
+}
+
 const optStr = z.optional(z.nullable(z.string()));
 const optNum = z.optional(z.nullable(z.number()));
 

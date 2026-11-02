@@ -24,6 +24,7 @@ import {
 	fmtRate,
 	fmtTokens,
 	fmtWall,
+	taskStatusWord,
 	taskTone,
 } from "./klh-task-card-model.ts";
 
@@ -46,9 +47,12 @@ export class KlhTaskCard extends LitElement {
 		:host([data-tone="cancelled"]) { --state-color: var(--work-cancelled); }
 		:host {
 			/* the host IS the card surface: configurable semantic perimeter
-			   (—prefer) independent of --state-color; nested children dashed. */
+			   (—prefer) independent of --state-color; nested children dashed.
+			   position:relative anchors the nested elbow (absolute, hung into
+			   the indent gutter) to THIS card, not an unrelated ancestor. */
 			display: flex;
 			flex-direction: column;
+			position: relative;
 			border: 1px solid
 				var(--prefer, var(--state-color, var(--klh-edge-soft)));
 			border-radius: 3px;
@@ -83,15 +87,16 @@ export class KlhTaskCard extends LitElement {
 			display: flex;
 			align-items: baseline;
 			gap: 6px;
-			font-size: var(--klh-text-xs, var(--klh-typo-size-2xs, 10px));
+			/* #101242: the readable 12px band — 10px stays axis/units only */
+			font-size: var(--klh-typo-size-m, 12px);
 			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--state-color, var(--klh-dim));
 		}
 		.sq {
 			flex: none;
-			width: 7px;
-			height: 7px;
+			width: 10px;
+			height: 10px;
 			border-radius: 1px;
 			background: var(--state-color, var(--klh-dim));
 			align-self: center;
@@ -113,7 +118,8 @@ export class KlhTaskCard extends LitElement {
 			border: 0;
 			background: none;
 			color: var(--klh-ink);
-			font: 600 var(--klh-typo-size-3xl, 18px)
+			/* #101242: prominent own-line mono ID — 20px readable at 380 too */
+			font: 600 var(--klh-typo-size-3xl, 20px)
 				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			text-align: left;
 			cursor: pointer;
@@ -363,7 +369,7 @@ export class KlhTaskCard extends LitElement {
 	}
 
 	private statusWord(): string {
-		return this.card.state.toLowerCase();
+		return taskStatusWord(this.card.state);
 	}
 
 	protected render() {
@@ -377,9 +383,11 @@ export class KlhTaskCard extends LitElement {
 		const effortOptions = c.effortOptions ?? [];
 		const effortPick = c.effortPick ?? "";
 		return html`
-			${c.nested
-				? html`<span class="elbow" aria-hidden="true">↳</span>`
-				: nothing}
+			${
+				c.nested
+					? html`<span class="elbow" aria-hidden="true">↳</span>`
+					: nothing
+			}
 			<div class="wrap">
 				<div class="pad">
 				<div class="head">
@@ -390,17 +398,23 @@ export class KlhTaskCard extends LitElement {
 				<button class="tid" type="button" @click=${this.open}>
 					${c.id}
 				</button>
-				${c.title
-					? html`<div class="title" title=${c.title}>${c.title}</div>`
-					: nothing}
-				${c.context
-					? html`<div class="ctx" title=${c.context}>${c.context}</div>`
-					: nothing}
-				${c.parentRef
-					? html`<div class="ctx" title=${`split under ${c.parentRef}`}
+				${
+					c.title
+						? html`<div class="title" title=${c.title}>${c.title}</div>`
+						: nothing
+				}
+				${
+					c.context
+						? html`<div class="ctx" title=${c.context}>${c.context}</div>`
+						: nothing
+				}
+				${
+					c.parentRef
+						? html`<div class="ctx" title=${`parent ${c.parentRef}`}
 							>↳ ${c.parentRef}</div
 						>`
-					: nothing}
+						: nothing
+				}
 				<hr class="rule" />
 				<div class="cols">
 					<div class="col">
@@ -412,12 +426,14 @@ export class KlhTaskCard extends LitElement {
 						<b title=${c.host ?? ""}>${c.host ?? UNK}</b>
 					</div>
 				</div>
-				${c.warn
-					? html`<div class="warn" role="note">
+				${
+					c.warn
+						? html`<div class="warn" role="note">
 							<span class="wl">${tone === "failed" ? "blocked" : "warning"}</span>
 							<span class="wt" title=${c.warn}>${c.warn}</span>
 						</div>`
-					: nothing}
+						: nothing
+				}
 				<div class="metrics">
 					<div class="m">
 						<span class="mv">${fmtTokens(m?.tokens)}</span>
@@ -436,13 +452,14 @@ export class KlhTaskCard extends LitElement {
 						<span class="ml">cache</span>
 					</div>
 				</div>
-				<slot class="details pad" name="details"></slot>
+				<slot class="details" name="details"></slot>
 				</div>
 				<slot class="activity" name="activity"></slot>
 			</div>
 			<footer>
-				${tone === "failed"
-					? html`<button
+				${
+					tone === "failed"
+						? html`<button
 							class="seg retry"
 							type="button"
 							@click=${() => this.act("retry")}
@@ -463,9 +480,11 @@ export class KlhTaskCard extends LitElement {
 						>
 							Prompt ↗
 						</button>`
-					: nothing}
-				${tone === "ready" && executors.length
-					? html`<select
+						: nothing
+				}
+				${
+					tone === "ready" && executors.length
+						? html`<select
 							class="seg"
 							aria-label=${`executor for ${c.id}`}
 							@change=${(e: Event) => {
@@ -482,8 +501,9 @@ export class KlhTaskCard extends LitElement {
 								</option>`,
 							)}
 						</select>
-						${effortOptions.length
-							? html`<select
+						${
+							effortOptions.length
+								? html`<select
 									class="seg"
 									aria-label=${`reasoning effort for ${c.id}`}
 									@change=${(e: Event) => {
@@ -499,7 +519,8 @@ export class KlhTaskCard extends LitElement {
 										</option>`,
 									)}
 								</select>`
-							: nothing}
+								: nothing
+						}
 						<button
 							class="seg start"
 							type="button"
@@ -514,9 +535,32 @@ export class KlhTaskCard extends LitElement {
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`
-					: nothing}
-				${tone === "working" && executors.length
-					? html`<select
+						: nothing
+				}
+				${
+					tone === "ready" && !executors.length
+						? // #101156: no executor catalog → Prompt stays, no Start row
+							html`<span class="spacer"></span>${this.promptSeg()}`
+						: nothing
+				}
+				${
+					tone === "working" && !executors.length
+						? // #101156: Release is independent of the executor catalog
+							html`<button
+								class="seg release"
+								type="button"
+								title="release the claim — a live lane banks its capsule and exits"
+								@click=${() => this.act("release")}
+							>
+								Release ⏏
+							</button>
+							<span class="spacer"></span>
+							${this.promptSeg()}`
+						: nothing
+				}
+				${
+					tone === "working" && executors.length
+						? html`<select
 							class="seg"
 							aria-label=${`reassign executor for ${c.id}`}
 							@change=${(e: Event) => {
@@ -554,9 +598,11 @@ export class KlhTaskCard extends LitElement {
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`
-					: nothing}
-				${tone === "done"
-					? html`<span class="spacer"></span>
+						: nothing
+				}
+				${
+					tone === "done"
+						? html`<span class="spacer"></span>
 						<button
 							class="seg tail report"
 							type="button"
@@ -564,11 +610,18 @@ export class KlhTaskCard extends LitElement {
 							@click=${() => this.act("report")}
 						>
 							Report ▸
-						</button>`
-					: nothing}
-				${tone !== "failed" && tone !== "ready" && tone !== "working" && tone !== "done"
-					? html`<span class="spacer"></span>${this.promptSeg()}`
-					: nothing}
+						</button>
+						${this.promptSeg()}`
+						: nothing
+				}
+				${
+					tone !== "failed" &&
+					tone !== "ready" &&
+					tone !== "working" &&
+					tone !== "done"
+						? html`<span class="spacer"></span>${this.promptSeg()}`
+						: nothing
+				}
 			</footer>
 		`;
 	}
@@ -598,7 +651,8 @@ export class KlhTaskCard extends LitElement {
 			this.draftEffort = undefined;
 		}
 		this.setAttribute("data-tone", this.tone());
-		if (this.card.preferColor) this.style.setProperty("--prefer", this.card.preferColor);
+		if (this.card.preferColor)
+			this.style.setProperty("--prefer", this.card.preferColor);
 		else this.style.removeProperty("--prefer");
 	}
 }

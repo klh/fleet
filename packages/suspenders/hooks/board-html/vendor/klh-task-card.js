@@ -1,13 +1,27 @@
-import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from"./lit-5ab415d586a6f867.js";class k extends d{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(a,c,m,x){super(k.eventName);this.action=a,this.id=c,this.project=m,this.executor=x?.executor,this.effort=x?.effort}}class b extends d{static eventName="task-card-open-requested";id;project;constructor(a,c){super(b.eventName);this.id=a,this.project=c}}function C(a){if(a==="CLAIMED"||a==="RUNNING")return"working";if(a==="WAITING"||a==="BLOCKED"||a==="PAUSED")return"blocked";if(a==="SHATTERED")return"split";if(a==="FAILED")return"failed";if(a==="DONE")return"done";if(a==="CANCELLED")return"cancelled";return"ready"}var h=o(E(s())),g=o(E(u())),q=i({value:s(),label:s(),badge:o(s()),reasoningEffort:o(y())}),K=i({tokens:g,wallMs:g,tokPerMin:g,cachePct:g}),D=i({mode:z(["spend","attempt"]),windowStartMs:g,windowEndMs:g,binMs:g,elapsedMs:g,scaleMs:g}),F=i({id:s(),project:h,title:h,state:s(),ageS:g,context:h,parentRef:h,model:h,host:h,warn:h,metrics:o(K),activity:o(D),nested:o(y()),preferColor:h,executors:o(l(q)),executorPick:h,effortOptions:o(l(s())),effortPick:h});function R(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${Math.round(a/1000)}k`;return String(Math.round(a))}function A(a){if(a==null)return"—";if(a<60000)return`${Math.max(1,Math.round(a/1000))}s`;let c=Math.round(a/60000);if(c>=60)return`${Math.floor(c/60)}h${String(c%60).padStart(2,"0")}m`;return`${c}m`}function P(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${(a/1000).toFixed(1)}k`;return String(Math.round(a))}function L(a){if(a==null)return"—";return`${Math.round(a)}%`}var w="—";class O extends r{static properties={card:{attribute:!1}};static styles=n`
+import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from"./lit-5ab415d586a6f867.js";class b extends d{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(a,c,k,m){super(b.eventName);this.action=a,this.id=c,this.project=k,this.executor=m?.executor,this.effort=m?.effort}}class w extends d{static eventName="task-card-open-requested";id;project;constructor(a,c){super(w.eventName);this.id=a,this.project=c}}function R(a){if(a==="CLAIMED"||a==="RUNNING")return"working";if(a==="WAITING"||a==="BLOCKED"||a==="PAUSED")return"blocked";if(a==="SHATTERED")return"split";if(a==="FAILED")return"failed";if(a==="DONE")return"done";if(a==="CANCELLED")return"cancelled";return"ready"}function A(a){if(a==="SHATTERED")return"split";return a.toLowerCase()}var h=o(E(s())),g=o(E(u())),I=i({value:s(),label:s(),badge:o(s()),reasoningEffort:o(y())}),D=i({tokens:g,wallMs:g,tokPerMin:g,cachePct:g}),K=i({mode:z(["spend","attempt"]),windowStartMs:g,windowEndMs:g,binMs:g,elapsedMs:g,scaleMs:g}),U=i({id:s(),project:h,title:h,state:s(),ageS:g,context:h,parentRef:h,model:h,host:h,warn:h,metrics:o(D),activity:o(K),nested:o(y()),preferColor:h,executors:o(l(I)),executorPick:h,effortOptions:o(l(s())),effortPick:h});function P(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${Math.round(a/1000)}k`;return String(Math.round(a))}function O(a){if(a==null)return"—";if(a<60000)return`${Math.round(a/1000)}s`;let c=Math.round(a/60000);if(c>=60)return`${Math.floor(c/60)}h${String(c%60).padStart(2,"0")}m`;return`${c}m`}function N(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${(a/1000).toFixed(1)}k`;return String(Math.round(a))}function j(a){if(a==null)return"—";return`${Math.round(a)}%`}var T="—";class L extends r{static properties={card:{attribute:!1}};static styles=n`
+		/* tone → color, self-contained: the page maps data-tone on .kcard/
+		   .kcol only, so the card owns its own --state-color token map. */
+		:host([data-tone="ready"]) { --state-color: var(--work-ready); }
+		:host([data-tone="working"]) { --state-color: var(--work-working); }
+		:host([data-tone="blocked"]) { --state-color: var(--work-blocked); }
+		:host([data-tone="failed"]) { --state-color: var(--work-failed); }
+		:host([data-tone="done"]) { --state-color: var(--work-done); }
+		:host([data-tone="split"]) { --state-color: var(--work-split); }
+		:host([data-tone="cancelled"]) { --state-color: var(--work-cancelled); }
 		:host {
-			// the host IS the card surface: configurable semantic perimeter
-			// (—prefer) independent of --state-color; nested children dashed.
-			display: block;
+			/* the host IS the card surface: configurable semantic perimeter
+			   (—prefer) independent of --state-color; nested children dashed.
+			   position:relative anchors the nested elbow (absolute, hung into
+			   the indent gutter) to THIS card, not an unrelated ancestor. */
+			display: flex;
+			flex-direction: column;
+			position: relative;
 			border: 1px solid
 				var(--prefer, var(--state-color, var(--klh-edge-soft)));
 			border-radius: 3px;
 			background: var(--klh-wash);
-			font: 12px/1.45 var(--klh-font-sans);
+			font: var(--klh-text-md, var(--klh-typo-size-m, 12px))/1.45
+				var(--klh-font-sans, var(--klh-typo-sans-stack));
 			color: var(--klh-ink);
 			min-width: 0;
 		}
@@ -19,28 +33,33 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			left: -13px;
 			top: 13px;
 			color: var(--prefer, var(--klh-edge-strong));
-			font: 11px var(--klh-font-mono);
+			font: var(--klh-typo-size-s, 11px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 		}
 		.wrap {
 			position: relative;
 			display: flex;
 			flex-direction: column;
 			min-height: 100%;
-			padding: 9px 12px 0;
+			padding: 9px 0 0;
+		}
+		.pad {
+			padding: 0 12px;
 		}
 		.head {
 			display: flex;
 			align-items: baseline;
 			gap: 6px;
-			font-size: 10px;
-			letter-spacing: 0.05em;
+			/* #101242: the readable 12px band — 10px stays axis/units only */
+			font-size: var(--klh-typo-size-m, 12px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--state-color, var(--klh-dim));
 		}
 		.sq {
 			flex: none;
-			width: 7px;
-			height: 7px;
+			width: 10px;
+			height: 10px;
 			border-radius: 1px;
 			background: var(--state-color, var(--klh-dim));
 			align-self: center;
@@ -62,7 +81,9 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			border: 0;
 			background: none;
 			color: var(--klh-ink);
-			font: 600 15px var(--klh-font-mono);
+			/* #101242: prominent own-line mono ID — 20px readable at 380 too */
+			font: 600 var(--klh-typo-size-3xl, 20px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			text-align: left;
 			cursor: pointer;
 			overflow-wrap: anywhere;
@@ -73,9 +94,9 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 		.title {
 			margin: 2px 0 0;
 			font-weight: 650;
-			font-size: 13px;
+			font-size: var(--klh-typo-size-2xl, 16px);
 			line-height: 1.35;
-			// long text truncates visually, full text stays accessible on hover
+			/* long text truncates visually, full text stays accessible on hover */
 			display: -webkit-box;
 			-webkit-box-orient: vertical;
 			-webkit-line-clamp: 3;
@@ -84,7 +105,8 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 		.ctx {
 			margin: 3px 0 0;
 			color: var(--klh-dim);
-			font: 10.5px var(--klh-font-mono);
+			font: var(--klh-typo-size-m, 12px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
@@ -98,7 +120,9 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			display: flex;
 			gap: 0;
 			margin-top: 5px;
-			font: 11px var(--klh-font-mono);
+			/* model/host values sit in the spec's 12–13px band (#100618) */
+			font: var(--klh-typo-size-m, 12px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 		}
 		.col {
 			flex: 1 1 0;
@@ -121,8 +145,8 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 		.lab {
 			display: block;
 			margin-top: 2px;
-			font-size: 8.5px;
-			letter-spacing: 0.07em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--klh-dim);
 		}
@@ -131,14 +155,14 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			border-left: 2px solid var(--work-failed, var(--klh-danger));
 			background: var(--klh-danger-wash);
 			padding: 4px 8px;
-			font-size: 10.5px;
+			font-size: var(--klh-typo-size-m, 12px);
 			color: var(--klh-danger-ink);
 		}
 		.warn .wl {
 			font-weight: 700;
 			text-transform: uppercase;
-			font-size: 9px;
-			letter-spacing: 0.06em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			margin-right: 5px;
 		}
 		.warn .wt {
@@ -165,15 +189,16 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			border-left: 1px solid var(--klh-edge-faint);
 		}
 		.mv {
-			font: 600 13px var(--klh-font-mono);
+			font: 600 var(--klh-typo-size-2xl, 16px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			font-variant-numeric: tabular-nums;
 			color: var(--klh-ink);
 		}
 		.ml {
 			display: block;
 			margin-top: 1px;
-			font-size: 8.5px;
-			letter-spacing: 0.06em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--klh-dim);
 			white-space: nowrap;
@@ -184,24 +209,38 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			font-size: 10.5px;
 			color: var(--klh-dim);
 		}
-		// the activity slot sits flush at the card bottom: the strip's own
-		// 1px duration rail + ~13px axis area ride the slot, no extra padding.
+		/* the activity slot sits flush at the card bottom: the strip's own
+		   1px duration rail + ~13px axis area ride the slot, no extra padding. */
 		.activity {
 			display: block;
 			margin-top: 8px;
 			padding: 0;
 		}
 		footer {
-			// neutral segmented rail, full-width flush bottom
+			/* neutral segmented rail, full-width flush bottom — zero margin so
+			   the axis area of the slotted strip abuts it exactly (#100618) */
 			display: flex;
 			align-items: stretch;
-			margin: 8px -12px 0;
+			width: 100%;
+			margin: 0;
 			border-top: 1px solid var(--klh-edge-faint);
 			background: var(--klh-surface);
 			border-radius: 0 0 2px 2px;
 		}
 		footer:empty {
 			display: none;
+		}
+		.spacer {
+			/* the lone Prompt/Report sits rightmost; the rail's empty left
+			   half stays bare surface with the segment dividers at the right */
+			flex: 1 1 auto;
+		}
+		.seg.tail {
+			/* bounded (not equal-share): the rightmost affordance keeps its
+			   own width, divider at its left edge, rail bare before it */
+			flex: 0 1 auto;
+			padding-inline: 14px;
+			border-left: 1px solid var(--klh-edge-faint);
 		}
 		.seg {
 			flex: 1 1 0;
@@ -214,7 +253,8 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			border: 0;
 			background: none;
 			color: var(--klh-ink-2);
-			font: 11px var(--klh-font-sans);
+			font: var(--klh-typo-size-s, 11px)
+				var(--klh-font-sans, var(--klh-typo-sans-stack));
 			cursor: pointer;
 			white-space: nowrap;
 		}
@@ -242,7 +282,8 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			color: var(--klh-ink);
 			border: 1px solid var(--klh-edge-mid);
 			border-radius: 2px;
-			font: 10.5px var(--klh-font-mono);
+			font: var(--klh-typo-size-xs, 10.5px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			padding: 0 4px;
 		}
 		footer button.seg:focus-visible,
@@ -251,31 +292,32 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 			outline: 2px solid var(--klh-accent);
 			outline-offset: -2px;
 		}
-	`;constructor(){super();this.card={id:"",state:"READY"}}tone(){return C(this.card.state)}open(){this.dispatchEvent(new b(this.card.id,this.card.project??null))}act(a,c){this.dispatchEvent(new k(a,this.card.id,this.card.project??null,c))}statusWord(){return this.card.state.toLowerCase()}render(){let a=this.card,c=this.tone(),m=a.metrics??null,x=a.ageS==null?w:S(a.ageS),N=a.ageS==null?"age unknown":`open ${f(a.ageS)}`,v=a.executors??[],M=a.executorPick??"",T=a.effortOptions??[],j=a.effortPick??"";return e`
-			<span class="elbow" aria-hidden="true">↳</span>
+	`;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return R(this.card.state)}open(){this.dispatchEvent(new w(this.card.id,this.card.project??null))}act(a,c){this.dispatchEvent(new b(a,this.card.id,this.card.project??null,c))}statusWord(){return A(this.card.state)}render(){let a=this.card,c=this.tone(),k=a.metrics??null,m=a.ageS==null?T:S(a.ageS),q=a.ageS==null?"age unknown":`open ${f(a.ageS)}`,v=a.executors??[],x=a.executorPick??"",M=a.effortOptions??[],C=a.effortPick??"";return e`
+			${a.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
+				<div class="pad">
 				<div class="head">
 					<span class="sq" data-tone=${c}></span>
 					<span class="stw">${this.statusWord()}</span>
-					<span class="age" title=${N}>${x}</span>
+					<span class="age" title=${q}>${m}</span>
 				</div>
 				<button class="tid" type="button" @click=${this.open}>
 					${a.id}
 				</button>
 				${a.title?e`<div class="title" title=${a.title}>${a.title}</div>`:t}
 				${a.context?e`<div class="ctx" title=${a.context}>${a.context}</div>`:t}
-				${a.parentRef?e`<div class="ctx" title=${`split under ${a.parentRef}`}
+				${a.parentRef?e`<div class="ctx" title=${`parent ${a.parentRef}`}
 							>↳ ${a.parentRef}</div
 						>`:t}
 				<hr class="rule" />
 				<div class="cols">
 					<div class="col">
 						<span class="lab">model</span>
-						<b title=${a.model??""}>${a.model??w}</b>
+						<b title=${a.model??""}>${a.model??T}</b>
 					</div>
 					<div class="col">
 						<span class="lab">host</span>
-						<b title=${a.host??""}>${a.host??w}</b>
+						<b title=${a.host??""}>${a.host??T}</b>
 					</div>
 				</div>
 				${a.warn?e`<div class="warn" role="note">
@@ -284,23 +326,24 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 						</div>`:t}
 				<div class="metrics">
 					<div class="m">
-						<span class="mv">${R(m?.tokens)}</span>
+						<span class="mv">${P(k?.tokens)}</span>
 						<span class="ml">tokens</span>
 					</div>
 					<div class="m">
-						<span class="mv">${A(m?.wallMs)}</span>
+						<span class="mv">${O(k?.wallMs)}</span>
 						<span class="ml">time</span>
 					</div>
 					<div class="m">
-						<span class="mv">${P(m?.tokPerMin)}</span>
+						<span class="mv">${N(k?.tokPerMin)}</span>
 						<span class="ml">tok/min</span>
 					</div>
 					<div class="m">
-						<span class="mv">${L(m?.cachePct)}</span>
+						<span class="mv">${j(k?.cachePct)}</span>
 						<span class="ml">cache</span>
 					</div>
 				</div>
 				<slot class="details" name="details"></slot>
+				</div>
 				<slot class="activity" name="activity"></slot>
 			</div>
 			<footer>
@@ -328,18 +371,24 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 				${c==="ready"&&v.length?e`<select
 							class="seg"
 							aria-label=${`executor for ${a.id}`}
-							@change=${(p)=>{this.act("start",{executor:p.target.value,effort:this.effortValue()})}}
+							@change=${(p)=>{this.draftExecutor=p.target.value}}
 						>
-							${v.map((p)=>e`<option value=${p.value} ?selected=${p.value===M}>
+							${v.map((p)=>e`<option
+									value=${p.value}
+									?selected=${p.value===(this.draftExecutor??x)}
+								>
 									${p.badge??""}${p.label}
 								</option>`)}
 						</select>
-						${T.length?e`<select
+						${M.length?e`<select
 									class="seg"
 									aria-label=${`reasoning effort for ${a.id}`}
-									@change=${(p)=>{this.act("start",{executor:this.executorValue(),effort:p.target.value})}}
+									@change=${(p)=>{this.draftEffort=p.target.value}}
 								>
-									${T.map((p)=>e`<option value=${p} ?selected=${p===j}>
+									${M.map((p)=>e`<option
+											value=${p}
+											?selected=${p===(this.draftEffort??C)}
+										>
 											${p}
 										</option>`)}
 								</select>`:t}
@@ -347,16 +396,32 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 							class="seg start"
 							type="button"
 							title="dispatch on the chosen executor"
-							@click=${()=>this.act("start",{executor:this.executorValue(),effort:this.effortValue()})}
+							@click=${()=>this.act("start",{executor:this.draftExecutor??x,effort:this.draftEffort??C})}
 						>
 							Start ▶
-						</button>`:t}
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`:t}
+				${c==="ready"&&!v.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${c==="working"&&!v.length?e`<button
+								class="seg release"
+								type="button"
+								title="release the claim — a live lane banks its capsule and exits"
+								@click=${()=>this.act("release")}
+							>
+								Release ⏏
+							</button>
+							<span class="spacer"></span>
+							${this.promptSeg()}`:t}
 				${c==="working"&&v.length?e`<select
 							class="seg"
 							aria-label=${`reassign executor for ${a.id}`}
-							@change=${(p)=>{this.act("reassign",{executor:p.target.value})}}
+							@change=${(p)=>{this.draftExecutor=p.target.value}}
 						>
-							${v.map((p)=>e`<option value=${p.value} ?selected=${p.value===M}>
+							${v.map((p)=>e`<option
+									value=${p.value}
+									?selected=${p.value===(this.draftExecutor??x)}
+								>
 									${p.badge??""}${p.label}
 								</option>`)}
 						</select>
@@ -364,7 +429,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 							class="seg reassign"
 							type="button"
 							title="release + re-dispatch on the chosen executor"
-							@click=${()=>this.act("reassign",{executor:this.executorValue()})}
+							@click=${()=>this.act("reassign",{executor:this.draftExecutor??x})}
 						>
 							Reassign ↻
 						</button>
@@ -375,13 +440,25 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{f,S,d,s,u,y,l,i,z,o,E}from
 							@click=${()=>this.act("release")}
 						>
 							Release ⏏
-						</button>`:t}
-				${c!=="failed"&&c!=="ready"&&c!=="working"?e`<button
-							class="seg prompt"
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`:t}
+				${c==="done"?e`<span class="spacer"></span>
+						<button
+							class="seg tail report"
 							type="button"
-							@click=${()=>this.act("prompt")}
+							title="open this item's report view"
+							@click=${()=>this.act("report")}
 						>
-							Prompt ↗
-						</button>`:t}
+							Report ▸
+						</button>
+						${this.promptSeg()}`:t}
+				${c!=="failed"&&c!=="ready"&&c!=="working"&&c!=="done"?e`<span class="spacer"></span>${this.promptSeg()}`:t}
 			</footer>
-		`}executorValue(){return this.renderRoot.querySelector("select[aria-label^='executor'], select[aria-label^='reassign']")?.value??void 0}effortValue(){return this.renderRoot.querySelector("select[aria-label^='reasoning']")?.value??void 0}willUpdate(){if(this.dataset.nested=this.card.nested?"":void 0,this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}if(!customElements.get("klh-task-card"))customElements.define("klh-task-card",O);export{O as KlhTaskCard};
+		`}promptSeg(){return e`<button
+			class="seg tail prompt"
+			type="button"
+			@click=${()=>this.act("prompt")}
+		>
+			Prompt ↗
+		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}if(!customElements.get("klh-task-card"))customElements.define("klh-task-card",L);export{L as KlhTaskCard};
