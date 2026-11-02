@@ -24,6 +24,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUTDIR = join(ROOT, "hooks/board-html/vendor");
 const SOURCES = [
 	"hooks/board-html/klh-components.ts",
+	"hooks/board-html/klh-task-card.ts",
 	"hooks/board-html/klh-service-row.ts",
 	"hooks/board-html/klh-recovery.ts",
 	"hooks/board-html/klh-hub-admin.ts",
