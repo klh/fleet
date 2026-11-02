@@ -12,6 +12,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -157,6 +158,19 @@ export async function startBoard(
 	writeFileSync(join(stubBin, "claude"), "#!/bin/sh\nexit 0\n", {
 		mode: 0o755,
 	});
+	// W2267.3 (root #100860): the detached dispatch's runTool invokes
+	// ${HOME}/.claude/hooks/suspenders/bin/work.ts for take/show — without
+	// the installed path the claim never happens and a browser test's SQL
+	// poll misses the real failure. Same supported install the
+	// dispatch-harness uses: symlink this tree's hooks/bin into the
+	// scratch HOME (never the real HOME/store).
+	const hooksBin = join(import.meta.dir, "..", "..", "hooks", "bin");
+	mkdirSync(join(HOME, ".claude", "hooks", "suspenders"), { recursive: true });
+	symlinkSync(
+		hooksBin,
+		join(HOME, ".claude", "hooks", "suspenders", "bin"),
+		"dir",
+	);
 	// W1294.2: a REAL repo from t0 — projectIdentity() keys the graph on the
 	// git common dir, and the done-gate's product-evidence check needs the
 	// completion commit to touch a non-dotfile path; the fake-.git shell
@@ -186,10 +200,16 @@ export async function startBoard(
 	]);
 	const PORT = unusedPort();
 	const env = boardEnv(HOME, opts.env);
-	const bin = join(import.meta.dir, "..", "..", "hooks", "bin");
 	const BASE = `http://127.0.0.1:${String(PORT)}`;
-	const runner = makeWork(bin, REPO, env);
-	const { proc, waitUp } = spawnBoard(label, PORT, REPO, env, bin, opts.args);
+	const runner = makeWork(hooksBin, REPO, env);
+	const { proc, waitUp } = spawnBoard(
+		label,
+		PORT,
+		REPO,
+		env,
+		hooksBin,
+		opts.args,
+	);
 	await waitUp(BASE);
 	const real = realpathSync(HOME);
 	return {
