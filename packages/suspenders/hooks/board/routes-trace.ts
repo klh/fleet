@@ -8,32 +8,65 @@
 // Unknown / missing / expired traces and an unreachable or erroring Buckle
 // all say so honestly — never a fabricated page.
 
+import { z } from "zod";
 import { consolePage, esc } from "../bin/console-html.ts";
 import { adminKey, BUCKLE_FRONT } from "../lib/lanes/lane-auth.ts";
 import { consoleMe } from "./console-view.ts";
 import { json } from "./helpers.ts";
 
+// Schema law (W1238.4): the Buckle GET /v1/admin/traces body is safeParse'd
+// through this named shape at the wire boundary — a drifted field fails
+// LOUD (bad_json + the naming detail), never the silent empty-rows branch.
+const traceStr = z.string().nullish();
+const traceNum = z.number().nullish();
+
+export const BuckleTraceRequestRowSchema = z.object({
+	rid: traceStr,
+	ts: traceStr,
+	status: traceNum,
+	ok: traceNum,
+	decision: traceStr,
+	error_code: traceStr,
+	why: traceStr,
+	target_kind: traceStr,
+	target_host: traceStr,
+	target_port: traceNum,
+	target_model: traceStr,
+	duration_ms: traceNum,
+});
+
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const TRACE_FETCH_TIMEOUT_MS = 4000;
 
 /** One attempt row from Buckle /v1/admin/traces — the subset the page shows. */
-interface TraceAttempt {
-	rid?: string | null;
-	ts?: string | null;
-	hop?: string | null;
-	status?: number | null;
-	refusal?: string | null;
-	refusal_origin?: string | null;
-	upstream_refusal_code?: string | null;
-	provider_error_code?: string | null;
-	provider_error_type?: string | null;
-	duration_ms?: number | null;
-	retry_after_ms?: number | null;
-	call_id?: string | null;
-	candidate?: string | null;
-	provider_pool?: string | null;
-	queue_wait_ms?: number | null;
-}
+export const BuckleTraceAttemptSchema = z.object({
+	rid: traceStr,
+	ordinal: traceNum,
+	ts: traceStr,
+	hop: traceStr,
+	status: traceNum,
+	refusal: traceStr,
+	refusal_origin: traceStr,
+	upstream_refusal_code: traceStr,
+	provider_error_code: traceStr,
+	provider_error_type: traceStr,
+	duration_ms: traceNum,
+	retry_after_ms: traceNum,
+	call_id: traceStr,
+	candidate: traceStr,
+	provider_pool: traceStr,
+	queue_wait_ms: traceNum,
+});
+
+/** The Buckle /v1/admin/traces answer body — the ONE wire shape. */
+export const BuckleTracesSchema = z.object({
+	trace_id: z.string().optional(),
+	requests: z.array(BuckleTraceRequestRowSchema).default([]),
+	attempts: z.array(BuckleTraceAttemptSchema).default([]),
+});
+export type TraceAttempt = z.infer<typeof BuckleTraceAttemptSchema>;
+export type RequestRow = z.infer<typeof BuckleTraceRequestRowSchema>;
+export type BuckleTracesBody = z.infer<typeof BuckleTracesSchema>;
 
 /** The Buckle answer states: ok | unreachable | http_error | bad_json. */
 type TraceState = "ok" | "unreachable" | "http_error" | "bad_json";
@@ -42,7 +75,8 @@ type TraceState = "ok" | "unreachable" | "http_error" | "bad_json";
 interface TraceResolve {
 	state: TraceState;
 	httpStatus?: number;
-	body?: Record<string, unknown>;
+	detail?: string;
+	body?: BuckleTracesBody;
 }
 
 /** Resolve one trace through the server-held admin key. Read-only GET,
@@ -71,9 +105,17 @@ export async function resolveTrace(
 		return { state: "http_error", httpStatus: resp.status };
 	try {
 		const parsed: unknown = await resp.json();
-		if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-			return { state: "bad_json" };
-		return { state: "ok", body: parsed as Record<string, unknown> };
+		const safe = BuckleTracesSchema.safeParse(parsed);
+		if (!safe.success)
+			return {
+				state: "bad_json",
+				detail: safe.error.issues
+					.slice(0, 5)
+					.map((i) => `${i.path.join(".") || "$"}: ${i.message}`)
+					.join("; ")
+					.slice(0, 300),
+			};
+		return { state: "ok", body: safe.data };
 	} catch {
 		return { state: "bad_json" };
 	}
@@ -107,21 +149,6 @@ function attemptsTable(attempts: TraceAttempt[]): string {
 	return `<table class="ct"><thead><tr><th>time</th><th>hop</th><th>status</th><th>refusal</th><th>provider error</th><th>dur ms</th><th>queue ms</th><th>call id</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-interface RequestRow {
-	rid?: string | null;
-	ts?: string | null;
-	status?: number | null;
-	ok?: number | null;
-	decision?: string | null;
-	error_code?: string | null;
-	why?: string | null;
-	target_kind?: string | null;
-	target_host?: string | null;
-	target_port?: number | null;
-	target_model?: string | null;
-	duration_ms?: number | null;
-}
-
 function requestsTable(rows: RequestRow[]): string {
 	if (rows.length === 0)
 		return '<p class="dim">No request rows recorded for this trace.</p>';
@@ -134,28 +161,25 @@ function requestsTable(rows: RequestRow[]): string {
 	return `<table class="ct"><thead><tr><th>time</th><th>status</th><th>decision</th><th>error</th><th>sanitized target</th><th>model</th><th>dur ms</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
-const asRows = (v: unknown): Array<Record<string, unknown>> =>
-	Array.isArray(v) && v.every((r) => r && typeof r === "object")
-		? (v as Array<Record<string, unknown>>)
-		: [];
-
-function stateNotice(state: TraceState, httpStatus?: number): string {
+function stateNotice(
+	state: TraceState,
+	httpStatus?: number,
+	detail?: string,
+): string {
 	if (state === "unreachable")
 		return '<div class="errbox">Buckle admin API unreachable — the trace cannot be resolved from this board right now.</div>';
 	if (state === "bad_json")
-		return '<div class="errbox">Buckle answered with an unusable body — the trace cannot be shown.</div>';
+		return `<div class="errbox">Buckle answered with an unusable body — the trace cannot be shown.${detail ? ` drift: ${esc(detail)}` : ""}</div>`;
 	return `<div class="errbox">Buckle answered HTTP ${httpStatus ?? "—"} — the trace could not be read.</div>`;
 }
 
 function traceBody(id: string, resolved: TraceResolve): string {
 	if (resolved.state !== "ok")
-		return stateNotice(resolved.state, resolved.httpStatus);
-	const body = resolved.body ?? {};
-	const requests = asRows(body.requests);
-	const attempts = asRows(body.attempts);
+		return stateNotice(resolved.state, resolved.httpStatus, resolved.detail);
+	const { requests, attempts } = resolved.body;
 	if (requests.length === 0 && attempts.length === 0)
 		return `<div class="errbox">Unknown or expired trace — no requests or attempts are recorded for <code>${id}</code>.</div>`;
-	return `<div class="panel"><h2>requests</h2>${requestsTable(requests as RequestRow[])}</div><div class="panel"><h2>hop attempts</h2>${attemptsTable(attempts as TraceAttempt[])}</div>`;
+	return `<div class="panel"><h2>requests</h2>${requestsTable(requests)}</div><div class="panel"><h2>hop attempts</h2>${attemptsTable(attempts)}</div>`;
 }
 
 export async function handleTrace(
