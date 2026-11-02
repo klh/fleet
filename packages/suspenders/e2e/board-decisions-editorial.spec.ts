@@ -27,8 +27,10 @@ test.describe.configure({ mode: "serial" });
 type Geometry = {
 	railLeft: number;
 	railRight: number;
+	railBottom: number;
 	cardLeft: number;
 	cardRight: number;
+	cardBottom: number;
 	scrollW: number;
 	clientW: number;
 };
@@ -113,8 +115,10 @@ async function railGeometry(
 			return {
 				railLeft: r.left,
 				railRight: r.right,
+				railBottom: r.bottom,
 				cardLeft: c.left,
 				cardRight: c.right,
+				cardBottom: c.bottom,
 				scrollW: document.documentElement.scrollWidth,
 				clientW: document.documentElement.clientWidth,
 			};
@@ -266,10 +270,17 @@ test.describe("W2267.8 editorial decisions @ui", () => {
 		const card2 = page.locator(`#decList .dec[data-id="${id2}"]`);
 		await expect(card2).toBeVisible({ timeout: 15_000 });
 		await card2.locator("input.ans").fill("tab answer");
-		await card2.locator("input.ans").press("Tab");
-		const onSend = await card2
-			.locator(".drail button.send")
-			.evaluate((el) => document.activeElement === el);
+		// tab forward into the rail — the eval affordance in .dbody sits
+		// between input and rail, and keyboard.press walks the REAL focus
+		// chain (locator.press would re-focus the input every iteration)
+		await card2.locator("input.ans").focus();
+		let onSend = false;
+		for (let i = 0; i < 5 && !onSend; i++) {
+			await page.keyboard.press("Tab");
+			onSend = await card2
+				.locator(".drail button.send")
+				.evaluate((el) => document.activeElement === el);
+		}
 		expect(onSend).toBe(true);
 		await card2.locator(".drail button.send").press("Enter");
 		await expect(card2).toBeHidden({ timeout: 15_000 });
@@ -381,6 +392,12 @@ test.describe("W2267.8 editorial decisions @ui", () => {
 			);
 			expect(g.railRight, `rail right edge (${where})`).toBeCloseTo(
 				g.cardRight,
+				0,
+			);
+			// the rail IS the card's bottom edge — nothing (the eval
+			// affordance, a stray widget) may sit below it (#103109)
+			expect(g.railBottom, `rail bottom edge (${where})`).toBeCloseTo(
+				g.cardBottom,
 				0,
 			);
 			expect(g.scrollW, `page overflow (${where})`).toBeLessThanOrEqual(
