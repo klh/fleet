@@ -16,11 +16,12 @@ import {
 	sameProcess,
 } from "../same-process.ts";
 import type { FleetLoopSettings } from "../stack-config.ts";
+import { parkReviewRequest, reviewTransportPark } from "./review-park.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
 
 interface Request {
-	state: "RUNNING" | "DONE" | "ERROR";
+	state: "RUNNING" | "DONE" | "ERROR" | "PARKED";
 	attempts: number;
 	leaseUntil: number;
 	token: string;
@@ -449,6 +450,11 @@ export function scheduleReview(o: {
 		const old = row ? (JSON.parse(row.value) as Request) : null;
 		if (old?.state === "DONE")
 			return "review completed; unresolved findings require repair";
+		// W2548: a PARKED request never re-admits on its own — the park IS
+		// the bound on W1243's unbounded transport retry. Only the explicit
+		// release verb (coord review-unpark) flips it back to ERROR.
+		if (old?.state === "PARKED")
+			return `review transport parked after ${old.deferred ?? 0} consecutive deferrals — release explicitly (coord review-unpark ${o.item}) or raise/disable SUSPENDERS_REVIEW_TRANSPORT_PARK`;
 		if (old && old.state === "RUNNING") {
 			if (old.leaseUntil > now)
 				return `review already running; lease expires ${new Date(old.leaseUntil).toISOString()}`;
@@ -473,6 +479,28 @@ export function scheduleReview(o: {
 		}
 		if (old && old.attempts >= 3)
 			return "review retry budget exhausted (3 attempts); explicit repair required";
+		// W2548: the transport-park bound on W1243's unbounded retry — an
+		// ERROR request whose consecutive deferrals reached the threshold
+		// parks instead of knocking again (every knock walks the full
+		// fallback ladder against implementation lanes). Checked before the
+		// pressure gate so the park lands on the first knock past the
+		// threshold even mid-pause. 0 disables (unbounded W1243 behavior).
+		const parkAt = reviewTransportPark(env);
+		if (
+			parkAt > 0 &&
+			old &&
+			old.state === "ERROR" &&
+			(old.deferred ?? 0) >= parkAt &&
+			parkReviewRequest({
+				db: o.db,
+				key,
+				request: old,
+				project: o.project,
+				item: o.item,
+				author: author.completed_by,
+			})
+		)
+			return `review transport parked after ${old.deferred} consecutive deferrals — release explicitly (coord review-unpark ${o.item}) or raise/disable SUSPENDERS_REVIEW_TRANSPORT_PARK`;
 		// W1280: global admission pause off the provider's own outcome signals
 		// (AIMD above) — checked BEFORE the per-request backoff, so an active
 		// cooldown defers every leg (even one whose own backoff lapsed) and

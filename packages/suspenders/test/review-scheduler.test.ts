@@ -1,5 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import {
+	releaseReviewPark,
+	reviewTransportPark,
+} from "../hooks/lib/gates/review-park.ts";
 import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
 	finishReviewRequest,
@@ -187,9 +191,9 @@ test("default schedule is unbounded — concurrent contexts never hit a ceiling"
 	}
 	expect(f.launches).toHaveLength(3);
 });
-test("transport failure refunds the verdict attempt and defers without terminal exhaustion", () => {
+test("transport failure refunds the verdict attempt and defers without terminal exhaustion (below the W2548 park threshold)", () => {
 	const f = fixture();
-	for (let i = 0; i < 8; i += 1) {
+	for (let i = 0; i < 5; i += 1) {
 		expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
 			"requested through Buckle",
 		);
@@ -252,6 +256,74 @@ test("true FAIL verdict is terminal — never retried, never re-rolled", () => {
 		"review completed; unresolved findings require repair",
 	);
 	expect(f.launches).toHaveLength(1);
+});
+test("W2548 park knob: unset or junk → 6, an integer overrides, 0 disables", () => {
+	expect(reviewTransportPark({})).toBe(6);
+	expect(reviewTransportPark({ SUSPENDERS_REVIEW_TRANSPORT_PARK: "x" })).toBe(
+		6,
+	);
+	expect(reviewTransportPark({ SUSPENDERS_REVIEW_TRANSPORT_PARK: "10" })).toBe(
+		10,
+	);
+	expect(reviewTransportPark({ SUSPENDERS_REVIEW_TRANSPORT_PARK: "0" })).toBe(
+		0,
+	);
+});
+test("W2548: park at 0 disables the bound — W1243's unbounded transport retry on demand", () => {
+	const f = fixture();
+	const env = { ...f.options.env, SUSPENDERS_REVIEW_TRANSPORT_PARK: "0" };
+	for (let i = 0; i < 9; i += 1) {
+		expect(scheduleReview({ ...f.options, env, spawn: f.spawn })).toContain(
+			"requested through Buckle",
+		);
+		const request = requestOf(f);
+		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
+		const after = requestOf(f);
+		expect(after.state).toBe("ERROR");
+		after.nextAt = 0;
+		f.db
+			.query("UPDATE facts SET value=? WHERE key=?")
+			.run(JSON.stringify(after), f.key);
+	}
+	// the 10th knock still launches — the operator disabled the park
+	expect(scheduleReview({ ...f.options, env, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+});
+test("W2548: six consecutive transport deferrals park the request; only the explicit release re-admits", () => {
+	const f = fixture();
+	for (let i = 0; i < 6; i += 1) {
+		expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+			"requested through Buckle",
+		);
+		const request = requestOf(f);
+		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
+		const after = requestOf(f);
+		after.nextAt = 0;
+		f.db
+			.query("UPDATE facts SET value=? WHERE key=?")
+			.run(JSON.stringify(after), f.key);
+	}
+	// the 7th knock parks instead of walking the fallback ladder again
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review transport parked after 6 consecutive deferrals",
+	);
+	expect(requestOf(f).state).toBe("PARKED");
+	// repeated knocks never re-admit — the park is the W1243 bound
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review transport parked",
+	);
+	expect(f.launches).toHaveLength(6);
+	// the explicit release flips the row to a fresh deferral count — the
+	// next schedule launches (one grace knock, then the counter climbs)
+	expect(releaseReviewPark(f.db, "fixture", "W1")).toBe(1);
+	expect(requestOf(f).state).toBe("ERROR");
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(7);
 });
 /** W1303.7: the scheduler fixture plus the events + work_items tables the
  * round cap reads — the bare fixture lacks them, so every test above also
@@ -366,4 +438,51 @@ test("round cap: a review-repair child inherits its parent's rounds; other child
 	);
 	expect(f.launches).toHaveLength(2);
 	expect(decisions(f).map((d) => d.target)).toEqual(["author"]);
+});
+test("W2548: the park advisory is one NEED_DECISION per episode, scoped to the item, with release guidance", () => {
+	const f = capFixture();
+	for (let i = 0; i < 6; i += 1) {
+		scheduleReview({ ...f.options, spawn: f.spawn });
+		const request = requestOf(f);
+		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
+		const after = requestOf(f);
+		after.nextAt = 0;
+		f.db
+			.query("UPDATE facts SET value=? WHERE key=?")
+			.run(JSON.stringify(after), f.key);
+	}
+	scheduleReview({ ...f.options, spawn: f.spawn }); // parks
+	scheduleReview({ ...f.options, spawn: f.spawn }); // parked refusal dedupes
+	const parks = f.db
+		.query(
+			"SELECT payload FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.review_park') IS NOT NULL",
+		)
+		.all() as { payload: string }[];
+	expect(parks).toHaveLength(1);
+	expect(JSON.parse(parks[0].payload)).toMatchObject({
+		work: "W1",
+		review_park: "1",
+	});
+	expect(String(JSON.parse(parks[0].payload).note)).toContain("review-unpark");
+	// release + re-park = a fresh episode advisory (epoch 2)
+	releaseReviewPark(f.db, "fixture", "W1");
+	for (let i = 0; i < 6; i += 1) {
+		scheduleReview({ ...f.options, spawn: f.spawn });
+		const request = requestOf(f);
+		finishReviewRequest(f.db, f.key, request.token, true);
+		setPressure(f, { openUntil: 0 });
+		const after = requestOf(f);
+		after.nextAt = 0;
+		f.db
+			.query("UPDATE facts SET value=? WHERE key=?")
+			.run(JSON.stringify(after), f.key);
+	}
+	scheduleReview({ ...f.options, spawn: f.spawn }); // parks again
+	const epochs = f.db
+		.query(
+			"SELECT json_extract(payload, '$.review_park') AS e FROM events WHERE kind='NEED_DECISION' AND json_extract(payload, '$.review_park') IS NOT NULL",
+		)
+		.all() as { e: string }[];
+	expect(epochs.map((r) => r.e).sort()).toEqual(["1", "2"]);
 });

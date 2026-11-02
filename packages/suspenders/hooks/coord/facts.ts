@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { releaseReviewPark } from "../lib/gates/review-park.ts";
 import { openIdentity } from "../lib/govdb/govdb.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
 import {
@@ -725,6 +726,21 @@ function finishCapsuleVerify(
 	if (Array.isArray(c.todos))
 		for (const t of c.todos as string[]) lines.push(`  [ ] ${t}`);
 	return lines.join("\n");
+}
+
+export async function cmdReviewUnpark(rest: string[]): Promise<void> {
+	// W2548: the explicit review-transport park release — flips the item's
+	// PARKED review requests back to ERROR at a fresh deferral count, so the
+	// next merge-cycle knock re-admits at W1243 backoff instead of walking
+	// the fallback ladder forever against starved implementation lanes.
+	const item = rest.find((r) => !r.startsWith("--"));
+	if (!item) die("usage: review-unpark <item-id> [--as <sid>]");
+	const as = arg("--as");
+	const n = releaseReviewPark(db, projectIdentity(), item);
+	if (!n) die(`no parked review requests for ${item} (nothing to release)`);
+	console.log(
+		`${green("✓")} review-unpark: ${n} parked request(s) for ${item} re-admitted${as ? ` by ${as}` : ""}`,
+	);
 }
 
 export async function cmdLeaseRelease(rest: string[]): Promise<void> {
