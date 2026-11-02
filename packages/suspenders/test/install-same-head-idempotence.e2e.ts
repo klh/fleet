@@ -447,14 +447,22 @@ test.describe("@unit W2546.3 same-HEAD reinstall idempotence", () => {
 		const f = syncFixture("lock");
 		await syncHarness(f.ctx);
 		const receipt = receiptAt(f.ctx.prefix);
-		if (receipt.dependencyLockSha256 !== null) {
-			test.skip(true, "fixture published a lock; null-pin leg not reachable");
-			return;
-		}
+		// forge the legacy null-lock publication shape (dependencyLockSha256
+		// null, no lock on disk) when the fixture already resolved deps —
+		// the refused-reuse leg is what matters, not how the null pin arose
+		const root = realpathSync(f.ctx.prefix);
+		for (const lockName of ["bun.lock", "bun.lockb"])
+			rmSync(join(root, lockName), { force: true });
+		writeFileSync(
+			join(root, "harness-receipt.json"),
+			JSON.stringify({ ...receipt, dependencyLockSha256: null }),
+		);
 		const generation = readlinkSync(f.ctx.prefix);
+		// a foreign lock appears under the null-pin publication
 		writeFileSync(join(f.ctx.prefix, "bun.lock"), "unpinned foreign lock");
 		const repair = await syncHarness(f.ctx);
 		expect(repair.status).toBe("ok");
+		expect(repair.note).not.toContain("publication retained");
 		expect(readlinkSync(f.ctx.prefix)).not.toBe(generation);
 	});
 
