@@ -1163,7 +1163,9 @@ export const dispatchLane = async (
 			{ item, laneLog, attempt, logAtSpawn, proc: launchedProc },
 			{ project, sid, store, run, workCli, coordCli, log },
 		);
-		console.log(`REFUSED ${item} — launch failed: ${String(error)}; ${exit.note}`);
+		console.log(
+			`REFUSED ${item} — launch failed: ${String(error)}; ${exit.note}`,
+		);
 		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
 		return null;
 	} finally {

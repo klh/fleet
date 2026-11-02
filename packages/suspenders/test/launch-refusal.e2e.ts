@@ -213,7 +213,13 @@ test.describe("@unit", () => {
 		const { db, store } = fixture();
 		try {
 			const exit = launchFailureCatch(
-				{ item: "W1", laneLog: "/absent.log", attempt: 0, logAtSpawn: 0, proc: undefined },
+				{
+					item: "W1",
+					laneLog: "/absent.log",
+					attempt: 0,
+					logAtSpawn: 0,
+					proc: undefined,
+				},
 				{
 					project: "p",
 					sid: "lane",
@@ -241,7 +247,9 @@ test.describe("@unit", () => {
 			const events = () =>
 				(
 					db
-						.query("SELECT count(*) AS n FROM events WHERE kind='lane.launch-backoff'")
+						.query(
+							"SELECT count(*) AS n FROM events WHERE kind='lane.launch-backoff'",
+						)
 						.get() as { n: number }
 				).n;
 			const exit = launchFailureCatch(
@@ -410,7 +418,9 @@ test.describe("@unit", () => {
 			expect([...report.held]).toEqual([]);
 			expect(report.surfaced).toEqual([]);
 			const leftover = db
-				.query("SELECT count(*) AS n FROM facts WHERE key LIKE 'dispatch.intent-reprobe.%'")
+				.query(
+					"SELECT count(*) AS n FROM facts WHERE key LIKE 'dispatch.intent-reprobe.%'",
+				)
 				.get() as { n: number };
 			expect(leftover.n).toBe(0);
 		} finally {

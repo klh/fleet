@@ -87,7 +87,8 @@ export function classifyLaunchRefusal(input: {
 	if (input.exitCode === REGISTRATION_EXIT)
 		return {
 			disposition: "Transient",
-			reason: "exit 125: launch fence refused (registration/lease/claim contention)",
+			reason:
+				"exit 125: launch fence refused (registration/lease/claim contention)",
 		};
 	if (input.stderr && PERMANENT_STDERR.test(input.stderr))
 		return {
@@ -270,9 +271,7 @@ function clearReprobeEpisode(
 	item: string,
 ): void {
 	try {
-		store
-			.query("DELETE FROM facts WHERE key=?")
-			.run(reprobeKey(project, item));
+		store.query("DELETE FROM facts WHERE key=?").run(reprobeKey(project, item));
 	} catch {
 		// fail-open
 	}

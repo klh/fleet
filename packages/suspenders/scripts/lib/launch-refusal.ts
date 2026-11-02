@@ -187,7 +187,9 @@ export function unknownSurfaceGate(
 		if (!row.justExhausted) continue;
 		const note = unknownSurfaceNote(row);
 		emit(note);
-		log(`launch-refusal surfaced ${row.item} — unknown liveness, re-probe bound exhausted`);
+		log(
+			`launch-refusal surfaced ${row.item} — unknown liveness, re-probe bound exhausted`,
+		);
 	}
 	return report;
 }
