@@ -1,4 +1,61 @@
-import{n,e,r}from"./lit-96e87015cf7d620b.js";import{u,l}from"./lit-bbef4b2f412dc5d6.js";var _=4;function g(t,i,s,a=180000){let c=Array.from({length:s},()=>null);for(let o of t){let h=Math.floor((o[0]-i)/a);if(h>s-1)h=s-1;if(h<0)continue;let p=c[h];if(p===null)p={fresh:0,cached:0,out:0},c[h]=p;p.fresh+=o[1],p.cached+=o[2],p.out+=o[3]}return c}function S(t,i,s=6,a=180000){let c=Math.max(1,Math.floor(i/s)),o=t;return{count:c,slotMs:a,start:o-c*a,end:o}}var T={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function w(t,i,s){if(!t.length)return T;let{POSITIVE_INFINITY:a,NEGATIVE_INFINITY:c}=Number;for(let d of t){if(d[0]<a)a=d[0];if(d[0]>c)c=d[0]}let o=S(c,i),h=s??Math.max(o.start,a),p=Math.min(h+o.count*o.slotMs,c+o.slotMs);return{bins:g(t,h,o.count),firstTs:a,windowStart:h,windowEnd:p,count:o.count,slotMs:o.slotMs,startClipped:h>a,hasData:!0}}function v(t,i,s=86400000){let a=i/2;if(t===null||t===void 0)return{visible:!1,center:a,half:0,start:a,end:a,saturated:!1};if(!Number.isFinite(t)||t<=0)return{visible:!1,center:a,half:0,start:a,end:a,saturated:!1};let c=Math.min(i/2,t/s*(i/2));return{visible:!0,center:a,half:c,start:a-c,end:a+c,saturated:t>=s}}function f(t){if(!Number.isFinite(t)||t<=0)return"0m";let i=Math.round(t/60000);if(i<60)return`${i}m`;return`${Math.floor(i/60)}h ${String(i%60).padStart(2,"0")}m`}function b(t=86400000){return`${t/3600000}h`}class x extends r{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=n`
+import{r,e,b,n}from"./lit-f23c5efb0b6d9812.js";import{a,u}from"./lit-9bb9978f27bafb49.js";var M=4;function Y(t,i,o,s=180000){let l=Array.from({length:o},()=>null);for(let p of t){let c=Math.floor((p[0]-i)/s);if(c>o-1)c=o-1;if(c<0)continue;let m=l[c];if(m===null)m={fresh:0,cached:0,out:0},l[c]=m;m.fresh+=p[1],m.cached+=p[2],m.out+=p[3]}return l}function U(t,i,o=6,s=180000){let l=Math.max(1,Math.floor(i/o)),p=t;return{count:l,slotMs:s,start:p-l*s,end:p}}var W={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function I(t,i,o){if(!t.length)return W;let{POSITIVE_INFINITY:s,NEGATIVE_INFINITY:l}=Number;for(let h of t){if(h[0]<s)s=h[0];if(h[0]>l)l=h[0]}let p=U(l,i),c=o??Math.max(p.start,s),m=Math.ceil((l-c)/p.slotMs)+1,d=Math.max(1,Math.min(p.count,m));return{bins:Y(t,c,d),firstTs:s,windowStart:c,windowEnd:c+d*p.slotMs,count:d,slotMs:p.slotMs,startClipped:c>s,hasData:!0}}function T(t){let i=new Date(t),o=(s)=>String(s).padStart(2,"0");return`${o(i.getHours())}:${o(i.getMinutes())}`}function y(t,i,o=86400000){let s=i/2;if(t===null||t===void 0)return{visible:!1,center:s,half:0,start:s,end:s,saturated:!1};if(!Number.isFinite(t)||t<=0)return{visible:!1,center:s,half:0,start:s,end:s,saturated:!1};let l=Math.min(i/2,t/o*(i/2));return{visible:!0,center:s,half:l,start:s-l,end:s+l,saturated:t>=o}}function f(t){if(!Number.isFinite(t)||t<=0)return"0m";let i=Math.round(t/60000);if(i<60)return`${i}m`;return`${Math.floor(i/60)}h ${String(i%60).padStart(2,"0")}m`}function S(t=86400000){return`${t/3600000}h`}function _(t,i,o,s){let l=Math.max(1,o-i),p=(t-i)/l*s;return Math.max(0,Math.min(s,p))}function w(t){let i=[];for(let s of t.attempt.segments){if(s.end<=s.start)continue;i.push({kind:s.kind,start:s.start,end:s.end})}let o=[];for(let s of t.milestones){if(s.ts<t.windowStart||s.ts>t.windowEnd)continue;o.push({kind:"milestone",start:s.ts,end:s.ts,commit:s.commit,stage:s.stage})}return{segs:i,milestones:o}}function B(t,i,o,s,l){for(let p of t.milestones){let c=_(p.start,o,s,l);if(Math.abs(i-c)<=6)return p}for(let p of t.segs){let c=_(p.start,o,s,l),m=_(p.end,o,s,l);if(i>=c&&i<=Math.max(m,c+1))return p}return null}function x(t,i,o,s){if(t.kind==="milestone")return[`artifact · ${t.stage??""}`,o(t.start),`commit ${t.commit??""}`].join(`
+`);let l=[`${t.kind} · ${s(t.end-t.start)}`,`${o(t.start)} → ${o(t.end)}`];if(t.kind==="firstbyte")l.push("first attributed ledger request — not network latency");if(t.kind==="tool")l.push("request-row minutes — not tool-call duration");if(t.kind==="unknown")l.push("no fact covers this gap");return l.push(`attempt ${i.attempt.index} · ${i.attempt.sid}`),l.join(`
+`)}var k=13,E=14,v=5;function L(t){let i=t.attempt.claimEnd??t.windowEnd,o=Math.min(i,t.windowEnd)-t.attempt.claimStart;return o>0?o:null}function G(t,i){let{segs:o,milestones:s}=w(t),l=[];for(let p of o){let c=_(p.start,t.windowStart,t.windowEnd,i),m=Math.max(c+1,_(p.end,t.windowStart,t.windowEnd,i));l.push(b`<rect
+				class="at-${p.kind}"
+				x=${c.toFixed(1)}
+				y=${k}
+				width=${(m-c).toFixed(1)}
+				height=${E}
+				rx="2"
+			/>`)}for(let p of s){let c=_(p.start,t.windowStart,t.windowEnd,i),m=k+E/2;l.push(b`<path
+				class="at-ms"
+				d="M ${c.toFixed(1)},${(m-v).toFixed(1)} l ${v},${v} l -${v},${v} l -${v},-${v} Z"
+			/>`)}return e`${l}`}var C=(t)=>({kind:t.kind,start:t.start});function F(t){return{hover:(s,l)=>{let p=s.currentTarget;if(!l||!p){t.hide();return}let c=p.getBoundingClientRect();if(c.width===0)return;let m=B(w(l),s.clientX-c.left,l.windowStart,l.windowEnd,c.width);if(!m){t.hide();return}t.setTip(x(m,l,a,f),-1,C(m)),t.placeTip(s.clientX,s.clientY)},hide:()=>t.hide(),keydown:(s,l)=>{if(s.key==="Escape"){t.hide(),s.target.blur();return}if(s.key!=="ArrowLeft"&&s.key!=="ArrowRight")return;s.preventDefault();let p=t.slot(),{milestones:c,segs:m}=w(l),d=[...c,...m];if(!d.length)return;let h=s.key==="ArrowLeft"?-1:1,H=Math.max(0,Math.min(d.length-1,p+h)),g=d[H];if(!g)return;t.setTip(x(g,l,a,f),H,C(g));let R=s.currentTarget;if(R){let A=R.getBoundingClientRect(),V=_(g.start,l.windowStart,l.windowEnd,A.width);t.placeTip(A.left+V,A.top+8)}},slot:()=>t.slot()}}function P(t,i){return e`<div class="axis">
+		<span>${T(t.windowStart)}</span>
+		<span>${i} · ${t.binMs/60000}m/bin</span>
+		<span>${T(t.windowEnd)}</span>
+	</div>`}function D(t,i,o){return e`<svg
+		class="plot"
+		viewBox="0 0 ${i} 40"
+		preserveAspectRatio="none"
+		role="img"
+		aria-label="Current attempt: fixed 90-minute window, ${t.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
+		tabindex="0"
+		@pointermove=${(s)=>o.hover(s,t)}
+		@pointerleave=${()=>o.hide()}
+		@keydown=${(s)=>o.keydown(s,t)}
+	>
+		${G(t,i)}
+	</svg>`}var N=r`
+	.plot rect.at-queue {
+		fill: var(--klh-chart-axis, #898781);
+	}
+	.plot rect.at-firstbyte {
+		fill: var(--klh-accent, #d8900f);
+	}
+	.plot rect.at-tool {
+		fill: var(--klh-ok, #5c7a35);
+	}
+	.plot rect.at-pause {
+		fill: var(--klh-warn, #b8860b);
+	}
+	.plot rect.at-unknown {
+		fill: var(--klh-edge, rgba(128, 128, 128, 0.35));
+	}
+	.plot path.at-ms {
+		fill: var(--klh-ink, #e8e6e1);
+		stroke: var(--klh-edge, rgba(255, 255, 255, 0.4));
+		stroke-width: 0.5;
+	}
+	.attempt-empty {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 40px;
+		font: 400 11px/1.5 ui-monospace, SFMono-Regular, monospace;
+		color: var(--klh-chart-axis, #898781);
+	}
+`;class q extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[r`
 		:host {
 			display: block;
 			font: 11px/1.5 ui-sans-serif, system-ui;
@@ -6,7 +63,7 @@ import{n,e,r}from"./lit-96e87015cf7d620b.js";import{u,l}from"./lit-bbef4b2f412dc
 		.plot {
 			display: block;
 			width: 100%;
-			height: 28px;
+			height: 40px;
 		}
 		.plot:focus-visible {
 			outline: 2px solid var(--klh-accent, #d8900f);
@@ -68,18 +125,18 @@ import{n,e,r}from"./lit-96e87015cf7d620b.js";import{u,l}from"./lit-bbef4b2f412dc
 			white-space: pre-line;
 			pointer-events: none;
 		}
-	`;constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this._width=0,this._tip=null,this._slot=-1}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let t=this._plotEl()?.clientWidth??0;if(t!==this._width)this._width=t,this.requestUpdate()})}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let t=this._plotEl();if(t&&this._ro)this._width=t.clientWidth,this._ro.observe(t)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return w(this.points,this._width||240)}_hover=(t)=>{let i=this._plotEl(),s=this._spec;if(!i||!s.hasData){this._hideTip();return}let a=i.getBoundingClientRect();if(a.width===0)return;let c=Math.max(0,Math.min(s.count-1,Math.floor((t.clientX-a.left)/a.width*s.count)));this._slot=c,this._tip=this._tipText(s,c),this.requestUpdate(),this._placeTip(t.clientX,t.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(t)=>{let i=this._spec;if(t.key==="Escape"){this._hide();return}if(t.key!=="ArrowLeft"&&t.key!=="ArrowRight")return;t.preventDefault();let s=t.key==="ArrowLeft"?-1:1,a=Math.max(0,Math.min(i.count-1,this._slot+s));this._slot=a,this._tip=this._tipText(i,a),this.requestUpdate();let c=this._plotEl();if(c){let o=c.getBoundingClientRect();this._placeTip(o.left+(a+0.5)/i.count*o.width,o.top+8)}};_hideTip(){this._tip=null,this._slot=-1}_tipText(t,i){let s=t.bins[i],a=(t.windowStart??0)+i*t.slotMs,c=a+t.slotMs,o=[u(a),`bin ${t.slotMs/60000} min · ${l(a)} → ${l(c)}`];if(s)o.push(`Fresh input ${s.fresh.toLocaleString("en-US")}`),o.push(`Cached input ${s.cached.toLocaleString("en-US")}`),o.push(`Output ${s.out.toLocaleString("en-US")}`);else o.push("no requests in this bin");return o.join(`
-`)}_barsSvg(t){let s=(this._width||240)/t.count,a=0;for(let o of t.bins)if(o)a=Math.max(a,o.fresh+o.cached);let c=[];if(a>0)for(let o=0;o<t.count;o++){let h=t.bins[o];if(!h)continue;let p=o*s+(s-_)/2;c.push(this._barRects(h,p,a))}return e`${c}`}_barRects(t,i,s){let c=[],o=0,h=[[t.fresh,"spark-fresh"],[t.cached,"spark-cached"]];for(let[p,d]of h){if(p<=0)continue;let m=Math.max(0.5,p/s*26);c.push(e`<rect
+	`,N];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let i=this._plotEl()?.clientWidth??0;if(i!==this._width)this._width=i,this.requestUpdate()});let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let t=this._plotEl();if(t&&this._ro)this._width=t.clientWidth,this._ro.observe(t)}updated(){let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}update(t){if(super.update(t),!t.has("points")&&!t.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:s,segs:l}=w(this.attempt),p=[...s,...l],c=this._tipRef,m=p.findIndex((d)=>d.kind===c.kind&&d.start===c.start);if(m<0){this._hideTip();return}this._tip=x(p[m],this.attempt,a,f),this._slot=m;return}let i=this._spec;if(!i.hasData||this._tipTs===null){if(!i.hasData)this._hideTip();return}let o=Math.floor((this._tipTs-(i.windowStart??0))/i.slotMs);if(o<0||o>=i.count){this._hideTip();return}this._slot=o,this._tip=this._tipText(i,o)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return I(this.points,this._width||240)}_hover=(t)=>{let i=this._plotEl(),o=this._spec;if(!i||!o.hasData){this._hideTip();return}let s=i.getBoundingClientRect();if(s.width===0)return;let l=Math.max(0,Math.min(o.count-1,Math.floor((t.clientX-s.left)/s.width*o.count)));this._slot=l,this._tip=this._tipText(o,l),this._tipTs=(o.windowStart??0)+l*o.slotMs,this.requestUpdate(),this._placeTip(t.clientX,t.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(t)=>{let i=this._spec;if(t.key==="Escape"){this._hide();return}if(t.key!=="ArrowLeft"&&t.key!=="ArrowRight")return;t.preventDefault();let o=t.key==="ArrowLeft"?-1:1,s=Math.max(0,Math.min(i.count-1,this._slot+o));this._slot=s,this._tip=this._tipText(i,s),this._tipTs=(i.windowStart??0)+s*i.slotMs,this.requestUpdate();let l=this._plotEl();if(l){let p=l.getBoundingClientRect();this._placeTip(p.left+(s+0.5)/i.count*p.width,p.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(t,i){let o=t.bins[i],s=(t.windowStart??0)+i*t.slotMs,l=s+t.slotMs,p=[a(s),`bin ${t.slotMs/60000} min · ${u(s)} → ${u(l)}`];if(o)p.push(`Fresh input ${o.fresh.toLocaleString("en-US")}`),p.push(`Cached input ${o.cached.toLocaleString("en-US")}`),p.push(`Output ${o.out.toLocaleString("en-US")}`);else p.push("no requests in this bin");return p.join(`
+`)}_barsSvg(t){let o=(this._width||240)/t.count,s=0;for(let p of t.bins)if(p)s=Math.max(s,p.fresh+p.cached);let l=[];if(s>0)for(let p=0;p<t.count;p++){let c=t.bins[p];if(!c)continue;let m=p*o+(o-M)/2;l.push(this._barRects(c,m,s))}return e`${l}`}_barRects(t,i,o){let l=[],p=0,c=[[t.fresh,"spark-fresh"],[t.cached,"spark-cached"]];for(let[m,d]of c){if(m<=0)continue;let h=Math.max(0.5,m/o*38);l.push(b`<rect
 					class=${d}
 					x=${i.toFixed(1)}
-					y=${Math.max(1,27-o-m).toFixed(1)}
-					width=${_}
-					height=${m.toFixed(1)}
-				/>`),o+=m}return e`${c}`}_hairlineHtml(){let t=this._width||240,i=v(this.wallMs,t);if(!i.visible)return null;return e`<div
+					y=${Math.max(1,39-p-h).toFixed(1)}
+					width=${M}
+					height=${h.toFixed(1)}
+				/>`),p+=h}return e`${l}`}_hairlineHtml(){let t=this._width||240,i=y(this._hairWallMs(),t);if(!i.visible)return null;return e`<div
 			class="hairline${i.saturated?" saturated":""}"
 			role="img"
-			aria-label="elapsed ${f(this.wallMs??0)} of ${b()} scale${i.saturated?" — saturated at full width":""}"
-			title="elapsed ${f(this.wallMs??0)} of ${b()} scale${i.saturated?" — saturated at full width":""}"
+			aria-label="elapsed ${f(this._hairWallMs()??0)} of ${S()} scale${i.saturated?" — saturated at full width":""}"
+			title="elapsed ${f(this._hairWallMs()??0)} of ${S()} scale${i.saturated?" — saturated at full width":""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -89,16 +146,23 @@ import{n,e,r}from"./lit-96e87015cf7d620b.js";import{u,l}from"./lit-bbef4b2f412dc
 				class="span"
 				style="left:${i.start.toFixed(1)}px;width:${(i.end-i.start).toFixed(1)}px"
 			></span>
-		</div>`}_hairFocus=()=>{let t=this._width||240,i=v(this.wallMs,t);if(!i.visible)return;this._slot=-1,this._tip=`elapsed ${f(this.wallMs??0)} of ${b()} scale`+(i.saturated?" — saturated at full width":""),this.requestUpdate();let s=this._plotEl()?.getBoundingClientRect();if(s)this._placeTip(s.left+i.center/Math.max(1,t)*s.width,s.bottom+2)};_hairKey=(t)=>{if(t.key==="Escape")this._hideTip(),this.requestUpdate(),t.target.blur()};_axisHtml(t){let i=this._tzLabel();return e`<div class="axis">
-			<span>${t.hasData?l(t.windowStart??0):""}</span>
+		</div>`}_hairFocus=()=>{let t=this._width||240,i=y(this._hairWallMs(),t);if(!i.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${f(this._hairWallMs()??0)} of ${S()} scale`+(i.saturated?" — saturated at full width":""),this.requestUpdate();let o=this._plotEl()?.getBoundingClientRect();if(o)this._placeTip(o.left+i.center/Math.max(1,t)*o.width,o.bottom+2)};_hairKey=(t)=>{if(t.key==="Escape")this._hideTip(),this.requestUpdate(),t.target.blur()};_axisHtml(t){let i=this._tzLabel();return e`<div class="axis">
+			<span>${t.hasData?T(t.windowStart??0):""}</span>
 			<span
 				>${t.hasData?`${i} · ${t.slotMs/60000}m/bin`:"no activity"}</span
 			>
-			<span>${t.hasData?l(t.windowEnd??0):""}</span>
-		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),i=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(i/60)).padStart(2,"0")}:${String(i%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,i){let s=this.renderRoot.querySelector(".tip");if(!s)return;let a=Math.min(t+10,window.innerWidth-s.offsetWidth-8),c=i-s.offsetHeight-10;s.style.left=`${Math.max(8,a)}px`,s.style.top=`${c>=8?c:i+12}px`}render(){let t=this._spec;return e`
+			<span>${t.hasData?T(t.windowEnd??0):""}</span>
+		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),i=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(i/60)).padStart(2,"0")}:${String(i%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,i){let o=()=>{let l=this.renderRoot.querySelector(".tip");if(!l)return;let p=Math.min(t+10,window.innerWidth-l.offsetWidth-8),c=i-l.offsetHeight-10;l.style.left=`${Math.max(8,p)}px`,l.style.top=`${c>=8?c:i+12}px`};if(this.renderRoot.querySelector(".tip")){o();return}this.updateComplete.then(o).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?L(this.attempt):this.wallMs}get _stripHost(){return{setTip:(t,i,o)=>{this._tip=t,this._slot=i,this._tipRef=o??null,this.requestUpdate()},placeTip:(t,i)=>this._placeTip(t,i),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=F(this._stripHost);_renderAttempt(){let t=this.attempt,i=this._width||240;if(!t)return e`<div class="attempt-empty" role="img">
+					no attempt in the fixed 90-minute window
+				</div>`;return e`
+			${D(t,i,this._attemptHandlers)}
+			${this._hairlineHtml()}
+			${P(t,this._tzLabel())}
+			${this._tip?this._tipHtml():null}
+		`}render(){if(this.mode==="attempt")return this._renderAttempt();let t=this._spec;return e`
 			<svg
 				class="plot"
-				viewBox="0 0 ${this._width||240} 28"
+				viewBox="0 0 ${this._width||240} 40"
 				preserveAspectRatio="none"
 				role="img"
 				aria-label="Fresh and cached input tokens in ${t.slotMs/60000}-minute bins across the measured track"
@@ -112,4 +176,4 @@ import{n,e,r}from"./lit-96e87015cf7d620b.js";import{u,l}from"./lit-bbef4b2f412dc
 			${this._hairlineHtml()}
 			${this._axisHtml(t)}
 			${this._tip?this._tipHtml():null}
-		`}}customElements.define("klh-card-activity",x);
+		`}}customElements.define("klh-card-activity",q);
