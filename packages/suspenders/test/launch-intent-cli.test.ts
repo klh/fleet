@@ -121,3 +121,40 @@ test("CLI door: exit codes + JSON listing against an isolated store", () => {
 	).toBe(0);
 	expect(launchIntent(store, project, "W9")?.state).toBe("FAILED");
 });
+
+// W2539 (root note): --json is a SWITCH — verb-kit stores switches in
+// flag() ("true"), not all(); the old all() read never saw it and --json
+// silently emitted plain text. Assert the actual OUTPUT shape.
+test("W2539: inspect --json emits JSON, --item filters to one row", () => {
+	const repo = mkdtempSync(join(tmpdir(), "fleet-intent-repo-"));
+	dirs.push(repo);
+	mkdirSync(join(repo, ".git"));
+	const store = isolatedStore();
+	const project = projectIdentity(repo);
+	seedIntent(store, { item: "W5", state: "REGISTERED", pid: null }, project);
+	seedIntent(store, { item: "W6", state: "REGISTERED", pid: null }, project);
+	const lines: string[] = [];
+	const log = console.log;
+	console.log = (...args: unknown[]) => {
+		lines.push(args.map(String).join(" "));
+	};
+	try {
+		expect(intentMain(["inspect", "--json"], { repo, store })).toBe(0);
+		const all = JSON.parse(lines[lines.length - 1] ?? "[]") as Array<{
+			item: string;
+			verdict: string;
+		}>;
+		expect(all.map((r) => r.item).sort()).toEqual(["W5", "W6"]);
+		lines.length = 0;
+		expect(
+			intentMain(["inspect", "--item", "W6", "--json"], { repo, store }),
+		).toBe(0);
+		const one = JSON.parse(lines[lines.length - 1] ?? "[]") as Array<{
+			item: string;
+		}>;
+		expect(one).toHaveLength(1);
+		expect(one[0]?.item).toBe("W6");
+	} finally {
+		console.log = log;
+	}
+});

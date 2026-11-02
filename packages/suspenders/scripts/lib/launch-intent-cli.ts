@@ -77,11 +77,18 @@ export const INTENT_ROOT_HELP_ENTRY = `  intent ${VERBS.map((v) => v.name).join(
 export const inspectIntents = (
 	store: Parameters<typeof launchSchema>[0],
 	project: string,
+	item?: string,
 ): Array<Record<string, unknown> & { verdict: string }> => {
 	launchSchema(store);
-	const rows = store
-		.query(`SELECT * FROM ${TABLE} WHERE project=? ORDER BY item`)
-		.all(project) as Array<Record<string, unknown>>;
+	const rows = (
+		item
+			? store.query(
+					`SELECT * FROM ${TABLE} WHERE project=? AND item=? ORDER BY item`,
+				)
+			: store.query(`SELECT * FROM ${TABLE} WHERE project=? ORDER BY item`)
+	).all(...(item ? [project, item] : [project])) as Array<
+		Record<string, unknown>
+	>;
 	return rows.map((r) => ({
 		...r,
 		verdict: inspectLaunchIntent(r as never),
@@ -90,13 +97,13 @@ export const inspectIntents = (
 
 type Store = Parameters<typeof launchSchema>[0];
 
-const listJson = (store: Store, project: string): number => {
-	console.log(JSON.stringify(inspectIntents(store, project)));
+const listJson = (store: Store, project: string, item?: string): number => {
+	console.log(JSON.stringify(inspectIntents(store, project, item)));
 	return 0;
 };
 
-const listPlain = (store: Store, project: string): number => {
-	const rows = inspectIntents(store, project);
+const listPlain = (store: Store, project: string, item?: string): number => {
+	const rows = inspectIntents(store, project, item);
 	if (rows.length === 0) {
 		console.log(`no launch intents for ${project}`);
 		return 0;
@@ -230,8 +237,14 @@ export const intentMain = (
 	const store = ctx.store ?? openStore();
 	let code: number;
 	if (spec.name === "inspect") {
-		const json = outcome.parsed.all("--json").length > 0;
-		code = json ? listJson(store, project) : listPlain(store, project);
+		// W2539: --json is a SWITCH — verb-kit stores switches in flag()
+		// ("true"), not all() (occurrence list), so the old all() read never
+		// saw it and --json silently emitted plain text. --item filters.
+		const json = outcome.parsed.flag("--json") === "true";
+		const item = outcome.parsed.flag("--item");
+		code = json
+			? listJson(store, project, item ?? undefined)
+			: listPlain(store, project, item ?? undefined);
 	} else {
 		code = failVerb(store, project, outcome.parsed);
 	}
