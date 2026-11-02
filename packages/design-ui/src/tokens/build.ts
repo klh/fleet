@@ -49,8 +49,8 @@ const semanticName = (key: string): string =>
 
 // W2549: a primitive row keeps its GROUP — the JSON source's top-level
 // group key. The namespace derives from the group, never from key-shape
-// heuristics, so equal keys in different groups (space "3"=6px vs radius
-// "3"=8px) land in --klh-<group>-* and can never overwrite each other.
+// heuristics, so equal keys in different groups (space "3"=6 vs radius
+// "3"=8) land in --klh-<group>-* and can never overwrite each other.
 const GROUP_NS: Readonly<Record<string, string>> = {
 	color: "--klh-color",
 	space: "--klh-space",

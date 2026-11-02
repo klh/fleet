@@ -27,11 +27,11 @@ const tracked = () => {
 /** Shrink-only hex/px baseline for component-style sources: raw color/size
  * literals in component code never GROW. design-ui is NOT here — it has a
  * zero baseline enforced separately (only src/tokens/dist is exempt, it IS
- * the token definitions). Counts measured 2026-10-31 (W2269.1.5). */
+ * the token definitions). Counts measured 2026-10-31 (W2269.1.5); re-measured at the W2556 merge (0ce5a801) — main W2549 grew fleet-board-html +3px / klh-topbar +2px before this suite existed on main. */
 const HEX_PX_BASELINE = {
 	"packages/suspenders/hooks/bin/console-html.ts": [0, 135],
 	"packages/suspenders/hooks/bin/federation-work-html.ts": [16, 1],
-	"packages/suspenders/hooks/bin/fleet-board-html.ts": [15, 667],
+	"packages/suspenders/hooks/bin/fleet-board-html.ts": [15, 670],
 	"packages/suspenders/hooks/board-html/klh-board-tabs.ts": [0, 13],
 	"packages/suspenders/hooks/board-html/klh-components.ts": [9, 10],
 	"packages/suspenders/hooks/board-html/klh-conn-banner.ts": [0, 4],
@@ -48,7 +48,7 @@ const HEX_PX_BASELINE = {
 	"packages/suspenders/hooks/board-html/klh-recovery.ts": [0, 22],
 	"packages/suspenders/hooks/board-html/klh-service-row.ts": [12, 35],
 	"packages/suspenders/hooks/board-html/klh-task-trace.ts": [11, 25],
-	"packages/suspenders/hooks/board-html/klh-topbar.ts": [0, 41],
+	"packages/suspenders/hooks/board-html/klh-topbar.ts": [0, 43],
 	// CH-MAP-END
 	"packages/suspenders/hooks/board-html/klh-usage-head.ts": [8, 17],
 	"packages/suspenders/hooks/board-html/renders.ts": [0, 6],
