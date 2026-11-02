@@ -7,6 +7,7 @@
 // (advance → exhaust → surface once, episode resets, capacity released).
 import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
+import { hostname } from "node:os";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 import {
 	classifyLaunchRefusal,
@@ -14,6 +15,7 @@ import {
 	finishFailedLaunch,
 	heldLaunchItems,
 	heldLaunchReport,
+	inspectLaunchIntent,
 	LaunchRefusalSchema,
 	launchSchema,
 	reserveLaunchIntent,
@@ -454,5 +456,163 @@ test.describe("@unit", () => {
 		expect(note).toContain("3/3");
 		expect(note).toContain("58349");
 		expect(note).toContain("dispatch intent fail --item W417");
+	});
+
+	// — W2539: terminal work items never generate probe noise —————————
+	test("W2539: terminal work item — no hold, no probe burn, no surface", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W1','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		try {
+			db.run("UPDATE work_items SET state='DONE' WHERE id='W1'");
+			// the recycled pid would inspect alive/unknown; terminal work makes
+			// the intent stale-by-construction — capacity free, NO decision
+			const as = () => "unknown" as const;
+			for (const t of [1_000, 31_000, 151_000, 10_000_000]) {
+				const report = heldLaunchReport(store, "p", t, as);
+				expect([...report.held]).toEqual([]);
+				expect(report.surfaced).toEqual([]);
+			}
+			const emitted: string[] = [];
+			unknownSurfaceGate(
+				store,
+				"p",
+				(n) => emitted.push(n),
+				() => {},
+				10_000_001,
+			);
+			expect(emitted).toEqual([]);
+			// no probe attempts burned on a terminal item
+			const episodes = db
+				.query(
+					"SELECT count(*) AS n FROM facts WHERE key LIKE 'dispatch.intent-reprobe.%'",
+				)
+				.get() as { n: number };
+			expect(episodes.n).toBe(0);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2539: terminal surface does not emit — but a live unknown still does", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W1','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W2','lane2','n2',1,'/bin/true','h',0,'REGISTERED',NULL,NULL)",
+		);
+		db.run("INSERT INTO work_items VALUES ('p','W2','lane2',100,'CLAIMED')");
+		try {
+			const emitted: string[] = [];
+			const as = () => "unknown" as const;
+			// burn the bound on both; only the ACTIVE item's episode emits
+			for (const t of [1_000, 31_000]) heldLaunchReport(store, "p", t, as);
+			db.run("UPDATE work_items SET state='CANCELLED' WHERE id='W1'");
+			const gate = unknownSurfaceGate(
+				store,
+				"p",
+				(n) => emitted.push(n),
+				() => {},
+				151_000,
+			);
+			expect(gate.surfaced.map((s) => s.item)).toEqual(["W2"]);
+			expect(emitted).toHaveLength(1);
+			expect(emitted[0]).toContain("W2");
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2539: active CLAIMED keeps the full unknown-liveness safeguard", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W1','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		try {
+			const as = () => "unknown" as const;
+			// held through the whole bound, surfaced at exhaustion (W2317 intact)
+			for (const t of [1_000, 31_000]) {
+				const report = heldLaunchReport(store, "p", t, as);
+				expect([...report.held]).toEqual(["W1"]);
+			}
+			const report = heldLaunchReport(store, "p", 151_000, as);
+			expect([...report.held]).toEqual([]);
+			expect(report.surfaced[0]?.item).toBe("W1");
+			expect(report.surfaced[0]?.justExhausted).toBe(true);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2539: live terminal worker — oracle unchanged, report silent", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W1','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		try {
+			// work DONE but the executor process is STILL alive: the ORACLE
+			// still says alive — W2539 never weakened positive process
+			// identity — while the report disposition releases silently
+			db.run("UPDATE work_items SET state='DONE' WHERE id='W1'");
+			const alive = inspectLaunchIntent(
+				probeIntent({
+					item: "W1",
+					host: hostname(),
+					pid: 4242,
+					birth: "boot:same",
+				}),
+				() => ({ birth: "boot:same", command: "/bin/true" }),
+			);
+			expect(alive).toBe("alive");
+			const dead = inspectLaunchIntent(
+				probeIntent({
+					item: "W1",
+					host: hostname(),
+					pid: 4242,
+					birth: "boot:other",
+				}),
+				() => ({ birth: "boot:other2", command: "/usr/bin/Steam" }),
+			);
+			expect(dead).toBe("dead");
+			const as = (v: "alive" | "dead") => () => v;
+			expect([...heldLaunchReport(store, "p", 1, as("alive")).held]).toEqual(
+				[],
+			);
+			expect([...heldLaunchReport(store, "p", 1, as("dead")).held]).toEqual([]);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2539: changed ownership/nonce on an ACTIVE item still probes", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W1','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		try {
+			// ownership moves to another sid + fresh nonce (a re-take): the
+			// work item is still active so the uncertainty safeguard holds
+			db.run("UPDATE work_items SET owner_sid='lane-b'");
+			db.run("UPDATE lane_launch_intents SET sid='lane-b',nonce='n2'");
+			const report = heldLaunchReport(store, "p", 1_000, () => "unknown");
+			expect([...report.held]).toEqual(["W1"]);
+		} finally {
+			db.close();
+		}
+	});
+
+	test("W2539: absent work row fails open to active (safeguard kept)", () => {
+		const { db, store } = fixture();
+		db.run(
+			"INSERT INTO lane_launch_intents VALUES ('p','W404','lane','n1',1,'/bin/true','h',0,'REGISTERED',999999,NULL)",
+		);
+		try {
+			const report = heldLaunchReport(store, "p", 1_000, () => "unknown");
+			expect([...report.held]).toEqual(["W404"]);
+		} finally {
+			db.close();
+		}
 	});
 });

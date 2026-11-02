@@ -193,6 +193,58 @@ export function heldLaunchItems(
 	return heldLaunchReport(store, project).held;
 }
 
+// — W2539: lifecycle-aware disposition ————————————————————————
+// A launch intent is capacity fencing for a LIVE claim. The work graph is
+// the ownership oracle: once an item reaches a terminal state (DONE,
+// CANCELLED, SUPERSEDED, FAILED), no claim exists for the intent to fence
+// and no probe of its pid can produce a meaningful decision — in the
+// recycled-pid cases the pid now belongs to an unrelated process (macOS
+// services/Steam/Chrome/zsh own the observed pids) and a genuine worker
+// that outlives its DONE item holds no claim to fence either (the oracle
+// still reports it alive — identity is untouched). Either way re-probing
+// to exhaustion only emits NEED_DECISION noise. The verdict vocabulary
+// stays intact (root directive): an active CLAIMED/RUNNING item keeps
+// every unknown-liveness safeguard; only the alert/re-probe DISPOSITION
+// changes. Never killed, never pruned.
+export const INTENT_TERMINAL_WORK_STATES = [
+	"DONE",
+	"CANCELLED",
+	"SUPERSEDED",
+	"FAILED",
+] as const;
+
+/** Work-graph state for an intent's item, read as ONE batched snapshot
+ *  (root review: ~1600 historical intents must not pay an N+1 probe on a
+ *  proxied store). Absent-item / no-work_items-table = ACTIVE (fail-open:
+ *  an unknown graph never drops a live claim's safeguards — only a JOINED
+ *  terminal row does). */
+export function intentWorkStates(
+	store: GovernorStore,
+	project: string,
+	items: string[],
+): Map<string, "terminal" | "active"> {
+	const out = new Map<string, "terminal" | "active">(
+		items.map((item) => [item, "active" as const]),
+	);
+	if (items.length === 0) return out;
+	try {
+		const placeholders = items.map(() => "?").join(",");
+		const rows = store
+			.query(
+				`SELECT id,state FROM work_items WHERE project=? AND id IN (${placeholders})`,
+			)
+			.all(project, ...items) as Array<{ id: string; state: string }>;
+		for (const row of rows)
+			if (
+				(INTENT_TERMINAL_WORK_STATES as readonly string[]).includes(row.state)
+			)
+				out.set(row.id, "terminal");
+	} catch {
+		// no work_items table / dark store — every intent stays ACTIVE
+	}
+	return out;
+}
+
 // — W2317: the bounded unknown-liveness re-probe ————————————————
 // An unknown inspect verdict is an INPUT to a bounded probe cycle, never a
 // slot-holding state (the W417.4 disease: recycled pids + incomparable
@@ -316,7 +368,12 @@ function reprobeStep(
 /** The dispatch-cycle read: which items hold launch capacity, and which
  *  unknown-liveness intents exhausted their re-probe bound (surfaced —
  *  capacity released, one NEED_DECISION per episode rides the caller).
- *  This call IS the probe cadence: one dispatch cycle = one attempt. */
+ *  This call IS the probe cadence: one dispatch cycle = one attempt.
+ *  W2539 lifecycle join: an intent whose WORK item is terminal (DONE/
+ *  CANCELLED/SUPERSEDED/FAILED) is stale-by-construction — no claim exists
+ *  for it to fence — so it holds no slot, burns no probe attempt and
+ *  surfaces no decision; an active item keeps the full unknown-liveness
+ *  safeguard. */
 export function heldLaunchReport(
 	store: GovernorStore,
 	project: string,
@@ -329,9 +386,15 @@ export function heldLaunchReport(
 	const rows = store
 		.query(`SELECT * FROM ${TABLE} WHERE project=? AND state!='FAILED'`)
 		.all(project) as LaunchIntent[];
+	const workStates = intentWorkStates(
+		store,
+		project,
+		rows.map((row) => row.item),
+	);
 	const held = new Set<string>();
 	const surfaced: SurfacedIntent[] = [];
 	for (const row of rows) {
+		if (workStates.get(row.item) === "terminal") continue;
 		const verdict = inspect(row);
 		if (verdict === "dead") continue;
 		const step = reprobeStep(store, row, verdict, now);
