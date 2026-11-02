@@ -8,24 +8,35 @@
 // theme — a failing pair fails the build (exit 1), never a silent ship.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
 const HERE = import.meta.dir;
 const DIST = join(HERE, "dist");
 
 type TokenMap = Record<string, string>;
 
-// one nesting level for primitives groups (color/space/type); semantic
-// files are flat
-const readMap = (path: string): TokenMap => {
-	const raw = JSON.parse(readFileSync(path, "utf8"));
-	return Object.values(raw).some((v) => typeof v === "object")
-		? Object.fromEntries(
-				Object.values(raw).flatMap((v) =>
-					typeof v === "object" ? Object.entries(v) : [],
-				),
-			)
-		: raw;
+// W1238.4 schema law: token JSON sources safeParse through named schemas,
+// never hand-cast — nulls, arrays and non-string leaves fail loud with a
+// prettified path. Semantic/theme files are flat string maps (nesting is a
+// source error: roles never group); primitives are grouped string maps.
+const FlatTokenSchema = z.record(z.string(), z.string());
+const GroupedTokenSchema = z.record(
+	z.string(),
+	z.record(z.string(), z.string()),
+);
+
+const parseSource = <T>(path: string, schema: z.ZodType<T>): T => {
+	const check = schema.safeParse(JSON.parse(readFileSync(path, "utf8")));
+	if (!check.success)
+		throw new Error(
+			`token source ${path} failed schema: ${check.error.issues
+				.map((i) => `${i.path.join(".")}: ${i.message}`)
+				.join("; ")}`,
+		);
+	return check.data;
 };
+
+const readMap = (path: string): TokenMap => parseSource(path, FlatTokenSchema);
 
 // semantic color role → CSS custom property name.
 // board-* keys keep their verbatim page names (--board-*); focus-ring-*
@@ -36,18 +47,38 @@ const semanticName = (key: string): string =>
 		? `--${key}`
 		: `--klh-${key.startsWith("focus-ring") ? "" : "c-"}${key}`;
 
-// primitives → custom property namespace by shape: type scale/tracks/stacks,
-// motion durations, bare numbers = the space scale, everything else radius.
-const primName = (key: string): string => {
-	if (
-		key.startsWith("size-") ||
-		key.startsWith("track-") ||
-		key.endsWith("stack")
-	)
-		return `--klh-typo-${key}`;
-	if (key.endsWith("ms")) return `--klh-motion-${key}`;
-	if (/^[0-9]/.test(key)) return `--klh-space-${key}`;
-	return `--klh-radius-${key}`;
+// W2549: a primitive row keeps its GROUP — the JSON source's top-level
+// group key. The namespace derives from the group, never from key-shape
+// heuristics, so equal keys in different groups (space "3"=6px vs radius
+// "3"=8px) land in --klh-<group>-* and can never overwrite each other.
+const GROUP_NS: Readonly<Record<string, string>> = {
+	color: "--klh-color",
+	space: "--klh-space",
+	radius: "--klh-radius",
+	motion: "--klh-motion",
+	type: "--klh-typo", // historical namespace; the group key is "type"
+};
+
+// W2549: a primitive row carries its group; GroupedTokenSchema refuses
+// flat JSON so a group can never be silently lost (the collision root cause).
+interface PrimRow {
+	group: string;
+	key: string;
+	value: string;
+}
+
+const readPrims = (path: string): PrimRow[] =>
+	Object.entries(parseSource(path, GroupedTokenSchema)).flatMap(([group, v]) =>
+		Object.entries(v).map(([key, value]) => ({ group, key, value })),
+	);
+
+const primVar = (row: PrimRow): string => {
+	const ns = GROUP_NS[row.group];
+	if (!ns)
+		throw new Error(
+			`unknown primitive group "${row.group}" (${row.key}) — add its namespace to GROUP_NS`,
+		);
+	return `${ns}-${row.key}`;
 };
 
 const readThemes = (): Map<string, TokenMap> => {
@@ -60,21 +91,30 @@ const readThemes = (): Map<string, TokenMap> => {
 };
 
 const loadCtx = (): {
-	primitives: TokenMap;
+	primitives: PrimRow[];
 	semantic: TokenMap;
 	themes: Map<string, TokenMap>;
 } => {
-	const merge = (dir: string): TokenMap =>
-		Object.fromEntries(
-			readdirSync(dir)
-				.filter((f) => f.endsWith(".json"))
-				.flatMap((f) => Object.entries(readMap(join(dir, f)))),
-		);
-	return {
-		primitives: merge(join(HERE, "primitives")),
-		semantic: merge(join(HERE, "semantic")),
-		themes: readThemes(),
-	};
+	const files = (dir: string): string[] =>
+		readdirSync(dir).filter((f) => f.endsWith(".json"));
+	const semantic: TokenMap = {};
+	for (const f of files(join(HERE, "semantic")))
+		Object.assign(semantic, readMap(join(HERE, "semantic", f)));
+	const primitives = files(join(HERE, "primitives")).flatMap((f) =>
+		readPrims(join(HERE, "primitives", f)),
+	);
+	// duplicate custom-property names inside one namespace fail loudly —
+	// last-wins flattening is how the space/radius collision shipped
+	const seen = new Set<string>();
+	for (const row of primitives) {
+		const name = primVar(row);
+		if (seen.has(name))
+			throw new Error(
+				`duplicate primitive token ${name} (${row.group}.${row.key})`,
+			);
+		seen.add(name);
+	}
+	return { primitives, semantic, themes: readThemes() };
 };
 
 // WCAG relative luminance + contrast ratio over raw hex values
@@ -169,10 +209,15 @@ const emit = (ctx: ReturnType<typeof loadCtx>): void => {
 			.map(([k, v]) => `\t${name(k)}: ${v};`)
 			.sort()
 			.join("\n");
+	const primRows = (list: PrimRow[]): string =>
+		list
+			.map((r) => `\t${primVar(r)}: ${r.value};`)
+			.sort()
+			.join("\n");
 	const cssParts = [
 		banner,
 		":root {\n",
-		rows(ctx.primitives, primName),
+		primRows(ctx.primitives),
 		"\n",
 		rows(ctx.semantic, semanticName),
 		"\n}\n",

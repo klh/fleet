@@ -1,6 +1,6 @@
 // hooks/bin/console-html.ts — W147: the console shell + server-rendered
 // console pages (belt gateway view, local services view, settings). Pure
-// string builders on the klh theme tokens (hoo@klh/kernel/src/kernel.theme.module.ts — var(--klh-*),
+// string builders on the klh theme tokens (hooks/lib/theme.ts → @klh/kernel/src/kernel.theme.module.ts — var(--klh-*),
 // dark/light via data-theme), inline SVG, no framework, no external deps.
 //
 // W658.2: the top bar retired into the klh-topbar Lit component
