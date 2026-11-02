@@ -1,20 +1,12 @@
 // hooks/coord/kb.ts — W2569: the kb verb (stats/search/list) in its own
 // module, carved out of facts.ts at its 1200-line stop-rule decomposition.
 // Both faces render FROM the kbContract JSON core (machine-readable --json).
-import {
-	arg,
-	cyan,
-	db,
-	die,
-	dim,
-	green,
-	kbLookup,
-	projectIdentity,
-} from "./shared.ts";
-import { ensureConsultTrust } from "./consult-trust.ts";
-import { makeStamp } from "../lib/knowledge/confidence.ts";
+
 import { z } from "zod";
+import { makeStamp } from "../lib/knowledge/confidence.ts";
+import { ensureConsultTrust } from "./consult-trust.ts";
 import { verbContract, wantsJson } from "./json-out.ts";
+import { cyan, db, die, dim, kbLookup, projectIdentity } from "./shared.ts";
 
 // W2569: the kb machine contract — stats/search/list share one envelope.
 const kbRowShape = z.object({
@@ -48,7 +40,6 @@ const kbContract = verbContract({
 	match: kbRowShape.nullable(),
 	rows: z.array(kbRowShape).nullable(),
 });
-
 
 export async function cmdKb(rest: string[]): Promise<void> {
 	// the fleet's shared memory: what consults have already answered

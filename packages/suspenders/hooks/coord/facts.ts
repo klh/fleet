@@ -2,15 +2,9 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
-import {
-	ensureKnowledgeFacts,
-	isKnowledgeFactKey,
-	originKindOf,
-	sourceRefOf,
-} from "../lib/knowledge/knowledge-facts.ts";
-import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { z } from "zod";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
 import { openIdentity } from "../lib/govdb/govdb.ts";
 import { archiveAndPrune, pruneArchiveFiles } from "../lib/govdb/retention.ts";
@@ -21,15 +15,23 @@ import {
 	parseStamp,
 	renderStamp,
 } from "../lib/knowledge/confidence.ts";
+import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/knowledge/kev-curation.ts";
 import {
+	ensureKnowledgeFacts,
+	isKnowledgeFactKey,
+	originKindOf,
+	sourceRefOf,
+} from "../lib/knowledge/knowledge-facts.ts";
+import {
 	searchSink,
 	sinkConfigured,
 } from "../lib/knowledge/knowledge-sink-client.ts";
+import { parseProvenance } from "../lib/knowledge/knowledge-sync.ts";
 import {
 	assertCapsuleBounds,
 	itemCapsuleKey,
@@ -38,24 +40,19 @@ import { reapDeadSubscribes } from "../lib/lanes/subscribe-attach.ts";
 import { run } from "../lib/run.ts";
 import { parseVerb } from "../lib/verb-kit.ts";
 import { isLiveSession, type LivenessRow } from "./bus.ts";
-import { ensureConsultTrust } from "./consult-trust.ts";
+import { verbContract, wantsJson } from "./json-out.ts";
 import type { Database } from "./shared.ts";
 import {
 	arg,
-	cyan,
 	db,
 	die,
 	dim,
 	green,
-	kbLookup,
 	projectIdentity,
 	pruneDeltas,
 	realpathSync,
 	sweepStaleSessions,
 } from "./shared.ts";
-import { z } from "zod";
-import { verbContract, wantsJson } from "./json-out.ts";
-import { parseProvenance } from "../lib/knowledge/knowledge-sync.ts";
 
 // W2569: the fact get/list machine contracts — one row image, stamps and
 // provenance parsed (JSON, not the tty prose lines).
@@ -377,8 +374,9 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			);
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "get") {
-		// positional key skips flag tokens (--json rides rest[1])
-		const key = rest[1]?.startsWith("--") ? rest[2] : rest[1];
+		// positional key: only --json is skipped (W773: flag-shaped keys like
+		// "--text" are legitimate junk rows the purge verb must still reach)
+		const key = rest[1] === "--json" ? rest[2] : rest[1];
 		const { h: gh, t: gt } = factStore(key ?? "");
 		const getSql = (t: string) =>
 			`SELECT value, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason FROM ${t} WHERE key = ?`;

@@ -3,9 +3,10 @@
 // fact, readable and settable here. strict is the default (fact absent =
 // strict) and refuses lanes that cannot ride the buckle front; solo relents
 // to the belt-direct fallback. dispatch-next reads the same fact.
-import { arg, db, die } from "./shared.ts";
+
 import { z } from "zod";
 import { verbContract, wantsJson } from "./json-out.ts";
+import { arg, db, die } from "./shared.ts";
 
 export const GOVERNANCE_KEY = "fleet.governance";
 const MODES = new Set(["strict", "solo"]);

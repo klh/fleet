@@ -9,14 +9,17 @@
 // one-tab indent preserved, output byte-compatible.
 import { statSync } from "node:fs";
 import { hostname } from "node:os";
-import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 // W822.1: the broadcast core moved to lib/broadcast-core.ts (store-first) so
 // the work CLI's done broadcast shares it without coord/shared.ts's import
 // open; re-exports keep the coord modules' import specifiers stable. The
 // liveness term there carries the newer session check (W1261 identity term).
 import { broadcastNote } from "../lib/broadcast-core.ts";
-export { broadcastNote, isLiveSession } from "../lib/broadcast-core.ts";
+import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
+
 export type { LivenessRow } from "../lib/broadcast-core.ts";
+export { broadcastNote, isLiveSession } from "../lib/broadcast-core.ts";
+
+import { z } from "zod";
 import {
 	type ForeignLaneHit,
 	foreignLaneMatch,
@@ -30,8 +33,8 @@ import { loadLaneRegistry } from "../lib/lanes/lane-registry.ts";
 import { startNativeRenameWatch } from "../lib/lanes/session-rename.ts";
 import { managedSubscriberIdentity } from "../lib/lanes/subscribe-attach.ts";
 import { type EventPublication, emitStoredEvent } from "./event-publish.ts";
-import { queueCodexDelivery } from "./subscribe-delivery.ts";
 import { advanceCursor, fetchEventsPaged } from "./event-scan.ts";
+import { verbContract, wantsJson } from "./json-out.ts";
 import {
 	amber,
 	arg,
@@ -44,8 +47,7 @@ import {
 	projectIdentity,
 	red,
 } from "./shared.ts";
-import { z } from "zod";
-import { verbContract, wantsJson } from "./json-out.ts";
+import { queueCodexDelivery } from "./subscribe-delivery.ts";
 
 // W2569: the state verb's machine contract — both faces render FROM it.
 const stateContract = verbContract({
@@ -279,14 +281,14 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 			const { sha, note, ...restP } = r.payload
 				? (JSON.parse(r.payload) as Record<string, string>)
 				: {};
-		const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
-		const extra = Object.entries(restP)
-			.map(([k, v]) => `${dim(`${k}=`)}${v}`)
-			.join(" ");
-		console.log(
-			`  ${dim(`#${r.id}`)} ${dim(`${ago}s`.padStart(4))}  ${cyan(r.kind.padEnd(18))}${dim(r.source.slice(0, 8).padEnd(9))}${r.scope ? `${r.scope}  ` : ""}${sha ? green(`@${sha.slice(0, 8)}  `) : ""}${Object.keys(restP).length ? `${extra}  ` : ""}${note ? dim(`— ${note}`) : ""}`,
-		);
-	}
+			const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
+			const extra = Object.entries(restP)
+				.map(([k, v]) => `${dim(`${k}=`)}${v}`)
+				.join(" ");
+			console.log(
+				`  ${dim(`#${r.id}`)} ${dim(`${ago}s`.padStart(4))}  ${cyan(r.kind.padEnd(18))}${dim(r.source.slice(0, 8).padEnd(9))}${r.scope ? `${r.scope}  ` : ""}${sha ? green(`@${sha.slice(0, 8)}  `) : ""}${Object.keys(restP).length ? `${extra}  ` : ""}${note ? dim(`— ${note}`) : ""}`,
+			);
+		}
 	// advance past every EXAMINED row (shown or filtered) — never beyond; a
 	// dormant lane pays one page per poll instead of the whole bus tail
 	if (as) advanceCursor(as, since, examined);
