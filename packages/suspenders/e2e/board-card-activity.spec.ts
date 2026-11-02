@@ -8,7 +8,7 @@
 // the lib; the component under test is the real built artifact, no
 // reimplementation.
 import type { Locator, Page } from "@playwright/test";
-import { THEME_HEAD } from "../hooks/lib/theme.ts";
+import { THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 import { expect, test } from "./fixtures";
 
 const T0 = 1_700_000_000_000;
