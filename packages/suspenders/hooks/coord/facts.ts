@@ -53,6 +53,33 @@ import {
 	realpathSync,
 	sweepStaleSessions,
 } from "./shared.ts";
+import { z } from "zod";
+import { verbContract, wantsJson } from "./json-out.ts";
+import { parseProvenance } from "../lib/knowledge/knowledge-sync.ts";
+
+// W2569: the fact get/list machine contracts — one row image, stamps and
+// provenance parsed (JSON, not the tty prose lines).
+const stampShape = z.unknown().nullable();
+const factRowShape = z.object({
+	key: z.string(),
+	value: z.string(),
+	version: z.number().int(),
+	ts: z.number(),
+	confidence: z.number().nullable(),
+	stamp: stampShape,
+	provenance: z.record(z.string(), z.unknown()).nullable(),
+	staleAt: z.number().nullable(),
+	staleReason: z.string().nullable(),
+});
+const factGetContract = verbContract({
+	key: z.string(),
+	found: z.boolean(),
+	fact: factRowShape.nullable(),
+});
+const factListContract = verbContract({
+	count: z.number().int(),
+	facts: z.array(factRowShape),
+});
 
 // W606 — compare-and-set guard for fact/capsule upserts: the blind upsert
 // (facts.version incremented but never checked) races successive writers to
@@ -350,14 +377,16 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			);
 		console.log(dim(FACT_SCHEMA_NOTE));
 	} else if (sub === "get") {
-		const { h: gh, t: gt } = factStore(rest[1] ?? "");
+		// positional key skips flag tokens (--json rides rest[1])
+		const key = rest[1]?.startsWith("--") ? rest[2] : rest[1];
+		const { h: gh, t: gt } = factStore(key ?? "");
 		const getSql = (t: string) =>
 			`SELECT value, version, ts, confidence, confidence_stamp, provenance, stale_at, stale_reason FROM ${t} WHERE key = ?`;
 		// mixed-version window: an older writer may still land a knowledge key in
 		// governor facts until the next open migrates it — read through to it
-		const r = (gh.query(getSql(gt)).get(rest[1] ?? "") ??
+		const r = (gh.query(getSql(gt)).get(key ?? "") ??
 			(gt === "knowledge_facts"
-				? db.query(getSql("facts")).get(rest[1] ?? "")
+				? db.query(getSql("facts")).get(key ?? "")
 				: null) ??
 			undefined) as
 			| {
@@ -371,8 +400,32 @@ export async function cmdFact(rest: string[]): Promise<void> {
 					stale_reason: string | null;
 			  }
 			| undefined;
+		if (wantsJson(rest)) {
+			// W2569: the machine face — full row image, stamp parsed not prose
+			factGetContract.emit({
+				schema_version: 1,
+				verb: "fact",
+				key: key ?? "",
+				found: r != null,
+				fact: r
+					? {
+							key: key ?? "",
+							value: r.value,
+							version: r.version,
+							ts: r.ts,
+							confidence: r.confidence,
+							stamp: parseStamp(r.confidence_stamp),
+							provenance: parseProvenance(r.provenance),
+							staleAt: r.stale_at,
+							staleReason: r.stale_reason,
+						}
+					: null,
+			});
+			if (!r) await factSinkFallback(key ?? "");
+			return;
+		}
 		console.log(r ? `${r.value} (v${r.version})` : "(unset)");
-		if (!r) await factSinkFallback(rest[1] ?? "");
+		if (!r) await factSinkFallback(key ?? "");
 		for (const line of renderProvenance(r?.provenance)) console.log(dim(line));
 		const st = parseStamp(r?.confidence_stamp);
 		if (st) console.log(dim(`  ${renderStamp(st)}`));
@@ -429,6 +482,26 @@ export async function cmdFact(rest: string[]): Promise<void> {
 			stale_at: number | null;
 			stale_reason: string | null;
 		}[];
+		if (wantsJson(rest)) {
+			// W2569: the machine face — the same merged rows, parsed not prose
+			factListContract.emit({
+				schema_version: 1,
+				verb: "fact",
+				count: rows.length,
+				facts: rows.map((r) => ({
+					key: r.key,
+					value: r.value,
+					version: r.version,
+					ts: r.ts,
+					confidence: r.confidence,
+					stamp: parseStamp(r.confidence_stamp),
+					provenance: null,
+					staleAt: r.stale_at,
+					staleReason: r.stale_reason,
+				})),
+			});
+			return;
+		}
 		console.log(
 			rows.length
 				? rows
@@ -673,135 +746,6 @@ export async function cmdLeaseRelease(rest: string[]): Promise<void> {
 		n += del.run(P, as).changes;
 	}
 	console.log(`${green("✓")} lease-release: ${n} lock(s) released`);
-}
-
-export async function cmdKb(rest: string[]): Promise<void> {
-	// the fleet's shared memory: what consults have already answered
-	const sub = rest[0];
-	if (sub === "add") {
-		// direct seed: distill a mistake/lesson without a consult round-trip
-		// (owner 2026-09-28: harvest worker logs -> kb so mistakes don't repeat)
-		const sep = rest.indexOf("--solution");
-		const problem = rest.slice(1, sep === -1 ? rest.length : sep).join(" ");
-		const solution =
-			sep === -1
-				? ""
-				: rest
-						.slice(sep + 1)
-						.filter((a) => a !== "--as")
-						.join(" ");
-		const as = (() => {
-			const i = rest.indexOf("--as");
-			return i >= 0 ? rest[i + 1] : null;
-		})();
-		if (!problem || !solution)
-			die('usage: kb add "<problem>" --solution "<solution>" [--as <sid>]');
-		const kr = db
-			.query(
-				"INSERT INTO consult_kb (problem, solution, project, asked_by, answered_by, consult_id, created_at, confidence, confidence_stamp) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)",
-			)
-			.run(
-				problem,
-				solution,
-				projectIdentity(),
-				as ?? "harvest",
-				as ?? "harvest",
-				Date.now(),
-				as ? 0.6 : 0.4,
-				JSON.stringify(
-					makeStamp({
-						value: as ? 0.6 : 0.4,
-						setter: as ? `model:${as}` : "mechanical:harvest",
-					}),
-				),
-			);
-		db.query("INSERT INTO consult_kb_fts (rowid, problem) VALUES (?, ?)").run(
-			kr.lastInsertRowid,
-			problem,
-		);
-		console.log(`✓ kb#${kr.lastInsertRowid} seeded`);
-		process.exit(0);
-	}
-	if (sub === "stats") {
-		const project = projectIdentity();
-		ensureConsultTrust(db);
-		const tot = (
-			db
-				.query("SELECT COUNT(*) AS n FROM consult_kb WHERE project = ?")
-				.get(project) as { n: number }
-		).n;
-		const hits = (
-			db
-				.query(
-					"SELECT COALESCE(SUM(hits), 0) AS n FROM consult_kb WHERE project = ?",
-				)
-				.get(project) as {
-				n: number;
-			}
-		).n;
-		const byState = db
-			.query(
-				"SELECT state, COUNT(*) AS n FROM consults WHERE project = ? GROUP BY state",
-			)
-			.all(project) as { state: string; n: number }[];
-		const lat = db
-			.query(
-				"SELECT answered_at - created_at AS ms FROM consults WHERE project = ? AND state = 'ANSWERED' AND answered_at IS NOT NULL ORDER BY ms",
-			)
-			.all(project) as { ms: number }[];
-		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
-		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
-		console.log(
-			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
-		);
-		const outcomes = db
-			.query(
-				"SELECT f.outcome, COUNT(*) AS n FROM consult_feedback f JOIN consults c ON c.id = f.consult_id WHERE c.project = ? GROUP BY f.outcome",
-			)
-			.all(project) as { outcome: string; n: number }[];
-		const outcome = (name: string) =>
-			outcomes.find((o) => o.outcome === name)?.n ?? 0;
-		console.log(
-			`outcomes: ${outcome("resolved")} resolved, ${outcome("failed")} failed, ${outcome("unused")} unused (verification, not message volume)`,
-		);
-		if (median && hits)
-			console.log(
-				dim(
-					`median human answer ${Math.round(median / 60000)}min — est. ${Math.round((hits * median) / 60000)}min of round-trips skipped (hits × median)`,
-				),
-			);
-	} else if (sub === "search") {
-		const q = rest.slice(1).join(" ");
-		if (!q) die('usage: kb search "<query words>" | kb list | kb stats');
-		const hit = kbLookup(q);
-		if (!hit) {
-			console.log(dim("(no kb match)"));
-			process.exitCode = 1;
-		} else
-			console.log(
-				`${cyan(`kb#${hit.id}`)} ${dim(`learned from ${String(hit.answered_by).slice(0, 8)}, ${hit.hits} hits`)}\n  Q: ${hit.problem}\n  A: ${hit.solution}`,
-			);
-	} else if (sub === "list") {
-		const rows = db
-			.query(
-				"SELECT id, problem, solution, answered_by, hits, created_at FROM consult_kb WHERE project = ? ORDER BY id DESC LIMIT 20",
-			)
-			.all(projectIdentity()) as {
-			id: number;
-			problem: string;
-			solution: string;
-			answered_by: string;
-			hits: number;
-		}[];
-		console.log(
-			rows
-				.map(
-					(r) =>
-						`${cyan(`kb#${r.id}`)} ${dim(String(r.answered_by).slice(0, 8))} ${r.problem.slice(0, 50)} ${dim("→")} ${r.solution.slice(0, 50)}`,
-				)
-				.join("\n") || dim("(kb empty — answers land here via consult-reply)"),
-		);
-	} else die('usage: kb stats | kb list | kb search "<query words>"');
 }
 
 export async function cmdGc(rest: string[]): Promise<void> {

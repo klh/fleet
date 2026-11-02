@@ -40,9 +40,9 @@ import {
 	cmdCapsule,
 	cmdFact,
 	cmdGc,
-	cmdKb,
 	cmdLeaseRelease,
 } from "../coord/facts.ts";
+import { cmdKb } from "../coord/kb.ts";
 import {
 	cmdBootstrap,
 	cmdDiff,

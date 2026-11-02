@@ -44,6 +44,45 @@ import {
 	projectIdentity,
 	red,
 } from "./shared.ts";
+import { z } from "zod";
+import { verbContract, wantsJson } from "./json-out.ts";
+
+// W2569: the state verb's machine contract — both faces render FROM it.
+const stateContract = verbContract({
+	sid: z.string(),
+	state: z.string(),
+	inbox: z.number(),
+	head: z.string().nullable(),
+});
+
+// W2569: the ONE event row shape the poll/inbox contracts share.
+const eventRow = z.object({
+	id: z.number().int(),
+	ts: z.number(),
+	source: z.string(),
+	kind: z.string(),
+	scope: z.string().nullable(),
+	payload: z.unknown(),
+});
+
+// W2569: the poll verb's machine contract (cursor = the event id the poll
+// advanced to, null for an anonymous read).
+const pollContract = verbContract({
+	as: z.string().nullable(),
+	scope: z.string().nullable(),
+	kinds: z.array(z.string()),
+	shown: z.number().int(),
+	examined: z.number().int(),
+	cursor: z.number().int().nullable(),
+	events: z.array(eventRow),
+});
+
+// W2569: the inbox verb's machine contract.
+const inboxContract = verbContract({
+	as: z.string(),
+	shown: z.number().int(),
+	events: z.array(eventRow),
+});
 
 // Mirrors govdb.ts's sweepStaleSessions liveTranscript window: a transcript
 // (or lane log, for non-Claude dialects) written this recently means the
@@ -214,10 +253,32 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 		kinds,
 		limit,
 	});
-	for (const r of rows) {
-		const { sha, note, ...restP } = r.payload
-			? (JSON.parse(r.payload) as Record<string, string>)
-			: {};
+	if (wantsJson(_rest)) {
+		// W2569: the machine face — one envelope, events parsed (payload JSON
+		// not prose) and the cursor facts the poll advanced. tty renders below.
+		pollContract.emit({
+			schema_version: 1,
+			verb: "poll",
+			as,
+			scope,
+			kinds,
+			shown: rows.length,
+			examined,
+			cursor: as ? examined : null,
+			events: rows.map((r) => ({
+				id: r.id,
+				ts: r.ts,
+				source: r.source,
+				kind: r.kind,
+				scope: r.scope,
+				payload: parseEventPayload(r.payload),
+			})),
+		});
+	} else
+		for (const r of rows) {
+			const { sha, note, ...restP } = r.payload
+				? (JSON.parse(r.payload) as Record<string, string>)
+				: {};
 		const ago = Math.max(0, Math.round((Date.now() - r.ts) / 1000));
 		const extra = Object.entries(restP)
 			.map(([k, v]) => `${dim(`${k}=`)}${v}`)
@@ -229,8 +290,18 @@ export async function cmdPoll(_rest: string[]): Promise<void> {
 	// advance past every EXAMINED row (shown or filtered) — never beyond; a
 	// dormant lane pays one page per poll instead of the whole bus tail
 	if (as) advanceCursor(as, since, examined);
-	if (!rows.length) console.log(dim("(no new events)"));
+	if (!rows.length && !wantsJson(_rest)) console.log(dim("(no new events)"));
 }
+
+// W2569: parsed payload for the poll JSON face (JSON, not the prose line).
+const parseEventPayload = (s: string | null): unknown => {
+	if (s == null) return null;
+	try {
+		return JSON.parse(s);
+	} catch {
+		return s;
+	}
+};
 
 // shared by cmdWait (poll) and cmdSubscribe (WS push) — one row-rendering so
 // the two paths can never visually drift apart.
@@ -402,7 +473,7 @@ export async function cmdSubscribe(rest: string[]): Promise<void> {
 
 export async function cmdState(_rest: string[]): Promise<void> {
 	// between-rounds check for a lane: canonical state + inbox + current HEAD
-	const as = arg("--as") ?? die("usage: state --as <sid>");
+	const as = arg("--as") ?? die("usage: state --as <sid> [--json]");
 	const st = db
 		.query("SELECT value FROM facts WHERE key = ?")
 		.get(`lane.${as}.state`) as { value: string } | null;
@@ -418,6 +489,17 @@ export async function cmdState(_rest: string[]): Promise<void> {
 	const pending = db
 		.query("SELECT COUNT(*) AS n FROM events WHERE target = ? AND id > ?")
 		.get(as, ncur) as { n: number };
+	if (wantsJson(_rest)) {
+		stateContract.emit({
+			schema_version: 1,
+			verb: "state",
+			sid: as,
+			state: st?.value ?? "RUNNING",
+			inbox: pending.n,
+			head: head?.value ?? null,
+		});
+		return;
+	}
 	console.log(
 		`state=${st?.value ?? "RUNNING"}  inbox=${pending.n}  head=${head?.value ?? dim("unknown")}`,
 	);
@@ -427,7 +509,8 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	// directed catch-up read: everything addressed to --as past the cursor;
 	// the cursor moves only with --ack. W652.2: rows render via the ONE
 	// formatEventLine (source glyph added — same shape as wait/subscribe).
-	const as = arg("--as") ?? die("usage: inbox --as <sid> [--ack]");
+	// W2569: --json renders the same rows as one envelope (payload parsed).
+	const as = arg("--as") ?? die("usage: inbox --as <sid> [--ack] [--json]");
 	const ncur =
 		(
 			db.query("SELECT event_id FROM cursors WHERE sid = ?").get(as) as {
@@ -445,6 +528,23 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	].sort((a, b) => a.id - b.id);
 	const lastShown = rows.reduce((last, row) => Math.max(last, row.id), 0);
 	const shownIds = JSON.stringify(rows.map((row) => row.id));
+	if (wantsJson(rest)) {
+		inboxContract.emit({
+			schema_version: 1,
+			verb: "inbox",
+			as,
+			shown: rows.length,
+			events: rows.map((r) => ({
+				id: r.id,
+				ts: r.ts,
+				source: r.source,
+				kind: r.kind,
+				scope: r.scope,
+				payload: parseEventPayload(r.payload),
+			})),
+		});
+		return;
+	}
 	for (const r of rows) console.log(formatEventLine(r));
 	if (rows.length) {
 		const receiptKinds = [
@@ -466,7 +566,7 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 			).run(Date.now(), Date.now(), as, shownIds);
 		advanceCursor(as, ncur, rows.length ? lastShown : ncur);
 	}
-	if (!rows.length) console.log(dim("(inbox empty)"));
+	if (!rows.length && !wantsJson(rest)) console.log(dim("(inbox empty)"));
 }
 
 /** Accept exactly one addressed event. Unlike inbox --ack, this does not
