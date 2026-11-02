@@ -16,11 +16,21 @@
 // a successful publish (never restart services onto an unsynced prefix) and
 // only where a proven package change demands one. Exit 0 synced/up-to-date/
 // waiting · 1 sync failed.
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fleetRootOf, readStamp, writeStamp } from "./lib/auto-install.ts";
+import { fleetRootOf } from "./lib/auto-install.ts";
+import {
+	readPostMergeStamp,
+	syncSettled,
+} from "./lib/activation-readiness.ts";
+import { runPostMergeSync } from "./lib/post-merge-runner.ts";
 import { decideRuntimeSync } from "./lib/runtime-sync.ts";
+import {
+	inspectServices,
+	readActivation,
+	type ServiceVerdict,
+} from "./lib/service-drift.ts";
 
 const USAGE = `Usage: post-merge-sync.ts [--repo <packages/suspenders path>] [options]
 
