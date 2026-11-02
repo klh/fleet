@@ -146,6 +146,15 @@ export class ProviderAdmissionCore {
 	private adaptiveConcurrency: number;
 	private concurrencySuccesses = 0;
 	private recoverySuccesses = 0;
+	/** W2543: queued callers whose wait-timer expired while healthy leases
+	 * were still in flight — demand evidence the window-shrink gate must
+	 * remember, or short-budget callers (resilience max_queue_wait_ms, the
+	 * remaining walk budget) can never prove demand and a shrunken window
+	 * never recovers. Bounded: one unit per expiry, clamped by
+	 * maxOutstanding; erased by any 429. */
+	private demandCredit = 0;
+	private demandCreditAtMs = 0;
+	private queueWaitExpiriesTotal = 0;
 	private congestionUntilMs = 0;
 	private recoveredAtMs = 0;
 	private resumeTimer?: ReturnType<typeof setTimeout>;
@@ -209,6 +218,18 @@ export class ProviderAdmissionCore {
 			Math.min(2_147_483_647, Math.max(1, Math.ceil(eligibleAt - now))),
 		);
 		this.resumeTimer.unref();
+	}
+
+	/** W2543: retained demand evidence is live only inside one queueWaitMs
+	 * horizon — the longest any caller could have been asked to wait. An
+	 * expiry at 10:00 licenses nothing at 14:00; a fresher expiry refreshes
+	 * the horizon. */
+	private liveDemandCredit(now: number): number {
+		if (this.demandCredit <= 0) return 0;
+		if (now - this.demandCreditAtMs <= this.policy.queueWaitMs)
+			return this.demandCredit;
+		this.demandCredit = 0;
+		return 0;
 	}
 
 	private feedback(
@@ -294,6 +315,7 @@ export class ProviderAdmissionCore {
 			// leave seven successes poised to erase a new pressure signal.
 			this.recoverySuccesses = 0;
 			this.concurrencySuccesses = 0;
+			this.demandCredit = 0;
 			this.recoveredAtMs = now;
 			this.scheduleStarts();
 		} else if (
@@ -305,9 +327,12 @@ export class ProviderAdmissionCore {
 		) {
 			if (
 				this.adaptiveConcurrency < this.policy.concurrency &&
-				this.queue.size > 0
+				(this.queue.size > 0 || this.liveDemandCredit(now) > 0)
 			) {
 				this.concurrencySuccesses++;
+				// W2543: remembered demand is consumed by THIS completion — an
+				// expiry buys one credit, never a standing subsidy.
+				if (this.queue.size === 0) this.demandCredit--;
 				if (this.concurrencySuccesses >= this.policy.recovery.successWindow) {
 					this.adaptiveConcurrency++;
 					this.queue.concurrency = this.adaptiveConcurrency;
@@ -347,6 +372,8 @@ export class ProviderAdmissionCore {
 			notBeforeMs: this.notBeforeMs,
 			rateLimitedTotal: this.rateLimitedTotal,
 			recoverySuccesses: this.recoverySuccesses,
+			demandCredit: this.liveDemandCredit(Date.now()),
+			queueWaitExpiriesTotal: this.queueWaitExpiriesTotal,
 			recoverySuccessWindow: this.policy.recovery.successWindow,
 			recoveryDecreasePercent: this.policy.recovery.decreasePercent,
 			feedbackEpoch: this.feedbackEpoch,
@@ -381,13 +408,26 @@ export class ProviderAdmissionCore {
 		const signal = caller
 			? AbortSignal.any([caller, deadline.signal])
 			: deadline.signal;
-		const timer = setTimeout(
-			() =>
-				deadline.abort(
-					new DOMException("Provider queue wait expired", "TimeoutError"),
-				),
-			waitMs,
-		);
+		const timer = setTimeout(() => {
+			// W2543: the callers wait lapsed while still queued — ONE bounded
+			// unit of real demand evidence for the recovery gate (any 429 erases
+			// it; it dies after one queueWaitMs horizon). Caller aborts and
+			// fail-fast pause refusals never reach here.
+			this.queueWaitExpiriesTotal++;
+			const now = Date.now();
+			// normalize first: a stale UNOBSERVED credit must not revive
+			// through this increment (liveDemandCredit zeroes it when its
+			// horizon lapsed before this fresh expiry)
+			this.liveDemandCredit(now);
+			this.demandCredit = Math.min(
+				this.policy.maxOutstanding,
+				this.demandCredit + 1,
+			);
+			this.demandCreditAtMs = now;
+			deadline.abort(
+				new DOMException("Provider queue wait expired", "TimeoutError"),
+			);
+		}, waitMs);
 		let grant!: (lease: ProviderLease) => void;
 		let deny!: (error: unknown) => void;
 		const acquired = new Promise<ProviderLease>((resolve, reject) => {
