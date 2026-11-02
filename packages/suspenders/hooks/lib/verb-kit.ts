@@ -192,14 +192,23 @@ export const runCli = async (opts: RunCliOpts): Promise<void> => {
 	const names = opts.verbs.map((v) => v.name);
 	// W2551: --version anywhere wins before any parsing that could create
 	// state — the installed generation revision + schema tip, one stable
-	// machine-parsable line (hooks/lib/cli-version.ts)
+	// machine-parsable line (hooks/lib/cli-version.ts). A verb that declares
+	// --version as its own FLAG keeps it, and LAX verbs keep it too — they
+	// predate strict parsing and dissect their own rest (coord consult's
+	// consult-version metadata rides `--version test-version`, W611
+	// verified-cache versioning).
 	const version = (): never => {
 		console.log(versionLine(opts.prog));
 		process.exit(0);
 	};
 	// the shared dispatch tail: per-verb --help, parse+validate, notify, run
 	const runSpec = async (spec: VerbSpec, rest: string[]): Promise<void> => {
-		if (rest.includes("--version")) version();
+		if (
+			!spec.lax &&
+			!spec.flags?.includes("--version") &&
+			rest.includes("--version")
+		)
+			version();
 		// --help anywhere wins before any parsing that could create state
 		if (rest.includes("--help") || rest.includes("-h")) {
 			const help = renderVerbHelp(spec);

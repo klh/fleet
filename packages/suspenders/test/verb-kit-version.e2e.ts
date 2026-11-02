@@ -22,13 +22,31 @@ test.describe("@unit", () => {
 	});
 
 	test("runCli doors answer --version with the line, exit 0", () => {
-		for (const argv of [["--version"], ["fleet", "--version"]]) {
+		for (const argv of [["--version"]]) {
 			const proc = spawnSync(BUN, [COORD_BIN, ...argv], {
 				encoding: "utf8",
 			});
 			expect(proc.status).toBe(0);
 			expect(proc.stdout.trim()).toMatch(LINE_RE);
 		}
+	});
+
+	test("lax verbs keep --version for their own dissection (consult)", () => {
+		const proc = spawnSync(
+			BUN,
+			[
+				COORD_BIN,
+				"consult",
+				"no-such-sid",
+				"q",
+				"--as",
+				"no-such-asker",
+				"--version",
+				"test-version",
+			],
+			{ encoding: "utf8" },
+		);
+		expect(proc.stdout).not.toContain("revision=");
 	});
 
 	test("the dispatch embedded door answers --version (exit 0)", () => {
