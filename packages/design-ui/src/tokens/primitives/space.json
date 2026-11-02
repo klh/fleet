@@ -19,5 +19,9 @@
 		"step": "120ms",
 		"pace": "180ms",
 		"drift": "280ms"
+	},
+	"line": {
+		"hair": "1px",
+		"thick": "2px"
 	}
 }

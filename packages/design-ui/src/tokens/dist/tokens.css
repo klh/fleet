@@ -25,6 +25,8 @@
 	--klh-color-paper-50: #ffffff;
 	--klh-color-warn-400: #d8900f;
 	--klh-color-warn-500: #b08300;
+	--klh-line-hair: 1px;
+	--klh-line-thick: 2px;
 	--klh-motion-drift: 280ms;
 	--klh-motion-pace: 180ms;
 	--klh-motion-step: 120ms;

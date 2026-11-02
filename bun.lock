@@ -98,6 +98,7 @@
       "name": "@klh/design-ui",
       "version": "2.1.2",
       "dependencies": {
+        "@klh/kernel": "2.1.2",
         "lit": "3.3.3",
         "sass": "1.107.1",
         "zod": "4.6.7",

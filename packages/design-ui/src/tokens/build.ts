@@ -57,6 +57,7 @@ const GROUP_NS: Readonly<Record<string, string>> = {
 	radius: "--klh-radius",
 	motion: "--klh-motion",
 	type: "--klh-typo", // historical namespace; the group key is "type"
+	line: "--klh-line", // W2556: W2455 hairline tokens — keys bare, group supplies the namespace
 };
 
 // W2549: a primitive row carries its group; GroupedTokenSchema refuses
@@ -78,8 +79,7 @@ const primVar = (row: PrimRow): string => {
 		throw new Error(
 			`unknown primitive group "${row.group}" (${row.key}) — add its namespace to GROUP_NS`,
 		);
-	return `${ns}-${row.key}`;
-};
+	return `${ns}-${row.key}`;};
 
 const readThemes = (): Map<string, TokenMap> => {
 	const dir = join(HERE, "themes");
