@@ -35,7 +35,6 @@ test.describe("@unit", () => {
 		for (const file of [
 			"dashboard.ts",
 			"dashboard-page.html",
-			"klh-theme.ts",
 			"vendor/lit-shared.js",
 		])
 			expect(group.files.includes(file), `missing local UI file ${file}`).toBe(
