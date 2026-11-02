@@ -27,12 +27,18 @@ import {
 } from "../lib/board/activity-scale.ts";
 import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
 import {
+	attemptRows,
+	attemptTip,
+	type AttemptHit,
+} from "../lib/board/attempt-render.ts";
+import {
 	attemptAxis,
 	attemptPlot,
 	attemptStripHandlers,
 	attemptStripStyles,
 	attemptWallMs,
 	type AttemptStripHost,
+	type AttemptTipRef,
 } from "./attempt-strip.ts";
 import { dualShort, dualStamp } from "../lib/wallclock.ts";
 
@@ -60,6 +66,11 @@ class KlhCardActivity extends LitElement {
 	declare _tip: string | null;
 	/** keyboard-focused bin index (-1 = none). */
 	declare _slot: number;
+	/** identity of the inspected attempt row (poll retention contract). */
+	declare _tipRef: AttemptTipRef | null;
+	/** identity of the inspected spend bin — its START timestamp, never a
+	 *  numeric slot (the window re-derives every poll; W2267.4.2.1.1). */
+	declare _tipTs: number | null;
 
 	static styles = [
 		css`
@@ -145,6 +156,8 @@ class KlhCardActivity extends LitElement {
 		this._width = 0;
 		this._tip = null;
 		this._slot = -1;
+		this._tipRef = null;
+		this._tipTs = null;
 	}
 
 	// the measured track (W1203): recompute on width change.
@@ -190,16 +203,57 @@ class KlhCardActivity extends LitElement {
 		if (el && this._ro) this._ro.observe(el);
 	}
 
-	// W2267.4.2.1 repair (behavior proof 5): data becoming empty or a
-	// payload leaving the window must dismiss a stale inspection — the
-	// tip is derived state, never persists past its source.
+	// W2267.4.2.1 repair (behavior proof 5) + W2267.4.2.1.1 poll retention
+	// (root #102925): a payload refresh keeps the inspection while the
+	// referenced row REMAINS — re-texted from the FRESH payload (a grown
+	// segment shows its new duration; the tip is derived state, never a
+	// stale copy) and the keyboard walk index follows the matched row's
+	// fresh position (rows may be inserted before it). Dismisses when the
+	// source is gone: spend data empty, attempt payload empty, or the
+	// referenced attempt row no longer present.
 	protected update(changed: Map<string, unknown>): void {
 		super.update(changed);
-		if (changed.has("points") || changed.has("attempt")) {
-			const spec = this._spec;
-			const attemptEmpty = this.mode === "attempt" && !this.attempt;
-			if (!spec.hasData || attemptEmpty) this._hideTip();
+		if (!changed.has("points") && !changed.has("attempt")) return;
+		if (this.mode === "attempt") {
+			if (!this.attempt || !this._tipRef) {
+				this._hideTip();
+				return;
+			}
+			const { milestones, segs } = attemptRows(this.attempt);
+			const rows = [...milestones, ...segs];
+			const ref = this._tipRef;
+			const idx = rows.findIndex(
+				(r) => r.kind === ref.kind && r.start === ref.start,
+			);
+			if (idx < 0) {
+				this._hideTip();
+				return;
+			}
+			this._tip = attemptTip(
+				rows[idx] as AttemptHit,
+				this.attempt,
+				dualStamp,
+				fmtDurationExact,
+			);
+			this._slot = idx;
+			return;
 		}
+		// spend mode: the inspected bin is its START timestamp, never a slot
+		// index — the window re-derives every poll (W2267.4.2.1.1, #102929).
+		const spec = this._spec;
+		if (!spec.hasData || this._tipTs === null) {
+			if (!spec.hasData) this._hideTip();
+			return;
+		}
+		const slot = Math.floor(
+			(this._tipTs - (spec.windowStart ?? 0)) / spec.slotMs,
+		);
+		if (slot < 0 || slot >= spec.count) {
+			this._hideTip(); // the bin left the window — stale inspection out
+			return;
+		}
+		this._slot = slot;
+		this._tip = this._tipText(spec, slot);
 	}
 
 	private _plotEl(): SVGSVGElement | null {
@@ -231,6 +285,7 @@ class KlhCardActivity extends LitElement {
 		);
 		this._slot = slot;
 		this._tip = this._tipText(spec, slot);
+		this._tipTs = (spec.windowStart ?? 0) + slot * spec.slotMs;
 		this.requestUpdate();
 		this._placeTip(e.clientX, e.clientY);
 	};
@@ -253,6 +308,7 @@ class KlhCardActivity extends LitElement {
 		const slot = Math.max(0, Math.min(spec.count - 1, this._slot + dir));
 		this._slot = slot;
 		this._tip = this._tipText(spec, slot);
+		this._tipTs = (spec.windowStart ?? 0) + slot * spec.slotMs;
 		this.requestUpdate();
 		const svgEl = this._plotEl();
 		if (svgEl) {
@@ -264,6 +320,8 @@ class KlhCardActivity extends LitElement {
 	private _hideTip(): void {
 		this._tip = null;
 		this._slot = -1;
+		this._tipRef = null;
+		this._tipTs = null;
 	}
 
 	/** exact tooltip text for one bin (W902 dual stamps, exact counts). */
@@ -366,6 +424,10 @@ class KlhCardActivity extends LitElement {
 		const span = durationSpan(this._hairWallMs(), w);
 		if (!span.visible) return;
 		this._slot = -1;
+		// the hairline is its OWN inspection kind — drop row/bin identities so
+		// a later poll cannot overwrite it with a re-texted row tip.
+		this._tipRef = null;
+		this._tipTs = null;
 		this._tip =
 			`elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ` +
 			`${fmtScaleLabel()} scale` +
@@ -455,12 +517,13 @@ class KlhCardActivity extends LitElement {
 			: this.wallMs;
 	}
 
-	/** the host face attempt-strip handlers drive (tip/slot/place). */
+	/** the host face attempt-strip handlers drive (tip/slot/place/ref). */
 	private get _stripHost(): AttemptStripHost {
 		return {
-			setTip: (text, slot) => {
+			setTip: (text, slot, ref) => {
 				this._tip = text;
 				this._slot = slot;
+				this._tipRef = ref ?? null;
 				this.requestUpdate();
 			},
 			placeTip: (x, y) => this._placeTip(x, y),

@@ -18,13 +18,23 @@ import {
 	attemptTip,
 	attemptX,
 	hitTest,
+	type AttemptHit,
 } from "../lib/board/attempt-render.ts";
 import { dualStamp } from "../lib/wallclock.ts";
 
+/** identity of the inspected row — survives payload refreshes so the owner
+ *  can tell "the referenced segment remains" (retain + retext) from "it is
+ *  gone" (dismiss the stale inspection). W2267.4.2.1.1 poll contract. */
+export interface AttemptTipRef {
+	kind: string;
+	start: number;
+}
+
 /** how the strip reports inspection state back to the strip owner. */
 export interface AttemptStripHost {
-	/** set tooltip text + the _slot walk index (the owner re-renders). */
-	setTip(text: string | null, slot: number): void;
+	/** set tooltip text + the _slot walk index + the inspected row identity
+	 *  (the owner re-renders; the ref drives poll-refresh retention). */
+	setTip(text: string | null, slot: number, ref?: AttemptTipRef | null): void;
 	/** viewport-clamped placement the host owns (same .tip surface). */
 	placeTip(x: number, y: number): void;
 	/** hide + drop walk index (pointerleave / Escape / empty data). */
@@ -82,6 +92,12 @@ export interface AttemptStripHandlers {
 	slot(): number;
 }
 
+/** identity of one hit — kind + start (milestone ts or segment start). */
+const refOf = (hit: AttemptHit): AttemptTipRef => ({
+	kind: hit.kind,
+	start: hit.start,
+});
+
 export function attemptStripHandlers(
 	host: AttemptStripHost,
 ): AttemptStripHandlers {
@@ -104,7 +120,11 @@ export function attemptStripHandlers(
 			host.hide();
 			return;
 		}
-		host.setTip(attemptTip(hit, a, dualStamp, fmtDurationExact), -1);
+		host.setTip(
+			attemptTip(hit, a, dualStamp, fmtDurationExact),
+			-1,
+			refOf(hit),
+		);
 		host.placeTip(e.clientX, e.clientY);
 	};
 	const keydown = (e: KeyboardEvent, a: AttemptTimeline): void => {
@@ -123,7 +143,7 @@ export function attemptStripHandlers(
 		const i = Math.max(0, Math.min(rows.length - 1, slot + dir));
 		const hit = rows[i];
 		if (!hit) return;
-		host.setTip(attemptTip(hit, a, dualStamp, fmtDurationExact), i);
+		host.setTip(attemptTip(hit, a, dualStamp, fmtDurationExact), i, refOf(hit));
 		const svgEl = e.currentTarget as SVGSVGElement | null;
 		if (svgEl) {
 			const r = svgEl.getBoundingClientRect();
