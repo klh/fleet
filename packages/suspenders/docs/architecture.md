@@ -26,7 +26,8 @@ campaign cost ~4 credits), grok-cli, cline, glm via the local wire. Full
 porting/install for codex lives in speedy (`bun install-codex.ts`,
 docs/codex-setup.md there); user-level copilot instructions in
 `~/.copilot/copilot-instructions.md` (the path Copilot CLI actually loads —
-W2563; a legacy `instructions.md` migrates over at install). Cross-CLI
+W2563; the install face writes a short pointer to the canonical
+`~/.copilot/instructions.md`, which it never moves or rewrites). Cross-CLI
 session discovery/naming/broadcast:
 `docs/cross-cli-addressing.md`. Per-surface hook capability research:
 `docs/cli-surface-survey.md`.

@@ -173,22 +173,30 @@ test("an existing copilot-instructions.md is user content — preserved (W2563) 
 	).toBe("# my own instructions\n");
 });
 
-test("legacy instructions.md migrates to the loaded path (W2563) @unit", () => {
+test("canonical instructions.md stays byte-untouched; pointer written beside it (W2563) @unit", () => {
 	const legacy = join(home, "w2563-legacy");
 	mkdirSync(join(legacy, ".copilot"), { recursive: true });
 	writeFileSync(join(legacy, ".copilot/instructions.md"), "# legacy fleet\n");
 	installCopilotInstructions({ home: legacy });
-	expect(() =>
-		readFileSync(join(legacy, ".copilot/instructions.md")),
-	).toThrow();
+	// the canonical file is NEVER moved or rewritten.
 	expect(
-		readFileSync(join(legacy, ".copilot/copilot-instructions.md"), "utf8"),
+		readFileSync(join(legacy, ".copilot/instructions.md"), "utf8"),
 	).toBe("# legacy fleet\n");
-	// idempotent: the migrated file is now user content — never rewritten.
+	// the loaded path gets the pointer — and it names instructions.md.
+	const pointer = readFileSync(
+		join(legacy, ".copilot/copilot-instructions.md"),
+		"utf8",
+	);
+	expect(pointer).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
+	expect(pointer).toContain("instructions.md");
+	// idempotent: re-runs rewrite neither file.
 	installCopilotInstructions({ home: legacy });
 	expect(
-		readFileSync(join(legacy, ".copilot/copilot-instructions.md"), "utf8"),
+		readFileSync(join(legacy, ".copilot/instructions.md"), "utf8"),
 	).toBe("# legacy fleet\n");
+	expect(
+		readFileSync(join(legacy, ".copilot/copilot-instructions.md"), "utf8"),
+	).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
 });
 
 test("dry run plans the instructions face without writing it (W2563) @unit", () => {

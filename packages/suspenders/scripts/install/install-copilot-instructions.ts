@@ -4,42 +4,35 @@
 // ~/.copilot/instructions/**/*.instructions.md) — NOT
 // ~/.copilot/instructions.md (verified live 2026-11-02, sessions
 // #101489/#101492; lesson.copilot-cli-instructions-filename). The fleet
-// coordinator workflow never injected on the old path, so this writer lands
-// the pointer block on the LOADED path:
+// coordinator workflow never injected on the old path. Per the owner
+// correction (#101810), this file is a POINTER file only:
 //   1. an existing copilot-instructions.md is user content — preserved
 //      untouched (idempotent re-runs never rewrite it);
-//   2. a legacy ~/.copilot/instructions.md migrates over (rename) when the
-//      loaded path is absent;
-//   3. a fresh machine gets the fleet pointer block (mode 0644).
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+//   2. ~/.copilot/instructions.md is NEVER moved, renamed or rewritten —
+//      it stays byte-untouched (the canonical fleet instruction set lives
+//      there; other tooling may consume that filename);
+//   3. an absent loaded path gets a short pointer file (mode 0644) whose
+//      content directs the AI to read and follow ~/.copilot/instructions.md
+//      — one source of truth, loaded via the path Copilot CLI actually reads.
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** The pointer block a fresh machine gets — fleet doctrine lives in the
- *  global CLAUDE.md; this file only needs to make a Copilot session find it. */
-export const COPILOT_GLOBAL_INSTRUCTIONS = `# Fleet global instructions
+/** The pointer a fresh/absent loaded path gets — short, and it points at
+ *  the canonical ~/.copilot/instructions.md, never copies it. */
+export const COPILOT_GLOBAL_INSTRUCTIONS = `# Fleet global instructions (pointer)
 
-This machine runs the klh agent fleet. Every session on it:
-
-- Global doctrine: \`~/.claude/CLAUDE.md\` is the ONE global doctrine — read it
-  at session start; the repo's \`AGENTS.md\` chain carries package law and
-  overrides per repo.
-- Work graph: claims, coordination and reporting ride the \`work\`, \`coord\`
-  and \`dispatch\` CLIs — the graph is the ONE ledger, never Markdown todos.
-- Quality: \`qlty fmt\` + \`qlty check\` on changed files; evidence before
-  assertions — run the check, paste the output, then claim the result.
-- Secrets are minted, never typed; machine conf (\`~/.config/klh/stack.json\`,
-  \`~/.claude/local-llm/*.env\`) is mode 600 and never committed.
-
-Managed by fleet-install: it writes this file ONLY when absent (your edits
-are preserved); the legacy \`instructions.md\` path is NOT loaded by Copilot
-CLI — this \`copilot-instructions.md\` path is.
+Copilot CLI loads global instructions from this file ONLY — it never reads
+the canonical \`instructions.md\`. So: read and follow
+\`~/.copilot/instructions.md\` in full before any task; it is the ONE fleet
+instruction set. This pointer is fleet-install managed and written only
+when absent; it never overwrites or moves \`instructions.md\`.
 `;
 
 export interface CopilotInstructionsResult {
-	/** ok = the loaded path now holds instructions (existing/migrated/fresh). */
+	/** ok = the loaded path now holds the pointer (existing/fresh). */
 	status: "ok" | "planned";
 	/** How the loaded path got its content on this run. */
-	source: "existing" | "migrated" | "fresh" | "none";
+	source: "existing" | "fresh" | "none";
 	note: string;
 }
 
@@ -71,19 +64,10 @@ export function installCopilotInstructions(
 		};
 	}
 	mkdirSync(copilotHome, { recursive: true });
-	const legacy = join(copilotHome, "instructions.md");
-	if (existsSync(legacy)) {
-		renameSync(legacy, loaded);
-		return {
-			status: "ok",
-			source: "migrated",
-			note: `migrated instructions.md → copilot-instructions.md (the loaded path)`,
-		};
-	}
 	writeFileSync(loaded, COPILOT_GLOBAL_INSTRUCTIONS, { mode: 0o644 });
 	return {
 		status: "ok",
 		source: "fresh",
-		note: `wrote ${loaded} (the Copilot CLI loaded path)`,
+		note: `wrote pointer ${loaded} → ~/.copilot/instructions.md (canonical, untouched)`,
 	};
 }
