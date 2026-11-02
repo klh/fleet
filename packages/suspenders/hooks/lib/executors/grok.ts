@@ -20,4 +20,7 @@ export const grokAdapter: ExecutorAdapter = {
 	promptArgs: (prompt) => ["-p", prompt],
 	forkArgs: () => null,
 	processNames: ["grok"],
+	// W1812: free-text vocabulary — grok paths/labels, checked before the
+	// claude default (the old addressing ladder's explicit grok row).
+	match: ["grok"],
 };

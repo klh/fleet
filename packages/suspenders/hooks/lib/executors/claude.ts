@@ -2,8 +2,9 @@
 // consolidation law: executor specifics are overlay rows, one file per
 // agent — a claude fix never touches copilot's file, and a new agent is
 // one adapter file + one registry row in registry.ts).
-import type { ExecutorAdapter } from "../lanes/lane.ts";
+
 import { join } from "node:path";
+import type { ExecutorAdapter } from "../lanes/lane.ts";
 import { claudeEvidence } from "./claude-evidence.ts";
 
 // The tool-permission recipe: lived in hooks/lib/lanes/lane.ts as
@@ -129,5 +130,9 @@ export const claudeAdapter: ExecutorAdapter = {
 	// W1731: CLAUDECODE → "claude", cowork sessions → "cowork", and the
 	// versioned AI_AGENT the CLI exports ("claude-code_<ver>_agent").
 	detect: { names: ["claude", "claude-code", "cowork"] },
+	// W1812: free-text vocabulary — ".claude/" home dirs, claude worktrees.
+	// The DEFAULT adapter matches LAST in the registry scan order, so this
+	// row stays the fallback that never steals a copilot/codex/grok path.
+	match: ["/.claude/", "claude"],
 	evidence: claudeEvidence,
 };
