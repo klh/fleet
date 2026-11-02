@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { type GovernorStore, openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
+import { TERMINAL_WORK_STATES } from "./intent-reconcile.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {
