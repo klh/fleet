@@ -334,6 +334,16 @@ export function heldLaunchReport(
 	for (const row of rows) {
 		const verdict = inspect(row);
 		if (verdict === "dead") continue;
+		// W2262: a terminal-work intent (DONE/SUPERSEDED/CANCELLED/FAILED
+		// item) is dead weight even when its process verdict is unknown —
+		// no live claim exists for the fence to protect. Fenced row-state
+		// reconciliation (reconcileTerminalLaunchIntents) owns the actual
+		// state flip + audit; this read just stops the phantom slot from
+		// counting. A live or ambiguous NONTERMINAL intent keeps holding.
+		const w = store
+			.query("SELECT state FROM work_items WHERE project=? AND id=?")
+			.get(project, row.item) as { state: string } | null;
+		if (w && TERMINAL_WORK_STATES.includes(w.state)) continue;
 		const step = reprobeStep(store, row, verdict, now);
 		if (step === "exhausted" || step === "still-exhausted") {
 			const prior = readReprobeSpec(store, row.project, row.item);
