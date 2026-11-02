@@ -5,6 +5,12 @@ import { dirname, join } from "node:path";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { rePinFallback } from "../hub/model-health.ts";
 import {
+	protectedFamily,
+	protectedFamilyRefusal,
+	PROTECTED_REVIEW_CLASS,
+} from "./protected-family.ts";
+import { wireModelMatch } from "./wire-model-check.ts";
+import {
 	type ProcessProbeFn,
 	psProcessProbe,
 	sameProcess,
@@ -415,7 +421,15 @@ export function scheduleReview(o: {
 	// W1302.6 wire audit grades the new pin as itself).
 	let model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
 	let repinnedFrom: string | null = null;
-	if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
+	// W2571: a protected-family item is pinned full-5.3-only BEFORE any
+	// health/fallback layer runs — the model-health repin is skipped
+	// entirely (stale health facts re-pinned glm-5.3 to flash, root
+	// #102182) and a non-full-class pin refuses loudly instead of launching.
+	const protectedItem = protectedFamily(o.db, o.project, o.item);
+	if (protectedItem) {
+		if (!model || wireModelMatch(model, PROTECTED_REVIEW_CLASS) !== "match")
+			return protectedFamilyRefusal(model);
+	} else if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
 		const rePin = rePinFallback(o.db, model, env);
 		if (rePin.note) console.log(rePin.note);
 		if (rePin.model) {
@@ -552,6 +566,13 @@ export function scheduleReview(o: {
 	// set, the conf fills where unset, so a respawned/envless watch still
 	// hands the reviewer its operator ladder.
 	const spawnEnv = reviewSpawnEnv(env, o.settings?.());
+	// W2571: a protected item launches pin-only — the operator/conf fallback
+	// ladder and the context-overflow stepdown never ride the spawn, so no
+	// flash rung can be walked downstream.
+	if (protectedItem) {
+		delete spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS;
+		delete spawnEnv.SUSPENDERS_REVIEW_STEPDOWN_CLASSES;
+	}
 	const args = [
 		process.execPath,
 		new URL("../../bin/review-lane.ts", import.meta.url).pathname,
