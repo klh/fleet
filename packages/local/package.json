@@ -10,6 +10,7 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
+		"@klh/kernel": "2.1.2",
 		"@klh/local-llm": "2.1.2",
 		"lit": "3.3.3"
 	},
