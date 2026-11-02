@@ -64,9 +64,9 @@ class KlhTopbar extends LitElement {
 			display: flex;
 			align-items: center;
 			gap: 14px;
-			padding: 7px 16px;
-			border-bottom: 1px solid var(--klh-edge-soft);
-			background: var(--klh-panel);
+			padding: 8px 24px;
+			border-bottom: 1px solid var(--klh-edge);
+			background: var(--klh-bg);
 			position: sticky;
 			top: 0;
 			z-index: 50;
@@ -74,7 +74,8 @@ class KlhTopbar extends LitElement {
 		.cw {
 			font-size: 12px;
 			font-weight: 700;
-			letter-spacing: 0.1em;
+			letter-spacing: 0.14em;
+			text-transform: uppercase;
 			color: var(--klh-ink);
 			text-decoration: none;
 			white-space: nowrap;
@@ -105,9 +106,9 @@ class KlhTopbar extends LitElement {
 		.cavbtn {
 			width: 26px;
 			height: 26px;
-			border-radius: 50%;
+			border-radius: 2px;
 			border: 1px solid var(--klh-edge-strong);
-			background: var(--klh-surface-hi);
+			background: var(--klh-surface);
 			color: var(--klh-ink);
 			font: 600 11px/1 var(--klh-font-sans);
 			cursor: pointer;
@@ -137,9 +138,9 @@ class KlhTopbar extends LitElement {
 		.cavbig {
 			width: 30px;
 			height: 30px;
-			border-radius: 50%;
+			border-radius: 2px;
 			border: 1px solid var(--klh-edge-strong);
-			background: var(--klh-surface-hi);
+			background: var(--klh-surface);
 			color: var(--klh-ink);
 			font: 600 13px/30px var(--klh-font-sans);
 			text-align: center;

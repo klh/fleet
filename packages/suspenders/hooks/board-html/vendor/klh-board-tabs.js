@@ -9,7 +9,7 @@ import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var i=[["decisions","Decisions"],
 		nav {
 			display: flex;
 			gap: 2px;
-			margin: 2px 0 16px;
+			margin: 0 0 14px;
 			border-bottom: 1px solid var(--klh-edge);
 		}
 		button,
@@ -19,10 +19,11 @@ import{n,e,t,r}from"./lit-df39549a6b261b0c.js";var i=[["decisions","Decisions"],
 			border-bottom: 2px solid transparent;
 			color: var(--klh-dim);
 			font: inherit;
-			font-size: 12px;
+			font-size: 11px;
 			font-weight: 600;
-			letter-spacing: 0.04em;
-			padding: 7px 12px;
+			letter-spacing: 0.09em;
+			text-transform: uppercase;
+			padding: 8px 12px 7px;
 			cursor: pointer;
 		}
 		a {
