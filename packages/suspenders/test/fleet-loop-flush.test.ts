@@ -9,6 +9,7 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 
 setDefaultTimeout(30_000);
+
 import { Database } from "bun:sqlite";
 import {
 	existsSync,
@@ -141,7 +142,15 @@ const close = (repo: string, item: string, sha: string) => {
 };
 
 const flush = (repo: string, extra: string[] = []) =>
-	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*", ...extra]);
+	run(repo, [
+		LOOP,
+		"flush",
+		"--repo",
+		repo,
+		"--glob",
+		"suspenders/*",
+		...extra,
+	]);
 
 // W1124.36 review gate: mergeOne defers any DONE branch without a bound
 // independent PASS receipt — seed one so fixtures can reach the ladder
@@ -190,6 +199,32 @@ const touchHold = (repo: string) => {
 			reason: "operator integration window",
 			expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
 		}),
+	);
+};
+
+// W2561: the per-item defer — same provenance contract as a hold, one file
+// per branch under .fleet/merge-defer (branch percent-encoded in the name).
+// body null = a bare (empty) file, the provenance-less shape A2 refuses.
+const writeDefer = (
+	repo: string,
+	branch: string,
+	body: Record<string, unknown> | null = {},
+) => {
+	mkdirSync(join(repo, ".fleet/merge-defer"), { recursive: true });
+	writeFileSync(
+		join(
+			repo,
+			".fleet/merge-defer",
+			`${branch.replace(/%/g, "%25").replace(/\//g, "%2F")}.json`,
+		),
+		body === null
+			? ""
+			: JSON.stringify({
+					owner: "flushlane",
+					reason: "mid-install park",
+					expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+					...body,
+				}),
 	);
 };
 
@@ -548,7 +583,9 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(log(repo)).toContain(
 			`FLUSH-DEFER suspenders/${item} — operator merge hold (.fleet/merge-hold)`,
 		);
-		expect(log(repo)).toContain("FLUSH merged=0 integrated=0 deferred=1 failed=0");
+		expect(log(repo)).toContain(
+			"FLUSH merged=0 integrated=0 deferred=1 failed=0",
+		);
 		expect(branchGone(repo, item)).toBe(false);
 		rmSync(repo, { recursive: true, force: true });
 	});
@@ -650,6 +687,109 @@ describe("fleet-loop flush mode (W641)", () => {
 		);
 		expect(log(repo)).not.toContain("operator merge hold");
 		expect(existsSync(join(repo, ".fleet", "merge-hold.rejected"))).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W2561: the per-item merge defer — the item-scoped sibling of the hold.
+	// One branch parks mid-install; its sibling stays mergeable. Root
+	// #101230: W2549 auto-landed e0b2300e mid-install and runtime-sync kicked
+	// serving surfaces inside the W2546 outage window.
+	test("per-item merge defer parks one branch and only that branch", async () => {
+		const repo = await base();
+		const held = mint(repo);
+		const heldHead = await laneBranch(repo, held);
+		close(repo, held, heldHead);
+		seedReview(repo, held);
+		const other = mint(repo);
+		const otherHead = await laneBranch(repo, other);
+		close(repo, other, otherHead);
+		seedReview(repo, other);
+		writeDefer(repo, `suspenders/${held}`);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`FLUSH-DEFER suspenders/${held} — per-item defer (.fleet/merge-defer/suspenders%2F${held}.json)`,
+		);
+		expect(log(repo)).toContain(`MERGED suspenders/${other}`);
+		expect(log(repo)).toContain(
+			"FLUSH merged=1 integrated=0 deferred=1 failed=0",
+		);
+		expect(branchGone(repo, held)).toBe(false);
+		expect(branchGone(repo, other)).toBe(true);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W2561 retirement: the defer outlives the merge — a branch already in
+	// main keeps its worktree/branch until the defer expires.
+	test("per-item defer holds retirement of an already-merged branch", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		expect(
+			g(repo, ["merge", "--no-ff", `suspenders/${item}`, "-m", "pre"]).exitCode,
+		).toBe(0);
+		writeDefer(repo, `suspenders/${item}`);
+		const r = once(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(
+			`MERGE-DEFER suspenders/${item} — per-item defer (.fleet/merge-defer/suspenders%2F${item}.json)`,
+		);
+		expect(log(repo)).not.toContain("RETIRED suspenders/");
+		expect(branchGone(repo, item)).toBe(false);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W2561 A2: no defer lives forever — an expired one ages out at the
+	// controller, NEED_DECISION'd, and the sweep merges the branch.
+	test("expired per-item defer ages out: NEED_DECISION, set aside, sweep merges", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		writeDefer(repo, `suspenders/${item}`, {
+			owner: "flushlane",
+			reason: "install window that ended",
+			expiresAt: new Date(Date.now() - 60_000).toISOString(),
+		});
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain("DEFER-EXPIRED .fleet/merge-defer/");
+		expect(log(repo)).toContain("set aside, ladder+sync resume for");
+		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
+		expect(log(repo)).toContain(
+			"FLUSH merged=1 integrated=0 deferred=0 failed=0",
+		);
+		expect(
+			existsSync(
+				join(repo, ".fleet/merge-defer", `suspenders%2F${item}.json.expired`),
+			),
+		).toBe(true);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	// W2561 A2: provenance is mandatory — a bare defer file never parks a
+	// branch silently.
+	test("bare per-item defer (no provenance) refused: NEED_DECISION, sweep merges", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		writeDefer(repo, `suspenders/${item}`, null);
+		const r = flush(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain("DEFER-REJECTED .fleet/merge-defer/");
+		expect(log(repo)).not.toContain("per-item defer (.fleet");
+		expect(log(repo)).toContain(`MERGED suspenders/${item}`);
+		expect(
+			existsSync(
+				join(repo, ".fleet/merge-defer", `suspenders%2F${item}.json.rejected`),
+			),
+		).toBe(true);
 		expect(events(repo, "NEED_DECISION")).toBe(1);
 		rmSync(repo, { recursive: true, force: true });
 	});

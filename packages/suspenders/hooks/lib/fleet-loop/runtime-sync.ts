@@ -10,15 +10,19 @@
 // cycle), and a failed sync never advances the stamp — the next cycle
 // retries. SUSPENDERS_MAINTENANCE=0 disables (ops escape hatch, one env for
 // the whole heartbeat family).
-import { setting } from "@klh/settings";
+
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readStamp } from "../../../scripts/lib/auto-install.ts";
+import { setting } from "@klh/settings";
 import {
 	skipHoldoffActive,
 	syncSettled,
 } from "../../../scripts/lib/activation-readiness.ts";
+import { readStamp } from "../../../scripts/lib/auto-install.ts";
 import { suspendersRoot } from "./maintenance.ts";
+// W2561: the per-item merge defer gates the sync sweep too — a held landing
+// must not publish+restart surfaces (root #101230)
+import { anyMergeDeferred } from "./merge-defer.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 export interface RuntimeSyncResult {
@@ -66,6 +70,15 @@ export function createRuntimeSync(
 	const runtimeSync = (): RuntimeSyncResult => {
 		if (!setting("fleet_loop.maintenance"))
 			return { ran: false, labels: [], reason: "disabled" };
+		// W2561: ANY active per-item merge defer gates the sweep — a landing
+		// parked mid-install must not kickstart serving surfaces (root
+		// #101230: W2549 landed e0b2300e and runtime-sync restarted
+		// belt-swarm/dashboard/board inside the W2546 outage window). The read
+		// ages out expired defers itself, so none gates the sweep forever.
+		if (anyMergeDeferred(REPO, log)) {
+			log("RUNTIME-SYNC-DEFER — active per-item merge defer");
+			return { ran: false, labels: [], reason: "merge-defer" };
+		}
 		const stamp = readStamp(statePath);
 		const head = sh(["git", "rev-parse", MAIN]) || null;
 		if (head === null) return { ran: false, labels: [], reason: "git-failed" };

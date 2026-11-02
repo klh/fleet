@@ -1,7 +1,6 @@
-import { expect, test } from "@playwright/test";
 import {
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -9,6 +8,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import {
+	COPILOT_GLOBAL_INSTRUCTIONS,
+	installCopilotInstructions,
+} from "../scripts/install/install-copilot-instructions.ts";
 import { installPolicyAdapters } from "../scripts/install/install-policy-adapters.ts";
 
 const home = mkdtempSync(join(tmpdir(), "policy-adapter-"));
@@ -135,4 +139,70 @@ test("native Copilot camelCase and Codex snake_case inputs produce supported con
 		if (harness === "codex")
 			expect(output.hookSpecificOutput.hookEventName).toBe("SessionStart");
 	}
+});
+
+test("copilot global instructions land on the LOADED path (W2563) @unit", () => {
+	// fresh home: the writer creates copilot-instructions.md — never
+	// instructions.md (Copilot CLI 1.0.105 does not load it).
+	const fresh = join(home, "w2563-fresh");
+	installPolicyAdapters({ home: fresh, prefix });
+	const loaded = readFileSync(
+		join(fresh, ".copilot/copilot-instructions.md"),
+		"utf8",
+	);
+	expect(loaded).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
+	expect(() => readFileSync(join(fresh, ".copilot/instructions.md"))).toThrow();
+
+	// idempotent: a second run preserves the file byte-for-byte.
+	installPolicyAdapters({ home: fresh, prefix });
+	expect(
+		readFileSync(join(fresh, ".copilot/copilot-instructions.md"), "utf8"),
+	).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
+});
+
+test("an existing copilot-instructions.md is user content — preserved (W2563) @unit", () => {
+	const mine = join(home, "w2563-user");
+	mkdirSync(join(mine, ".copilot"), { recursive: true });
+	writeFileSync(
+		join(mine, ".copilot/copilot-instructions.md"),
+		"# my own instructions\n",
+	);
+	installPolicyAdapters({ home: mine, prefix });
+	expect(
+		readFileSync(join(mine, ".copilot/copilot-instructions.md"), "utf8"),
+	).toBe("# my own instructions\n");
+});
+
+test("canonical instructions.md stays byte-untouched; pointer written beside it (W2563) @unit", () => {
+	const legacy = join(home, "w2563-legacy");
+	mkdirSync(join(legacy, ".copilot"), { recursive: true });
+	writeFileSync(join(legacy, ".copilot/instructions.md"), "# legacy fleet\n");
+	installCopilotInstructions({ home: legacy });
+	// the canonical file is NEVER moved or rewritten.
+	expect(readFileSync(join(legacy, ".copilot/instructions.md"), "utf8")).toBe(
+		"# legacy fleet\n",
+	);
+	// the loaded path gets the pointer — and it names instructions.md.
+	const pointer = readFileSync(
+		join(legacy, ".copilot/copilot-instructions.md"),
+		"utf8",
+	);
+	expect(pointer).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
+	expect(pointer).toContain("instructions.md");
+	// idempotent: re-runs rewrite neither file.
+	installCopilotInstructions({ home: legacy });
+	expect(readFileSync(join(legacy, ".copilot/instructions.md"), "utf8")).toBe(
+		"# legacy fleet\n",
+	);
+	expect(
+		readFileSync(join(legacy, ".copilot/copilot-instructions.md"), "utf8"),
+	).toBe(COPILOT_GLOBAL_INSTRUCTIONS);
+});
+
+test("dry run plans the instructions face without writing it (W2563) @unit", () => {
+	const dry = join(home, "w2563-dry");
+	installPolicyAdapters({ home: dry, prefix, dryRun: true });
+	expect(() =>
+		readFileSync(join(dry, ".copilot/copilot-instructions.md")),
+	).toThrow();
 });

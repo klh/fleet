@@ -63,9 +63,7 @@ import {
 	readLaunchBackoff,
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
-import { admitModel } from "./model-admission.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
-import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -82,6 +80,7 @@ import {
 	renewLaunchLease,
 	resolveLaneExecutor,
 } from "../../../scripts/lib/launch-preflight.ts";
+import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import { plaidLaunchPreflight } from "../../../scripts/lib/plaid-launch.ts";
 import type { PreferRouting } from "../../../scripts/lib/prefer-routing.ts";
 import { isResumableClaim } from "../../../scripts/lib/resumable-claim.ts";
@@ -142,6 +141,7 @@ import {
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import { fenceBriefLine } from "../work/work-transition.ts";
+import { admitModel } from "./model-admission.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references
@@ -543,7 +543,8 @@ export const dispatchLane = async (
 		}
 		// The model admission gates (model-admission.ts): W2263 pool
 		// placement may reroute the model, W1712 wire-pick may switch the
-		// executor, route health may WAIT — each may block the launch.
+		// executor, route health may WAIT, W2572 served-models may refuse —
+		// each may block the launch.
 		const admitted = await admitModel({
 			store,
 			project,
@@ -559,6 +560,10 @@ export const dispatchLane = async (
 			routeAdmission,
 			governanceRefusals,
 			launchWaits,
+			// W2572: the destination the spawn will pin (same hubPick chain
+			// the env insertion below uses) — served-list validation target.
+			hubPick: pick.hub ?? policyForRepo(CALLER_REPO)?.hub ?? null,
+			noBelt: NO_BELT,
 		});
 		if (admitted.verdict !== "proceed") return null;
 		pick = admitted.pick;

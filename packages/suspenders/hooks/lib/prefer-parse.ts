@@ -10,7 +10,7 @@ export const PREFER_KEYS: readonly PreferKey[] = [
 ];
 export const TAG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/i;
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const EXECUTOR_KEYS = new Set(["can", "hub", "hub-url"]);
+const EXECUTOR_KEYS = new Set(["can", "hub", "hub-url", "model"]);
 
 const stripQuotes = (raw: string): string => {
 	const open = raw.indexOf('"');

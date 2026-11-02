@@ -111,6 +111,8 @@ export interface PreferChain {
 	hub: string | null;
 	hubUrls: string[];
 	can: PreferCan | null;
+	/** W2570: the file's `model=<id>` pin (null = not defined here). */
+	model: string | null;
 }
 
 const EMPTY_CHAIN: PreferChain = {
@@ -118,6 +120,7 @@ const EMPTY_CHAIN: PreferChain = {
 	hub: null,
 	hubUrls: [],
 	can: null,
+	model: null,
 };
 
 /** Exactly `<dir>/.prefer`, no walk (connections.ts preferPin owns its
@@ -135,6 +138,7 @@ export const preferFileOf = (dir: string, rank = 0): PreferChain => {
 		hub: parsed.hub,
 		hubUrls: parsed.hubUrls,
 		can: parsed.can ? { ...parsed.can, rank } : null,
+		model: parsed.model,
 	};
 };
 
@@ -174,6 +178,9 @@ export const preferOf = (start: string): PreferChain => {
 		hub,
 		hubUrls: urlsFarther ? [] : (urlFile?.hubUrls ?? []),
 		can: files.find((f) => f.can !== null)?.can ?? null,
+		// W2570: model= resolves per key like hub= — the nearest file
+		// defining it wins, independent of the chain directives.
+		model: files.find((f) => f.model !== null)?.model ?? null,
 	};
 };
 
@@ -318,6 +325,13 @@ export const execPick = (
 	preference: PreferDecision;
 } => {
 	const prefer = preferOf(repo);
+	// W2570 amendment: the machine-conf executor row is the MODEL default —
+	// an explicit .prefer model= pin outranks it, a directive's own pin
+	// outranks both (owner intent); mirrors insertionCtx's default→id merge.
+	const confModel = (binName: string): string | null => {
+		const ex = tryLoadStack()?.executors;
+		return ex?.[binName]?.model ?? ex?.default?.model ?? null;
+	};
 	const s = readBoardSettings().settings;
 	const enabled = s.enabled_executors;
 	const allowed = (name: string): boolean => !enabled || enabled.includes(name);
@@ -340,7 +354,13 @@ export const execPick = (
 			);
 		// W374: a chain slot riding an exhausted provider is surfaced, never
 		// rerouted (same law as the allow-list collision above)
-		const qwhy = quota?.get(providerOf(slot.model ?? e) ?? "");
+		// W2570: the repo's model= pin fills a null slot model (executor
+		// lanes get none by design — W422); a directive's OWN model pin
+		// always outranks it (owner intent, must= parity). The machine-conf
+		// executor row is the last default (amendment: it was unreachable
+		// dead config — laneModelOf collapsed null before insertion).
+		const model = slot.model ?? prefer.model ?? confModel(slot.bin);
+		const qwhy = quota?.get(providerOf(model ?? e) ?? "");
 		if (qwhy)
 			console.log(
 				`NOTE — quota: .prefer chain[${idx}]=${e} rides an exhausted provider (${qwhy}); directive wins (W228/W813)`,
@@ -356,7 +376,7 @@ export const execPick = (
 		});
 		return {
 			agent: label(e, slot.hub),
-			model: slot.model,
+			model,
 			bin,
 			hub: slot.hub ?? prefer.hub,
 			hubUrls: prefer.hubUrls,
@@ -422,6 +442,10 @@ export const execPick = (
 	if (chain.length > 0) {
 		const idx = Math.min(attempt, chain.length - 1);
 		const { name, model, bin } = chain[idx];
+		// W2570: the repo's model= pin fills a null slot model on the
+		// default ladder too (an executor row picks no model by design);
+		// the machine-conf row is the last default (amendment).
+		const pinned = model ?? prefer.model ?? confModel(bin);
 		const fallbackModels = chain
 			.slice(idx + 1)
 			.filter((next) => next.bin === bin)
@@ -429,7 +453,7 @@ export const execPick = (
 			.filter((m): m is string => !!m);
 		return {
 			agent: label(name),
-			model,
+			model: pinned,
 			bin,
 			hub: prefer.hub,
 			hubUrls: prefer.hubUrls,
@@ -450,7 +474,7 @@ export const execPick = (
 	return {
 		name: "claude",
 		agent: "claude",
-		model: null,
+		model: prefer.model ?? confModel("claude"),
 		bin: "claude",
 		hub: prefer.hub,
 		hubUrls: prefer.hubUrls,

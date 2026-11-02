@@ -3,28 +3,31 @@
 // lane-launch.ts during the parked/W2263 rebase so lane-launch stays under
 // the 1200-line stop rule (W1238.6). Gates run in order and each may block
 // the launch: W2263 pool placement may reroute the MODEL, W1712 wire-pick
-// may switch the EXECUTOR to one that speaks the final model's wire, and
-// route admission gates on route health for the final model. WAIT = the
-// launch retries next cycle; REFUSED = nothing claimed or minted.
-import type { GovernorStore } from "../govdb/govdb.ts";
-import { tryLoadStack } from "../stack-config.ts";
-import { activeRateLimitWalls } from "../../../scripts/lib/launch-backoff.ts";
-import {
-	resolveProviderPools,
-	poolOccupancy,
-	recordPlacementReason,
-	reservePoolSlot,
-} from "./provider-pools.ts";
-import { kevPlacement } from "./kev-placement.ts";
+// may switch the EXECUTOR to one that speaks the final model's wire,
+// route admission gates on route health for the final model, and W2572
+// served-models validation refuses a pick the DESTINATION does not serve.
+// WAIT = the launch retries next cycle; REFUSED = nothing claimed or minted.
+
+import type { RouteAdmission } from "../../../scripts/lib/dispatch-admission.ts";
+import { laneModelOf } from "../../../scripts/lib/dispatch-executor-note.ts";
+import type { execPick } from "../../../scripts/lib/exec-chain.ts";
 import {
 	type GroupEndpoints,
 	wirePick,
 } from "../../../scripts/lib/lane-wire.ts";
-import type { execPick } from "../../../scripts/lib/exec-chain.ts";
-import { laneModelOf } from "../../../scripts/lib/dispatch-executor-note.ts";
+import { activeRateLimitWalls } from "../../../scripts/lib/launch-backoff.ts";
 import { resolveLaneExecutor } from "../../../scripts/lib/launch-preflight.ts";
-import type { RouteAdmission } from "../../../scripts/lib/dispatch-admission.ts";
+import type { GovernorStore } from "../govdb/govdb.ts";
+import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
+import { kevPlacement } from "./kev-placement.ts";
+import {
+	poolOccupancy,
+	recordPlacementReason,
+	reservePoolSlot,
+	resolveProviderPools,
+} from "./provider-pools.ts";
+import { servedModelsGate } from "./served-models.ts";
 
 /** The launch-path pick shape (exec-chain execPick result). */
 type LanePick = ReturnType<typeof execPick>;
@@ -52,6 +55,10 @@ export async function admitModel(io: {
 	routeAdmission: RouteAdmission;
 	governanceRefusals: string[];
 	launchWaits: string[];
+	/** W2572: the destination the spawn will pin (label + one-off urls,
+	 *  lane-launch hubPick chain) — served-models validation target. */
+	hubPick?: string | null;
+	noBelt?: boolean;
 }): Promise<ModelAdmission> {
 	const {
 		store,
@@ -161,5 +168,30 @@ export async function admitModel(io: {
 		launchWaits.push(item);
 		return { verdict: "wait", reason: why };
 	}
+	// W2572: served-models validation — the FINAL composed model must be in
+	// the destination's served list (the launch's own /v1/models face).
+	// Last on purpose: every earlier gate may move the model, executor, or
+	// hub, and this grades what will actually ride. Unaffected by
+	// SUSPENDERS_MODEL_HEALTH (health FACTS are heuristics; the served list
+	// is ground truth). Unknown never refuses (missing evidence never
+	// blocks); a mismatch REFUSES pre-claim with the excerpt.
+	const model = laneModelOf(pick);
+	const served = await servedModelsGate({
+		model,
+		hubPick: io.hubPick ?? pick.hub ?? null,
+		hubUrls: pick.hubUrls,
+		noBelt: io.noBelt,
+	});
+	if (served.verdict === "refused") {
+		governanceRefusals.push(item);
+		console.log(`REFUSED ${item} — ${served.why}; nothing claimed or minted`);
+		store.close();
+		return { verdict: "refused", reason: served.why };
+	}
+	if (served.verdict === "pass") {
+		console.log(
+			`NOTE — served: ${model} on ${served.destination} (${served.servedBy})`,
+		);
+	} else console.log(`NOTE — ${served.note}`);
 	return { verdict: "proceed", pick, bin };
 }

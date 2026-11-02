@@ -40,8 +40,8 @@ import {
 	cmdCapsule,
 	cmdFact,
 	cmdGc,
-	cmdKb,
 	cmdLeaseRelease,
+	cmdReviewUnpark,
 } from "../coord/facts.ts";
 import {
 	cmdBootstrap,
@@ -49,12 +49,13 @@ import {
 	cmdDoctorSession,
 	cmdEvents,
 	cmdFleet,
-	cmdMetrics,
 	cmdProject,
 	cmdRename,
 } from "../coord/fleet.ts";
+import { cmdMetrics } from "../coord/fleet-metrics.ts";
 import { cmdGovernance } from "../coord/governance.ts";
 import { cmdHubs } from "../coord/hubs.ts";
+import { cmdKb } from "../coord/kb.ts";
 import {
 	cmdKnowledge,
 	cmdKnowledgeConsolidate,
@@ -99,7 +100,8 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "poll",
-		usage: "usage: poll [--as sid] [--scope s] [--kinds a,b] [--limit n]",
+		usage:
+			"usage: poll [--as sid] [--scope s] [--kinds a,b] [--limit n] [--json]",
 		lax: true,
 		run: (p) => cmdPoll(p.rest),
 	}),
@@ -119,14 +121,14 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "state",
-		usage: "usage: state --as <sid>",
+		usage: "usage: state --as <sid> [--json]",
 		lax: true,
 		run: (p) => cmdState(p.rest),
 	}),
 	defineVerb({
 		name: "inbox",
 		usage:
-			"usage: inbox --as <sid> [--ack] (bulk); use ack <event-id> --as <sid> for one event",
+			"usage: inbox --as <sid> [--ack] [--json] (bulk); use ack <event-id> --as <sid> for one event",
 		lax: true,
 		run: (p) => cmdInbox(p.rest),
 	}),
@@ -177,13 +179,13 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "fact",
 		usage:
-			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact rm <key> | fact list [--prefix p] [--limit n] [--all]",
+			"usage: fact set <key> <value> [--if-version n] | fact get <key> | fact rm <key> | fact list [--prefix p] [--limit n] [--all] (get/list take --json)",
 		lax: true,
 		run: (p) => cmdFact(p.rest),
 	}),
 	defineVerb({
 		name: "governance",
-		usage: "usage: governance | governance strict|solo [--source s]",
+		usage: "usage: governance [--json] | governance strict|solo [--source s]",
 		lax: true,
 		run: (p) => cmdGovernance(p.rest),
 	}),
@@ -201,9 +203,16 @@ const VERBS: VerbSpec[] = [
 		run: (p) => cmdLeaseRelease(p.rest),
 	}),
 	defineVerb({
+		name: "review-unpark",
+		usage:
+			"usage: review-unpark <item-id> [--as <sid>] — release a W2548 review-transport park",
+		lax: true,
+		run: (p) => cmdReviewUnpark(p.rest),
+	}),
+	defineVerb({
 		name: "kb",
 		usage:
-			'usage: kb search "<query words>" | kb list | kb stats | kb add "<problem>" --solution "<solution>"',
+			'usage: kb (search|list|stats) [--json] | kb add "<problem>" --solution "<solution>"',
 		lax: true,
 		run: (p) => cmdKb(p.rest),
 	}),
@@ -251,13 +260,13 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "consults",
-		usage: "usage: consults --as <sid>",
+		usage: "usage: consults --as <sid> [--json]",
 		lax: true,
 		run: (p) => cmdConsults(p.rest),
 	}),
 	defineVerb({
 		name: "who-knows",
-		usage: 'usage: who-knows "query words" [--scope src/x]',
+		usage: 'usage: who-knows "query words" [--scope src/x] [--json]',
 		lax: true,
 		run: (p) => cmdWhoKnows(p.rest),
 	}),
@@ -394,7 +403,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "bootstrap",
 		usage:
-			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label]",
+			"usage: bootstrap --as <sid> [--role r] [--parent sid] [--worktree w] [--caps shell,fs,...] [--actor id] [--tags json] [--name label] [--json]",
 		lax: true,
 		run: (p) => cmdBootstrap(p.rest),
 	}),
@@ -439,13 +448,13 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "metrics",
-		usage: "usage: metrics [project] [--days N]",
+		usage: "usage: metrics [project] [--days N] [--json]",
 		lax: true,
 		run: (p) => cmdMetrics(p.rest),
 	}),
 	defineVerb({
 		name: "doctor-session",
-		usage: "usage: doctor-session <sid>",
+		usage: "usage: doctor-session <sid> [--json]",
 		lax: true,
 		run: (p) => cmdDoctorSession(p.rest),
 	}),
@@ -491,13 +500,13 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "wisdom",
-		usage: "usage: wisdom — manual fleet-correction pass (read-only)",
+		usage: "usage: wisdom [--json] — manual fleet-correction pass (read-only)",
 		lax: true,
 		run: (p) => cmdWisdom(p.rest),
 	}),
 	defineVerb({
 		name: "executor-cv",
-		usage: "usage: executor-cv [--apply]",
+		usage: "usage: executor-cv [--apply] [--json]",
 		lax: true,
 		run: (p) => cmdExecutorCv(p.rest),
 	}),

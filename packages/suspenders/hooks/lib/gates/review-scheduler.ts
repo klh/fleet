@@ -10,11 +10,18 @@ import {
 	sameProcess,
 } from "../same-process.ts";
 import type { FleetLoopSettings } from "../stack-config.ts";
+import {
+	PROTECTED_REVIEW_CLASS,
+	protectedFamily,
+	protectedFamilyRefusal,
+} from "./protected-family.ts";
+import { parkReviewRequest, reviewTransportPark } from "./review-park.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
+import { wireModelMatch } from "./wire-model-check.ts";
 
 interface Request {
-	state: "RUNNING" | "DONE" | "ERROR";
+	state: "RUNNING" | "DONE" | "ERROR" | "PARKED";
 	attempts: number;
 	leaseUntil: number;
 	token: string;
@@ -415,7 +422,15 @@ export function scheduleReview(o: {
 	// W1302.6 wire audit grades the new pin as itself).
 	let model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
 	let repinnedFrom: string | null = null;
-	if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
+	// W2571: a protected-family item is pinned full-5.3-only BEFORE any
+	// health/fallback layer runs — the model-health repin is skipped
+	// entirely (stale health facts re-pinned glm-5.3 to flash, root
+	// #102182) and a non-full-class pin refuses loudly instead of launching.
+	const protectedItem = protectedFamily(o.db, o.project, o.item);
+	if (protectedItem) {
+		if (!model || wireModelMatch(model, PROTECTED_REVIEW_CLASS) !== "match")
+			return protectedFamilyRefusal(model);
+	} else if (model && env.SUSPENDERS_MODEL_HEALTH !== "0") {
 		const rePin = rePinFallback(o.db, model, env);
 		if (rePin.note) console.log(rePin.note);
 		if (rePin.model) {
@@ -435,6 +450,11 @@ export function scheduleReview(o: {
 		const old = row ? (JSON.parse(row.value) as Request) : null;
 		if (old?.state === "DONE")
 			return "review completed; unresolved findings require repair";
+		// W2548: a PARKED request never re-admits on its own — the park IS
+		// the bound on W1243's unbounded transport retry. Only the explicit
+		// release verb (coord review-unpark) flips it back to ERROR.
+		if (old?.state === "PARKED")
+			return `review transport parked after ${old.deferred ?? 0} consecutive deferrals — release explicitly (coord review-unpark ${o.item}) or raise/disable SUSPENDERS_REVIEW_TRANSPORT_PARK`;
 		if (old && old.state === "RUNNING") {
 			if (old.leaseUntil > now)
 				return `review already running; lease expires ${new Date(old.leaseUntil).toISOString()}`;
@@ -459,6 +479,28 @@ export function scheduleReview(o: {
 		}
 		if (old && old.attempts >= 3)
 			return "review retry budget exhausted (3 attempts); explicit repair required";
+		// W2548: the transport-park bound on W1243's unbounded retry — an
+		// ERROR request whose consecutive deferrals reached the threshold
+		// parks instead of knocking again (every knock walks the full
+		// fallback ladder against implementation lanes). Checked before the
+		// pressure gate so the park lands on the first knock past the
+		// threshold even mid-pause. 0 disables (unbounded W1243 behavior).
+		const parkAt = reviewTransportPark(env);
+		if (
+			parkAt > 0 &&
+			old &&
+			old.state === "ERROR" &&
+			(old.deferred ?? 0) >= parkAt &&
+			parkReviewRequest({
+				db: o.db,
+				key,
+				request: old,
+				project: o.project,
+				item: o.item,
+				author: author.completed_by,
+			})
+		)
+			return `review transport parked after ${old.deferred} consecutive deferrals — release explicitly (coord review-unpark ${o.item}) or raise/disable SUSPENDERS_REVIEW_TRANSPORT_PARK`;
 		// W1280: global admission pause off the provider's own outcome signals
 		// (AIMD above) — checked BEFORE the per-request backoff, so an active
 		// cooldown defers every leg (even one whose own backoff lapsed) and
@@ -552,6 +594,13 @@ export function scheduleReview(o: {
 	// set, the conf fills where unset, so a respawned/envless watch still
 	// hands the reviewer its operator ladder.
 	const spawnEnv = reviewSpawnEnv(env, o.settings?.());
+	// W2571: a protected item launches pin-only — the operator/conf fallback
+	// ladder and the context-overflow stepdown never ride the spawn, so no
+	// flash rung can be walked downstream.
+	if (protectedItem) {
+		delete spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS;
+		delete spawnEnv.SUSPENDERS_REVIEW_STEPDOWN_CLASSES;
+	}
 	const args = [
 		process.execPath,
 		new URL("../../bin/review-lane.ts", import.meta.url).pathname,

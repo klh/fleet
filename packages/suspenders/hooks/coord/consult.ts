@@ -2,18 +2,10 @@
 // Handler bodies moved verbatim from bin/coord.ts's if/else chain —
 // one-tab indent preserved, output byte-compatible.
 
+import { z } from "zod";
 import { ensureConsultV2 } from "../lib/consult/consult-delivery.ts";
 import { answerMark } from "../lib/consult/oracle.ts";
-import {
-	fleetAnswerable,
-	recordKnowledgeVotes,
-	redeliverAfterFailedKnowledge,
-	settleAnswer,
-} from "./consult-v2-cli.ts";
 import { consultDeadline } from "../lib/federation/consult-expiry.ts";
-import { makeStamp } from "../lib/knowledge/confidence.ts";
-import { curationGate, deferToReview } from "../lib/knowledge/kev-review.ts";
-import { withKnowledgeDb } from "../lib/knowledge/sqlite-store.ts";
 import {
 	type ConsultEnvelope,
 	citationsFor,
@@ -31,15 +23,25 @@ import {
 	hubCooldownActive,
 	joinPendingHubConsult,
 } from "../lib/federation/consult-federation-hub.ts";
+import { makeStamp } from "../lib/knowledge/confidence.ts";
 import {
 	recordKnowledgeSuggestion,
 	renderKnowledgeSuggestion,
 	suggestKnowledge,
 } from "../lib/knowledge/kev-curation.ts";
+import { curationGate, deferToReview } from "../lib/knowledge/kev-review.ts";
+import { withKnowledgeDb } from "../lib/knowledge/sqlite-store.ts";
 import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { listLiveTargets, resolveTarget } from "./addressing.ts";
 import { queueDirectedReceipt } from "./bus.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
+import {
+	fleetAnswerable,
+	recordKnowledgeVotes,
+	redeliverAfterFailedKnowledge,
+	settleAnswer,
+} from "./consult-v2-cli.ts";
+import { verbContract, wantsJson } from "./json-out.ts";
 import {
 	arg,
 	cyan,
@@ -55,6 +57,33 @@ import {
 	rankExperts,
 	red,
 } from "./shared.ts";
+
+// W2569: the consults/who-knows machine contracts.
+const consultsContract = verbContract({
+	as: z.string(),
+	shown: z.number().int(),
+	consults: z.array(
+		z.object({
+			id: z.number().int(),
+			cid: z.string(),
+			askerSid: z.string(),
+			question: z.string(),
+			state: z.string(),
+			answer: z.string().nullable(),
+		}),
+	),
+});
+const whoKnowsContract = verbContract({
+	query: z.string(),
+	scope: z.string().nullable(),
+	experts: z.array(
+		z.object({
+			sid: z.string(),
+			score: z.number(),
+			hint: z.string(),
+		}),
+	),
+});
 
 export async function cmdConsult(rest: string[]): Promise<void> {
 	// a question, not work: no claims, no ownership change, no lane state.
@@ -667,7 +696,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 export async function cmdConsults(_rest: string[]): Promise<void> {
 	// my consult queue: OPEN questions addressed to me + my recent threads
 	const as = arg("--as");
-	if (!as) die("usage: consults --as <sid>");
+	if (!as) die("usage: consults --as <sid> [--json]");
 	const rows = db
 		.query(
 			"SELECT id, asker_sid, question, state, answer FROM consults WHERE expert_sid = ? OR asker_sid = ? ORDER BY id DESC LIMIT 20",
@@ -679,6 +708,23 @@ export async function cmdConsults(_rest: string[]): Promise<void> {
 		state: string;
 		answer: string | null;
 	}[];
+	if (wantsJson(_rest)) {
+		consultsContract.emit({
+			schema_version: 1,
+			verb: "consults",
+			as,
+			shown: rows.length,
+			consults: rows.map((r) => ({
+				id: r.id,
+				cid: `C${r.id}`,
+				askerSid: r.asker_sid,
+				question: r.question,
+				state: r.state,
+				answer: r.answer,
+			})),
+		});
+		return;
+	}
 	console.log(
 		rows
 			.map((r) => {
@@ -694,10 +740,11 @@ export async function cmdConsults(_rest: string[]): Promise<void> {
 export async function cmdWhoKnows(rest: string[]): Promise<void> {
 	// contextual expertise: who recently TOUCHED this beats nominal strength
 	const scope = arg("--scope");
-	const known = new Set(["--scope"]);
+	const known = new Set(["--scope", "--json"]);
 	const pos: string[] = [];
 	for (let i = 0; i < rest.length; i++) {
 		if (known.has(rest[i])) {
+			if (rest[i] === "--json") continue;
 			i++;
 			continue;
 		}
@@ -705,8 +752,23 @@ export async function cmdWhoKnows(rest: string[]): Promise<void> {
 		pos.push(rest[i]);
 	}
 	const q = pos.join(" ");
-	if (!q && !scope) die('usage: who-knows "query words" [--scope src/x]');
+	if (!q && !scope)
+		die('usage: who-knows "query words" [--scope src/x] [--json]');
 	const rows = rankExperts(projectIdentity(), q, scope).slice(0, 5);
+	if (wantsJson(rest)) {
+		whoKnowsContract.emit({
+			schema_version: 1,
+			verb: "who-knows",
+			query: q,
+			scope,
+			experts: rows.map((r) => ({
+				sid: r.sid,
+				score: r.score,
+				hint: r.hint,
+			})),
+		});
+		return;
+	}
 	console.log(
 		rows
 			.map((r) => `${r.sid.slice(0, 8)}  ${r.score.toFixed(2)}  ${dim(r.hint)}`)
