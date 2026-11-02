@@ -323,9 +323,7 @@ export function parkExhaustedLaunch(
 	// exhaustion note is the classifier input, never hand-vocabularied.
 	const reason = classifyLaunchFailure(log, now).kind;
 	store
-		.query(
-			"UPDATE work_items SET fail_reason = ? WHERE project = ? AND id = ?",
-		)
+		.query("UPDATE work_items SET fail_reason = ? WHERE project = ? AND id = ?")
 		.run(reason, project, item);
 	// No new native launch happened here (W1165): no attempt-scoped evidence
 	// exists, so the hold stays on the unknown step ladder — the recorded
