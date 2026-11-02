@@ -1,4 +1,4 @@
-// e2e/board-decisions-editorial.spec.ts — W2267.8: the decisions surface
+// e2e/board-decisions-editorial.e2e.ts — W2267.8: the decisions surface
 // under the editorial card language (decisions.scss through design-ui's
 // compileStylesheet). Pins the contract the redesign must keep: option
 // selection changes the DRAFT only (no POST until the explicit rail Send —
