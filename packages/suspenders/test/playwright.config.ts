@@ -4,6 +4,9 @@
 // whole package — the sweep co-situates unit specs beside their
 // scripts/deploy/hooks sources, not under test/. The board GUI *.spec.ts
 // corpus keeps its own chromium config in packages/suspenders/e2e/.
+// W2267.3: browser specs named *.e2e.ts (board-recovery-actions) ride THIS
+// config too — headless chromium launches per worker through the shared
+// fixtures; the e2e/*.spec.ts corpus keeps its viewport-matrix config.
 import { defineFleetConfig } from "../../../playwright.base.ts";
 
 export default defineFleetConfig({ testDir: ".." });
