@@ -41,6 +41,8 @@ import {
 	isConflictWhy,
 	noteStuckDefer,
 } from "./ladder-repair.ts";
+// W2561: the per-item merge defer (a branch-scoped merge-hold)
+import { mergeDeferredActive } from "./merge-defer.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 import { reviewEvalsAfterMerge } from "./review-evals.ts";
@@ -185,6 +187,16 @@ export function createMergeLadder(
 		if (mergeHoldActive(REPO)) {
 			log(`MERGE-DEFER ${b} — operator merge hold (.fleet/merge-hold)`);
 			return { branch: b, outcome: "deferred", why: "operator merge hold" };
+		}
+		// W2561: the per-item defer (branch-scoped) — a DONE-item branch an
+		// operator parks mid-install; provenance + expiry identical to a hold
+		if (mergeDeferredActive(REPO, b)) {
+			log(`MERGE-DEFER ${b} — per-item defer (.fleet/merge-defer/${b}.json)`);
+			return {
+				branch: b,
+				outcome: "deferred",
+				why: `per-item merge defer (.fleet/merge-defer/${b}.json)`,
+			};
 		}
 		const inprog = gitInProgress(REPO);
 		if (inprog) {
@@ -525,8 +537,13 @@ export function createMergeLadder(
 		} catch {}
 		// W1072.2: the hold defers retirement too — the branch just merged, but
 		// its worktree/branch stay put while the operator owns the checkout.
+		// W2561: the per-item defer keeps the same retirement hold.
 		if (mergeHoldActive(REPO)) {
 			log(`RETIRE-DEFER ${b} — operator merge hold, worktree/branch preserved`);
+			return receipt;
+		}
+		if (mergeDeferredActive(REPO, b)) {
+			log(`RETIRE-DEFER ${b} — per-item defer, worktree/branch preserved`);
 			return receipt;
 		}
 		retireMerged(b);
