@@ -5,9 +5,7 @@
 // bootstrap, never at dispatch).
 import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
-import { createContext, runInContext } from "node:vm";
-import { CORE } from "../hooks/board-html/core.ts";
-import { DECISIONS } from "../hooks/board-html/decisions.ts";
+import { policySrcOf } from "../hooks/board-html/klh-decisions.ts";
 import {
 	openPolicyDecisions,
 	policyBriefLines,
@@ -123,126 +121,12 @@ test.describe("policy provenance disclosure (W862) @unit", () => {
 		);
 	});
 
-	test("decision card renders the policy pill and provenance line; plain cards stay clean", () => {
-		const elements = new Map<string, ReturnType<typeof stubEl>>();
-		type StubEl = {
-			children: StubEl[];
-			className: string;
-			textContent: string;
-			value: string;
-			style: Record<string, string>;
-			attrs: Record<string, string>;
-			q: Record<string, StubEl>;
-			classList: { toggle(): void };
-			setAttribute(k: string, v: string): void;
-			getAttribute(k: string): string | null;
-			addEventListener(): void;
-			appendChild(c: StubEl): StubEl;
-			insertBefore(c: StubEl): StubEl;
-			remove(): void;
-			replaceChildren(): void;
-			focus(): void;
-			querySelector(sel: string): StubEl;
-		};
-		function stubEl(): StubEl {
-			return {
-				children: [],
-				className: "",
-				textContent: "",
-				value: "",
-				style: {} as Record<string, string>,
-				classList: { toggle() {} },
-				setAttribute(k: string, v: string) {
-					if (!this.attrs) this.attrs = {} as Record<string, string>;
-					this.attrs[k] = v;
-				},
-				getAttribute(k: string) {
-					return (
-						(this.attrs as Record<string, string> | undefined)?.[k] ?? null
-					);
-				},
-				addEventListener() {},
-				appendChild(c: unknown) {
-					this.children.push(c);
-					return c;
-				},
-				insertBefore(c: unknown) {
-					this.children.push(c);
-					return c;
-				},
-				remove() {},
-				replaceChildren() {},
-				focus() {},
-				q: {} as Record<string, StubEl>,
-				querySelector(sel: string) {
-					if (!this.q[sel]) this.q[sel] = stubEl();
-					return this.q[sel];
-				},
-			};
-		}
-		const document = {
-			activeElement: null,
-			getElementById: (id: string) => {
-				if (!elements.has(id)) elements.set(id, stubEl());
-				return elements.get(id);
-			},
-			createElement: () => stubEl(),
-			querySelector: () => null,
-		};
-		const context = {
-			document,
-			DOMParser: class {
-				parseFromString() {
-					return {
-						body: {
-							firstElementChild: {
-								firstChild: null,
-								removeChild: () => null,
-							},
-						},
-					};
-				}
-			},
-			Date,
-			sel: { value: "all" },
-			drafts: {},
-			selOpt: {},
-			advising: {},
-			advRetry: {},
-			advErr: {},
-			ansErr: {},
-			sentOk: {},
-			answering: {},
-			decCollapsed: false,
-			lastData: null,
-			lastDec: null as unknown,
-			renderDecisionsInner() {}, // stubbed below
-			renderDecisions() {},
-		};
-		createContext(context);
-		runInContext(CORE + DECISIONS, context);
-		const record = {
-			id: 1,
-			project: PROJECT,
-			state: "OPEN",
-			question: "This service lacks a health endpoint. Implement one?",
-			age_s: 10,
-			owner_actionable: false,
-			delivery: "DELIVERED",
-			policy,
-		};
-		const plain = { ...record, id: 2, policy: null };
-		runInContext(
-			`lastDec = { decisions: [${JSON.stringify(record)}, ${JSON.stringify(plain)}] }; decNode(lastDec.decisions[0]); decNode(lastDec.decisions[1]);`,
-			context,
-		);
-		const card = elements.get("decList").children[0];
-		const card2 = elements.get("decList").children[1];
-		expect(card.querySelector(".dpol").textContent).toBe("policy");
-		expect(card.querySelector(".dsrc").textContent).toBe(
+	test("policy provenance line carries hub/row/pin; plain cards carry none", () => {
+		// the klh-decisions leaf renders the .dpol pill + .dsrc provenance
+		// line as lit-html text (W2550.1); the browser corpus pins the
+		// rendered card — this pins the disclosed vocabulary
+		expect(policySrcOf(policy)).toBe(
 			"policy provenance: hub https://corp.example · row corp.health · pin aaaaaaaaaaaa…",
 		);
-		expect(card2.querySelector(".dpol").textContent).toBe("");
-		expect(card2.querySelector(".dsrc").textContent).toBe("");
 	});
 });

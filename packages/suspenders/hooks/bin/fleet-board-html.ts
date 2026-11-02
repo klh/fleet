@@ -24,10 +24,8 @@ import { BODY } from "../board-html/body.ts";
 import { BOOT } from "../board-html/boot.ts";
 import { FEEDS } from "../board-html/feeds.ts";
 import { CORE } from "../board-html/core.ts";
-import { DECISIONS } from "../board-html/decisions.ts";
 import { DIFF } from "../board-html/diff.ts";
 import { LAUNCH } from "../board-html/launch.ts";
-import { HISTORY } from "../board-html/history.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
 import { REPORT } from "../board-html/report.ts";
@@ -534,7 +532,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
@@ -542,4 +540,6 @@ ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${T
 <script type="module" src="/vendor/usage-panels.js"></script>
 <script type="module" src="/vendor/klh-ent-zone.js"></script>
 <script type="module" src="/vendor/klh-board-mediator.js"></script>
+<script type="module" src="/vendor/klh-decisions-mediator.js"></script>
+<script type="module" src="/vendor/klh-decisions.js"></script>
 <script type="module" src="/vendor/klh-card-activity.js"></script>`);

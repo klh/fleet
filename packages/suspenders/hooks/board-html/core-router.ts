@@ -63,7 +63,8 @@ function applyHashFilter(){
   if (bar) sigSet(bar, hashFilter, hashFilter ? '<span class="chip">filtered by <b>' + esc(hashFilter) + '</b> · <button type="button" class="hfclear">clear</button></span>' : '');
   renderTasks();
   renderKanban();
-  renderDecisions();
+  var m = document.querySelector('klh-decisions-mediator'); // decisions re-filter themselves (W2550.1)
+  if (m && m.refresh) m.refresh();
 }
 // apply one query-style hash (#<tab>?k=v&...): switch tab, ?project= scope,
 // ?w/task/id= item deep link, ?q/filter= needle (the caller's applyHashFilter

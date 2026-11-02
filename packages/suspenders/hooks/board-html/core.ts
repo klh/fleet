@@ -124,6 +124,33 @@ function projQuery(){
   if (!sel.value || sel.value === 'all') return '';
   return '?project=' + encodeURIComponent(sel.value);
 }
+// openDecs moved here from the retired decisions chunk — renderFleet reads it
+// (W2550.1: the decisions family owns its cards; the fleet lanes view still
+// counts open decisions). lastDec is written by klh-decisions-mediator via
+// the store subscription below.
+function openDecs(){
+  var ds = (lastDec && lastDec.decisions) || [];
+  var out = [];
+  for (var i = 0; i < ds.length; i++) {
+    var d = ds[i];
+    if (d.dup_of) continue; // W798: members render under the primary's "+N like this" badge
+    if ((!sel.value || sel.value === 'all' || d.project === sel.value) && (!d.state || d.state === 'OPEN')) out.push(d);
+  }
+  return out;
+}
+// the mediator publishes each good dec payload back into the chunk scope
+// (openDecs + the tabs chunk's renderTab need the same rows it renders)
+feeds.subscribe('dec', function(st){
+  if (!st || st.err || !st.data) return;
+  lastDec = st.data;
+  decOkAt = st.okAt;
+  decLoaded = true;
+});
+// klh-decisions-mediator forwards the dec payload's projects list here —
+// noteProjects owns the #proj option list (W2550.1)
+window.addEventListener('dec-projects', function(e){
+  if (e && e.detail) noteProjects(e.detail);
+});
 // merge every good response's 'projects' list into the global filter
 function noteProjects(list){
   if (!Array.isArray(list)) return;
@@ -164,39 +191,14 @@ feeds.define('data', {
   fail: function(e){ dataErr = e; renderAll(); }
 });
 function pollData(){ feeds.kick('data', true); }
-feeds.define('dec', {
-  url: function(){ return '/api/decisions' + projQuery(); },
-  accept: function(j){ if (!j || typeof j.ts !== 'number' || !Array.isArray(j.decisions)) throw new Error('bad /api/decisions payload'); },
-  ok: function(j, changed){
-    decOkAt = Date.now(); decErr = null; decLoaded = true;
-    if (!changed) { if (lastDec === j) { restamp(j); renderAll(); } return; }
-    noteSkew(j); lastDec = j;
-    noteProjects(j.projects);
-    noteNew(j.decisions);
-    renderAll();
-  },
-  fail: function(e){ decErr = e; renderAll(); }
-});
-function pollDec(){ feeds.kick('dec', true); }
+// the dec feed moved to <klh-decisions-mediator> (W2550.1) — it defines dec
+// on the same page-wide FeedStore this scope created; openDecs/lastDec above
+// ride its store subscription.
 // 1Hz render heartbeat: ages tick in place (sig-guarded, no fetch); due
 // feeds fire from here only when their adaptive cadence says so.
 function tick(){
   renderAll();
-  feeds.kickDue(); // every feed (FEEDS + data/dec/hist) — each gates on its url()
-}
-function noteNew(list){
-  var base = projBaseline || !decBaseline;
-  projBaseline = false;
-  for (var i = 0; i < list.length; i++) {
-    var d = list[i];
-    if (!decisionInProject(d)) continue;
-    if (d.state && d.state !== 'OPEN') continue;
-    if (base) { seen[d.id] = true; continue; } // baseline or fresh project filter, no toast storm
-    if (seen[d.id]) continue;
-    seen[d.id] = true;
-    toast('new decision #' + d.id + ' — ' + String(d.question || '').slice(0, 90));
-  }
-  decBaseline = true;
+  feeds.kickDue(); // every feed — each gates on its url()
 }
 function toast(msg){
   var t = document.createElement('div');

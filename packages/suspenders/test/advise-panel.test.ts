@@ -2,15 +2,19 @@
 // verdicts + agreement. Pins: advise.ts --panel fans BOTH oracle legs via
 // the shared legs lib, the advice fact carries {consensus, legs[]}, the
 // W667 stamp clears on landing, the feed record rides advice.panel, and the
-// client chunk renders the panel block (esc-assembled) with honest degraded
-// legs. Total-miss degrade pins live in the W667 dedupe test (dead upstreams
-// now ride the panel path via the board route).
+// klh-decisions leaf renders the panel block (lit-html text nodes) with
+// honest degraded legs. Total-miss degrade pins live in the W667 dedupe
+// test (dead upstreams now ride the panel path via the board route).
 
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { createContext, runInContext } from "node:vm";
-import { CORE } from "../hooks/board-html/core.ts";
-import { DECISIONS } from "../hooks/board-html/decisions.ts";
+import { KlhDecisionsMediator } from "../hooks/board-html/klh-decisions-mediator.ts";
+import {
+	legLine,
+	panelClassOf,
+	usableRec,
+	type DecisionRequestState,
+} from "../hooks/board-html/klh-decisions.ts";
 import {
 	recommendationOf,
 	usableRecommendation,
@@ -313,62 +317,44 @@ describe("advice quality", () => {
 	});
 });
 
-describe("panel render chunk (W742.2)", () => {
+describe("panel render (W742.2 — klh-decisions leaf + mediator)", () => {
 	test("transport retry budget advances across scheduled requests", () => {
-		const ctx = createContext({});
-		runInContext(CORE + DECISIONS, ctx);
-		runInContext(
-			"var advRetry = {}, advAttempts = {}, advising = {7: Date.now()}, advErr = {};",
-			ctx,
-		);
+		// the mediator owns the W667 ladder (chunk state retired at W2550.1);
+		// constructed directly — Lit defers DOM access until connect
+		const m = new KlhDecisionsMediator() as unknown as {
+			requests: DecisionRequestState;
+			queueAdvRetry(id: string, msg: string): void;
+		};
 		for (let n = 1; n <= 3; n++) {
-			runInContext("queueAdvRetry(7, 'transport failed')", ctx);
-			expect(runInContext("advRetry[7].n", ctx)).toBe(n);
-			runInContext("delete advRetry[7]", ctx);
+			m.queueAdvRetry("7", "transport failed");
+			expect(m.requests.advRetry["7"]?.n).toBe(n);
+			delete m.requests.advRetry["7"];
 		}
-		runInContext("queueAdvRetry(7, 'transport failed')", ctx);
-		expect(runInContext("advRetry[7]", ctx)).toBeUndefined();
-		expect(runInContext("advErr[7]", ctx)).toBe("transport failed");
+		m.queueAdvRetry("7", "transport failed");
+		expect(m.requests.advRetry["7"]).toBeUndefined();
+		expect(m.requests.advErr["7"]).toBe("transport failed");
 	});
 	test("legacy heading cannot be copied to a decision", () => {
-		const ctx = createContext({});
-		runInContext(CORE + DECISIONS, ctx);
-		expect(
-			runInContext(`usableRec("**Analysis of W849 State Degradation**")`, ctx),
-		).toBe(false);
+		expect(usableRec("**Analysis of W849 State Degradation**")).toBe(false);
 	});
-	test("panelHtml renders consensus + legs, escapes leg errors", () => {
-		const ctx = createContext({});
-		runInContext(CORE + DECISIONS, ctx);
-		const panel = {
-			consensus: "split approve vs hold",
-			legs: [
-				{
-					name: "local-reason",
-					ok: true,
-					model: "m",
-					verdict: "approve",
-					ms: 2612,
-				},
-				{
-					name: "cloud",
-					ok: false,
-					model: "cloud",
-					verdict: null,
-					ms: 0,
-					error: "no cloud leg — <script>alert(1)</script>",
-				},
-			],
-		};
-		const html = runInContext(
-			`panelHtml(${JSON.stringify(panel)})`,
-			ctx,
-		) as string;
-		expect(html).toContain('class="pconsensus psplit"');
-		expect(html).toContain("split approve vs hold");
-		expect(html).toContain("local-reason (m) 2612ms — APPROVE");
-		expect(html).toContain("UNAVAILABLE");
-		expect(html).toContain("&lt;script&gt;");
-		expect(html).not.toContain("<script>");
+	test("panel line + class helpers render consensus and degraded legs", () => {
+		// lit-html renders these as TEXT nodes — escaping is structural where
+		// the old chunk's esc() assembly did it by hand (the browser corpus
+		// pins the rendered card; these pins hold the vocabulary)
+		expect(panelClassOf("split approve vs hold")).toBe(" psplit");
+		expect(panelClassOf("consensus approve")).toBe(" pagree");
+		expect(panelClassOf("")).toBe("");
+		expect(
+			legLine({
+				name: "local-reason",
+				ok: true,
+				model: "m",
+				verdict: "approve",
+				ms: 2612,
+			}),
+		).toBe("— local-reason (m) 2612ms — APPROVE");
+		expect(
+			legLine({ name: "cloud", ok: false, model: "cloud", ms: 0 }),
+		).toContain("UNAVAILABLE");
 	});
 });

@@ -162,6 +162,8 @@ export async function handleData(
 				vf === "klh-ent-zone.js" ||
 				vf === "klh-board-mediator.js" ||
 				vf === "klh-card-activity.js" ||
+				vf === "klh-decisions.js" ||
+				vf === "klh-decisions-mediator.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;

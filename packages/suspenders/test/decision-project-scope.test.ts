@@ -1,15 +1,18 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createContext, runInContext } from "node:vm";
-import { CORE } from "../hooks/board-html/core.ts";
-import { DECISIONS } from "../hooks/board-html/decisions.ts";
+import { histUrlOf, projQueryOf } from "../hooks/board-html/klh-decisions-mediator.ts";
+import {
+	KlhDecisions,
+	type DecisionRow,
+	type DecisionsSlice,
+	type HistoryRow,
+} from "../hooks/board-html/klh-decisions.ts";
 import {
 	DataFeedSchema,
 	DecisionsFeedSchema,
 	SpendSeriesFeedSchema,
 	TasksFeedSchema,
 } from "../hooks/board-html/feed-schemas.ts";
-import { HISTORY } from "../hooks/board-html/history.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const fixture = await boardFixture(0, afterAll);
@@ -96,114 +99,73 @@ describe("decision API project scope", () => {
 	});
 });
 
-function client() {
-	const pending: { url: string; resolve: (response: unknown) => void }[] = [];
-	const context = {
-		sel: { value: a },
-		AbortSignal,
-		Date,
-		encodeURIComponent,
-		decBusy: false,
-		histBusy: false,
-		histOpen: true,
-		curTab: "decisions",
-		lastDec: null,
-		histData: null,
-		decLoaded: false,
-		histLoaded: false,
-		decErr: null,
-		histErr: null,
-		decOkAt: 0,
-		histOkAt: 0,
-		fetch: (url: string) =>
-			new Promise((resolve) => pending.push({ url, resolve })),
-	};
-	createContext(context);
-	runInContext(CORE + DECISIONS + HISTORY, context);
-	runInContext(
-		"renderAll = function() {}; renderHist = function() {}; noteProjects = function() {}; noteNew = function() {};",
-		context,
-	);
-	Object.assign(context, {
-		renderAll() {},
-		renderHist() {},
-		noteProjects() {},
-		noteNew() {},
-	});
-	return {
-		context: context as typeof context &
-			Record<string, (...args: unknown[]) => unknown>,
-		pending,
-	};
-}
+/** The leaf's private slice-driven filters (light-DOM Lit, no DOM needed
+ * for the pure row logic — Lit defers DOM access until connect). */
+type LeafP = {
+	slice: DecisionsSlice;
+	openDecs(): DecisionRow[];
+	byId(id: string): DecisionRow | null;
+	histRows(): HistoryRow[];
+};
+const leaf = (): LeafP => new KlhDecisions() as unknown as LeafP;
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("decision client project scope", () => {
-	test("history renders only the selected project's archived rows and count", () => {
-		const { context } = client();
-		const elements = Object.fromEntries(
-			["histState", "histErr", "histBody"].map((id) => [
-				id,
-				{ textContent: "", rendered: "" },
-			]),
-		);
-		Object.assign(context, {
-			document: { getElementById: (id: string) => elements[id] },
-			histLoaded: true,
-			histData: {
-				decisions: [
-					{ project: a, state: "ANSWERED", question: "selected answer" },
-					{ project: b, state: "ANSWERED", question: "foreign answer" },
-				],
+	test("history keeps only the selected project's archived rows", () => {
+		const el = leaf();
+		el.slice = {
+			...el.slice,
+			project: a,
+			hist: {
+				loaded: true,
+				err: null,
+				okAt: Date.now(),
+				data: {
+					decisions: [
+						{ project: a, state: "ANSWERED", question: "selected answer" },
+						{ project: b, state: "ANSWERED", question: "foreign answer" },
+					],
+				},
 			},
-		});
-		runInContext(
-			HISTORY +
-				"clearErr = function() {}; sigSet = function(el, sig, html) { el.rendered = html; }; renderHist();",
-			context,
-		);
-		expect(elements.histState.textContent).toBe("1 archived");
-		expect(elements.histBody.rendered).toContain("selected answer");
-		expect(elements.histBody.rendered).not.toContain("foreign answer");
+		};
+		const rows = el.histRows();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.question).toBe("selected answer");
 	});
 	test("cards and selected lookup exclude foreign and archived decisions", () => {
-		const { context } = client();
-		Object.assign(context, {
-			lastDec: {
-				decisions: [
-					{ id: 1, project: a, state: "OPEN" },
-					{ id: 2, project: b, state: "OPEN" },
-					{ id: 3, project: a, state: "ANSWERED" },
-				],
+		const el = leaf();
+		el.slice = {
+			...el.slice,
+			project: a,
+			dec: {
+				loaded: true,
+				err: null,
+				okAt: Date.now(),
+				data: {
+					decisions: [
+						{ id: "1", project: a, state: "OPEN" },
+						{ id: "2", project: b, state: "OPEN" },
+						{ id: "3", project: a, state: "ANSWERED" },
+					],
+				},
 			},
-		});
-		expect(context.openDecs()).toHaveLength(1);
-		expect(context.decById(2)).toBeNull();
-		context.sel.value = "all";
-		expect(context.openDecs()).toHaveLength(2);
+		};
+		expect(el.openDecs()).toHaveLength(1);
+		expect(el.byId("2")).toBeNull();
+		el.slice.project = "all";
+		expect(el.openDecs()).toHaveLength(2);
 	});
-	for (const [poll, field] of [
-		["pollDec", "lastDec"],
-		["pollHist", "histData"],
-	]) {
-		test(`${poll} discards old project response and immediately fetches current scope`, async () => {
-			const { context, pending } = client();
-			context[poll]();
-			context.sel.value = b;
-			pending[0].resolve({
-				ok: true,
-				json: async () => ({ ts: 1, decisions: [{ project: a }] }),
-			});
-			await flush();
-			expect(context[field]).toBeNull();
-			expect(pending).toHaveLength(2);
-			expect(pending[1].url).toContain(encodeURIComponent(b));
-			pending[1].resolve({
-				ok: true,
-				json: async () => ({ ts: 2, decisions: [{ project: b }] }),
-			});
-			await flush();
-			expect(context[field]).toEqual({ ts: 2, decisions: [{ project: b }] });
-		});
-	}
+	test("feed URLs re-scope with the project and splice history correctly", () => {
+		// the FeedStore's own scope-discard (stale cross-project responses
+		// dropped, current scope re-fetched) is pinned in
+		// work-completion-cross-repo.test.ts; these pins hold the dec/hist
+		// URL contract the old projQuery/history url() owned
+		expect(projQueryOf(a)).toBe(`?project=${encodeURIComponent(a)}`);
+		expect(projQueryOf("all")).toBe("");
+		expect(projQueryOf("")).toBe("");
+		expect(histUrlOf(a, true)).toBe(
+			`/api/decisions?project=${encodeURIComponent(a)}&history=1`,
+		);
+		expect(histUrlOf("all", true)).toBe("/api/decisions?history=1");
+		expect(histUrlOf(a, false)).toBe("");
+	});
 });

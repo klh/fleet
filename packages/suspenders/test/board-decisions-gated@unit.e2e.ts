@@ -9,7 +9,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
 import { gatedRows } from "../hooks/board/decisions.ts";
-import { DECISIONS } from "../hooks/board-html/decisions.ts";
 import {
 	bestActionFor,
 	buildReportContract,
@@ -159,14 +158,9 @@ test.describe("@unit W2310 — one needs-you source", () => {
 		// the board face exports the same mapping for the live payload
 		expect(typeof gatedRows).toBe("function");
 	});
-
-	test("client chunk renders payload .gated in the drawer", () => {
-		expect(DECISIONS).toContain("function renderGated()");
-		expect(DECISIONS).toContain("byId('gatedList')");
-		expect(DECISIONS).toContain("g.best_action");
-		expect(DECISIONS).toContain("renderGated();");
-		expect(DECISIONS).not.toContain("GATED_SENTINEL");
-	});
+	// (the client-side .gated render pin moved to the browser corpus —
+	// e2e/board-decisions-gated.spec.ts + e2e/board-decisions-lit.spec.ts —
+	// when the DECISIONS string chunk retired at W2550.1)
 });
 
 // live-board leg: /api/decisions carries .gated for a seeded gated item
