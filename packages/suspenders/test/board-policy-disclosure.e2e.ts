@@ -5,7 +5,12 @@
 // bootstrap, never at dispatch).
 import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
-import { policySrcOf } from "../hooks/board-html/klh-decisions.ts";
+import {
+	KlhDecisions,
+	type DecisionsSlice,
+	type DecisionRow,
+	policySrcOf,
+} from "../hooks/board-html/klh-decisions.ts";
 import {
 	openPolicyDecisions,
 	policyBriefLines,
@@ -121,12 +126,49 @@ test.describe("policy provenance disclosure (W862) @unit", () => {
 		);
 	});
 
-	test("policy provenance line carries hub/row/pin; plain cards carry none", () => {
+	test("decision card renders the policy pill and provenance line; plain cards stay clean", () => {
 		// the klh-decisions leaf renders the .dpol pill + .dsrc provenance
 		// line as lit-html text (W2550.1); the browser corpus pins the
 		// rendered card — this pins the disclosed vocabulary
 		expect(policySrcOf(policy)).toBe(
 			"policy provenance: hub https://corp.example · row corp.health · pin aaaaaaaaaaaa…",
 		);
+		// the leaf renders .dsrc ONLY for a present policy (plain stays
+		// clean) — the render guard the old decNode test asserted via a
+		// stub DOM, pinned here on the template tree (pill + provenance
+		// live in nested TemplateResults under values)
+		const el = new KlhDecisions() as unknown as {
+			slice: DecisionsSlice;
+			renderDec(d: DecisionRow): unknown;
+		};
+		el.slice = {
+			...el.slice,
+			dec: { loaded: true, err: null, okAt: 0, data: { decisions: [] } },
+		};
+		const flat = (t: unknown, depth = 0): string => {
+			const node = t as { strings?: unknown[]; values?: unknown[] } | null;
+			if (!node?.strings || depth > 6) return "";
+			let out = String(node.strings.join(""));
+			for (const v of node.values ?? []) {
+				if (Array.isArray(v)) out += v.map((x) => flat(x, depth + 1)).join("");
+				else out += flat(v, depth + 1);
+			}
+			return out;
+		};
+		const withPolicy = flat(
+			el.renderDec({
+				id: "1",
+				state: "OPEN",
+				question: "health endpoint?",
+				policy,
+			}),
+		);
+		const plain = flat(
+			el.renderDec({ id: "2", state: "OPEN", question: "plain consult" }),
+		);
+		expect(withPolicy).toContain('class="dpol pill block">policy');
+		expect(withPolicy).toContain('class="dsrc dim"');
+		expect(plain).not.toContain("dsrc");
+		expect(plain).not.toContain("dpol");
 	});
 });

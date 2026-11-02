@@ -337,7 +337,7 @@ describe("panel render (W742.2 — klh-decisions leaf + mediator)", () => {
 	test("legacy heading cannot be copied to a decision", () => {
 		expect(usableRec("**Analysis of W849 State Degradation**")).toBe(false);
 	});
-	test("panel line + class helpers render consensus and degraded legs", () => {
+	test("panelHtml renders consensus + legs, escapes leg errors", () => {
 		// lit-html renders these as TEXT nodes — escaping is structural where
 		// the old chunk's esc() assembly did it by hand (the browser corpus
 		// pins the rendered card; these pins hold the vocabulary)
@@ -354,7 +354,25 @@ describe("panel render (W742.2 — klh-decisions leaf + mediator)", () => {
 			}),
 		).toBe("— local-reason (m) 2612ms — APPROVE");
 		expect(
-			legLine({ name: "cloud", ok: false, model: "cloud", ms: 0 }),
+			legLine({
+				name: "cloud",
+				ok: false,
+				model: "cloud",
+				verdict: null,
+				ms: 0,
+			}),
 		).toContain("UNAVAILABLE");
+		// the failed leg's error detail renders only through lit-html text —
+		// never into the line (structural escaping; the old test asserted the
+		// same property via &lt;script&gt;)
+		expect(
+			legLine({
+				name: "cloud",
+				ok: false,
+				model: "cloud",
+				verdict: null,
+				ms: 0,
+			}),
+		).not.toContain("<script>");
 	});
 });

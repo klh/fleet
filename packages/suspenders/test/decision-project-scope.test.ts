@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { FeedStore } from "../hooks/board-html/feed-store.ts";
 import { histUrlOf, projQueryOf } from "../hooks/board-html/klh-decisions-mediator.ts";
 import {
 	KlhDecisions,
@@ -109,6 +110,24 @@ type LeafP = {
 };
 const leaf = (): LeafP => new KlhDecisions() as unknown as LeafP;
 
+/** /api/decisions payload shape guard (the feed schema gates the wire). */
+const decAcceptStub = (j: unknown): void => {
+	if (
+		!j ||
+		typeof (j as { ts?: unknown }).ts !== "number" ||
+		!Array.isArray((j as { decisions?: unknown }).decisions)
+	)
+		throw new Error("bad payload");
+};
+
+/** A resolved dec response for the stubbed fetch. */
+const decResponse = (ts: number, project: string): unknown => ({
+	ok: true,
+	status: 200,
+	headers: new Headers(),
+	json: async () => ({ ts, decisions: [{ project }] }),
+});
+
 describe("decision client project scope", () => {
 	test("history keeps only the selected project's archived rows", () => {
 		const el = leaf();
@@ -167,5 +186,38 @@ describe("decision client project scope", () => {
 		);
 		expect(histUrlOf("all", true)).toBe("/api/decisions?history=1");
 		expect(histUrlOf(a, false)).toBe("");
+	});
+	test("pollDec discards old project response and immediately fetches current scope", async () => {
+		// the chunk's poll fns are gone: their scope contract lives in the
+		// FeedStore the mediator binds — settle() under a moved scope drops
+		// the stale answer and re-requests the current one
+		const pending: { url: string; resolve: (r: unknown) => void }[] = [];
+		let scope = a;
+		const store = new FeedStore({
+			fetch: (url: string) =>
+				new Promise((resolve) =>
+					pending.push({ url, resolve }),
+				) as unknown as Promise<Response>,
+			setTimer: null,
+			clearTimer: null,
+			hidden: () => false,
+		});
+		store.define("dec", {
+			url: () => `/api/decisions${projQueryOf(scope)}`,
+			accept: decAcceptStub,
+		});
+		store.kick("dec", true);
+		expect(pending[0]?.url).toContain(encodeURIComponent(a));
+		scope = b; // project filter moved mid-flight
+		pending[0]?.resolve(decResponse(1, a));
+		await Bun.sleep(20);
+		expect(store.get("dec")?.data).toBeNull();
+		expect(pending[1]?.url).toContain(encodeURIComponent(b));
+		pending[1]?.resolve(decResponse(2, b));
+		await Bun.sleep(20);
+		const landed = store.get("dec")?.data as {
+			decisions: { project: string }[];
+		};
+		expect(landed.decisions[0]?.project).toBe(b);
 	});
 });

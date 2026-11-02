@@ -10,6 +10,11 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
 import { gatedRows } from "../hooks/board/decisions.ts";
 import {
+	KlhDecisions,
+	type DecisionsSlice,
+	type GatedRow,
+} from "../hooks/board-html/klh-decisions.ts";
+import {
 	bestActionFor,
 	buildReportContract,
 	needsYouReason,
@@ -160,7 +165,25 @@ test.describe("@unit W2310 — one needs-you source", () => {
 	});
 	// (the client-side .gated render pin moved to the browser corpus —
 	// e2e/board-decisions-gated.spec.ts + e2e/board-decisions-lit.spec.ts —
-	// when the DECISIONS string chunk retired at W2550.1)
+	// when the DECISIONS string chunk retired at W2550.1; the leaf's own
+	// gated filter is pinned here at its new seam)
+	test("client chunk renders payload .gated in the drawer", () => {
+		const el = new KlhDecisions() as unknown as {
+			slice: DecisionsSlice;
+			gatedMatches(g: GatedRow): boolean;
+		};
+		const rows: GatedRow[] = [
+			{ id: "W9", reason: "gated", best_action: "owner-gated: clear the gate" },
+			{ id: "W8", reason: "blocked", best_action: "blocked: review deps" },
+			{ id: "W7", reason: "other", best_action: "" },
+		];
+		el.slice = {
+			...el.slice,
+			dec: { loaded: true, err: null, okAt: 0, data: { gated: rows } },
+		};
+		// unfiltered all-scope: every payload row renders (.gated in the drawer)
+		expect(rows.filter((g) => el.gatedMatches(g))).toHaveLength(3);
+	});
 });
 
 // live-board leg: /api/decisions carries .gated for a seeded gated item
