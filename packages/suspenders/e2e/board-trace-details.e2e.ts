@@ -93,6 +93,13 @@ test.beforeAll(async () => {
 			return Response.json({ error: "rate limited" }, { status: 429 });
 		if (id === "5030000000000000000000000000ff53")
 			return Response.json({ error: "unavailable" }, { status: 503 });
+		// drifted shape: requests is an object, not the array the schema names
+		if (id.startsWith("0badbeef"))
+			return Response.json({
+				trace_id: id,
+				requests: { oops: true },
+				attempts: [],
+			});
 		if (id === ID) return Response.json(relayAnswer());
 		return Response.json({ trace_id: id, requests: [], attempts: [] });
 	});
@@ -182,6 +189,17 @@ test("429 from Buckle surfaces honestly", async () => {
 	expect(body.httpStatus).toBe(429);
 });
 
+test("browser sees the 429 relay error surface", { tag: "@ui" }, async ({
+	page,
+}) => {
+	await page.goto(
+		`${mustBoard().BASE}/console/trace?trace_id=4290000000000000000000000000ff29`,
+	);
+	await expect(page.locator(".errbox")).toContainText(
+		"Buckle answered HTTP 429",
+	);
+});
+
 test("503 from Buckle surfaces honestly", async () => {
 	const r = await fetch(
 		`${mustBoard().BASE}/api/trace?trace_id=5030000000000000000000000000ff53`,
@@ -189,6 +207,37 @@ test("503 from Buckle surfaces honestly", async () => {
 	const body = (await r.json()) as { state?: string; httpStatus?: number };
 	expect(body.state).toBe("http_error");
 	expect(body.httpStatus).toBe(503);
+});
+
+test("browser sees the 503 relay error surface", { tag: "@ui" }, async ({
+	page,
+}) => {
+	await page.goto(
+		`${mustBoard().BASE}/console/trace?trace_id=5030000000000000000000000000ff53`,
+	);
+	await expect(page.locator(".errbox")).toContainText(
+		"Buckle answered HTTP 503",
+	);
+});
+
+test("schema drift fails loud, not the silent Unknown branch", {
+	tag: "@ui",
+}, async ({ page }) => {
+	// A drifted body (requests no longer an array) must surface the
+	// bad_json drift detail — never "Unknown or expired trace".
+	const id = `0badbeef${"0".repeat(24)}`;
+	const api = await fetch(`${mustBoard().BASE}/api/trace?trace_id=${id}`);
+	const body = (await api.json()) as {
+		ok?: boolean;
+		state?: string;
+		detail?: string;
+	};
+	expect(body.state).toBe("bad_json");
+	expect(body.detail).toContain("requests");
+	await page.goto(`${mustBoard().BASE}/console/trace?trace_id=${id}`);
+	await expect(page.locator(".errbox")).toContainText("unusable body");
+	await expect(page.locator(".errbox")).toContainText("requests");
+	await expect(page.locator(".errbox")).not.toContainText("Unknown or expired");
 });
 
 test("unreachable Buckle degrades to an honest unreachable state", async () => {
