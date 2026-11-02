@@ -78,10 +78,10 @@ import { fleetReport } from "./lib/fleet-report.ts";
 import { liveForCapacity } from "./lib/lane-capacity.ts";
 import { stackWireEndpoints } from "./lib/lane-wire.ts";
 import { activeRateLimitWalls } from "./lib/launch-backoff.ts";
-import {
-	heldLaunchItems,
-	readConfiguredLaunches,
-} from "./lib/launch-fencing.ts";
+import { readConfiguredLaunches } from "./lib/launch-fencing.ts";
+// W2317: the unknown-liveness surface gate — bounded re-probe exhaustion is
+// an event (one NEED_DECISION per episode), never a slot-holding wedge.
+import { unknownSurfaceGate } from "./lib/launch-refusal.ts";
 // W636 decomposition: the READY-pool helpers + the archived-origin landing
 // guard moved to lib modules; the re-exports keep supervise.ts and the test
 // suites on their dispatch-next import path.
@@ -93,6 +93,7 @@ import {
 	dispatchHoldGate,
 	plaidCycleOpen,
 	plaidLaunchGapMs,
+	plaidRefillBudget,
 	refillWindow,
 } from "./lib/refill-window.ts";
 import { isResumableClaim } from "./lib/resumable-claim.ts";
@@ -387,11 +388,36 @@ const main = async (): Promise<void> => {
 	// daemonized `claude -p` re-parents away from the recorded pid within minutes.
 	const lanes = loadLanes();
 	const audit = laneAudit();
-	const held = DRY
-		? new Set<string>()
+	// W2317: ONE held read per cycle doubles as the bounded unknown-liveness
+	// probe (heldLaunchReport advances attempts) — exhaustion surfaces a
+	// NEED_DECISION and releases the slot instead of wedging capacity.
+	const heldReport = DRY
+		? { held: new Set<string>(), surfaced: [] }
 		: readConfiguredLaunches((store) =>
-				heldLaunchItems(store, projectIdentity(REPO)),
+				unknownSurfaceGate(
+					store,
+					projectIdentity(REPO),
+					(note) =>
+						void run(
+							coordCli(
+								"emit",
+								"NEED_DECISION",
+								"--as",
+								"dispatch",
+								"--scope",
+								"suspenders",
+								"--note",
+								note,
+							),
+						),
+					log,
+				),
 			);
+	const held = heldReport.held;
+	for (const s of heldReport.surfaced)
+		console.log(
+			`SURFACED ${s.item} — unknown liveness, ${s.attempts}/${s.maxAttempts} re-probes; capacity released (W2317)`,
+		);
 	// Old automatic claims can outlive their registry rows. Reconstruct the
 	// original sid instead of reclaiming it and losing capsule/retry identity.
 	// W928: the capture + candidate math ride scripts/lib/claim-recovery.ts.
@@ -507,11 +533,35 @@ const main = async (): Promise<void> => {
 	const dispatched: string[] = [];
 	let plaidRefused = false;
 	const plaidCycleStarted = Date.now();
-	const canLaunch = (): boolean =>
-		!plaidRefused &&
-		(POSTURE !== "plaid" || plaidCycleOpen(plaidCycleStarted, Date.now())) &&
-		(DRY || !dispatchHeld(FLEET)) &&
-		canAttemptRefill(window, live.length + heldSlots + dispatched.length);
+	// W2332 (Kueue F3): alongside the 12-min clock, a per-cycle count budget
+	// bounds launches — deep backlog cannot stretch one window into forty
+	// spawns on a fast machine. Config-over-code:
+	// SUSPENDERS_PLAID_REFILL_BUDGET (default 8, like refill.go:36).
+	const plaidBudget =
+		POSTURE === "plaid"
+			? plaidRefillBudget(process.env.SUSPENDERS_PLAID_REFILL_BUDGET)
+			: Number.POSITIVE_INFINITY;
+	let budgetAnnounced = false;
+	const canLaunch = (): boolean => {
+		// disclose the clamp only when a further launch was actually attempted
+		if (
+			!budgetAnnounced &&
+			POSTURE === "plaid" &&
+			dispatched.length >= plaidBudget
+		) {
+			budgetAnnounced = true;
+			console.log(
+				`PLAID budget ${plaidBudget} launches this cycle (W2332) — remaining READY waits for the next cycle`,
+			);
+		}
+		return (
+			!plaidRefused &&
+			(POSTURE !== "plaid" || plaidCycleOpen(plaidCycleStarted, Date.now())) &&
+			dispatched.length < plaidBudget &&
+			(DRY || !dispatchHeld(FLEET)) &&
+			canAttemptRefill(window, live.length + heldSlots + dispatched.length)
+		);
+	};
 	const afterLaunch = async (): Promise<void> => {
 		if (POSTURE !== "plaid" || DRY || ITEM) return;
 		await Bun.sleep(

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import {
 	assessHealthPolicy,
@@ -30,7 +30,7 @@ import {
 } from "../hooks/lib/policy-workflow/store.ts";
 
 const dbs: Database[] = [];
-afterEach(() => {
+test.afterEach(() => {
 	for (const db of dbs.splice(0)) db.close();
 });
 function database(): Database {
@@ -60,7 +60,7 @@ const goodDeployment: HealthDeploymentInput = {
 	monitoringWiring: "reporter-verdict",
 };
 
-test("transition tables encode the three separate machines", () => {
+test("transition tables encode the three separate machines @unit", () => {
 	// an approved lane does not make the service conforming; assessment and
 	// remediation never share a transition surface
 	expect(canTransition("assessment", "assessing", "conforming")).toBe(true);
@@ -73,7 +73,7 @@ test("transition tables encode the three separate machines", () => {
 	expect(canTransition("attestation", "merged", "verified")).toBe(false);
 });
 
-test("assessment lease fences concurrent assessors and completion requires it", () => {
+test("assessment lease fences concurrent assessors and completion requires it @unit", () => {
 	const db = database();
 	expect(startAssessment(db, key, HEALTH_POLICY_VERSION, "alice", 100)).toEqual(
 		{
@@ -115,7 +115,7 @@ test("assessment lease fences concurrent assessors and completion requires it", 
 	expect(rec?.leaseSid).toBeNull();
 });
 
-test("input change invalidates evidence; matching hash survives", () => {
+test("input change invalidates evidence; matching hash survives @unit", () => {
 	const db = database();
 	startAssessment(db, key, HEALTH_POLICY_VERSION, "alice", 100);
 	completeAssessment(
@@ -155,7 +155,7 @@ test("input change invalidates evidence; matching hash survives", () => {
 	);
 });
 
-test("proposals are idempotent and decisions bind to the proposal digest once", () => {
+test("proposals are idempotent and decisions bind to the proposal digest once @unit", () => {
 	const db = database();
 	const proposal = {
 		service: "orders-api",
@@ -224,7 +224,7 @@ test("proposals are idempotent and decisions bind to the proposal digest once", 
 	expect(JSON.parse(decision?.payload ?? "{}").actor).toBe("dev-alice");
 });
 
-test("remediation lifecycle is guarded; exception never overwrites the gap", () => {
+test("remediation lifecycle is guarded; exception never overwrites the gap @unit", () => {
 	const db = database();
 	const { id } = proposeRemediation(db, {
 		project: "proj",
@@ -304,7 +304,7 @@ test("remediation lifecycle is guarded; exception never overwrites the gap", () 
 	expect(getRemediationById(db, "proj", id2)?.state).toBe("proposed");
 });
 
-test("attestations verify with expiry, fail honestly, and re-open", () => {
+test("attestations verify with expiry, fail honestly, and re-open @unit", () => {
 	const db = database();
 	const { id } = createAttestation(db, {
 		project: "proj",
@@ -348,7 +348,7 @@ test("attestations verify with expiry, fail honestly, and re-open", () => {
 	expect(getAttestationById(db, "proj", id2)?.state).toBe("failed");
 });
 
-test("health policy classifies deployments, never conformance from missing info", () => {
+test("health policy classifies deployments, never conformance from missing info @unit", () => {
 	expect(
 		assessHealthPolicy({ ...goodDeployment, manifestKnown: false }),
 	).toEqual(expect.objectContaining({ verdict: "unknown", state: "unknown" }));
@@ -380,7 +380,7 @@ test("health policy classifies deployments, never conformance from missing info"
 	expect(healthInputsHash(goodDeployment)).toBe(base);
 });
 
-test("the evidence revision token participates in the inputs hash", () => {
+test("the evidence revision token participates in the inputs hash @unit", () => {
 	const base = healthInputsHash(goodDeployment);
 	const clean = healthInputsHash({
 		...goodDeployment,
@@ -398,7 +398,7 @@ test("the evidence revision token participates in the inputs hash", () => {
 	).toBe(clean);
 });
 
-test("authorize mints exactly ONE remediation work item under concurrent approvals", () => {
+test("authorize mints exactly ONE remediation work item under concurrent approvals @unit", () => {
 	const db = database();
 	const created = proposeRemediation(db, {
 		project: "proj",
@@ -435,7 +435,7 @@ test("authorize mints exactly ONE remediation work item under concurrent approva
 	expect(items.n).toBe(1);
 });
 
-test("an approve decided before the mint completes on authorize", () => {
+test("an approve decided before the mint completes on authorize @unit", () => {
 	const db = database();
 	const created = proposeRemediation(db, {
 		project: "proj",
@@ -465,7 +465,7 @@ test("an approve decided before the mint completes on authorize", () => {
 	expect(done.workId).toBe("W1");
 });
 
-test("activeException honors scope and expiry", () => {
+test("activeException honors scope and expiry @unit", () => {
 	const db = database();
 	const a = proposeRemediation(db, {
 		project: "proj",

@@ -1,8 +1,8 @@
-// test/copilot-launcher.test.ts — W918.5: the PATH-stable copilot launcher
+// test/copilot-launcher.e2e.ts — W918.5: the PATH-stable copilot launcher
 // (hooks/bin/copilot.ts) resolves the raw @github/copilot platform binary
 // without node on PATH. Units: version-rank ordering, fixture-HOME
 // resolution, env override.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,7 +16,7 @@ const platformBinary = (home: string, version: string): string =>
 		"lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
 	);
 
-describe("copilot launcher (W918.5)", () => {
+test.describe("copilot launcher (W918.5) @unit", () => {
 	test("versionRank parses numeric version tails", () => {
 		expect(versionRank("versions/node/v26.3.1/lib/x")).toEqual([26, 3, 1]);
 		expect(versionRank("versions/node/v27.0.0-rc.1/lib/x")).toEqual([

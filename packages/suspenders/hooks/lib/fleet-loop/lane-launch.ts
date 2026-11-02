@@ -58,7 +58,6 @@ import {
 	unknownEndpoints,
 } from "../../../scripts/lib/lane-wire.ts";
 import {
-	launchFailBackoff,
 	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
@@ -66,6 +65,7 @@ import {
 } from "../../../scripts/lib/launch-backoff.ts";
 import { admitModel } from "./model-admission.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
+import { launchFailureCatch } from "../../../scripts/lib/launch-refusal.ts";
 import {
 	assertLaunchClaim,
 	awaitLaunchRegistration,
@@ -334,7 +334,7 @@ export const dispatchLane = async (
 				);
 				console.log(
 					parked
-						? `WAIT ${item} — ${parked.kind} launch exhausted; returned to READY until ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+						? `FAIL ${item} — ${parked.kind} launch exhausted; FAILED on the graph (work retry recovers; evidence ${parked.log})`
 						: `REFUSED ${item} — claim changed; preserved for its owner`,
 				);
 			} finally {
@@ -379,7 +379,7 @@ export const dispatchLane = async (
 		);
 		console.log(
 			parked
-				? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+				? `FAIL ${item} — launch budget exhausted; FAILED on the graph (work retry recovers; evidence ${parked.log})`
 				: `REFUSED ${item} — launch budget exhausted; claim changed`,
 		);
 		store.close();
@@ -441,7 +441,7 @@ export const dispatchLane = async (
 			);
 			console.log(
 				parked
-					? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()}`
+					? `FAIL ${item} — launch budget exhausted; FAILED on the graph (work retry recovers)`
 					: `REFUSED ${item} — launch budget exhausted; claim changed`,
 			);
 			return null;
@@ -1156,12 +1156,15 @@ export const dispatchLane = async (
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);
-		const backoff =
-			launchedProc?.exitCode !== null && launchedProc !== undefined
-				? launchFailBackoff(store, project, item, laneLog, attempt, logAtSpawn)
-				: null;
+		// W2317: the ONE refusal seam — Transient backoff vs Permanent
+		// FAILED+NEED_DECISION; the unwind (W1165 evidence + effects) lives in
+		// scripts/lib/launch-refusal.ts, keeping this file inside the 1200 stop.
+		const exit = launchFailureCatch(
+			{ item, laneLog, attempt, logAtSpawn, proc: launchedProc },
+			{ project, sid, store, run, workCli, coordCli, log },
+		);
 		console.log(
-			`REFUSED ${item} — launch failed: ${String(error)}${backoff ? `; ${backoff.kind} retry after ${new Date(backoff.eligibleAt).toISOString()}` : ""}`,
+			`REFUSED ${item} — launch failed: ${String(error)}; ${exit.note}`,
 		);
 		log(`REFUSED ${item} → ${sid} — launch failed: ${String(error)}`);
 		return null;

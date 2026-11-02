@@ -1,11 +1,11 @@
-// test/copilot-hardening.test.ts — W223.2: dual-harness brief verification
+// test/copilot-hardening.e2e.ts — W223.2: dual-harness brief verification
 // + copilot credit metering. Covered: the brief verifier's three checks
 // (structure anchors, size cap, control/ANSI chars) against composed briefs,
 // the meter's worktree-prefix attribution (longest prefix, newest-lane
 // tiebreak), store reads against a scratch sqlite fixture carrying copilot's
 // real session-store schema, the CLI face end-to-end, and the dispatch
 // dry-run wiring printing the verification verdict.
-import { describe, expect, test, afterAll } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +37,7 @@ try {
 	);
 } catch {} // already linked by a sibling suite in the same run
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
@@ -133,7 +133,7 @@ const lanesJson = (entries: unknown[]): void => {
 	writeFileSync(join(FLEET, "lanes.json"), JSON.stringify(entries));
 };
 
-describe("W223.2 brief verification (dual-harness)", () => {
+test.describe("W223.2 brief verification (dual-harness) @unit", () => {
 	test("a composed brief passes for both harnesses", () => {
 		for (const harness of ["claude", "copilot"] as const) {
 			const v = verifyBrief(baseBrief(), { harness });
@@ -207,7 +207,7 @@ describe("W223.2 brief verification (dual-harness)", () => {
 	});
 });
 
-describe("W223.2 credit metering", () => {
+test.describe("W223.2 credit metering", () => {
 	test("attribution: longest worktree prefix wins, newest lane breaks ties", () => {
 		const lanes = [
 			{ sid: "a", item: "W1", worktree: "/r/.worktrees/W1", launchedAt: 5 },
@@ -253,7 +253,7 @@ describe("W223.2 credit metering", () => {
 	});
 });
 
-describe("W223.2 govdb surface (coord CLI verb only)", () => {
+test.describe("W223.2 govdb surface (coord CLI verb only)", () => {
 	test("flush stamps lane.<sid>.usage; read parses it back", () => {
 		const report = meterCopilotLanes(FLEET, { storeDb: STORE });
 		const bin = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
@@ -267,7 +267,7 @@ describe("W223.2 govdb surface (coord CLI verb only)", () => {
 	});
 });
 
-describe("W223.2 wiring through the real CLIs", () => {
+test.describe("W223.2 wiring through the real CLIs", () => {
 	test("copilot-usage.ts CLI reports the metered lane", () => {
 		const p = Bun.spawnSync(
 			[

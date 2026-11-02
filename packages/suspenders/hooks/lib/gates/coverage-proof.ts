@@ -17,7 +17,19 @@ export type Proof = {
 	detail: string;
 	failed?: number;
 	passed?: number;
+	/** W1294.9.1.1: true when every changed path is a test file — the
+	 *  no-coverage status is tautological and rides as advisory only. */
+	purePort?: boolean;
 };
+
+/** W1294.9.1.1: a diff whose changed paths are ALL test files (renames and
+ *  deletions included) is a pure test port — the change IS the test files,
+ *  so "tests pass without the change" is true by construction and the
+ *  no-coverage signal carries no information. The classifier keeps the
+ *  status; the review verdict demotes it to advisory only under this
+ *  predicate. changed = `git diff --name-only main...branch` output. */
+export const pureTestDiff = (changed: readonly string[]): boolean =>
+	changed.length > 0 && changed.every((f) => TEST_FILE.test(f));
 
 // one missing import: bun prints the specifier verbatim (extensionless
 // relative specs stay extensionless) plus the importer's absolute path

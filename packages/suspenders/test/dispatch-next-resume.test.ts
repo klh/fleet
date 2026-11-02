@@ -142,8 +142,9 @@ describe("crash resume budget", () => {
 		const suppressed = dispatchWith(extra, "--item", id);
 		expect(suppressed.out).not.toContain("(pid");
 		expect(suppressed.out).toContain("launch backoff");
+		// W2316: exhaustion lands FAILED on the graph; work retry recovers
 		expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
-			"READY",
+			"FAILED",
 		);
 	}, 60_000);
 
@@ -178,18 +179,22 @@ describe("crash resume budget", () => {
 			'"state":"CLAIMED"',
 		);
 		const initial = dispatch("--item", id);
-		expect(initial.out).toContain("rate-limit launch backoff");
+		// W1165: the resume re-arm carries no attempt-scoped evidence — the
+		// 429 in the old log is transcript-old text the classifier never reads,
+		// so the hold stays unknown/launch-exited.
+		expect(initial.out).toContain("unknown launch backoff");
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
 			'"state":"CLAIMED"',
 		);
 		expireLaunchHold(id);
 		const result = dispatch("--item", id);
-		expect(result.out).toContain("launch exhausted; returned to READY");
+		// W2316: exhaustion lands FAILED on the graph — work retry recovers
+		expect(result.out).toContain("FAILED on the graph (work retry recovers");
 		expect(result.out).not.toContain("REFUSED");
 		expect(tool("work.ts", "show", id, "--json").out).toContain(
-			'"state":"READY"',
+			'"state":"FAILED"',
 		);
-		// The worktree stays as continuation evidence while the claim returns to READY.
+		// The worktree stays as continuation evidence for the retried episode.
 		expect(existsSync(join(REPO, ".worktrees", id))).toBe(true);
 		rmSync(join(fleet, "lanes.json"));
 	}, 60_000);
@@ -212,9 +217,11 @@ describe("crash resume budget", () => {
 		);
 		db.close();
 		const result = dispatch("--item", id);
-		expect(result.out).toContain(`WAIT ${id} — launch budget exhausted`);
+		// W2316: exhaustion lands FAILED on the graph; the recovery loop is
+		// work retry — re-dispatch of a FAILED item is a non-READY refusal.
+		expect(result.out).toContain(`FAIL ${id} — launch budget exhausted`);
 		expect(JSON.parse(tool("work.ts", "show", id, "--json").out).state).toBe(
-			"READY",
+			"FAILED",
 		);
 		const again = dispatch("--item", id);
 		expect(again.out).toContain("launch backoff");
@@ -364,10 +371,11 @@ test("poisoned preparation consumes durable item budget before any fork", async 
 		const second = await dispatchA(settings, "--item", item, "--no-belt");
 		expect(second.code).not.toBe(0);
 		expect(second.out).toContain("launch budget exhausted");
+		// W2316: exhaustion lands FAILED on the graph; work retry recovers
 		expect(
 			JSON.parse((await toolA({}, "work.ts", "show", item, "--json")).out)
 				.state,
-		).toBe("READY");
+		).toBe("FAILED");
 	} finally {
 		rmSync(blocked, { force: true });
 	}

@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { RETRY_STEPS_MS } from "./launch-backoff.ts";
+import { mergeRequeueState } from "./launch-fencing.ts";
 import { isResumableClaim } from "./resumable-claim.ts";
 
 const deferred: string[] = [];
@@ -91,9 +92,27 @@ export const recordDeferral = (
 	now = Date.now(),
 ): DeferRecord => {
 	const rows = readDefers(fleetDir);
-	const failures = (rows.find((r) => r.item === item)?.failures ?? 0) + 1;
-	const step = RETRY_STEPS_MS[Math.min(failures - 1, RETRY_STEPS_MS.length - 1)];
-	const row: DeferRecord = { item, failures, requeueAt: now + step };
+	// W2330 monotone merge (Kueue SetRequeueState, launch-fencing.ts): a
+	// deferral is attempt-scoped evidence of a fresh refusal, so the count
+	// advances; the wall is max(candidate, pending prior) — an earlier
+	// requeueAt never clobbers a later pending one.
+	const priorRow = rows.find((r) => r.item === item) ?? null;
+	const { requeueAt, count } = mergeRequeueState(
+		priorRow
+			? { requeueAt: priorRow.requeueAt, count: priorRow.failures }
+			: null,
+		{
+			requeueAt:
+				now +
+				RETRY_STEPS_MS[
+					Math.min(priorRow?.failures ?? 0, RETRY_STEPS_MS.length - 1)
+				],
+			count: (priorRow?.failures ?? 0) + 1,
+		},
+		true,
+	);
+	const failures = count;
+	const row: DeferRecord = { item, failures, requeueAt };
 	try {
 		mkdirSync(fleetDir, { recursive: true });
 		writeFileSync(
@@ -133,7 +152,11 @@ export const clearDeferral = (fleetDir: string, item: string): void => {
 		if (!rows.some((r) => r.item === item)) return;
 		writeFileSync(
 			defersPath(fleetDir),
-			`${JSON.stringify(rows.filter((r) => r.item !== item), null, "\t")}\n`,
+			`${JSON.stringify(
+				rows.filter((r) => r.item !== item),
+				null,
+				"\t",
+			)}\n`,
 		);
 	} catch {
 		// fail-soft: a stale backoff row is never fatal

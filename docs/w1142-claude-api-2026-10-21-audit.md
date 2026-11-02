@@ -1,7 +1,7 @@
 # W1142 — Claude API 2026-10-21 sampling-param removal: buckle/belt audit
 
-Status: premise VERIFIED (first-tier), leg probes + code changes pending (paused
-2026-10-22, operator safe pause — ramp33).
+Status: premise VERIFIED (first-tier), probes + strip fix LANDED; Copilot-seat
+leg resolved 2026-11-01 (W1202.1 — section below).
 
 ## Premise (first-tier, verified 2026-10-22)
 
@@ -82,3 +82,29 @@ client sends nothing.
 2. ~~Remove-or-degrade~~ done — strip shipped.
 3. ~~Regression test~~ done — 7 cases green.
 4. ~~Record probe evidence per leg~~ done — table above.
+
+## W1202.1 — Copilot-seat retest at quota lift (2026-11-01)
+
+The 2026-10-22 Copilot leg died at the W695.6 quota wall before param
+validation (429). Retested at the seat reset, 2026-11-01T08:14Z, direct to
+`api.githubcopilot.com/v1/messages`, `claude-sonnet-5.5`, `copilot-integration-id:
+vscode-chat`, 16-token replies, one call per param:
+
+| probe | status |
+| --- | --- |
+| baseline (no sampling params) | **200** |
+| `temperature: 0.7` | **200** |
+| `top_p: 0.9` | **200** |
+| `top_k: 40` | **200** |
+| `temperature: 5` (out-of-range discriminator) | **200** |
+
+`temperature: 5` also passing means the seat performs NO sampling-param
+validation: the 200s prove tolerance, not honoring (params are likely
+stripped server-side). Behavioral effect is unverifiable externally — do not
+rely on these params for behavior shaping through the Copilot carrier.
+`/v1/chat/completions` is 404 path-absent on this host; `/v1/messages` is the
+only Anthropic-wire face. Buckle bridge stance unchanged (W1080:
+temperature/top_p PASS_THROUGH, top_k dropped-with-warning, never a gateway
+400) — `stripRemovedSampling` stays opt-in via the version pin /
+adapter_config flag, and the unpinned copilot rows are safe either way.
+Bridge leg re-verified: adapters-wire 17/17 green (worktree W1202.1).

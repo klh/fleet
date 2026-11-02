@@ -4,11 +4,12 @@
 // coord gc prunes stale events only past EVERY live cursor. Never the live
 // hub — temp HOME subprocesses (w451/w466 recipe); archiveAndPrune runs
 // in-process over a raw temp db (retention.ts binds no govdb module state).
-import { describe, expect, test, afterAll } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
@@ -198,6 +199,7 @@ describe("W603 cursor-aware retention — archiveAndPrune floor", () => {
 			tsCol: "ts",
 			cut: now - 30 * DAY,
 			dir: join(HOME, ".cache/claude-governor/archive"),
+			pkCols: ["id"],
 			floorCol: "id",
 			floorVal: idOf("rt.passed"),
 			cols: ["id", "ts", "source", "kind", "scope", "payload", "target"],

@@ -60,6 +60,26 @@ test("absence is not a generated default or an implicit migration", {
 	expect(readFileSync(path, "utf8")).toBe(before);
 });
 
+test("file absence is explicit: document:null + null revision; writes stay refused", {
+	tag: "@unit",
+}, () => {
+	rmSync(path);
+	const snapshot = readStackPostureConfig(path);
+	expect(snapshot.document).toBeNull();
+	expect(snapshot.revision).toBeNull();
+	expect(existsSync(path)).toBe(false);
+	expect(existsSync(join(dir, "stack.yaml"))).toBe(false);
+	expect(() =>
+		saveStackPostureSelection(path, document.selection, snapshot.revision),
+	).toThrow("has not been migrated");
+	expect(() =>
+		writeStackPostureConfig(path, document, snapshot.revision),
+	).toThrow("use migrateStackPostureConfig");
+	expect(() =>
+		migrateStackPostureConfig(path, document, snapshot.revision),
+	).toThrow();
+});
+
 test("embeds postures without replacing machine topology or extensions", {
 	tag: "@unit",
 }, () => {

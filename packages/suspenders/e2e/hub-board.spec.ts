@@ -9,82 +9,15 @@
 // The GUI is the real served page (Lit-free client chunks poll /api/tasks
 // on a 1s tick); the tests never reload to see a transition — they watch
 // the live page update itself, like an operator does.
+// W1136: rides the shared fixtures — board + peerBoard (the hub/local two
+// worlds, worker-scoped), the api fixture (no raw fetch), and the auto
+// pageWatcher; the beforeAll(startBoard) copies are gone.
 import { mkdirSync } from "node:fs";
-import { expect, type Page, test } from "@playwright/test";
-import { type Board, startBoard } from "../test/helpers/board-harness";
+import { expect, type Page, test } from "./fixtures";
 
 test.describe.configure({ mode: "serial" });
 
 const SHOTS = "/tmp/w353-shots";
-
-let hub: Board | null = null;
-let local: Board | null = null;
-let hubSha = "";
-
-test.beforeAll(async () => {
-	mkdirSync(SHOTS, { recursive: true });
-	hub = await startBoard("hub");
-	local = await startBoard("local");
-	// W1294.2: real completion evidence — the done-gate verifies the sha is a
-	// commit in the repo; the hub scratch repo's own base commit rides the call
-	const gp = Bun.spawnSync(
-		["git", "-C", mustHub().MY_PROJ, "rev-parse", "HEAD"],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	hubSha = gp.stdout.toString().trim();
-	expect(hubSha).toMatch(/^[0-9a-f]{40}$/);
-});
-
-test.afterAll(async () => {
-	if (hub) await hub.stop();
-	if (local) await local.stop();
-});
-
-function mustHub(): Board {
-	if (hub === null) throw new Error("hub board not started");
-	return hub;
-}
-function mustLocal(): Board {
-	if (local === null) throw new Error("local board not started");
-	return local;
-}
-
-/** Render-and-look guards: an uncaught page exception or a console error is
- *  a GUI defect, not test noise — collect and assert empty at each test end.
- *  The W775.1 ent-zone probes /api/entitlements + /api/enterprise at connect
- *  and polls them for the life of the page — provider-less those answer the
- *  DESIGNED honest 501 (the GUI probe keys on the status), so the
- *  resource-load console noise those two endpoints provoke is exempted, with
- *  the response listener proving every 501 is one of them. */
-function watch(page: Page): { clean(): void } {
-	const pageErrors: string[] = [];
-	const consoleErrors: string[] = [];
-	const entProbe = /\/api\/(entitlements|enterprise)(\?|$)/;
-	const seen501: string[] = [];
-	page.on("response", (r) => {
-		if (r.status() === 501) seen501.push(r.url());
-	});
-	page.on("pageerror", (e) => pageErrors.push(String(e)));
-	page.on("console", (m) => {
-		if (m.type() === "error") consoleErrors.push(m.text());
-	});
-	return {
-		clean(): void {
-			expect(pageErrors, "uncaught page exceptions").toEqual([]);
-			const rogue = consoleErrors.filter(
-				(t) =>
-					!(
-						t.includes("status of 501") && seen501.some((u) => entProbe.test(u))
-					),
-			);
-			expect(rogue, "console errors (ent-zone 501 noise exempted)").toEqual([]);
-			expect(
-				seen501.filter((u) => !entProbe.test(u)),
-				"501s outside the ent-zone probe endpoints",
-			).toEqual([]);
-		},
-	};
-}
 
 async function openTasks(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Tasks" }).click();
@@ -92,9 +25,9 @@ async function openTasks(page: Page): Promise<void> {
 
 test("delegated item rides declare → reconcile → done on the hub board GUI", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const H = mustHub();
-	const look = watch(page);
+}, async ({ page, board }) => {
+	const H = board;
+	mkdirSync(SHOTS, { recursive: true });
 	const TITLE = "Delegate: reconcile hub policy manifest on the spoke";
 	const ORIGIN = process.env.HUB_BOARD_ORIGIN ?? "nas.example.invalid:claude";
 
@@ -144,10 +77,15 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	await expect(card).toContainText(ORIGIN); // delegation provenance, on the card
 	await page.screenshot({ path: `${SHOTS}/2-reconciled.png`, fullPage: true });
 
-	// DONE — the spoke closes it; the hub GUI moves it to done (the done-gate
-	// requires the completion paragraph and verifies the sha is a real commit
-	// in the repo — the hub scratch repo's own base commit is the evidence)
-	const SHA = hubSha;
+	// DONE — the spoke closes it; the hub GUI moves it to done. W1294.2: the
+	// done-gate verifies the sha is a commit in the repo — the hub scratch
+	// repo's own base commit rides the call
+	const gp = Bun.spawnSync(["git", "-C", H.MY_PROJ, "rev-parse", "HEAD"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const SHA = gp.stdout.toString().trim();
+	expect(SHA).toMatch(/^[0-9a-f]{40}$/);
 	H.workOk(
 		[
 			"done",
@@ -187,16 +125,13 @@ test("delegated item rides declare → reconcile → done on the hub board GUI",
 	await expect(drawer).toContainText("work.done");
 	await expect(drawer).toContainText(SHA.slice(0, 7));
 	await page.screenshot({ path: `${SHOTS}/3-done.png`, fullPage: true });
-
-	look.clean();
 });
 
 test("scope isolation: local work never leaks to the hub board", {
 	tag: "@ui",
-}, async ({ page }) => {
-	const H = mustHub();
-	const L = mustLocal();
-	const look = watch(page);
+}, async ({ page, board, peerBoard, api }) => {
+	const H = board;
+	const L = peerBoard;
 	const LOCAL_TITLE = "LOCAL-ONLY: spoke-private item — never on the hub board";
 
 	// positive control: the LOCAL board shows the local item
@@ -225,7 +160,7 @@ test("scope isolation: local work never leaks to the hub board", {
 	await expect(page.locator(`#tasksBody`)).not.toContainText(LOCAL_TITLE);
 
 	// API-level cross-check: the hub board server itself never serves it
-	const feed = (await (await fetch(`${H.BASE}/api/tasks`)).json()) as {
+	const feed = (await (await api.get("/api/tasks")).json()) as {
 		tasks: Array<{ title: string }>;
 	};
 	const titles = feed.tasks.map((t) => t.title);
@@ -234,6 +169,4 @@ test("scope isolation: local work never leaks to the hub board", {
 		path: `${SHOTS}/4-scope-isolation.png`,
 		fullPage: true,
 	});
-
-	look.clean();
 });

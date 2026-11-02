@@ -14,6 +14,7 @@ import {
 	rearmLaunchHold,
 	scheduleLaunchBackoff,
 } from "../scripts/lib/launch-backoff.ts";
+import { retryFailedItem } from "../hooks/lib/work/work-retry.ts";
 
 function fixture() {
 	const db = new Database(":memory:");
@@ -24,11 +25,11 @@ function fixture() {
 		"CREATE TABLE events(id INTEGER PRIMARY KEY,ts INTEGER,source TEXT,kind TEXT,scope TEXT,payload TEXT,target TEXT)",
 	);
 	db.run(
-		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT,scope TEXT)",
+		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT,scope TEXT,fail_reason TEXT)",
 	);
 	db.run("CREATE TABLE claims(sid TEXT,scope TEXT,intent TEXT)");
 	db.run(
-		"INSERT INTO work_items VALUES ('p','W1','lane',100,'CLAIMED','scope')",
+		"INSERT INTO work_items VALUES ('p','W1','lane',100,'CLAIMED','scope',NULL)",
 	);
 	return { db, store: db as unknown as GovernorStore };
 }
@@ -133,7 +134,7 @@ test("launchLogAppended reads only post-spawn bytes and caps the window", () => 
 	}
 }, 30_000);
 
-test("exhausted dead launch returns the same work item to READY and resets its budget", () => {
+test("exhausted dead launch lands FAILED on the graph; work retry recovers it", () => {
 	const { db, store } = fixture();
 	db.run(
 		"CREATE TABLE lane_launch_budgets(project TEXT,item TEXT,reservations INTEGER,PRIMARY KEY(project,item))",
@@ -152,15 +153,40 @@ test("exhausted dead launch returns the same work item to READY and resets its b
 		1_000,
 	);
 	expect(parked?.kind).toBe("unknown");
+	// W2316: terminal on the graph, not READY-invisible parking
 	expect(
 		db.query("SELECT state,owner_sid FROM work_items WHERE id='W1'").get(),
-	).toEqual({ state: "READY", owner_sid: null });
+	).toEqual({ state: "FAILED", owner_sid: null });
+	// W2333 (Kueue F4): the terminal row carries the classified reason
+	expect(
+		db.query("SELECT fail_reason FROM work_items WHERE id='W1'").get(),
+	).toEqual({ fail_reason: "unknown" });
+	// the shared work.failed event vocabulary, dispatch-sourced
+	expect(
+		db
+			.query(
+				"SELECT kind,source FROM events WHERE kind='work.failed' AND payload LIKE '%W1%'",
+			)
+			.get(),
+	).toEqual({ kind: "work.failed", source: "dispatch" });
 	expect(db.query("SELECT * FROM lane_launch_budgets").all()).toEqual([]);
 	expect(
 		db.query("SELECT * FROM facts WHERE key='lane.lane.launch-attempt'").all(),
 	).toEqual([]);
+	// terminal: a further exhaustion call on the FAILED item refuses (also
+	// covers the transferred-claim refusal — owner mismatch returns null)
 	expect(
-		parkExhaustedLaunch(store, "p", "W1", "other", "/lane.log", 3, 1_000)?.kind,
-	).toBe("unknown");
+		parkExhaustedLaunch(store, "p", "W1", "other", "/lane.log", 3, 1_000),
+	).toBeNull();
+	// the existing recovery path closes the loop: retry re-opens it READY
+	const retried = retryFailedItem(store, "p", "W1");
+	expect(retried.ok).toBe(true);
+	expect(db.query("SELECT state FROM work_items WHERE id='W1'").get()).toEqual({
+		state: "READY",
+	});
+	// W2333: retry clears the terminal reason with the state (fresh episode)
+	expect(
+		db.query("SELECT fail_reason FROM work_items WHERE id='W1'").get(),
+	).toEqual({ fail_reason: null });
 	db.close();
 });

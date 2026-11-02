@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
@@ -26,9 +26,9 @@ import {
 import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const fixture = await boardFixture(0, afterAll);
+const fixture = await boardFixture(0, test.afterAll);
 const home = mkdtempSync(join(tmpdir(), "session-policy-"));
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 const rows = [
 	{
 		id: "service-health",
@@ -56,7 +56,7 @@ const server = Bun.serve({
 		return Response.json({ ok: true, version: 1, sha256, rows });
 	},
 });
-afterAll(() => server.stop(true));
+test.afterAll(() => server.stop(true));
 const keyFile = join(home, "key");
 writeFileSync(keyFile, "fixture-private-key", { mode: 0o600 });
 const configPath = join(home, "policy.json");
@@ -68,7 +68,7 @@ writeFileSync(
 	}),
 );
 const db = new Database(`${fixture.HOME}/.cache/claude-governor/governor.db`);
-afterAll(() => db.close());
+test.afterAll(() => db.close());
 const options = {
 	db,
 	repo: fixture.REPO,
@@ -77,7 +77,7 @@ const options = {
 	sid: "policy-session",
 };
 
-test("mother, siblings and grandchild share one decision while new mothers still ask", async () => {
+test("mother, siblings and grandchild share one decision while new mothers still ask @unit", async () => {
 	const insert = db.query(
 		"INSERT INTO sessions (sid,project,parent_sid,state,started_at,hb) VALUES (?,?,?,'RUNNING',?,?)",
 	);
@@ -119,7 +119,7 @@ test("mother, siblings and grandchild share one decision while new mothers still
 	).toContain("POLICY DECISION");
 });
 
-test("policy ancestry rejects cross-project, stale and cyclic parents", () => {
+test("policy ancestry rejects cross-project, stale and cyclic parents @unit", () => {
 	const insert = db.query(
 		"INSERT INTO sessions (sid,project,parent_sid,state,started_at,hb) VALUES (?,?,?,'RUNNING',?,?)",
 	);
@@ -158,7 +158,7 @@ test("policy ancestry rejects cross-project, stale and cyclic parents", () => {
 	);
 });
 
-test("corrupt or missing dedupe event references cannot suppress policy assessment", async () => {
+test("corrupt or missing dedupe event references cannot suppress policy assessment @unit", async () => {
 	const sid = "corrupt-policy-reference";
 	const first = await checkSessionPolicies({ ...options, sid });
 	const id = Number(first[0].match(/POLICY DECISION (\d+)/)?.[1]);
@@ -186,7 +186,7 @@ test("corrupt or missing dedupe event references cannot suppress policy assessme
 	).toEqual({ n: 1 });
 });
 
-test("remote authenticated policy persists provenance and a real board decision once per session", async () => {
+test("remote authenticated policy persists provenance and a real board decision once per session @unit", async () => {
 	const notes = await checkSessionPolicies(options);
 	expect(notes).toHaveLength(1);
 	expect(notes[0]).toContain("Ask for approval");
@@ -225,7 +225,7 @@ test("remote authenticated policy persists provenance and a real board decision 
 	).toEqual({ n: 2 });
 });
 
-test("actual SessionStart automatically checks configured remote policy", async () => {
+test("actual SessionStart automatically checks configured remote policy @unit", async () => {
 	const configDir = join(fixture.HOME, ".config/klh");
 	mkdirSync(configDir, { recursive: true });
 	writeFileSync(join(configDir, "repo-policy.json"), readFileSync(configPath));
@@ -262,7 +262,7 @@ test("actual SessionStart automatically checks configured remote policy", async 
 	).toEqual({ n: 1 });
 });
 
-test("satisfied policies stay silent and do not create decisions", async () => {
+test("satisfied policies stay silent and do not create decisions @unit", async () => {
 	writeFileSync(join(fixture.REPO, "server.ts"), "GET /health");
 	expect(
 		await checkSessionPolicies({ ...options, sid: "satisfied-session" }),
@@ -270,7 +270,7 @@ test("satisfied policies stay silent and do not create decisions", async () => {
 	writeFileSync(join(fixture.REPO, "server.ts"), "api");
 });
 
-test("SessionStart uses a trusted absolute runtime configuration override", async () => {
+test("SessionStart uses a trusted absolute runtime configuration override @unit", async () => {
 	const sid = "scoped-policy-start";
 	const defaultPath = join(fixture.HOME, ".config/klh/repo-policy.json");
 	const defaultBytes = readFileSync(defaultPath);
@@ -302,7 +302,7 @@ test("SessionStart uses a trusted absolute runtime configuration override", asyn
 	).toEqual({ n: 1 });
 });
 
-test("SessionStart refuses relative configuration overrides without creating decisions", async () => {
+test("SessionStart refuses relative configuration overrides without creating decisions @unit", async () => {
 	const sid = "unsafe-policy-start";
 	const proc = Bun.spawn(
 		["bun", join(import.meta.dir, "../hooks/session-start.ts")],
@@ -331,7 +331,7 @@ test("SessionStart refuses relative configuration overrides without creating dec
 	).toEqual({ n: 0 });
 });
 
-test("pin mismatch and public credentials produce unavailable, never compliant", async () => {
+test("pin mismatch and public credentials produce unavailable, never compliant @unit", async () => {
 	const mismatch = join(home, "mismatch.json");
 	writeFileSync(
 		mismatch,
@@ -350,7 +350,7 @@ test("pin mismatch and public credentials produce unavailable, never compliant",
 	chmodSync(keyFile, 0o600);
 });
 
-test("unreachable hub surfaces unknown compliance without a decision", async () => {
+test("unreachable hub surfaces unknown compliance without a decision @unit", async () => {
 	const down = join(home, "down.json");
 	writeFileSync(
 		down,
@@ -378,7 +378,7 @@ test("unreachable hub surfaces unknown compliance without a decision", async () 
 	).toEqual({ n: 0 });
 });
 
-test("unsafe paths, symlinks and remote probe instructions are refused", () => {
+test("unsafe paths, symlinks and remote probe instructions are refused @unit", () => {
 	for (const check of [
 		[{ exists: "../outside" }],
 		[{ exists: "/etc/passwd" }],
@@ -395,7 +395,7 @@ test("unsafe paths, symlinks and remote probe instructions are refused", () => {
 	).toThrow("symlink leaves repo");
 });
 
-test("oversized files and pathological regex cannot claim a missing endpoint", async () => {
+test("oversized files and pathological regex cannot claim a missing endpoint @unit", async () => {
 	writeFileSync(join(fixture.REPO, "oversize.ts"), "x".repeat(1024 * 1024 + 1));
 	await expect(
 		boundedPolicyEvaluation(fixture.REPO, [
@@ -422,7 +422,7 @@ test("oversized files and pathological regex cannot claim a missing endpoint", a
 	).rejects.toThrow("timed out");
 });
 
-test("an approved scoped exception suppresses the per-session decision until it expires", async () => {
+test("an approved scoped exception suppresses the per-session decision until it expires @unit", async () => {
 	// baseline: a fresh session still gets its own decision event
 	await checkSessionPolicies({ ...options, sid: "exc-baseline" });
 	const n = (sid: string): { n: number } =>
@@ -463,7 +463,7 @@ test("an approved scoped exception suppresses the per-session decision until it 
 	expect(n("exc-resumed")).toEqual({ n: 1 });
 });
 
-test("SessionStart refuses absolute overrides that do not exist without creating decisions", async () => {
+test("SessionStart refuses absolute overrides that do not exist without creating decisions @unit", async () => {
 	const sid = "missing-policy-start";
 	const proc = Bun.spawn(
 		["bun", join(import.meta.dir, "../hooks/session-start.ts")],

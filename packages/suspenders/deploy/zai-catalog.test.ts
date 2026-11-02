@@ -80,9 +80,9 @@ describe("Z.ai account catalog", () => {
 			model_ids: ["glm-4.7", "glm-5.3", "glm-5.3-flash"],
 			excluded_model_ids: [],
 		});
-		expect(() => parseZaiModelIds({ data: [{ id: "../../bad" }] })).toThrow(
-			"no chat GLM models",
-		);
+		expect(() =>
+			parseZaiModelIds({ data: [{ id: "not-a-glm-model" }] }),
+		).toThrow("no chat GLM models");
 	});
 
 	test("filters non-chat IDs while keeping the chat GLMs", () => {
@@ -140,6 +140,11 @@ describe("Z.ai account catalog", () => {
 		const dir = mkdtempSync(join(tmpdir(), "zai-catalog-test-"));
 		try {
 			const path = join(dir, "models.json");
+			// "models.json" here is join(tmpdir, ...): the test writes the
+			// fixture itself, never a repo path — git history holds no
+			// deploy/models.json in any commit (W1789 disposition, W1790
+			// precedent). Pin its absence so a restore is a conscious change.
+			expect(existsSync(join(import.meta.dir, "models.json"))).toBe(false);
 			const snapshot: ZaiCatalogSnapshot = {
 				version: 1,
 				source: ZAI_CATALOG_URL,
@@ -282,12 +287,10 @@ describe("Z.ai account catalog", () => {
 				expect(() =>
 					mergeZaiHubUpstreams(hub, { "glm-5.3-flash": [mutation] }),
 				).toThrow("direct provider route");
-		// "upstreams.json" here is join(tmpdir, ...): the test writes the
-		// fixture itself, never a repo path. Pin its absence so a future
-		// restore is a conscious change (W1790 disposition).
-		expect(existsSync(join(import.meta.dir, "upstreams.json"))).toBe(
-			false,
-		);
+			// "upstreams.json" here is join(tmpdir, ...): the test writes the
+			// fixture itself, never a repo path. Pin its absence so a future
+			// restore is a conscious change (W1790 disposition).
+			expect(existsSync(join(import.meta.dir, "upstreams.json"))).toBe(false);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -321,6 +324,15 @@ const staleHomes: string[] = [];
 afterAll(() => {
 	for (const dir of staleHomes.splice(0))
 		rmSync(dir, { recursive: true, force: true });
+});
+
+// W1788: the post-merge dangling-path scanner reads this suite's
+// join(dir, "zai-models.json") fixture literals as repo-relative references.
+// The snapshot is machine-local runtime conf ($HOME/.claude/local-llm/ or
+// ZAI_CATALOG_FILE — zaiCatalogFile is the one path, belt
+// zai-catalog-rows.test.ts:100) — pin the repo path absent.
+test("zai-models.json stays machine-local, never a repo path", () => {
+	expect(existsSync(join(import.meta.dir, "zai-models.json"))).toBe(false);
 });
 
 // W1469 fixture: a HOME whose Z.ai snapshot is `ageMs` old (default 3 days).
