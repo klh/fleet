@@ -1,7 +1,12 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
-import { releaseWorkClaim } from "../../hooks/lib/work/work-release.ts";
-import { launchSchema, mergeRequeueState } from "./launch-fencing.ts";
+import { transition } from "../../hooks/lib/work/work-transition.ts";
+import {
+	finishFailedLaunch,
+	launchIntent,
+	launchSchema,
+	mergeRequeueState,
+} from "./launch-fencing.ts";
 
 export type LaunchFailureKind =
 	| "rate-limit"
@@ -279,7 +284,12 @@ export function resetDeadLaunchBudget(
 	})();
 }
 
-/** Release only the observed dead claimant; leave a transferred claim untouched. */
+/** Launch-budget exhaustion (W2316, Kueue pattern 4): the item lands FAILED
+ *  on the graph — terminal, surfaced, recoverable by `work retry` — never
+ *  parked READY-invisible. The write goes through the ONE shared graph
+ *  transition writer (work-transition.ts, the fail verb's CAS): no parallel
+ *  close path, no local state vocabulary. Releases only the observed
+ *  claimant; a transferred claim is left untouched. */
 export function parkExhaustedLaunch(
 	store: GovernorStore,
 	project: string,
@@ -290,35 +300,55 @@ export function parkExhaustedLaunch(
 	now = Date.now(),
 ): LaunchBackoff | null {
 	const row = store
-		.query(
-			"SELECT state,owner_sid,updated_at FROM work_items WHERE project=? AND id=?",
-		)
-		.get(project, item) as {
-		state: string;
-		owner_sid: string | null;
-		updated_at: number;
-	} | null;
+		.query("SELECT state,owner_sid FROM work_items WHERE project=? AND id=?")
+		.get(project, item) as { state: string; owner_sid: string | null } | null;
 	if (!row) return null;
 	if (row.state === "CLAIMED" || row.state === "RUNNING") {
 		if (row.owner_sid !== sid) return null;
-		if (
-			!releaseWorkClaim(
-				store,
-				{
-					project,
-					id: item,
-					owner: sid,
-					state: row.state,
-					updatedAt: row.updated_at,
-				},
-				{ by: sid, reason: "owner-release" },
-			)
-		)
-			return null;
 	} else if (row.state !== "READY") return null;
+	const landed = transition(
+		store,
+		{
+			project,
+			id: item,
+			states: [row.state],
+			owner: row.owner_sid ?? null,
+			epoch: null,
+		},
+		{ state: "FAILED", owner: null },
+	);
+	if (!landed.ok) return null;
+	// W2333 (Kueue F4): every terminal FAILED write carries the classified
+	// reason on the row — same law as the fail verb (work-fail.ts); the
+	// exhaustion note is the classifier input, never hand-vocabularied.
+	const reason = classifyLaunchFailure(log, now).kind;
+	store
+		.query(
+			"UPDATE work_items SET fail_reason = ? WHERE project = ? AND id = ?",
+		)
+		.run(reason, project, item);
 	// No new native launch happened here (W1165): no attempt-scoped evidence
-	// exists, so the parked hold stays on the unknown step ladder.
+	// exists, so the hold stays on the unknown step ladder — the recorded
+	// evidence rides the FAILED item's retry decision, never a slot.
 	const backoff = scheduleLaunchBackoff(store, project, item, log, step, now);
 	resetDeadLaunchBudget(store, project, item, sid);
+	// the launch intent never outlives the work item it launched (W2313's
+	// lifecycle module owns the intent vocabulary)
+	const intent = launchIntent(store, project, item);
+	if (intent) finishFailedLaunch(store, intent);
+	store
+		.query(
+			"INSERT INTO events(ts,source,kind,scope,payload,target) VALUES (?,'dispatch','work.failed',?,?,NULL)",
+		)
+		.run(
+			now,
+			project,
+			JSON.stringify({
+				work: item,
+				project,
+				note: `launch budget exhausted (attempt ${step}) — work retry recovers; evidence ${log}`,
+				reason,
+			}),
+		);
 	return backoff;
 }

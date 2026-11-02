@@ -334,7 +334,7 @@ export const dispatchLane = async (
 				);
 				console.log(
 					parked
-						? `WAIT ${item} — ${parked.kind} launch exhausted; returned to READY until ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+						? `FAIL ${item} — ${parked.kind} launch exhausted; FAILED on the graph (work retry recovers; evidence ${parked.log})`
 						: `REFUSED ${item} — claim changed; preserved for its owner`,
 				);
 			} finally {
@@ -379,7 +379,7 @@ export const dispatchLane = async (
 		);
 		console.log(
 			parked
-				? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()} (evidence ${parked.log})`
+				? `FAIL ${item} — launch budget exhausted; FAILED on the graph (work retry recovers; evidence ${parked.log})`
 				: `REFUSED ${item} — launch budget exhausted; claim changed`,
 		);
 		store.close();
@@ -441,7 +441,7 @@ export const dispatchLane = async (
 			);
 			console.log(
 				parked
-					? `WAIT ${item} — launch budget exhausted; READY after ${new Date(parked.eligibleAt).toISOString()}`
+					? `FAIL ${item} — launch budget exhausted; FAILED on the graph (work retry recovers)`
 					: `REFUSED ${item} — launch budget exhausted; claim changed`,
 			);
 			return null;
