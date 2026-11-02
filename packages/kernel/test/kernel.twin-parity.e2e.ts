@@ -4,7 +4,7 @@
 // that MIGRATES (its package repoints to kernel and the twin is deleted)
 // drops its block from this file in the same change.
 // W1294.12 sweep-I: ported from kernel.twin-parity.test.ts to @playwright/test.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { servicemon } from "../src/kernel.servicemon.module.ts";
@@ -89,9 +89,9 @@ test.describe("@unit", () => {
 			expect(
 				existsSync(join(repoRoot, "packages/suspenders/hooks/lib/theme.ts")),
 			).toBe(false);
-			expect(
-				existsSync(join(repoRoot, "packages/belt/bin/klh-theme.ts")),
-			).toBe(false);
+			expect(existsSync(join(repoRoot, "packages/belt/bin/klh-theme.ts"))).toBe(
+				false,
+			);
 			expect(
 				existsSync(join(repoRoot, "packages/local/bin/klh-theme.ts")),
 			).toBe(false);
@@ -103,7 +103,9 @@ test.describe("@unit", () => {
 		test("kernel src imports nothing in fleet (node builtins only)", () => {
 			for (const f of readdirSync(join(repoRoot, KERNEL))) {
 				const text = bytesOf(`${KERNEL}/${f}`);
-				const imports = [...text.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+				const imports = [...text.matchAll(/from\s+"([^"]+)"/g)].map(
+					(m) => m[1],
+				);
 				const fleet = imports.filter(
 					(spec) =>
 						spec.startsWith(".") === false &&
