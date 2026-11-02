@@ -14,6 +14,10 @@ import { setting } from "@klh/settings";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readStamp } from "../../../scripts/lib/auto-install.ts";
+import {
+	skipHoldoffActive,
+	syncSettled,
+} from "../../../scripts/lib/activation-readiness.ts";
 import { suspendersRoot } from "./maintenance.ts";
 import type { LoopDeps } from "./runtime.ts";
 
@@ -65,7 +69,18 @@ export function createRuntimeSync(
 		const stamp = readStamp(statePath);
 		const head = sh(["git", "rev-parse", MAIN]) || null;
 		if (head === null) return { ran: false, labels: [], reason: "git-failed" };
-		if (stamp?.main === head) return { ran: false, labels: [] }; // up to date
+		// W2546: same-head is NOT automatically settled — publication and
+		// activation are separate successes. A stamp whose activation ledger
+		// is missing or unresolved (verified < requested, kickFailed,
+		// unready, needsReviewedUpgrade, or a --skip-kick inside holdoff)
+		// re-enters the child, which retries exactly the missing labels.
+		if (stamp !== null && stamp.main === head) {
+			if (syncSettled(stamp, head)) return { ran: false, labels: [] }; // published AND verified
+			const holdoff = skipHoldoffActive(stamp, Date.now());
+			if (!holdoff) log("RUNTIME-SYNC same-head activation unsettled");
+			if (holdoff)
+				return { ran: false, labels: [], reason: "skip-kick holdoff" };
+		}
 		// drift (or first run): the child re-derives the same decision and
 		// owns the stamp; a killed child leaves it unadvanced → retry next cycle
 		const r = spawn(

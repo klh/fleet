@@ -25,6 +25,7 @@ export type StepName =
 	| "wireConnections"
 	| "wirePreferHub"
 	| "upgradeGateway"
+	| "activateGateway"
 	| "registerLaunchd"
 	| "registerCaddy"
 	| "registerSkills"
@@ -417,6 +418,14 @@ export const INSTALL_CONTRACT = {
 				"stage or explicitly activate a reviewed immutable gateway candidate, preserving machine database state",
 			mutates: true,
 			optIn: true,
+			v1: "real",
+		},
+		{
+			name: "activateGateway",
+			oneLiner:
+				"W2546: default-plan generation-only gateway activation — stage through upgradeGateway, auto-approve ONLY a generation-only candidate onto the published harness revision via the fenced apply; anything broader stays pending for the owner",
+			mutates: true,
+			optIn: false,
 			v1: "real",
 		},
 		{
