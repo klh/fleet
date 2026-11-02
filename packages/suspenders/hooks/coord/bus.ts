@@ -530,7 +530,11 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 	].sort((a, b) => a.id - b.id);
 	const lastShown = rows.reduce((last, row) => Math.max(last, row.id), 0);
 	const shownIds = JSON.stringify(rows.map((row) => row.id));
-	if (wantsJson(rest)) {
+	// W2580 (review #103237 B1): only the RENDER varies by face — the
+	// receipt/cursor tail below runs for --json too, so the machine face
+	// holds the same contract as the tty face (and as poll --json): a read
+	// marks shown rows QUEUED -> SEEN; the cursor advances ONLY with --ack.
+	if (wantsJson(rest))
 		inboxContract.emit({
 			schema_version: 1,
 			verb: "inbox",
@@ -545,9 +549,10 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 				payload: parseEventPayload(r.payload),
 			})),
 		});
-		return;
+	else {
+		for (const r of rows) console.log(formatEventLine(r));
+		if (!rows.length) console.log(dim("(inbox empty)"));
 	}
-	for (const r of rows) console.log(formatEventLine(r));
 	if (rows.length) {
 		const receiptKinds = [
 			["NO", "TE"].join(""),
@@ -568,7 +573,6 @@ export async function cmdInbox(rest: string[]): Promise<void> {
 			).run(Date.now(), Date.now(), as, shownIds);
 		advanceCursor(as, ncur, rows.length ? lastShown : ncur);
 	}
-	if (!rows.length && !wantsJson(rest)) console.log(dim("(inbox empty)"));
 }
 
 /** Accept exactly one addressed event. Unlike inbox --ack, this does not
