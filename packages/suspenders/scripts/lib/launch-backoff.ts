@@ -318,6 +318,15 @@ export function parkExhaustedLaunch(
 		{ state: "FAILED", owner: null },
 	);
 	if (!landed.ok) return null;
+	// W2333 (Kueue F4): every terminal FAILED write carries the classified
+	// reason on the row — same law as the fail verb (work-fail.ts); the
+	// exhaustion note is the classifier input, never hand-vocabularied.
+	const reason = classifyLaunchFailure(log, now).kind;
+	store
+		.query(
+			"UPDATE work_items SET fail_reason = ? WHERE project = ? AND id = ?",
+		)
+		.run(reason, project, item);
 	// No new native launch happened here (W1165): no attempt-scoped evidence
 	// exists, so the hold stays on the unknown step ladder — the recorded
 	// evidence rides the FAILED item's retry decision, never a slot.
@@ -338,6 +347,7 @@ export function parkExhaustedLaunch(
 				work: item,
 				project,
 				note: `launch budget exhausted (attempt ${step}) — work retry recovers; evidence ${log}`,
+				reason,
 			}),
 		);
 	return backoff;

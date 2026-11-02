@@ -25,11 +25,11 @@ function fixture() {
 		"CREATE TABLE events(id INTEGER PRIMARY KEY,ts INTEGER,source TEXT,kind TEXT,scope TEXT,payload TEXT,target TEXT)",
 	);
 	db.run(
-		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT,scope TEXT)",
+		"CREATE TABLE work_items(project TEXT,id TEXT,owner_sid TEXT,updated_at INTEGER,state TEXT,scope TEXT,fail_reason TEXT)",
 	);
 	db.run("CREATE TABLE claims(sid TEXT,scope TEXT,intent TEXT)");
 	db.run(
-		"INSERT INTO work_items VALUES ('p','W1','lane',100,'CLAIMED','scope')",
+		"INSERT INTO work_items VALUES ('p','W1','lane',100,'CLAIMED','scope',NULL)",
 	);
 	return { db, store: db as unknown as GovernorStore };
 }
@@ -157,6 +157,10 @@ test("exhausted dead launch lands FAILED on the graph; work retry recovers it", 
 	expect(
 		db.query("SELECT state,owner_sid FROM work_items WHERE id='W1'").get(),
 	).toEqual({ state: "FAILED", owner_sid: null });
+	// W2333 (Kueue F4): the terminal row carries the classified reason
+	expect(
+		db.query("SELECT fail_reason FROM work_items WHERE id='W1'").get(),
+	).toEqual({ fail_reason: "unknown" });
 	// the shared work.failed event vocabulary, dispatch-sourced
 	expect(
 		db
@@ -180,5 +184,9 @@ test("exhausted dead launch lands FAILED on the graph; work retry recovers it", 
 	expect(db.query("SELECT state FROM work_items WHERE id='W1'").get()).toEqual({
 		state: "READY",
 	});
+	// W2333: retry clears the terminal reason with the state (fresh episode)
+	expect(
+		db.query("SELECT fail_reason FROM work_items WHERE id='W1'").get(),
+	).toEqual({ fail_reason: null });
 	db.close();
 });
