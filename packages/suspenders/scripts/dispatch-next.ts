@@ -59,6 +59,7 @@ import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
 import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
+import { versionLine } from "../hooks/lib/cli-version.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 // W1295: the agent-rules role library rides the launch path
 import { loadAgentRules } from "./lib/agent-rules.ts";
@@ -114,6 +115,12 @@ import {
 export { parseCapsuleGet }; // re-export keeps the supervise.ts + test path (W576.1.1)
 
 const argv = process.argv.slice(2);
+// W2551: the embedded door bypasses runCli, so the --version face wires here:
+// the installed generation revision + schema tip, one stable line, exit 0.
+if (import.meta.main && argv.includes("--version")) {
+	console.log(versionLine("dispatch"));
+	process.exit(0);
+}
 // W1124.33: the verb head is the first token that is neither a flag nor a
 // value-taking global flag's value (lib/dispatch-usage.ts), so `--repo <dir>
 // intent ...` routes identically to verb-first argv. Command discovery must

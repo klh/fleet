@@ -20,6 +20,9 @@
 // `--` that survives (node/deno exec, mid-argv) parses as an end-of-options
 // separator: everything after it becomes positionals.
 
+// W2551: the --version face — installed generation revision + schema tip
+import { versionLine } from "./cli-version.ts";
+
 export type Parsed = {
 	name: string;
 	pos: string[];
@@ -187,8 +190,25 @@ export const runCli = async (opts: RunCliOpts): Promise<void> => {
 	const tokens = (opts.argv ?? process.argv).slice(2);
 	const byName = new Map(opts.verbs.map((v) => [v.name, v]));
 	const names = opts.verbs.map((v) => v.name);
+	// W2551: --version anywhere wins before any parsing that could create
+	// state — the installed generation revision + schema tip, one stable
+	// machine-parsable line (hooks/lib/cli-version.ts). A verb that declares
+	// --version as its own FLAG keeps it, and LAX verbs keep it too — they
+	// predate strict parsing and dissect their own rest (coord consult's
+	// consult-version metadata rides `--version test-version`, W611
+	// verified-cache versioning).
+	const version = (): never => {
+		console.log(versionLine(opts.prog));
+		process.exit(0);
+	};
 	// the shared dispatch tail: per-verb --help, parse+validate, notify, run
 	const runSpec = async (spec: VerbSpec, rest: string[]): Promise<void> => {
+		if (
+			!spec.lax &&
+			!spec.flags?.includes("--version") &&
+			rest.includes("--version")
+		)
+			version();
 		// --help anywhere wins before any parsing that could create state
 		if (rest.includes("--help") || rest.includes("-h")) {
 			const help = renderVerbHelp(spec);
@@ -241,6 +261,7 @@ export const runCli = async (opts: RunCliOpts): Promise<void> => {
 		);
 		process.exit(0);
 	}
+	if (head2 === "--version") version();
 	const spec = byName.get(head2);
 	if (!spec) die(`unknown command — try ${names.join(" | ")}`);
 	await runSpec(spec, tokens.slice(1));
