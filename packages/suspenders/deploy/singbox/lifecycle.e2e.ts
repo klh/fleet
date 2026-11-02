@@ -197,12 +197,34 @@ test.describe("@unit", () => {
 
 	test("on: bootstrap failure prints the owner resume door, stages the plist", async () => {
 		const conf = filledConfPath();
-		const io = ioOf({ runCode: 1 });
+		const io = ioOf({
+			run: async (cmd) =>
+				cmd[0] === "sudo" ? { code: 1, stdout: "", stderr: "" } : ok,
+		});
 		const out = await lifecycleOn(conf, io);
 		expect(out.verdict).toBe("STAGED");
 		expect(out.bootstrap).toBe("owner");
 		expect(out.reason).toContain("sudo launchctl bootstrap system");
 		expect(out.reason).toContain(DAEMON_LABEL);
+	});
+
+	test("on: a conf the binary's own parser refuses never stages (no KeepAlive crash-loop)", async () => {
+		const conf = filledConfPath();
+		const io = ioOf({
+			run: async (cmd) =>
+				cmd[1] === "check"
+					? {
+							code: 1,
+							stdout: "",
+							stderr:
+								"FATAL to continuing using this feature, set environment variable ENABLE_DEPRECATED_OUTBOUND_DNS_RULE_ITEM=true",
+						}
+					: ok,
+		});
+		const out = await lifecycleOn(conf, io);
+		expect(out.verdict).toBe("REFUSED");
+		expect(out.reason).toContain("sing-box check refuses the conf");
+		expect(out.staged).toBeNull();
 	});
 
 	// ─── off: the ordered rollback ───────────────────────────────────────────

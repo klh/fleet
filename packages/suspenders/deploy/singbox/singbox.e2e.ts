@@ -103,6 +103,14 @@ test.describe("@unit", () => {
 		expect(checkConfigLaw(filledConf())).toEqual([]);
 	});
 
+	test("template carries no sing-box-1.14-removed shape (deprecated DNS rule item)", () => {
+		const root = filledConf();
+		const dns = root.dns as Record<string, unknown>;
+		expect(dns.rules).toBeUndefined();
+		const route = root.route as Record<string, unknown>;
+		expect(route.default_domain_resolver).toBe("dns-local");
+	});
+
 	test("law: every CONNECT identity has its per-app outbound", () => {
 		const root = filledConf();
 		const tags = new Set(

@@ -5,7 +5,6 @@
 			{ "type": "local", "tag": "dns-local" },
 			{ "type": "udp", "tag": "dns-upstream", "server": "1.1.1.1" }
 		],
-		"rules": [{ "outbound": "any", "server": "dns-local" }],
 		"final": "dns-local"
 	},
 	"inbounds": [
@@ -27,7 +26,12 @@
 		},
 		{ "tag": "direct", "type": "direct" }
 	],
-	"route": { "rules": [], "final": "direct", "auto_detect_interface": true },
+	"route": {
+		"rules": [],
+		"final": "direct",
+		"default_domain_resolver": "dns-local",
+		"auto_detect_interface": true
+	},
 	"experimental": {
 		"clash_api": {
 			"external_controller": "127.0.0.1:<CLASH_API_PORT>",

@@ -329,6 +329,17 @@ export async function lifecycleOn(
 		return refused(
 			"sing-box binary not found — owner step: brew install sing-box, then re-run on",
 		);
+	// 2.5 the binary's own parser must accept the conf — the fleet law and
+	// sing-box's schema drift (the 1.12→1.14 deprecation removals refuse
+	// configs the fleet law still blesses); staging a refused conf means a
+	// KeepAlive crash-loop the moment the owner runs the sudo door
+	const parse = await io.run([binary, "check", "-c", confPath]);
+	if (parse.code !== 0) {
+		const first = parse.stderr.trim().split("\n")[0] ?? "";
+		return refused(
+			`sing-box check refuses the conf (${first}) — regenerate with fill, then re-run on`,
+		);
+	}
 	// 3. the CONNECT relay must answer BEFORE the TUN engages
 	const port = connectPortOf();
 	const endpoint = `${CONNECT_SERVER}:${port}`;
