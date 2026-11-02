@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5d19.js";import{s,i}from"./lit-f0b5670216be6815.js";var u=(a)=>{if(a===null||!Number.isFinite(a))return"—";if(Math.abs(a)>=1e6)return`${(a/1e6).toFixed(1)}M`;if(Math.abs(a)>=1000)return`${(a/1000).toFixed(1)}k`;return String(a)},R=(a)=>a===null?"unknown":a<90?`${a}s`:`${Math.round(a/60)}m`,T=(a)=>{if(a===null)return 1;if(a>=100)return 4;if(a>=20)return 3;if(a>=5)return 2;return 1},_=r`
+import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{s}from"./lit-d55f7b3c80b3eb77.js";import{o,i}from"./lit-bd2f52b2bd980c82.js";var u=(a)=>{if(a===null||!Number.isFinite(a))return"—";if(Math.abs(a)>=1e6)return`${(a/1e6).toFixed(1)}M`;if(Math.abs(a)>=1000)return`${(a/1000).toFixed(1)}k`;return String(a)},R=(a)=>a===null?"unknown":a<90?`${a}s`:`${Math.round(a/60)}m`,T=(a)=>{if(a===null)return 1;if(a>=100)return 4;if(a>=20)return 3;if(a>=5)return 2;return 1},_=r`
 	.hrow {
 		display: flex;
 		gap: 8px;
@@ -95,7 +95,7 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 			<summary>Lifecycle sample · ${l.rows.length}</summary>
 			<div class="routesBody">
 				${l.rows.length?l.rows.map((p)=>e`<div class="hrow">
-							<time class="unknown" datetime=${new Date(p.admittedAt).toISOString()} title=${s(p.admittedAt)}>${i(p.admittedAt)}</time>
+							<time class="unknown" datetime=${new Date(p.admittedAt).toISOString()} title=${o(p.admittedAt)}>${i(p.admittedAt)}</time>
 							<span class="title">${p.model??"?"}</span>
 							<span class="unknown">${p.lane?`lane ${p.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 							<span class="num">${p.outcome??"in flight"}</span>
@@ -135,7 +135,7 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 			style="width:${T(l)*14}px;background:var(--klh-edge)"
 		></span>
 	</div>`},M=(a)=>e`<div class="routeRow">
-	<time class="unknown" datetime=${a.ts} title=${s(a.ts)}>${i(a.ts)}</time>
+	<time class="unknown" datetime=${a.ts} title=${o(a.ts)}>${i(a.ts)}</time>
 	<span class="title">${a.target_model??"model unknown"}</span>
 	<span class="unknown" title=${a.lane||"No lane attribution"}>${a.lane?`lane ${a.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 	<span class="num">${a.target_kind??"?"} ${a.target_host??""}</span>
@@ -183,8 +183,8 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 		<p class="legend">
 			edge width 1-4px = measured output tok/s (60s): ≥100 → 4 · ≥20 → 3 ·
 			≥5 → 2 · else 1 · null = unknown (gray), never zero
-		</p>`},P=async()=>{try{let a=await fetch("/api/console/network",{cache:"no-store"});if(!a.ok)return null;return await a.json()}catch{return null}};class k extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[o,_];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let a=await P();if(a)this.live=a,this.err="";else this.err="refresh failed — last known values shown"}render(){let a=this.live??this.data;if(!a)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let l=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${R(N(a.ts))}</h2>
-			${l}${j(a)}`}}customElements.define("klh-network-card",k);var w=(a,l)=>a.flatMap((p,d)=>d?[e`${l}`,p]:[p]);class v extends n{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[o];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;if(a.kind==="missing")return e`<h2>${this.heading}</h2>
+		</p>`},P=async()=>{try{let a=await fetch("/api/console/network",{cache:"no-store"});if(!a.ok)return null;return await a.json()}catch{return null}};class k extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[s,_];live=null;err="";timer=null;constructor(){super();this.heading="",this.data=null}connectedCallback(){super.connectedCallback(),this.refresh(),this.timer=setInterval(()=>void this.refresh(),1e4)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer)}async refresh(){let a=await P();if(a)this.live=a,this.err="";else this.err="refresh failed — last known values shown"}render(){let a=this.live??this.data;if(!a)return e`<h2>${this.heading}</h2><p class="dimpl">loading…</p>`;let l=this.err?e`<p class="unknown">${this.err}</p>`:t;return e`<h2>${this.heading} · live ${R(N(a.ts))}</h2>
+			${l}${j(a)}`}}customElements.define("klh-network-card",k);var w=(a,l)=>a.flatMap((p,d)=>d?[e`${l}`,p]:[p]);class v extends n{static properties={heading:{type:String},compact:{type:Boolean},foot:{type:String},data:{type:Object}};static styles=[s];constructor(){super();this.heading="",this.compact=!1,this.foot="",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;if(a.kind==="missing")return e`<h2>${this.heading}</h2>
 				<p class="dimpl">
 					no routing-policy.yaml found on the belt chain (BELT_POLICY/
 					BUCKLE_POLICY → ~/.claude/local-llm/ → committed default)
@@ -219,7 +219,7 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 						<td>${w(this.pills(p[1])," → ")}</td>
 					</tr>`)}
 			</tbody>
-		</table>`}chips(a){return a.map((l)=>e`${l[0]} → ${l[1].length} tiers`)}pills(a){return a.map((l,p)=>e`<span class="pill">${p+1}. ${l}</span>`)}}if(!customElements.get("klh-policy-card"))customElements.define("klh-policy-card",v);class f extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[o];constructor(){super();this.heading="Configured upstream pool",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;if(!a.groups)return e`<h2>Upstream pool</h2>
+		</table>`}chips(a){return a.map((l)=>e`${l[0]} → ${l[1].length} tiers`)}pills(a){return a.map((l,p)=>e`<span class="pill">${p+1}. ${l}</span>`)}}if(!customElements.get("klh-policy-card"))customElements.define("klh-policy-card",v);class f extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[s];constructor(){super();this.heading="Configured upstream pool",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;if(!a.groups)return e`<h2>Upstream pool</h2>
 				<p class="dimpl">
 					upstreams.yaml unreadable — the ladder above still applies
 				</p>`;return e`<h2>${this.heading} · ${a.source}</h2>${this.table(a.groups)}`}table(a){return e`<table class="ct">
@@ -243,7 +243,7 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 			<td class="num">${a.tiers}</td>
 			<td>${l}</td>
 			<td>${a.source}</td>
-		</tr>`}}if(!customElements.get("klh-upstreams-card"))customElements.define("klh-upstreams-card",f);class b extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[o];constructor(){super();this.heading="Registered services",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(a)}`}body(a){return e`<table class="ct">
+		</tr>`}}if(!customElements.get("klh-upstreams-card"))customElements.define("klh-upstreams-card",f);class b extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[s];constructor(){super();this.heading="Registered services",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(a)}`}body(a){return e`<table class="ct">
 			<thead>
 				<tr>
 					<th>Service</th>
@@ -265,11 +265,11 @@ import{r,e,t,n}from"./lit-2f0d70419e37a5ce.js";import{o}from"./lit-75a1732ed78d5
 			<td><span class="pill">${a.scope}</span></td>
 			<td class="mono">${a.upstream}</td>
 			<td>${a.monitored}</td>
-		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",b);class y extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[o];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(a)}`}body(a){if(a.error)return e`<div class="errbox">
+		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",b);class y extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[s];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let a=this.data;if(!a)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(a)}`}body(a){if(a.error)return e`<div class="errbox">
 				current file does not parse: ${a.error}
 			</div>`;return e`<div class="knobs">
 			${a.knobs.map((l)=>e`<span class="kchip">${l.k}: <b>${l.v}</b></span>`)}
-		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",y);class x extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[o,r`
+		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",y);class x extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[s,r`
 		.auditrow { border-top:1px solid var(--klh-rule); font-size:11.5px; }
 		.auditrow summary { display:flex; gap:10px; align-items:baseline; padding:5px 0; cursor:pointer; list-style:none; }
 		.auditrow summary::-webkit-details-marker { display:none; }
