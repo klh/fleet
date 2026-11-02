@@ -1,4 +1,4 @@
-import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464071.js";var x=()=>{let s=g("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>x()?.panels??null,E=()=>x()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),R=(s)=>`${(s*100).toFixed(1)}%`,v=n`
+import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464071.js";var x=()=>{let s=g("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>x()?.panels??null,E=()=>x()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),R=(s)=>`${(s*100).toFixed(1)}%`,v=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -78,7 +78,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 `,w=(s,l)=>s[l]??"#888",U=(s,l,i)=>{let a=s.tok?`${(s.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
 		style=${`width:${a};background:${w(i,s.g)}`}
 		title=${`${s.g}: ${d(s.tok)} tok`}
-	></i>`};class P extends r{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=u()?.header??null}chips(s,l,i){return e`<span class="ufgroup" data-label=${s}
+	></i>`};class P extends n{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=u()?.header??null}chips(s,l,i){return e`<span class="ufgroup" data-label=${s}
 			>${l.map((a)=>e`<a class="${i}${a.on?" on":""}" href=${a.href}
 						>${a.label}</a
 					>`)}</span
@@ -92,7 +92,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 				${this.chips("dept",s.depts,"ufchip")}
 				${s.filtered?e`<span class="uon">${s.filtered}</span>`:t}
 				<span class="uon">${s.status}</span>
-			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}P.styles=n`
+			</div>`}render(){return e`${this.header?this.body(this.header):t}`}}P.styles=r`
 	:host {
 		display: block;
 	}
@@ -152,12 +152,12 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		font-size: 10.5px;
 		color: var(--klh-accent, #d8900f);
 	}
-`;class _ extends r{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=u()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
+`;class _ extends n{static properties={tiles:{type:Array,state:!0}};constructor(){super();this.tiles=[]}connectedCallback(){super.connectedCallback(),this.tiles=u()?.tiles??[]}render(){if(!this.tiles.length)return e``;return e`<div class="utiles">
 			${this.tiles.map((s)=>e`<div class="utile">
 					<div class="uv">${s.v}</div>
 					<div class="uk">${s.k}</div>
 				</div>`)}
-		</div>`}}_.styles=n`
+		</div>`}}_.styles=r`
 	:host {
 		display: block;
 	}
@@ -188,7 +188,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;class L extends r{static properties={rows:{type:Array,state:!0},query:{type:String,state:!0}};slot={};constructor(){super();this.rows=[],this.query=""}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=E()}render(){let s=u()?.actors;if(!s?.rows.length)return e`<div class="upanel"><h2>ACTORS</h2><p class="uempty">No actor usage in this window.</p></div>`;return this.body(s.rows)}body(s){let l=this.query.trim().toLocaleLowerCase(),i=l?s.filter((a)=>[a.actor,...a.chips,...a.models.map((o)=>o.m)].some((o)=>o.toLocaleLowerCase().includes(l))):s;return e`<div class="upanel">
+`;class L extends n{static properties={rows:{type:Array,state:!0},query:{type:String,state:!0}};slot={};constructor(){super();this.rows=[],this.query=""}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=E()}render(){let s=u()?.actors;if(!s?.rows.length)return e`<div class="upanel"><h2>ACTORS</h2><p class="uempty">No actor usage in this window.</p></div>`;return this.body(s.rows)}body(s){let l=this.query.trim().toLocaleLowerCase(),i=l?s.filter((a)=>[a.actor,...a.chips,...a.models.map((o)=>o.m)].some((o)=>o.toLocaleLowerCase().includes(l))):s;return e`<div class="upanel">
 			<div class="actor-head">
 				<h2>ACTORS · ${String(i.length)} OF ${String(s.length)}</h2>
 				<label>Search actor or model
@@ -250,7 +250,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			</td>
 			<td class="unum">${d(s.tok)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}L.styles=[v,n`
+		</tr>`}}L.styles=[v,r`
 		.actor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
 		.actor-head h2 { margin:0; }
 		.actor-head label { display:flex; align-items:center; gap:8px; color:var(--klh-dim); font-size:11px; }
@@ -284,7 +284,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		:host {
 			display: block;
 		}
-	`];class q extends r{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let s=this.panel;if(!s)return e``;if(s.empty)return e`<div class="upanel">
+	`];class q extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let s=this.panel;if(!s)return e``;if(s.empty)return e`<div class="upanel">
 				<h2>${s.title}</h2>
 				<p class="uempty">${s.empty}</p>
 			</div>`;return this.body(s)}body(s){return e`<div class="upanel">
@@ -310,11 +310,11 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			<td class="unum">${d(s.inj)}</td>
 			<td class="unum">${d(s.skip)}</td>
 			<td class="unum">${d(s.tok)}</td>
-		</tr>`}}q.styles=[v,n`
+		</tr>`}}q.styles=[v,r`
 		:host {
 			display: block;
 		}
-	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class H extends r{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let s=this.panel;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
+	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class H extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let s=this.panel;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
 				<h2>WORK MIX</h2>
 				<p class="uempty">${s.empty}</p>
 			</div>`;return this.body(s)}body(s){let l=[...s.weekly].sort((i,a)=>a.d.localeCompare(i.d))[0];return e`<div class="upanel">
@@ -385,7 +385,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			<td class="unum">${s.spr}</td>
 			<td class="unum">${d(s.cost)}</td>
 			<td class="unum">${d(s.req)}</td>
-		</tr>`}}H.styles=[v,n`
+		</tr>`}}H.styles=[v,r`
 		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
 		.mixbar span { display:block; height:100%; }
 		.mixlegend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:9px; font-size:11px; color:var(--klh-dim, #98958e); }
@@ -407,7 +407,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		:host {
 			display: block;
 		}
-	`];var ee="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class z extends r{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=E()}render(){let s=u()?.spokes;if(!s)return e``;if(!s.rows.length)return this.empty();return this.body(s.rows)}empty(){return e`<div class="upanel">
+	`];var ee="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class z extends n{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=E()}render(){let s=u()?.spokes;if(!s)return e``;if(!s.rows.length)return this.empty();return this.body(s.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<p class="uempty">${ee}</p>
 		</div>`}body(s){return e`<div class="upanel">
@@ -437,11 +437,11 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			</td>
 			<td class="unum">${d(s.total)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}z.styles=[v,n`
+		</tr>`}}z.styles=[v,r`
 		:host {
 			display: block;
 		}
-	`];var te="no hub rollups — enumerate hubs in stack.json (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends r{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=E()}render(){let s=u()?.crosshub;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
+	`];var te="no hub rollups — enumerate hubs in stack.json (hubs:) or the hubs.json registry; the board fetches each hub's /federation/usage server-side (TTL-cached, per-hub degrade)";class O extends n{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.crosshub??null,this.slot=E()}render(){let s=u()?.crosshub;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
 				<h2>CROSS-HUB</h2>
 				<p class="uempty">${s.empty}</p>
 			</div>`;if(!s.rows.length)return this.empty();return this.body(s.rows)}empty(){return e`<div class="upanel">
@@ -485,7 +485,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 				</tbody>
 			</table>
 			<p class="ufoot">${u()?.crosshub?.foot??""}</p>
-		</div>`}}O.styles=[v,n`
+		</div>`}}O.styles=[v,r`
 		:host {
 			display: block;
 		}
@@ -497,7 +497,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		details code {
 			overflow-wrap: anywhere;
 		}
-	`];class A extends r{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(s){let l=new Date(s),i=(a)=>String(a).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(s){let[l,i,a]=s.split("-");return`${a}.${i}.${l?.slice(-2)}`}hourLabel(s){return`${String(new Date(s).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let s=x()?.timeline??[],l=s[0]??[];this.hours=l.map((a,o)=>({bucket:a*1000,tokens:s.slice(1).reduce((c,h)=>c+(h[o]??0),0)})).filter((a)=>a.tokens>0).map((a)=>a.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let s=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(s!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(s!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(s){this.bucket=s;let l=new URL(location.href);l.searchParams.set("hour",String(s)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let s=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),a=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
+	`];class A extends n{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(s){let l=new Date(s),i=(a)=>String(a).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(s){let[l,i,a]=s.split("-");return`${a}.${i}.${l?.slice(-2)}`}hourLabel(s){return`${String(new Date(s).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let s=x()?.timeline??[],l=s[0]??[];this.hours=l.map((a,o)=>({bucket:a*1000,tokens:s.slice(1).reduce((c,h)=>c+(h[o]??0),0)})).filter((a)=>a.tokens>0).map((a)=>a.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let s=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(s!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(s!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(s){this.bucket=s;let l=new URL(location.href);l.searchParams.set("hour",String(s)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let s=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),a=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
 			<div class="uhead">
 				<h2>HOUR DETAIL</h2>
 				<p class="ufoot">Select a day and hour to inspect its actors and models.</p>
@@ -524,11 +524,11 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
 				<tbody>${a.map((o)=>e`<tr><td>${o.actor}</td><td>${o.model}</td><td>${o.group}</td><td>${d(o.i)}</td><td>${d(o.cr)}</td><td>${d(o.cc)}</td><td>${d(o.o)}</td><td>${String(o.rq)}</td></tr>`)}</tbody>
 			</table></div>`:t}
-		</div>`}}A.styles=[v,n`
+		</div>`}}A.styles=[v,r`
 	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
 	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
 	.hour-scroll { overflow-x: auto; }
-`];class N extends r{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let s=x();if(this.slot=s?.slot??{},this.groups=s?.groups??[],this.timeline=s?.timeline??[],this.byHour=s?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let s of this.ros)s.disconnect();this.ros=[];for(let s of this.resizes)window.removeEventListener("resize",s);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="usage-chart-grid"><div class="upanel">
+`];class N extends n{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let s=x();if(this.slot=s?.slot??{},this.groups=s?.groups??[],this.timeline=s?.timeline??[],this.byHour=s?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let s of this.ros)s.disconnect();this.ros=[];for(let s of this.resizes)window.removeEventListener("resize",s);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="usage-chart-grid"><div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
@@ -542,11 +542,11 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div></div>`}firstUpdated(){let s=globalThis.uPlot;if(!s)return;let l=(f,m)=>getComputedStyle(document.documentElement).getPropertyValue(f).trim()||m,i=()=>l("--klh-chart-grid","#2c2c2a"),a=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(f,m)=>m.map((k)=>d(k)),h=(f,m)=>{let k={side:f,...f===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:a,width:1}};if(m)k.values=m;return k},p=this.querySelector("#u-timeline");if(p&&this.groups.length){let f=[{}];for(let m of this.groups){let k=w(this.slot,m);f.push({label:m,stacked:!0,stroke:k,fill:k,width:1,points:{show:!1},value:(b,C)=>F(C)})}this.chart(p,s,{width:p.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:f,axes:[h(2),h(3,c)]},this.timeline,300)}let S=this.querySelector("#u-hours");if(S)this.chart(S,s,{width:S.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:w(this.slot,"flash"),fill:w(this.slot,"flash"),paths:s.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(f,m)=>F(m)}],axes:[h(2,(f,m)=>m.map((k)=>String(Math.round(k)).padStart(2,"0"))),h(3,c)]},this.byHour,190)}chart(s,l,i,a,o){let c=new l(i,a,s);this.charts.push(c);let h=()=>{let p=s.clientWidth;if(p>0&&p!==c.width)c.setSize({width:p,height:o})};if(typeof ResizeObserver==="function"){let p=new ResizeObserver(h);p.observe(s),this.ros.push(p)}else this.resizes.push(h),window.addEventListener("resize",h)}}N.styles=n`
+			</div></div>`}firstUpdated(){let s=globalThis.uPlot;if(!s)return;let l=(f,m)=>getComputedStyle(document.documentElement).getPropertyValue(f).trim()||m,i=()=>l("--klh-chart-grid","#2c2c2a"),a=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(f,m)=>m.map((k)=>d(k)),h=(f,m)=>{let k={side:f,...f===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:a,width:1}};if(m)k.values=m;return k},p=this.querySelector("#u-timeline");if(p&&this.groups.length){let f=[{}];for(let m of this.groups){let k=w(this.slot,m);f.push({label:m,stacked:!0,stroke:k,fill:k,width:1,points:{show:!1},value:(b,C)=>F(C)})}this.chart(p,s,{width:p.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:f,axes:[h(2),h(3,c)]},this.timeline,300)}let S=this.querySelector("#u-hours");if(S)this.chart(S,s,{width:S.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:w(this.slot,"flash"),fill:w(this.slot,"flash"),paths:s.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(f,m)=>F(m)}],axes:[h(2,(f,m)=>m.map((k)=>String(Math.round(k)).padStart(2,"0"))),h(3,c)]},this.byHour,190)}chart(s,l,i,a,o){let c=new l(i,a,s);this.charts.push(c);let h=()=>{let p=s.clientWidth;if(p>0&&p!==c.width)c.setSize({width:p,height:o})};if(typeof ResizeObserver==="function"){let p=new ResizeObserver(h);p.observe(s),this.ros.push(p)}else this.resizes.push(h),window.addEventListener("resize",h)}}N.styles=r`
 	:host {
 		display: block;
 	}
-`;var se=()=>x()?.head??null;class j extends r{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=se()}render(){let s=this.head;if(s===null)return t;return e`<h1 class="utitle">${s.title}</h1>
+`;var se=()=>x()?.head??null;class j extends n{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=se()}render(){let s=this.head;if(s===null)return t;return e`<h1 class="utitle">${s.title}</h1>
 			<div class="uback">
 				<a href=${s.backHref}>&larr; ${s.backLabel}</a>
 				<span class=${s.note.kind==="on"?"uon":"uwin"}
@@ -559,7 +559,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 									>${i.label}</a
 								>`)}
 					</span>`)}
-			</div>`}}j.styles=n`
+			</div>`}}j.styles=r`
 	:host {
 		display: block;
 	}
@@ -617,7 +617,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",j);var y=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),T=(s)=>`${(s*100).toFixed(1)}%`,W=(s,l=!1)=>{if(s===null)return"—";let i=new Date(s);if(Number.isNaN(i.getTime()))return"—";let a=(c)=>String(c).padStart(2,"0"),o=`${a(i.getHours())}:${a(i.getMinutes())}`;return l?`${o}:${a(i.getSeconds())}`:o},ae=(s)=>s===null||s===void 0||s.length<16?"—":s.slice(0,16).replace("T"," "),V=(s)=>s.filter((l)=>l.ok&&l.truncated===!0);class B extends r{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0},sla:{type:Object,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1,this.sla=null}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let s=new URLSearchParams;if(s.set("days",String(this.days)),this.lane)s.set("lane",this.lane);if(this.model)s.set("model",this.model);if(this.day)s.set("day",this.day);if(this.missOnly)s.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${s.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1}),this.fetchSla()}fetchSla(){fetch("/api/usage/cache-sla?window_min=60",{signal:AbortSignal.timeout(15000)}).then((s)=>s.ok?s.json():null).then((s)=>{this.sla=s}).catch(()=>{this.sla=null})}slaLine(){let s=this.sla;if(s===null||s.lanes.length===0)return t;let l=s.lanes.map((a)=>e`<span class=${a.breaching?"uwarn":""}>${a.lane}
+`;customElements.define("klh-usage-head",j);var y=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),T=(s)=>`${(s*100).toFixed(1)}%`,W=(s,l=!1)=>{if(s===null)return"—";let i=new Date(s);if(Number.isNaN(i.getTime()))return"—";let a=(c)=>String(c).padStart(2,"0"),o=`${a(i.getHours())}:${a(i.getMinutes())}`;return l?`${o}:${a(i.getSeconds())}`:o},ae=(s)=>s===null||s===void 0||s.length<16?"—":s.slice(0,16).replace("T"," "),V=(s)=>s.filter((l)=>l.ok&&l.truncated===!0);class B extends n{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0},sla:{type:Object,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1,this.sla=null}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let s=new URLSearchParams;if(s.set("days",String(this.days)),this.lane)s.set("lane",this.lane);if(this.model)s.set("model",this.model);if(this.day)s.set("day",this.day);if(this.missOnly)s.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${s.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1}),this.fetchSla()}fetchSla(){fetch("/api/usage/cache-sla?window_min=60",{signal:AbortSignal.timeout(15000)}).then((s)=>s.ok?s.json():null).then((s)=>{this.sla=s}).catch(()=>{this.sla=null})}slaLine(){let s=this.sla;if(s===null||s.lanes.length===0)return t;let l=s.lanes.map((a)=>e`<span class=${a.breaching?"uwarn":""}>${a.lane}
 					${T(a.hitShare)}</span>`),i=s.breaches.length>0?`${String(s.breaches.length)} breach(es)`:"ok";return e`<p class="ufoot">
 			cache-SLA (${String(s.windowMinutes)}m rolling, threshold
 			${T(s.threshold)}, ≥${String(s.minRequests)} req):
@@ -827,7 +827,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 								</tr>`})}
 				</tbody>
 			</table>
-		</div>`}}B.styles=[n`
+		</div>`}}B.styles=[r`
 		:host {
 			display: block;
 		}
@@ -1022,7 +1022,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 			padding: 2px 8px;
 			cursor: pointer;
 		}
-	`];customElements.define("klh-usage-cache-drill",B);var re=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),le=(s)=>`${(s*100).toFixed(1)}%`,ie=()=>u()?.coverage??null;class G extends r{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=ie()}render(){let s=this.panel;if(!s)return e``;if(s.hoursData===0)return e`<div class="upanel">
+	`];customElements.define("klh-usage-cache-drill",B);var re=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),le=(s)=>`${(s*100).toFixed(1)}%`,ie=()=>u()?.coverage??null;class G extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=ie()}render(){let s=this.panel;if(!s)return e``;if(s.hoursData===0)return e`<div class="upanel">
 				<h2>EVIDENCE · COVERAGE & FRESHNESS</h2>
 				<p class="uempty">
 					no usage data in this window (${s.from} → ${s.to}) — the charts
@@ -1070,7 +1070,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 					</tbody>
 				</table>
 			</details>
-		</div>`}}G.styles=n`
+		</div>`}}G.styles=r`
 	:host {
 		display: block;
 	}
@@ -1151,7 +1151,7 @@ import{n,e,t,r}from"./lit-96e87015cf7d620b.js";import{g}from"./lit-822b5a9352464
 .kmon th { color:var(--klh-dim); font-weight:600; text-transform:uppercase; letter-spacing:.06em; font-size:10px; }
 .kmon td.k { color:var(--klh-ink); font-family:var(--klh-font-mono); }
 .kmon .dim2 { color:var(--klh-dim); }
-`;class Z extends r{static properties={dim:{type:String,state:!0},metric:{type:String,state:!0},report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0}};days=7;chart=null;ro=null;onTheme=null;gen=0;constructor(){super();this.dim="lane",this.metric="requests",this.report=null,this.err="",this.loading=!0}connectedCallback(){super.connectedCallback(),this.days=Math.min(90,Math.max(1,Number(new URLSearchParams(location.search).get("days")??7)||7));let s=location.hash.replace(/^#monitor\/?/,"").split("/"),l=Q.find((a)=>a.key===s[0]);if(l!==void 0)this.dim=l.key;let i=X.find((a)=>a.key===s[1]);if(i!==void 0)this.metric=i.key;this.onTheme=()=>this.mountChart(!0),document.addEventListener("klh-themechange",this.onTheme),this.load()}disconnectedCallback(){if(super.disconnectedCallback(),this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme);this.onTheme=null,this.ro?.disconnect(),this.ro=null,this.chart?.destroy(),this.chart=null}async load(){let s=++this.gen;this.loading=!0,this.err="";try{let l=await fetch(`/api/usage/monitor?days=${String(this.days)}&dim=${this.dim}`),i=await l.json();if(s!==this.gen)return;if(!l.ok||i.ok!==!0)throw Error(i.error??`status ${String(l.status)}`);this.report=i,this.loading=!1,await this.updateComplete,this.mountChart(!1)}catch(l){if(s!==this.gen)return;this.err=String(l),this.loading=!1}}setDim(s){this.dim=s,history.replaceState(null,"",`#monitor/${s}/${this.metric}`),this.load()}setMetric(s){this.metric=s,history.replaceState(null,"",`#monitor/${this.dim}/${s}`),this.mountChart(!1)}createRenderRoot(){return this}mountChart(s){let l=globalThis.uPlot,i=this.querySelector("#kmon-chart"),a=this.report?.series;if(!l||!i||!a)return;let o=this.metric,c=a[o];if(c===void 0)return;if(s&&this.chart!==null)this.chart.destroy(),this.chart=null;if(this.chart!==null){let b=i.clientWidth;if(b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240});return}let h=a.labels.length,p=[{}];for(let b=0;b<h;b++){let C=D[b%D.length];p.push({label:a.labels[b],stroke:C,fill:o==="requests"||o==="throughput"?C:void 0,width:1.4,points:{show:h<=2},value:(ne,M)=>M===null||!Number.isFinite(M)?"—":o==="throughput"?Y(M):o==="latency"?`${String(Math.round(M))}ms`:String(Math.round(M))})}let S=(b,C)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||C,f=()=>S("--klh-chart-axis","#898781"),m=()=>S("--klh-chart-grid","#2c2c2a"),k=()=>S("--klh-chart-hair","#383835");if(this.chart=new l({width:i.clientWidth,height:240,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:p,axes:[{side:2,stroke:f,grid:{show:!0,stroke:m,width:1},ticks:{show:!0,stroke:k,width:1}},{side:3,size:72,stroke:f,grid:{show:!1},ticks:{show:!0,stroke:k,width:1}}]},c,i),typeof ResizeObserver==="function")this.ro?.disconnect(),this.ro=new ResizeObserver(()=>{let b=i.clientWidth;if(this.chart!==null&&b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240})}),this.ro.observe(i)}render(){let s=this.report,l=s?.coverage,i=(s?.hubs??[]).filter((a)=>!a.ok);return e`<style>
+`;class Z extends n{static properties={dim:{type:String,state:!0},metric:{type:String,state:!0},report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0}};days=7;chart=null;ro=null;onTheme=null;gen=0;constructor(){super();this.dim="lane",this.metric="requests",this.report=null,this.err="",this.loading=!0}connectedCallback(){super.connectedCallback(),this.days=Math.min(90,Math.max(1,Number(new URLSearchParams(location.search).get("days")??7)||7));let s=location.hash.replace(/^#monitor\/?/,"").split("/"),l=Q.find((a)=>a.key===s[0]);if(l!==void 0)this.dim=l.key;let i=X.find((a)=>a.key===s[1]);if(i!==void 0)this.metric=i.key;this.onTheme=()=>this.mountChart(!0),document.addEventListener("klh-themechange",this.onTheme),this.load()}disconnectedCallback(){if(super.disconnectedCallback(),this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme);this.onTheme=null,this.ro?.disconnect(),this.ro=null,this.chart?.destroy(),this.chart=null}async load(){let s=++this.gen;this.loading=!0,this.err="";try{let l=await fetch(`/api/usage/monitor?days=${String(this.days)}&dim=${this.dim}`),i=await l.json();if(s!==this.gen)return;if(!l.ok||i.ok!==!0)throw Error(i.error??`status ${String(l.status)}`);this.report=i,this.loading=!1,await this.updateComplete,this.mountChart(!1)}catch(l){if(s!==this.gen)return;this.err=String(l),this.loading=!1}}setDim(s){this.dim=s,history.replaceState(null,"",`#monitor/${s}/${this.metric}`),this.load()}setMetric(s){this.metric=s,history.replaceState(null,"",`#monitor/${this.dim}/${s}`),this.mountChart(!1)}createRenderRoot(){return this}mountChart(s){let l=globalThis.uPlot,i=this.querySelector("#kmon-chart"),a=this.report?.series;if(!l||!i||!a)return;let o=this.metric,c=a[o];if(c===void 0)return;if(s&&this.chart!==null)this.chart.destroy(),this.chart=null;if(this.chart!==null){let b=i.clientWidth;if(b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240});return}let h=a.labels.length,p=[{}];for(let b=0;b<h;b++){let C=D[b%D.length];p.push({label:a.labels[b],stroke:C,fill:o==="requests"||o==="throughput"?C:void 0,width:1.4,points:{show:h<=2},value:(ne,M)=>M===null||!Number.isFinite(M)?"—":o==="throughput"?Y(M):o==="latency"?`${String(Math.round(M))}ms`:String(Math.round(M))})}let S=(b,C)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||C,f=()=>S("--klh-chart-axis","#898781"),m=()=>S("--klh-chart-grid","#2c2c2a"),k=()=>S("--klh-chart-hair","#383835");if(this.chart=new l({width:i.clientWidth,height:240,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:p,axes:[{side:2,stroke:f,grid:{show:!0,stroke:m,width:1},ticks:{show:!0,stroke:k,width:1}},{side:3,size:72,stroke:f,grid:{show:!1},ticks:{show:!0,stroke:k,width:1}}]},c,i),typeof ResizeObserver==="function")this.ro?.disconnect(),this.ro=new ResizeObserver(()=>{let b=i.clientWidth;if(this.chart!==null&&b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240})}),this.ro.observe(i)}render(){let s=this.report,l=s?.coverage,i=(s?.hubs??[]).filter((a)=>!a.ok);return e`<style>
 				${oe}
 			</style><div class="upanel kmon">
 			<div class="uhead">

@@ -1,5 +1,5 @@
 // Vendored from the Lit monorepo (lit, lit-html, lit-element, @lit/reactive-element) — BSD-3-Clause License (https://github.com/lit/lit); bundled offline.
-import{n}from"./lit-96e87015cf7d620b.js";var a=n`
+import{r}from"./lit-f23c5efb0b6d9812.js";var a=r`
 	:host {
 		display: block;
 		background: var(--klh-surface);
