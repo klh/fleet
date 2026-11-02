@@ -9,7 +9,7 @@ import {
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { type GovernorStore, openStore } from "../../hooks/lib/govdb/govdb.ts";
+import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
