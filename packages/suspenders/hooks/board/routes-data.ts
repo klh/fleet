@@ -162,7 +162,9 @@ export async function handleData(
 				vf === "klh-console-forms.js" ||
 				vf === "klh-ent-zone.js" ||
 				vf === "klh-board-mediator.js" ||
-				vf === "klh-card-activity.js" ||
+				// W2267.4.2.2 (#103176): the ONE registration entry — the
+				// card/activity/host class modules export definitions only
+				vf === "klh-board-register.js" ||
 				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;

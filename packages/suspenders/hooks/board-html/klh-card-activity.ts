@@ -15,7 +15,7 @@
 // wall time grows symmetrically from the midpoint on ONE shared 24h scale
 // — never a progress bar, zero/unknown draws nothing, overflow saturates
 // and says so.
-import { css, html, LitElement, svg, type TemplateResult } from "lit";
+import { html, LitElement, svg, type TemplateResult } from "lit";
 import {
 	ACTIVITY_BAR_PX,
 	durationSpan,
@@ -33,6 +33,7 @@ import {
 } from "../lib/board/attempt-render.ts";
 import {
 	attemptAxis,
+	attemptIntervalStamp,
 	attemptPlot,
 	attemptStripHandlers,
 	attemptStripStyles,
@@ -40,9 +41,17 @@ import {
 	type AttemptStripHost,
 	type AttemptTipRef,
 } from "./attempt-strip.ts";
-import { dualShort, dualStamp } from "../lib/wallclock.ts";
+import {
+	humanZoneWord,
+	localDate,
+	utcDate,
+	utcShort,
+} from "../lib/wallclock.ts";
+import { CARD_ACTIVITY_STYLES } from "./klh-card-activity-css.ts";
 
-class KlhCardActivity extends LitElement {
+/** The ONE activity strip (definition only — registration rides the
+ * workspace entry klh-board-register.ts, root pointer #103173). */
+export class KlhCardActivity extends LitElement {
 	static properties = {
 		points: { attribute: false },
 		wallMs: { attribute: false },
@@ -72,80 +81,7 @@ class KlhCardActivity extends LitElement {
 	 *  numeric slot (the window re-derives every poll; W2267.4.2.1.1). */
 	declare _tipTs: number | null;
 
-	static styles = [
-		css`
-		:host {
-			display: block;
-			font: 11px/1.5 ui-sans-serif, system-ui;
-		}
-		.plot {
-			display: block;
-			width: 100%;
-			height: 40px;
-		}
-		.plot:focus-visible {
-			outline: 2px solid var(--klh-accent, #d8900f);
-			outline-offset: 1px;
-		}
-		.plot rect.spark-fresh {
-			fill: var(--klh-accent, #d8900f);
-		}
-		.plot rect.spark-cached {
-			fill: var(--klh-ok, #5c7a35);
-		}
-		.axis {
-			display: flex;
-			justify-content: space-between;
-			gap: 8px;
-			margin: 0;
-			padding: 0;
-			font: 400 10px/12px ui-monospace, SFMono-Regular, monospace;
-			color: var(--klh-chart-axis, #898781);
-			font-variant-numeric: tabular-nums;
-			white-space: nowrap;
-			overflow: hidden;
-		}
-		/* the duration hairline: exactly 1 CSS px, zero own margin/padding,
-		   flush under the plot's bottom edge (owner tight-rail contract). */
-		.hairline {
-			display: block;
-			height: 1px;
-			margin: 0;
-			padding: 0;
-			background: transparent;
-			position: relative;
-		}
-		.hairline .span {
-			position: absolute;
-			top: 0;
-			bottom: 0;
-			background: var(--klh-accent, #d8900f);
-		}
-		.hairline.saturated .span {
-			background: var(--klh-danger, #af2f12);
-		}
-		/* B2 (W2514): the hairline carries exact duration text — keyboard
-		   focus must be visible, same ring as the plot. */
-		.hairline:focus-visible {
-			outline: 2px solid var(--klh-accent, #d8900f);
-			outline-offset: 1px;
-		}
-		.tip {
-			position: fixed;
-			z-index: 1000;
-			max-width: 260px;
-			padding: 6px 8px;
-			border: 1px solid var(--klh-edge, rgba(255, 255, 255, 0.12));
-			border-radius: 6px;
-			background: var(--klh-surface, #1c1b19);
-			color: var(--klh-ink, #e8e6e1);
-			font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
-			white-space: pre-line;
-			pointer-events: none;
-		}
-	`,
-		attemptStripStyles,
-	];
+	static styles = [CARD_ACTIVITY_STYLES, attemptStripStyles];
 
 	constructor() {
 		super();
@@ -232,7 +168,7 @@ class KlhCardActivity extends LitElement {
 			this._tip = attemptTip(
 				rows[idx] as AttemptHit,
 				this.attempt,
-				dualStamp,
+				attemptIntervalStamp,
 				fmtDurationExact,
 			);
 			this._slot = idx;
@@ -324,14 +260,19 @@ class KlhCardActivity extends LitElement {
 		this._tipTs = null;
 	}
 
-	/** exact tooltip text for one bin (W902 dual stamps, exact counts). */
+	/** exact tooltip text for one bin — ONE compact human stamp line
+	 *  (owner-approved 2026-11-02: the dual UTC/local pair repeated three
+	 *  times per hover was noise), exact counts below it. */
 	private _tipText(spec: SpectralBins, slot: number): string {
 		const b = spec.bins[slot];
 		const t0 = (spec.windowStart ?? 0) + slot * spec.slotMs;
-		const t1 = t0 + spec.slotMs;
+		// #103191/#103233 exact owner pattern: line 1 `2 Nov 2026 · 21:51
+		// UTC+01:00`, line 2 `20:51 UTC · 3-minute bin` — the UTC twin
+		// carries its date ONLY when it differs from the line-1 local date
+		// (utcShort rule); no interval repeat, no seconds.
 		const lines = [
-			dualStamp(t0),
-			`bin ${spec.slotMs / 60000} min · ${dualShort(t0)} → ${dualShort(t1)}`,
+			humanZoneWord(t0),
+			`${utcShort(t0, localDate(t0) !== utcDate(t0))} · ${spec.slotMs / 60000}-minute bin`,
 		];
 		if (b) {
 			lines.push(`Fresh input ${b.fresh.toLocaleString("en-US")}`);
@@ -358,7 +299,25 @@ class KlhCardActivity extends LitElement {
 				const x = i * step + (step - ACTIVITY_BAR_PX) / 2;
 				bars.push(this._barRects(b, x, maxV));
 			}
-		return html`${bars}`;
+		if (!bars.length) return html``;
+		// W2267.4.2.2 (#103177): svg`` template — html`` here would mint
+		// XHTML-namespace defs/gradient/stop elements the renderer ignores
+		// (the same bug class the rects already fixed). ONE defs pair for
+		// the whole plot; each bar fades along its own height
+		// (objectBoundingBox) — STRONG at the baseline, faint at the tips
+		// (approved 09 direction). Identical defs across strips make the
+		// duplicate-id resolution benign (first match wins, all equal).
+		return svg`<defs>
+			<linearGradient id="klh-spec-fresh" x1="0" y1="1" x2="0" y2="0">
+				<stop offset="0" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="1" />
+				<stop offset="1" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="0.45" />
+			</linearGradient>
+			<linearGradient id="klh-spec-cached" x1="0" y1="1" x2="0" y2="0">
+				<stop offset="0" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.9" />
+				<stop offset="1" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.4" />
+			</linearGradient>
+		</defs>
+		${bars}`;
 	}
 
 	/** fresh stacked over cached, sparkSvg parity: 0.5px floor, 1px inset.
@@ -578,5 +537,3 @@ class KlhCardActivity extends LitElement {
 		`;
 	}
 }
-
-customElements.define("klh-card-activity", KlhCardActivity);

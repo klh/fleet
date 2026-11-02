@@ -20,7 +20,9 @@ import {
 	hitTest,
 	type AttemptHit,
 } from "../lib/board/attempt-render.ts";
-import { dualStamp } from "../lib/wallclock.ts";
+// W2267.4.2.2: compact stamps — the full dual UTC/local pair repeated three
+// times per hover was noise; #103233/#103234 pin the exact shortforms.
+import { humanZoneWord, zoneInterval } from "../lib/wallclock.ts";
 
 /** identity of the inspected row — survives payload refreshes so the owner
  *  can tell "the referenced segment remains" (retain + retext) from "it is
@@ -49,6 +51,13 @@ export function attemptWallMs(a: AttemptTimeline): number | null {
 	const end = a.attempt.claimEnd ?? a.windowEnd;
 	const ms = Math.min(end, a.windowEnd) - a.attempt.claimStart;
 	return ms > 0 ? ms : null;
+}
+
+/** #103234 stamp for attemptTip's line-1/line-2 contract: an instant
+ *  renders humanZoneWord; an interval [t0, t1] renders the zoneInterval
+ *  pair (local line + UTC twin) joined by a newline. */
+export function attemptIntervalStamp(t: number, t1?: number): string {
+	return t1 === undefined ? humanZoneWord(t) : zoneInterval(t, t1).join("\n");
 }
 
 /** segment rects + artifact diamonds — svg`` templates (SVG namespace). */
@@ -121,7 +130,7 @@ export function attemptStripHandlers(
 			return;
 		}
 		host.setTip(
-			attemptTip(hit, a, dualStamp, fmtDurationExact),
+			attemptTip(hit, a, attemptIntervalStamp, fmtDurationExact),
 			-1,
 			refOf(hit),
 		);
@@ -143,7 +152,11 @@ export function attemptStripHandlers(
 		const i = Math.max(0, Math.min(rows.length - 1, slot + dir));
 		const hit = rows[i];
 		if (!hit) return;
-		host.setTip(attemptTip(hit, a, dualStamp, fmtDurationExact), i, refOf(hit));
+		host.setTip(
+			attemptTip(hit, a, attemptIntervalStamp, fmtDurationExact),
+			i,
+			refOf(hit),
+		);
 		const svgEl = e.currentTarget as SVGSVGElement | null;
 		if (svgEl) {
 			const r = svgEl.getBoundingClientRect();

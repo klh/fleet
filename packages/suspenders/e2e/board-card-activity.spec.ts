@@ -34,7 +34,7 @@ async function mountActivity(
 			contentType: "text/html; charset=utf-8",
 			body:
 				`<!doctype html><html data-theme="${theme}"><head>${THEME_HEAD}` +
-				`<script type="module" src="/vendor/klh-card-activity.js"></script>` +
+				`<script type="module" src="/vendor/klh-board-register.js"></script>` +
 				`</head><body><klh-card-activity style="width:360px"></klh-card-activity></body></html>`,
 		}),
 	);
@@ -218,7 +218,7 @@ test("tooltip: exact bin values, keyboard reachable, stays in viewport", {
 					(el) => el.shadowRoot?.querySelector(".tip")?.textContent ?? "",
 				),
 		)
-		.toContain("3 min");
+		.toContain("3-minute bin");
 	await page.keyboard.press("Escape");
 	await expect
 		.poll(() =>

@@ -35,7 +35,9 @@ const SOURCES = [
 	"hooks/board-html/klh-console-forms.ts",
 	"hooks/board-html/klh-ent-zone.ts",
 	"hooks/board-html/klh-board-mediator.ts",
-	"hooks/board-html/klh-card-activity.ts",
+	// W2267.4.2.2 (#103173): the ONE registration entry — class modules
+	// export definitions only; this composes them via defineElement.
+	"hooks/board-html/klh-board-register.ts",
 ] as const;
 const FLAGS = [
 	"--root",

@@ -95,12 +95,14 @@ export function hitTest(
 	return null;
 }
 
-/** Inspector text for one hit — exact dual UTC/local stamps, duration,
- *  provenance-true kind wording, milestone commit/stage (W902 stamps). */
+/** Inspector text for one hit — ONE compact human date+time+zone stamp
+ *  (owner-approved 2026-11-02: the full dual UTC/local pair repeated three
+ *  times per hover was noise), duration, provenance-true kind wording,
+ *  milestone commit/stage. */
 export function attemptTip(
 	hit: AttemptHit,
 	attempt: AttemptTimeline,
-	stamp: (t: number) => string,
+	stamp: (t: number, t1?: number) => string,
 	duration: (ms: number) => string,
 ): string {
 	if (hit.kind === "milestone") {
@@ -110,9 +112,12 @@ export function attemptTip(
 			`commit ${hit.commit ?? ""}`,
 		].join("\n");
 	}
+	// #103234: segments carry BOTH endpoints — the stamp callback receives
+	// the interval as a unit (t0, t1) and renders the local-zone line +
+	// UTC twin itself; a 1-arg stamp degrades to the start instant alone.
 	const lines = [
 		`${hit.kind} · ${duration(hit.end - hit.start)}`,
-		`${stamp(hit.start)} → ${stamp(hit.end)}`,
+		stamp(hit.start, hit.end),
 	];
 	if (hit.kind === "firstbyte")
 		lines.push("first attributed ledger request — not network latency");

@@ -90,6 +90,14 @@ const FIXTURES: TaskCardModel[] = [
 			cachePct: 0,
 		},
 	},
+	{
+		id: "W2267.6",
+		project: "/tmp/fleet/.git",
+		title: "Gated sibling",
+		state: "FAILED",
+		ageS: 345_600,
+		warn: "BLOCKED W2267.1: owner gate holds the sibling until the rail lands",
+	},
 ];
 
 /** Indexed fixture access without `!` (biome noNonNullAssertion). */
@@ -203,6 +211,17 @@ test("renders every state fixture with the SIGNAL hierarchy", {
 	).toHaveText(["Report ▸", "Prompt ↗"]);
 	const failed = card(3);
 	await expect(failed.locator(".warn")).toBeVisible();
+	// #103218: a FAILED card whose note does NOT identify blocking renders a
+	// neutral warning label — never BLOCKED from tone alone; the full
+	// verbatim reason stays on the title attribute.
+	await expect(failed.locator(".wl")).toHaveText("warning");
+	await expect(failed.locator(".wt")).toHaveText(
+		"3 honest attempts — provider 503 loop; tree restored",
+	);
+	await expect(failed.locator(".wt")).toHaveAttribute(
+		"title",
+		"3 honest attempts — provider 503 loop; tree restored",
+	);
 	const warnBeforeMetrics = await failed.evaluate((n) => {
 		const root = n.shadowRoot;
 		const warn = root?.querySelector(".warn");
@@ -225,6 +244,18 @@ test("renders every state fixture with the SIGNAL hierarchy", {
 	await expect(
 		failed.locator("footer .seg").filter({ hasText: /\S/ }),
 	).toHaveText(["Retry", "Recover → Ready", "Prompt ↗"]);
+	// #103218: a note that DOES identify blocking keeps the blocked label,
+	// with the redundant leading marker elided from the body (no "blocked
+	// BLOCKED …") but preserved verbatim on the title.
+	const blockedNote = card(5);
+	await expect(blockedNote.locator(".wl")).toHaveText("blocked");
+	await expect(blockedNote.locator(".wt")).toHaveText(
+		"W2267.1: owner gate holds the sibling until the rail lands",
+	);
+	await expect(blockedNote.locator(".wt")).toHaveAttribute(
+		"title",
+		"BLOCKED W2267.1: owner gate holds the sibling until the rail lands",
+	);
 	await page.screenshot({ path: `${SHOTS}/1-fixtures-dark-600.png` });
 });
 

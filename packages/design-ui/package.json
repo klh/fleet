@@ -14,6 +14,7 @@
 	},
 	"exports": {
 		".": "./src/index.ts",
+		"./build/*": "./src/build/*",
 		"./tokens": "./src/tokens/dist/tokens.css",
 		"./tokens.css": "./src/tokens/dist/tokens.css",
 		"./themes/*": "./src/tokens/dist/themes/*.css"

@@ -93,7 +93,9 @@ body { background:var(--klh-bg); color:var(--klh-ink); font:13px/1.45 var(--klh-
 .state { font:11px/1.5 var(--klh-font-mono); color:var(--klh-dim); padding:4px 0; }
 header { display:flex; align-items:center; gap:14px; margin-bottom:12px; border-top:var(--board-mast-rule-w) solid var(--klh-ink); padding-top:10px; }
 header .mark { flex:none; white-space:nowrap; font-size:13px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-header .right { margin-left:auto; display:flex; align-items:center; justify-content:flex-end; gap:12px; min-width:0; }
+/* W2267.4.2.2: wrap at ALL widths — the right-anchored row used to spill
+   left past the viewport edge when its nowrap items outgrew the header. */
+header .right { margin-left:auto; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; row-gap:6px; gap:12px; min-width:0; }
 header #proj { width:min(220px, 19vw); flex:none; text-overflow:ellipsis; }
 header #conn, header #stamp, header #blockedn { white-space:nowrap; }
 #conn { font-size:11px; color:var(--klh-dim); font-family:var(--klh-font-mono); }
@@ -304,18 +306,23 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kstatusnav button[data-tone="cancelled"], .kcol[data-tone="cancelled"], .kcard[data-tone="cancelled"] { --state-color:var(--work-cancelled); }
 .kwrap { overflow-x:auto; }
 .kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
-.kcol { flex:0 0 250px; max-width:250px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
+/* W2267.4.2.2: 360–420px readable columns (09-implementation-visual-spec)
+   — the kanban scrolls horizontally inside .kwrap when they don't fit. */
+.kcol { flex:0 0 clamp(360px, 30vw, 420px); max-width:420px; min-width:360px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
 .kcol h3 { font-size:var(--board-label-size); font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font:10px var(--klh-font-mono); font-variant-numeric:tabular-nums; letter-spacing:0; }
 /* The live project .prefer owns the card edge; status stays on the pill and column. */
-.kcard { border:1px solid var(--prefer, var(--state-color, var(--klh-edge-soft))); border-radius:8px; padding:0 12px 10px; margin-bottom:8px; background:var(--klh-wash); cursor:pointer; }
-.kcard:hover { border-color:var(--prefer, var(--state-color, var(--klh-edge-hover))); }
+/* W2267.4.2.2: .kcard is the bridge HOST — the old rounded box/padding
+   wrapped the retired legacy card; the Lit card draws its own rectangular
+   surface, so the wrapper keeps only spacing, click, and the W890 ring. */
+.kcard { display:block; border:0; border-radius:0; padding:0; margin-bottom:8px; background:none; cursor:pointer; }
 /* W890 ?w= deep link — the selected card (scrollIntoView + highlight) */
-.kcard.ksel { border-color:var(--prefer, var(--state-color, var(--klh-accent))); box-shadow:0 0 0 2px var(--klh-accent-wash); }
+.kcard.ksel { outline:2px solid var(--klh-accent); outline-offset:3px; border-radius:3px; }
 .pdot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--prefer, transparent); margin-right:6px; vertical-align:1px; }
 /* W819: shattered-family kids nest under the parent card — dashed border in the parent's --prefer color */
-.kcard.kkid { border-style:dashed; position:relative; }
-.kcard.kkid > .kidmark { position:absolute; left:-14px; top:12px; margin:0; }
+/* W819 nesting: the dashed border + elbow now live INSIDE the Lit card
+   (data-nested); the host only carries the indent its markup sets. */
+.kcard.kkid { border:0; position:relative; }
 /* W998.1: the badge is a corner tab — its outline sits ON the card's top and
    left border. The row's -13px left margin already reaches the card border's
    outer edge, so the pill takes margin-left:0 (its 1px border overlays the
@@ -542,4 +549,4 @@ ${BODY}${CORE}${RENDERS}${DECISIONS}${HISTORY}${TASKS}${DIFF}${LAUNCH}${SHIP}${T
 <script type="module" src="/vendor/usage-panels.js"></script>
 <script type="module" src="/vendor/klh-ent-zone.js"></script>
 <script type="module" src="/vendor/klh-board-mediator.js"></script>
-<script type="module" src="/vendor/klh-card-activity.js"></script>`);
+<script type="module" src="/vendor/klh-board-register.js"></script>`);

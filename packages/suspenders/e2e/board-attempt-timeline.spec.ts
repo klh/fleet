@@ -99,24 +99,24 @@ test("gui: attempt view paints segments behind the toggle, spend chart intact", 
 	await expect(page.locator('#attemptView[aria-pressed="true"]')).toBeVisible({
 		timeout: 20_000,
 	});
-	// label + painted segments
-	await expect(page.locator(".kattemptlabel").first()).toContainText(
-		"current attempt",
-	);
+	// W2267.4.2.2: the ONE Lit strip — attempt mode paints segments in the
+	// SAME node (mode swap, never a second timeline); the legacy .kattempt
+	// markup is drawer-only now
 	await expect(
-		page.locator(".kattempt svg rect.at-firstbyte").first(),
+		page.locator("klh-card-activity rect.at-firstbyte").first(),
 	).toBeVisible();
 	await expect(
-		page.locator(".kattempt svg rect.at-tool").first(),
+		page.locator("klh-card-activity rect.at-tool").first(),
 	).toBeVisible();
 	await page.screenshot({
 		path: "e2e/test-results/w1188-attempt-view.png",
 		fullPage: false,
 	});
-	// toggling OFF removes the attempt blocks; the truthful spend chart stays
+	// toggling OFF swaps back to spend bars in the same strip node; the
+	// attempt rects are gone (the truthful spend chart is what stays)
 	await page.click("#attemptView");
-	await expect(page.locator(".kattempt")).toHaveCount(0, { timeout: 20_000 });
 	await expect(
-		page.locator(".kspark svg rect.spark-fresh").first(),
+		page.locator("klh-card-activity rect.spark-fresh").first(),
 	).toBeVisible();
+	await expect(page.locator("klh-card-activity rect.at-tool")).toHaveCount(0);
 });

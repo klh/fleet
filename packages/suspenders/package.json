@@ -8,6 +8,7 @@
 	"scripts": {
 		"test": "bun test test/",
 		"ci": "bun install && bun test test/",
+		"build:styles": "bun scripts/build-styles.ts",
 		"build:vendor": "bun scripts/build-vendor.ts",
 		"test:e2e": "bunx --bun playwright test --config e2e/playwright.config.ts"
 	},
@@ -16,6 +17,7 @@
 		"@klh/belt": "2.1.2",
 		"@klh/blam": "2.1.2",
 		"@klh/buckle": "2.1.2",
+		"@klh/design-ui": "2.1.2",
 		"@klh/kernel": "2.1.2",
 		"@klh/local-llm": "2.1.2",
 		"@klh/settings": "2.1.2",
