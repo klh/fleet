@@ -5,7 +5,12 @@ import { tokensEstimate } from "./aids.ts";
 import { z } from "zod";
 import type { AppDeps } from "./app-deps.ts";
 import { hopKindOf } from "./hop.ts";
-import { type Ctx, observe } from "./request-context.ts";
+import {
+	type Ctx,
+	observe,
+	safeAuditPath,
+	safeAuditToken,
+} from "./request-context.ts";
 import { stamped } from "./wire-stamp.ts";
 
 export const CountTokensBodySchema = z
@@ -28,6 +33,9 @@ export function estimatedCountTokens(
 	deps.ledger.auditDecision({
 		rid: ctx.rid,
 		requested_group: ctx.group,
+		request_path: safeAuditPath(ctx.auditPath),
+		allow_cross: ctx.auditAllowCross,
+		provider_pin: safeAuditToken(ctx.auditProviderPin),
 		trace_id: ctx.trace.traceparent.split("-")[1],
 		ts: started,
 		actor: ctx.key,
