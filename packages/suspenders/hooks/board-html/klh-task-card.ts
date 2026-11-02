@@ -66,7 +66,8 @@ export class KlhTaskCard extends LitElement {
 			left: -13px;
 			top: 13px;
 			color: var(--prefer, var(--klh-edge-strong));
-			font: 11px var(--klh-font-mono);
+			font: var(--klh-typo-size-s, 11px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 		}
 		.wrap {
 			position: relative;
@@ -150,7 +151,8 @@ export class KlhTaskCard extends LitElement {
 			display: flex;
 			gap: 0;
 			margin-top: 5px;
-			font: var(--klh-typo-size-s, 11px)
+			/* model/host values sit in the spec's 12–13px band (#100618) */
+			font: var(--klh-typo-size-m, 12px)
 				var(--klh-font-mono, var(--klh-typo-mono-stack));
 		}
 		.col {
@@ -174,8 +176,8 @@ export class KlhTaskCard extends LitElement {
 		.lab {
 			display: block;
 			margin-top: 2px;
-			font-size: 8.5px;
-			letter-spacing: 0.07em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--klh-dim);
 		}
@@ -184,14 +186,14 @@ export class KlhTaskCard extends LitElement {
 			border-left: 2px solid var(--work-failed, var(--klh-danger));
 			background: var(--klh-danger-wash);
 			padding: 4px 8px;
-			font-size: 10.5px;
+			font-size: var(--klh-typo-size-m, 12px);
 			color: var(--klh-danger-ink);
 		}
 		.warn .wl {
 			font-weight: 700;
 			text-transform: uppercase;
-			font-size: 9px;
-			letter-spacing: 0.06em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			margin-right: 5px;
 		}
 		.warn .wt {
@@ -226,8 +228,8 @@ export class KlhTaskCard extends LitElement {
 		.ml {
 			display: block;
 			margin-top: 1px;
-			font-size: 8.5px;
-			letter-spacing: 0.06em;
+			font-size: var(--klh-typo-size-2xs, 10px);
+			letter-spacing: var(--klh-typo-track-label, 0.09em);
 			text-transform: uppercase;
 			color: var(--klh-dim);
 			white-space: nowrap;
@@ -246,11 +248,12 @@ export class KlhTaskCard extends LitElement {
 			padding: 0;
 		}
 		footer {
-			/* neutral segmented rail, full-width flush bottom */
+			/* neutral segmented rail, full-width flush bottom — zero margin so
+			   the axis area of the slotted strip abuts it exactly (#100618) */
 			display: flex;
 			align-items: stretch;
 			width: 100%;
-			margin: 8px 0 0;
+			margin: 0;
 			border-top: 1px solid var(--klh-edge-faint);
 			background: var(--klh-surface);
 			border-radius: 0 0 2px 2px;
@@ -263,6 +266,13 @@ export class KlhTaskCard extends LitElement {
 			   half stays bare surface with the segment dividers at the right */
 			flex: 1 1 auto;
 		}
+		.seg.tail {
+			/* bounded (not equal-share): the rightmost affordance keeps its
+			   own width, divider at its left edge, rail bare before it */
+			flex: 0 1 auto;
+			padding-inline: 14px;
+			border-left: 1px solid var(--klh-edge-faint);
+		}
 		.seg {
 			flex: 1 1 0;
 			min-height: 32px;
@@ -274,7 +284,8 @@ export class KlhTaskCard extends LitElement {
 			border: 0;
 			background: none;
 			color: var(--klh-ink-2);
-			font: 11px var(--klh-font-sans);
+			font: var(--klh-typo-size-s, 11px)
+				var(--klh-font-sans, var(--klh-typo-sans-stack));
 			cursor: pointer;
 			white-space: nowrap;
 		}
@@ -302,7 +313,8 @@ export class KlhTaskCard extends LitElement {
 			color: var(--klh-ink);
 			border: 1px solid var(--klh-edge-mid);
 			border-radius: 2px;
-			font: 10.5px var(--klh-font-mono);
+			font: var(--klh-typo-size-xs, 10.5px)
+				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			padding: 0 4px;
 		}
 		footer button.seg:focus-visible,
@@ -317,6 +329,12 @@ export class KlhTaskCard extends LitElement {
 		super();
 		this.card = { id: "", state: "READY" };
 	}
+
+	/** Draft selections survive polls (#100476): they live on the element,
+	 * not the card model, and reset only when the card id itself changes. */
+	private draftId: string | undefined;
+	private draftExecutor: string | undefined;
+	private draftEffort: string | undefined;
 
 	/** Tone → the page's --state-color vocabulary; the host reflects it so
 	 * the perimeter fallback can use it while --prefer still wins. */
@@ -521,7 +539,7 @@ export class KlhTaskCard extends LitElement {
 							title="release + re-dispatch on the chosen executor"
 							@click=${() =>
 								this.act("reassign", {
-									executor: this.executorValue(),
+									executor: this.draftExecutor ?? pick,
 								})}
 						>
 							Reassign ↻
@@ -533,33 +551,52 @@ export class KlhTaskCard extends LitElement {
 							@click=${() => this.act("release")}
 						>
 							Release ⏏
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`
+					: nothing}
+				${tone === "done"
+					? html`<span class="spacer"></span>
+						<button
+							class="seg tail report"
+							type="button"
+							title="open this item's report view"
+							@click=${() => this.act("report")}
+						>
+							Report ▸
 						</button>`
 					: nothing}
-				${tone !== "failed" && tone !== "ready" && tone !== "working"
-					? html`<button
-							class="seg prompt"
-							type="button"
-							@click=${() => this.act("prompt")}
-						>
-							Prompt ↗
-						</button>`
+				${tone !== "failed" && tone !== "ready" && tone !== "working" && tone !== "done"
+					? html`<span class="spacer"></span>${this.promptSeg()}`
 					: nothing}
 			</footer>
 		`;
 	}
 
-	private executorValue(): string | undefined {
-		const el = this.renderRoot.querySelector<HTMLSelectElement>(
-			"select[aria-label^='executor'], select[aria-label^='reassign']",
-		);
-		return el?.value ?? undefined;
+	/** The rightmost bounded Prompt segment every non-terminal state keeps
+	 * (#100476): actions preserved for every state, empty rail to its left. */
+	private promptSeg() {
+		return html`<button
+			class="seg tail prompt"
+			type="button"
+			@click=${() => this.act("prompt")}
+		>
+			Prompt ↗
+		</button>`;
 	}
 
 	protected willUpdate(): void {
 		// status square + perimeter stay independent: tone rides the host
 		// attribute (page CSS maps data-tone → --state-color), --prefer is
 		// set by the owner and never touched here.
-		this.dataset.nested = this.card.nested ? "" : undefined;
+		this.toggleAttribute("data-nested", !!this.card.nested);
+		if (this.draftId !== this.card.id) {
+			// drafts are per-item: a poll that swaps the whole card model must
+			// not leak the previous item's executor/effort pick into this one
+			this.draftId = this.card.id;
+			this.draftExecutor = undefined;
+			this.draftEffort = undefined;
+		}
 		this.setAttribute("data-tone", this.tone());
 		if (this.card.preferColor) this.style.setProperty("--prefer", this.card.preferColor);
 		else this.style.removeProperty("--prefer");
