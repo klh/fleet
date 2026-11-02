@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // worktree.ts — per-item git worktrees (W52). Parallel lanes on one repo get
 // an isolated tree each: `.worktrees/<id>` on branch `suspenders/<id>`, with
-// gitignored build dirs symlinked in. Claim scope still governs edits (the
+// private package dependencies and other gitignored build dirs linked in. Claim scope still governs edits (the
 // worktree lives inside the project); `work done` retires a clean worktree and
 // refuses to destroy a dirty one or a clean-but-live one (work is never
 // silently discarded — the branch survives either way for the integration
@@ -179,7 +179,7 @@ const create = async (p: Parsed): Promise<number> => {
 	// W870: the mint is ONE behavior (lib) — the verb keeps its guards and
 	// dies loud on a standing tree; `work take` attaches instead.
 	const mint = mintItemWorktree(ROOT, id, PROJECT);
-	if (!mint.ok) die(`git worktree add failed: ${mint.err || "(stderr)"}`);
+	if (!mint.ok) die(`worktree preparation failed: ${mint.err || "(stderr)"}`);
 	console.log(`${mint.path}`);
 	return 0;
 };

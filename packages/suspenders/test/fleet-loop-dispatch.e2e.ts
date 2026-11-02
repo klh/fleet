@@ -1,7 +1,6 @@
-// test/fleet-loop-dispatch.test.ts — W72: codex workspace parity with
-// worktree.ts — a fresh codex workspace gets the repo's gitignored build
-// dirs symlinked in (same list, same best-effort semantics), so codex lanes
-// skip reinstalls like git-worktree lanes do. Dispatch without the agent
+// test/fleet-loop-dispatch.e2e.ts — W72: codex workspace parity with
+// worktree.ts. Package dependencies stay private to each workspace.
+// Dispatch without the agent
 // binary on PATH stops at the binary check, which leaves the fresh
 // workspace observable; the resume path must not duplicate or clobber.
 import { expect, test } from "@playwright/test";
@@ -10,6 +9,7 @@ import {
 	existsSync,
 	lstatSync,
 	mkdirSync,
+	readFileSync,
 	readdirSync,
 	readlinkSync,
 	rmSync,
@@ -45,9 +45,10 @@ test.afterAll(() => {
 	stub.stop();
 });
 
-// scratch repo: a commit, a node_modules dir worth symlinking
+// scratch repo: a commit and a root dependency sentinel that lanes must not share
 mkdirSync(join(REPO, "node_modules"), { recursive: true });
 writeFileSync(join(REPO, "node_modules", "m.js"), "x");
+mkdirSync(join(REPO, ".venv"));
 writeFileSync(join(REPO, ".gitignore"), "node_modules/\n");
 g(["add", "-A"]);
 g(["commit", "-m", "base"]);
@@ -117,9 +118,14 @@ test.describe("codex dispatch workspace parity", () => {
 		expect(d1.err).toContain("executor exited during launch");
 		const wt = join(REPO, ".worktrees", id);
 		expect(existsSync(wt)).toBe(true);
-		const link = join(wt, "node_modules");
-		expect(lstatSync(link).isSymbolicLink()).toBe(true);
-		expect(readlinkSync(link)).toBe(join(REPO, "node_modules"));
+		const modules = join(wt, "node_modules");
+		expect(existsSync(modules)).toBe(false);
+		const venv = join(wt, ".venv");
+		expect(lstatSync(venv).isSymbolicLink()).toBe(true);
+		expect(readlinkSync(venv)).toBe(join(REPO, ".venv"));
+		expect(readFileSync(join(REPO, "node_modules", "m.js"), "utf8")).toBe(
+			"x",
+		);
 
 		// resume (claim already ours, workspace exists): no duplicate, no clobber
 		// W562: the recorded PID has been reused by this unrelated test harness.
@@ -138,8 +144,11 @@ test.describe("codex dispatch workspace parity", () => {
 		);
 		const d2 = await dispatch();
 		expect(d2.err).toContain("launch backoff");
-		expect(lstatSync(link).isSymbolicLink()).toBe(true);
-		expect(readdirSync(wt).filter((e) => e === "node_modules")).toHaveLength(1);
+		expect(existsSync(modules)).toBe(false);
+		expect(readlinkSync(venv)).toBe(join(REPO, ".venv"));
+		expect(readdirSync(wt).filter((e) => e === "node_modules")).toHaveLength(
+			0,
+		);
 	});
 });
 
