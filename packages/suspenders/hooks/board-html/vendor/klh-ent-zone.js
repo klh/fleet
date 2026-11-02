@@ -1,4 +1,4 @@
-import{n,e,r}from"./lit-df39549a6b261b0c.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(l,t)=>e`<span class="chip ${l}">${t}</span>`,o=(l)=>l===null||l===void 0?"—":new Date(l).toISOString().slice(5,16).replace("T"," "),c=(l)=>l>=1e6?`${(l/1e6).toFixed(1)}M`:l>=1000?`${(l/1000).toFixed(0)}k`:String(l);class i extends r{static properties={data:{state:!0}};static styles=n`
+import{r,e,n}from"./lit-2f0d70419e37a5ce.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(l,t)=>e`<span class="chip ${l}">${t}</span>`,o=(l)=>l===null||l===void 0?"—":new Date(l).toISOString().slice(5,16).replace("T"," "),c=(l)=>l>=1e6?`${(l/1e6).toFixed(1)}M`:l>=1000?`${(l/1000).toFixed(0)}k`:String(l);class i extends n{static properties={data:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			background: var(--klh-surface);
@@ -166,7 +166,7 @@ import{n,e,r}from"./lit-df39549a6b261b0c.js";var u=["identity","federation","aud
 						revoked:
 						${l.revocations.map((t)=>`${t.id} (${t.dept})`).join(", ")}
 					</div>`}
-		`}}if(!customElements.get("klh-ent-ma"))customElements.define("klh-ent-ma",k);var E=u;class b extends r{static properties={active:{type:Boolean,reflect:!0},ent:{state:!0},slices:{state:!0},stamp:{state:!0}};static styles=n`
+		`}}if(!customElements.get("klh-ent-ma"))customElements.define("klh-ent-ma",k);var E=u;class b extends n{static properties={active:{type:Boolean,reflect:!0},ent:{state:!0},slices:{state:!0},stamp:{state:!0}};static styles=r`
 		:host {
 			display: block;
 		}

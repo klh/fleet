@@ -1,4 +1,4 @@
-import{n,e,r}from"./lit-df39549a6b261b0c.js";import{a}from"./lit-b0a7b78f5f2501ee.js";import{l}from"./lit-35278166e6e464ab.js";class d extends r{static properties={data:{state:!0},error:{state:!0},busy:{state:!0},now:{state:!0}};static styles=n`
+import{r,e,n}from"./lit-2f0d70419e37a5ce.js";import{a}from"./lit-b0a7b78f5f2501ee.js";import{l}from"./lit-35278166e6e464ab.js";class d extends n{static properties={data:{state:!0},error:{state:!0},busy:{state:!0},now:{state:!0}};static styles=r`
 		:host { display:block; margin-bottom:20px; color:var(--klh-ink); font:13px/1.5 var(--klh-font-sans); }
 		header { display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; border-bottom:1px solid var(--klh-edge); }
 		h2 { font-size:14px; margin:0 0 8px; } h3 { font-size:12px; margin:18px 0 4px; }

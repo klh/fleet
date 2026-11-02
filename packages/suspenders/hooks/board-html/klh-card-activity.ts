@@ -1,10 +1,13 @@
-// hooks/board-html/klh-card-activity.ts — W2267.2: the board card's
-// spectral activity plot + duration hairline, one focused Lit component.
+// hooks/board-html/klh-card-activity.ts — W2267.2/W2267.4.2.1: the board
+// card's ONE activity strip — spectral spend plot + attempt timeline, one
+// focused Lit component switching contents in place (never a second chart).
 // Data truth is the pure lib (hooks/lib/board/activity-scale.ts — W1203
-// measured-width, end-pinned, REAL 3-minute bins); this file renders what
-// those helpers compute. The card lane (W2267.4) wires spendSeries points
-// + spend.wall_ms (+ attemptData, a W1188 passthrough) into it through the
-// typed contract (hooks/lib/board/activity-contract.ts).
+// measured-width, end-pinned, REAL 3-minute bins, W2267.4.2.1 ONE honest
+// plotted=labeled=inspectable domain); this file renders what those helpers
+// compute. The card lane (W2267.4) wires spendSeries points + spend.wall_ms
+// + attemptData into it through the typed contract (hooks/lib/board/
+// activity-contract.ts). SVG children ride svg`` templates — html`` would
+// mint XHTML-namespace rects with 0x0 bbox (root-proven W2267.4.2.1).
 //
 // Layout law (owner contract 2026-10-29, "tight time rail"): the hairline
 // is exactly 1 CSS px tall with ZERO own margin/padding, flush against the
@@ -12,15 +15,25 @@
 // wall time grows symmetrically from the midpoint on ONE shared 24h scale
 // — never a progress bar, zero/unknown draws nothing, overflow saturates
 // and says so.
-import { css, html, LitElement, type TemplateResult } from "lit";
+import { css, html, LitElement, svg, type TemplateResult } from "lit";
 import {
 	ACTIVITY_BAR_PX,
 	durationSpan,
 	fmtDurationExact,
+	fmtHHmm,
 	fmtScaleLabel,
 	spectralBins,
 	type SpectralBins,
 } from "../lib/board/activity-scale.ts";
+import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
+import {
+	attemptAxis,
+	attemptPlot,
+	attemptStripHandlers,
+	attemptStripStyles,
+	attemptWallMs,
+	type AttemptStripHost,
+} from "./attempt-strip.ts";
 import { dualShort, dualStamp } from "../lib/wallclock.ts";
 
 class KlhCardActivity extends LitElement {
@@ -28,14 +41,17 @@ class KlhCardActivity extends LitElement {
 		points: { attribute: false },
 		wallMs: { attribute: false },
 		attempt: { attribute: false },
+		mode: { attribute: false },
 		_width: { state: true },
 		_tip: { state: true },
 		_slot: { state: true },
 	};
 	declare points: [number, number, number, number][];
 	declare wallMs: number | null;
-	/** AttemptTimeline passthrough (W1188) — the card lane owns the view. */
-	declare attempt: unknown | null;
+	/** AttemptTimeline (the wiring leaf validates through the contract). */
+	declare attempt: AttemptTimeline | null;
+	/** which strip contents render: "spend" (default) or "attempt". */
+	declare mode: "spend" | "attempt";
 	/** the MEASURED track width (W2514 B1: reactive state — assigning it in
 	 *  firstUpdated re-renders, so the first paint after upgrade already
 	 *  bins at the real card width instead of the 240px floor). */
@@ -45,7 +61,8 @@ class KlhCardActivity extends LitElement {
 	/** keyboard-focused bin index (-1 = none). */
 	declare _slot: number;
 
-	static styles = css`
+	static styles = [
+		css`
 		:host {
 			display: block;
 			font: 11px/1.5 ui-sans-serif, system-ui;
@@ -53,7 +70,7 @@ class KlhCardActivity extends LitElement {
 		.plot {
 			display: block;
 			width: 100%;
-			height: 28px;
+			height: 40px;
 		}
 		.plot:focus-visible {
 			outline: 2px solid var(--klh-accent, #d8900f);
@@ -115,13 +132,16 @@ class KlhCardActivity extends LitElement {
 			white-space: pre-line;
 			pointer-events: none;
 		}
-	`;
+	`,
+		attemptStripStyles,
+	];
 
 	constructor() {
 		super();
 		this.points = [];
 		this.wallMs = null;
 		this.attempt = null;
+		this.mode = "spend";
 		this._width = 0;
 		this._tip = null;
 		this._slot = -1;
@@ -141,6 +161,11 @@ class KlhCardActivity extends LitElement {
 				}
 			});
 		}
+		// W2267.4.2.1 repair (behavior proof 4): a MOVED/RECONNECTED host
+		// never gets firstUpdated again — re-observe immediately so the
+		// geometry tracks the new position/size from the first frame back.
+		const el = this._plotEl();
+		if (el && this._ro) this._ro.observe(el);
 	}
 
 	disconnectedCallback(): void {
@@ -154,6 +179,26 @@ class KlhCardActivity extends LitElement {
 		if (el && this._ro) {
 			this._width = el.clientWidth;
 			this._ro.observe(el);
+		}
+	}
+
+	// W2267.4.2.1 repair (behavior proof 4): mode switches swap the plot
+	// element — the RO must observe the NEW node or geometry freezes at
+	// the old element. Re-observing is idempotent for a same node.
+	protected updated(): void {
+		const el = this._plotEl();
+		if (el && this._ro) this._ro.observe(el);
+	}
+
+	// W2267.4.2.1 repair (behavior proof 5): data becoming empty or a
+	// payload leaving the window must dismiss a stale inspection — the
+	// tip is derived state, never persists past its source.
+	protected update(changed: Map<string, unknown>): void {
+		super.update(changed);
+		if (changed.has("points") || changed.has("attempt")) {
+			const spec = this._spec;
+			const attemptEmpty = this.mode === "attempt" && !this.attempt;
+			if (!spec.hasData || attemptEmpty) this._hideTip();
 		}
 	}
 
@@ -258,13 +303,15 @@ class KlhCardActivity extends LitElement {
 		return html`${bars}`;
 	}
 
-	/** fresh stacked over cached, sparkSvg parity: 0.5px floor, 1px inset. */
+	/** fresh stacked over cached, sparkSvg parity: 0.5px floor, 1px inset.
+	 *  svg`` templates — html`` here mints XHTML-namespace rects the
+	 *  browser refuses to size (0x0 bbox, root-proven W2267.4.2.1). */
 	private _barRects(
 		b: { fresh: number; cached: number },
 		x: number,
 		maxV: number,
 	): TemplateResult {
-		const h = 28;
+		const h = 40;
 		const parts: TemplateResult[] = [];
 		let used = 0;
 		const stack: [number, string][] = [
@@ -275,7 +322,7 @@ class KlhCardActivity extends LitElement {
 			if (val <= 0) continue;
 			const bh = Math.max(0.5, (val / maxV) * (h - 2));
 			parts.push(
-				html`<rect
+				svg`<rect
 					class=${cls}
 					x=${x.toFixed(1)}
 					y=${Math.max(1, h - 1 - used - bh).toFixed(1)}
@@ -292,13 +339,13 @@ class KlhCardActivity extends LitElement {
 	 *  scale, center-out; zero/unknown → nothing rendered at all. */
 	private _hairlineHtml(): TemplateResult | null {
 		const w = this._width || 240;
-		const span = durationSpan(this.wallMs, w);
+		const span = durationSpan(this._hairWallMs(), w);
 		if (!span.visible) return null;
 		return html`<div
 			class="hairline${span.saturated ? " saturated" : ""}"
 			role="img"
-			aria-label="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
-			title="elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
+			aria-label="elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
+			title="elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ${fmtScaleLabel()} scale${span.saturated ? " — saturated at full width" : ""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -316,11 +363,11 @@ class KlhCardActivity extends LitElement {
 	 *  (never the pointer, which never came). */
 	private _hairFocus = (): void => {
 		const w = this._width || 240;
-		const span = durationSpan(this.wallMs, w);
+		const span = durationSpan(this._hairWallMs(), w);
 		if (!span.visible) return;
 		this._slot = -1;
 		this._tip =
-			`elapsed ${fmtDurationExact(this.wallMs ?? 0)} of ` +
+			`elapsed ${fmtDurationExact(this._hairWallMs() ?? 0)} of ` +
 			`${fmtScaleLabel()} scale` +
 			(span.saturated ? " — saturated at full width" : "");
 		this.requestUpdate();
@@ -342,18 +389,21 @@ class KlhCardActivity extends LitElement {
 		}
 	};
 
-	/** the one-line axis: visible window start | TZ + bin width | window
-	 *  end — the ACTUAL window, never the first-ever request. */
+	/** the one-line axis: compact local HH:mm window start | TZ + bin width
+	 *  | compact end (owner-approved W2267.4.2.1 form — the full dual
+	 *  UTC/local stamps stay on the hover/keyboard inspector, never here).
+	 *  Both ends come from the ONE honest domain: what is labeled is what
+	 *  is plotted, hoverable and keyboard-walkable. */
 	private _axisHtml(spec: SpectralBins): TemplateResult {
 		const tz = this._tzLabel();
 		return html`<div class="axis">
-			<span>${spec.hasData ? dualShort(spec.windowStart ?? 0) : ""}</span>
+			<span>${spec.hasData ? fmtHHmm(spec.windowStart ?? 0) : ""}</span>
 			<span
 				>${
 					spec.hasData ? `${tz} · ${spec.slotMs / 60000}m/bin` : "no activity"
 				}</span
 			>
-			<span>${spec.hasData ? dualShort(spec.windowEnd ?? 0) : ""}</span>
+			<span>${spec.hasData ? fmtHHmm(spec.windowEnd ?? 0) : ""}</span>
 		</div>`;
 	}
 
@@ -370,22 +420,85 @@ class KlhCardActivity extends LitElement {
 		return html`<div class="tip" role="tooltip">${this._tip}</div>`;
 	}
 
-	/** viewport-safe placement: right of the cursor, flip above when tight. */
+	/** viewport-safe placement: right of the cursor, flip above when tight.
+	 *  W2267.4.2.1 repair (behavior proof 5): the FIRST pointer event sets
+	 *  _tip and asks Lit to render the .tip — synchronously the element
+	 *  does not exist yet, so the placement defers to updateComplete and
+	 *  runs once the tip is really in the DOM (correctly positioned, not
+	 *  merely present). */
 	private _placeTip(x: number, y: number): void {
+		const place = (): void => {
+			const tip = this.renderRoot.querySelector<HTMLElement>(".tip");
+			if (!tip) return;
+			const left = Math.min(x + 10, window.innerWidth - tip.offsetWidth - 8);
+			const above = y - tip.offsetHeight - 10;
+			tip.style.left = `${Math.max(8, left)}px`;
+			tip.style.top = `${above >= 8 ? above : y + 12}px`;
+		};
 		const tip = this.renderRoot.querySelector<HTMLElement>(".tip");
-		if (!tip) return;
-		const left = Math.min(x + 10, window.innerWidth - tip.offsetWidth - 8);
-		const above = y - tip.offsetHeight - 10;
-		tip.style.left = `${Math.max(8, left)}px`;
-		tip.style.top = `${above >= 8 ? above : y + 12}px`;
+		if (tip) {
+			place();
+			return;
+		}
+		this.updateComplete.then(place).catch(() => undefined);
+	}
+
+	// ── attempt mode (W2267.4.2.1): the SAME strip assembly — one 40px
+	// plot band, hairline, compact axis — attempt geometry inside (the
+	// contents module: attempt-strip.ts). Never a second chart: mode
+	// switches the CONTENTS in place.
+
+	/** the hairline's duration source: spend wall or attempt claim. */
+	private _hairWallMs(): number | null {
+		return this.mode === "attempt" && this.attempt
+			? attemptWallMs(this.attempt)
+			: this.wallMs;
+	}
+
+	/** the host face attempt-strip handlers drive (tip/slot/place). */
+	private get _stripHost(): AttemptStripHost {
+		return {
+			setTip: (text, slot) => {
+				this._tip = text;
+				this._slot = slot;
+				this.requestUpdate();
+			},
+			placeTip: (x, y) => this._placeTip(x, y),
+			hide: () => {
+				this._hideTip();
+				this.requestUpdate();
+			},
+			slot: () => this._slot,
+		};
+	}
+
+	private _attemptHandlers = attemptStripHandlers(this._stripHost);
+
+	/** attempt-mode render: same plot band + hairline + axis assembly. */
+	private _renderAttempt(): TemplateResult {
+		const a = this.attempt;
+		const w = this._width || 240;
+		if (!a) {
+			// explicit empty state — never a zero-valued success trace
+			return html`<div class="attempt-empty" role="img">
+					no attempt in the fixed 90-minute window
+				</div>`;
+		}
+		return html`
+			${attemptPlot(a, w, this._attemptHandlers)}
+			${this._hairlineHtml()}
+			${attemptAxis(a, this._tzLabel())}
+			${this._tip ? this._tipHtml() : null}
+		`;
 	}
 
 	protected render() {
+		if (this.mode === "attempt") return this._renderAttempt();
 		const spec = this._spec;
 		return html`
 			<svg
 				class="plot"
-				viewBox="0 0 ${this._width || 240} 28"
+				viewBox="0 0 ${this._width || 240} 40"
 				preserveAspectRatio="none"
 				role="img"
 				aria-label="Fresh and cached input tokens in ${spec.slotMs / 60000}-minute bins across the measured track"
