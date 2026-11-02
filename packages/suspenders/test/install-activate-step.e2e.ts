@@ -24,6 +24,19 @@ const LABEL = "com.suspenders.buckle-spoke";
 const bundlePath = (rev: string): string =>
 	`/gen/suspenders.generation-${rev}-u1/.harness/packages/buckle/src/server.bundle.js`;
 
+// Kit lifecycle (root #102613/#102620): trailing world.clean() leaks the
+// fixture dirs when an assertion fails mid-test — the shared afterEach
+// always runs, an assertion failure still cleans.
+const worlds: ReturnType<typeof scratchWorld>[] = [];
+test.afterEach(() => {
+	while (worlds.length > 0) worlds.pop()?.clean();
+});
+const worldFixture = (prefix: string): ReturnType<typeof scratchWorld> => {
+	const world = scratchWorld({ prefix: `${prefix}-` });
+	worlds.push(world);
+	return world;
+};
+
 /** Publish the harness receipt at a prefix (mkdir on demand). */
 const publishReceipt = (prefix: string, rev: string): void => {
 	fsMkdir(prefix, { recursive: true });
@@ -150,7 +163,7 @@ const stepDeps = (
 };
 
 test("executed step: stale daemon applies the carry ONCE, ready verified", async () => {
-	const world = scratchWorld({ prefix: "w2546-stale-" });
+	const world = worldFixture("w2546-stale");
 	publishReceipt(join(world.home, "prefix"), REV);
 	const proposal = proposalFor(join(world.home, "unit.plist"), REV);
 	const { deps, applied, staged } = stepDeps(proposal, {
@@ -164,11 +177,10 @@ test("executed step: stale daemon applies the carry ONCE, ready verified", async
 	expect(staged).toHaveLength(1);
 	expect(applied).toHaveLength(1);
 	expect(result.detail).toBeTruthy();
-	world.clean();
 });
 
 test("executed step: same-generation rerun never re-applies", async () => {
-	const world = scratchWorld({ prefix: "w2546-same-" });
+	const world = worldFixture("w2546-same");
 	publishReceipt(join(world.home, "prefix"), REV);
 	const proposal = proposalFor(join(world.home, "unit.plist"), REV);
 	const { deps, applied } = stepDeps(proposal, { loadedRevision: () => REV });
@@ -176,11 +188,10 @@ test("executed step: same-generation rerun never re-applies", async () => {
 	expect((await activateGateway(ctx, deps)).status).toBe("ok");
 	expect((await activateGateway(ctx, deps)).status).toBe("ok");
 	expect(applied).toHaveLength(0);
-	world.clean();
 });
 
 test("executed step: delayed-ready settles inside the budget without another apply", async () => {
-	const world = scratchWorld({ prefix: "w2546-delay-" });
+	const world = worldFixture("w2546-delay");
 	publishReceipt(join(world.home, "prefix"), REV);
 	const proposal = proposalFor(join(world.home, "unit.plist"), REV);
 	let probes = 0;
@@ -198,11 +209,10 @@ test("executed step: delayed-ready settles inside the budget without another app
 	expect(result.status).toBe("ok");
 	expect(applied).toHaveLength(1);
 	expect(probes).toBeGreaterThanOrEqual(3);
-	world.clean();
 });
 
 test("executed step: exhausted readiness budget fails truthfully", async () => {
-	const world = scratchWorld({ prefix: "w2546-exhaust-" });
+	const world = worldFixture("w2546-exhaust");
 	publishReceipt(join(world.home, "prefix"), REV);
 	const proposal = proposalFor(join(world.home, "unit.plist"), REV);
 	const { deps, applied } = stepDeps(proposal, {
@@ -216,5 +226,4 @@ test("executed step: exhausted readiness budget fails truthfully", async () => {
 	expect(result.status).toBe("failed");
 	expect(result.note).toContain("unready");
 	expect(applied).toHaveLength(1);
-	world.clean();
 });
