@@ -17,6 +17,7 @@ import {
 	HOOK_ITEMS,
 	MANAGED_PREFIX_ENTRIES,
 	PRUNE_ALLOWLIST,
+	RECEIPT_FILE,
 	payloadChecksum,
 } from "../hooks/lib/install/harness-manifest.ts";
 import {
@@ -32,6 +33,7 @@ import {
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install/install-run.ts";
 import { payloadClosure } from "./lib/source-closure.ts";
+import { z } from "zod";
 
 /** Faces the installer bundle-validates in the staged payload (validate()).
  *  Exported for the W1119.2 installer/runtime-parity guard
@@ -253,6 +255,127 @@ function link(target: string, destination: string): void {
 	symlinkSync(target, destination);
 }
 
+/** W2546.3: the installed publication this sync may RETAIN instead of
+ *  republishing — null = publish a fresh generation. The receipt parses
+ *  through the named schema (Schema law W1238.4 — a malformed or missing
+ *  pruned/dependencyLockSha256/digest field REFUSES reuse, never passes a
+ *  field check by luck), names THIS revision, the installed payload
+ *  RE-HASHES to the receipt's payloadSha256 (payloadChecksum — the same
+ *  scheme validate() stamps, so tampered or truncated bytes force the
+ *  normal repair publish), the dependency lock re-hashes to the receipt
+ *  pin, the capabilities variant matches this run's profile, a --prune run
+ *  never reuses a default (unpruned) publication, and the dispatch entry
+ *  the prefix serves is the generation's own payload. Same revision alone
+ *  excuses nothing — the verified payload digest is the only skip key
+ *  (the 2026-11-02 incident: identical sources, two random stage paths,
+ *  two payloadSha256, PID bounced 36491 → 50850). */
+const ReusableReceiptSchema = z.object({
+	schema: z.literal("fleet.harness.v1"),
+	revision: z.string().regex(/^[a-f0-9]{40}$/),
+	payloadSha256: z.string().regex(/^[a-f0-9]{64}$/),
+	dependencyLockSha256: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.nullable(),
+	pruned: z.array(z.string()).nullable(),
+});
+type ReusableReceipt = z.infer<typeof ReusableReceiptSchema>;
+
+export function reusableGeneration(
+	ctx: StepContext,
+	revision: string,
+): { root: string; receipt: ReusableReceipt } | null {
+	let root: string;
+	try {
+		if (!lstatSync(ctx.prefix).isSymbolicLink()) return null;
+		root = realpathSync(ctx.prefix);
+	} catch {
+		return null;
+	}
+	let parsed: ReturnType<typeof ReusableReceiptSchema.safeParse>;
+	try {
+		parsed = ReusableReceiptSchema.safeParse(
+			JSON.parse(readFileSync(join(root, RECEIPT_FILE), "utf8")),
+		);
+	} catch {
+		return null; // unreadable/malformed receipt refuses reuse, never crashes the sync
+	}
+	if (!parsed.success || parsed.data.revision !== revision) return null;
+	const receipt = parsed.data;
+	try {
+		if (payloadChecksum(join(root, ".harness")) !== receipt.payloadSha256)
+			return null;
+	} catch {
+		return null;
+	}
+	const lock = ["bun.lock", "bun.lockb"]
+		.map((file) => join(root, file))
+		.find((file) => existsSync(file));
+	if (receipt.dependencyLockSha256 !== null) {
+		if (!lock) return null;
+		if (
+			new Bun.CryptoHasher("sha256")
+				.update(readFileSync(lock))
+				.digest("hex") !== receipt.dependencyLockSha256
+		)
+			return null;
+	} else if (lock) return null;
+	// W2546.3 (#102876): the lock only proves the resolver RAN — a deleted
+	// node_modules entry under an intact lock is exactly the install that
+	// used to repair. Every external (non-workspace, non-file) dep a
+	// shipped manifest names must still resolve with REAL module lookup
+	// semantics: from the declaring manifest's own directory, member-local
+	// node_modules first, then each ancestor up to the generation root
+	// (#102924 — decant's deps legitimately stay member-local; the
+	// aggregate root manifest carries only suspenders+belt). The walk is
+	// bounded at root so the machine's own node_modules can never satisfy
+	// a missing generation dep. Anything unresolvable publishes through
+	// the normal repair path.
+	for (const manifest of new Bun.Glob("packages/*/package.json").scanSync({
+		cwd: join(root, ".harness"),
+	})) {
+		const manifestPath = join(root, ".harness", manifest);
+		const declared = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+			dependencies?: Record<string, string>;
+		};
+		for (const [name, spec] of Object.entries(declared.dependencies ?? {})) {
+			if (spec.startsWith("workspace:") || spec.startsWith("file:")) continue;
+			let resolved = false;
+			for (
+				let dir = dirname(manifestPath);
+				!resolved && dir.startsWith(root);
+				dir = dirname(dir)
+			) {
+				resolved = existsSync(join(dir, "node_modules", ...name.split("/")));
+				if (dir === root) break;
+			}
+			if (!resolved) return null;
+		}
+	}
+	let capabilities: unknown;
+	try {
+		capabilities = JSON.parse(
+			readFileSync(join(root, "capabilities.json"), "utf8"),
+		);
+	} catch {
+		return null;
+	}
+	const expected =
+		ctx.profile === "spoke" ? spokeCapabilities() : hubCapabilities();
+	if (JSON.stringify(capabilities) !== JSON.stringify(expected)) return null;
+	if (ctx.prune && receipt.pruned === null) return null;
+	try {
+		if (
+			realpathSync(join(ctx.prefix, "bin/fleet-loop.ts")) !==
+			join(root, ".harness/packages/suspenders/hooks/bin/fleet-loop.ts")
+		)
+			return null;
+	} catch {
+		return null;
+	}
+	return { root, receipt };
+}
+
 async function validate(stage: string): Promise<string> {
 	const payload = join(stage, ".harness");
 	// W1468: kit twins publish only as the full re-export of their pinned
@@ -300,19 +423,36 @@ async function validate(stage: string): Promise<string> {
 		);
 	// Bundle the gateway's complete dependency graph (including vendored blam).
 	// Never execute the server while validating or publishing code.
-	const gateway = await Bun.build({
-		entrypoints: [join(payload, "packages/buckle/src/server.ts")],
-		target: "bun",
-		write: false,
-		throw: false,
-	});
-	if (!gateway.success || gateway.outputs.length !== 1)
-		throw new Error("Staged gateway import graph failed");
+	// W2546.3: the bundle build runs in a CHILD with cwd=stage and a RELATIVE
+	// entrypoint. The in-process absolute-path build embedded the random
+	// `.suspenders-stage-*` dir in ~185 generated source comments, so
+	// payloadSha256 differed on every same-HEAD sync (root evidence
+	// work/install-same-head-bundle-difference.json; the cwd experiment —
+	// identical bytes across both real generation roots). Relative source
+	// comments are stable wherever the stage lands; a child process keeps
+	// this process's cwd untouched (no global chdir concurrency hazard).
+	const bundleTmp = join(stage, "gateway-bundle.tmp.js");
+	const build = Bun.spawnSync(
+		[
+			process.execPath,
+			"build",
+			".harness/packages/buckle/src/server.ts",
+			"--target=bun",
+			`--outfile=${bundleTmp}`,
+		],
+		{ cwd: stage, stdout: "pipe", stderr: "pipe", timeout: 120_000 },
+	);
+	const buildLog = `${build.stdout.toString()}${build.stderr.toString()}`;
+	if (build.exitCode !== 0 || !existsSync(bundleTmp))
+		throw new Error(
+			`Staged gateway import graph failed: ${buildLog.trim().slice(-1500)}`,
+		);
 	writeFileSync(
 		join(payload, "packages/buckle/src/server.bundle.js"),
-		await gateway.outputs[0].text(),
+		readFileSync(bundleTmp),
 		{ mode: 0o444 },
 	);
+	rmSync(bundleTmp, { force: true });
 	return payloadChecksum(payload);
 }
 
@@ -390,6 +530,31 @@ export async function syncHarness(
 	const pointer = `${prefix}.next-${crypto.randomUUID()}`;
 	mkdirSync(lock); // Exclusive directory lock; all subsequent setup is covered by finally.
 	try {
+		// W2546.3 idempotence (#102839): the reuse verdict rides the SAME
+		// exclusive lock as publication — a concurrent sync can never
+		// interleave a pointer flip with this decision, and the returned
+		// receipt cannot describe a root the prefix just left. Verified
+		// equivalent bytes are the ONLY skip key; every other state
+		// publishes through the normal (repair) path below.
+		const reuse = reusableGeneration(ctx, revision);
+		if (reuse) {
+			// Retain the verified publication: pointer, generation dir and
+			// receipt stay; only the shim wrappers heal. No new generation
+			// UUID → the gateway's immutable bundle path never moves → the
+			// generation carry settles with no apply, PID preserved.
+			shims = planShims(ctx.shimBin);
+			try {
+				writeShims(prefix, shims, publish);
+			} catch (error) {
+				restoreShims(shims);
+				throw error;
+			}
+			return {
+				status: "ok",
+				note: `harness already publishes ${revision.slice(0, 12)} (verified payload ${reuse.receipt.payloadSha256.slice(0, 12)}); publication retained, no services restarted`,
+				detail: JSON.stringify(reuse.receipt),
+			};
+		}
 		stage = mkdtempSync(join(parent, `.${basename(prefix)}-stage-`));
 		oldLink =
 			existsSync(prefix) && lstatSync(prefix).isSymbolicLink()
