@@ -31,6 +31,11 @@ export interface CarryDeps {
 	 * (null = unreadable). Disk unit bytes alone prove nothing about the
 	 * running process (#101172). */
 	loadedRevision: () => string | null;
+	/** Daemon supervision state: "loaded" = a supervised process exists;
+	 * "absent" = PROVEN stopped/unloaded (launchctl print says so);
+	 * "unknown" = inspection failed — never equated with authorized
+	 * absence (#101322 seam 2). */
+	daemonState: () => "loaded" | "absent" | "unknown";
 	/** upgradeGateway with ctx.gatewayReview = digest (the fenced apply). */
 	applyReviewed: (reviewSha256: string) => { status: string; note: string };
 	log: (line: string) => void;
@@ -85,6 +90,7 @@ export function carryGenerationPinned(
 	);
 	const candidateUnit = parseLaunchdUnit(deps.unitToJson(proposal.candidate));
 	const loaded = deps.loadedRevision();
+	const daemon = deps.daemonState();
 	// Settled state: the disk unit AND the loaded daemon both execute the
 	// published generation — nothing to approve; the readiness proof alone
 	// settles the label.
@@ -97,22 +103,30 @@ export function carryGenerationPinned(
 			reason: "loaded unit already executes the published generation bundle",
 		};
 	}
-	// Failed-load retry (#101172): the apply already advanced unit+receipt to
-	// the new bundle, but the loaded daemon still executes the old one. The
-	// staged candidate equals the live unit — generationOnlyCandidate calls
-	// that "no change", so recognize it directly and RE-RUN the fenced load:
-	// a fresh prepare snapshots the already-advanced unit+receipt (a legal
-	// assertUpgradeSnapshot pass), and the fenced loader retries bootstrap.
-	if (
-		loaded !== null &&
-		loaded !== expectedRevision &&
-		liveUnit?.ProgramArguments.includes(bundle) === true
-	) {
+	// Failed-load retry (#101172/#101322 seam 1): the apply already advanced
+	// unit+receipt, but the daemon still executes the old bundle (or is
+	// PROVEN absent — the fenced load is exactly what registers it). The
+	// staged candidate equals the live unit, so generationOnlyCandidate
+	// would call it "no change": recognize it directly — but only when the
+	// DISK unit is equal to the staged candidate on EVERY key
+	// (includes(bundle) alone would bless a tampered unit), and never when
+	// daemon state is unknown (unproven is not authorized absence).
+	const diskEqualsCandidate =
+		candidateUnit !== null &&
+		liveUnit !== null &&
+		JSON.stringify(liveUnit) === JSON.stringify(candidateUnit);
+	if (diskEqualsCandidate && loaded !== expectedRevision) {
+		if (daemon === "unknown") {
+			return {
+				state: "pending",
+				reason: "daemon inspection unknown — cannot prove settled or absent",
+			};
+		}
 		deps.log(
-			`carry retry: unit advanced to ${expectedRevision.slice(0, 12)} but loaded daemon is ${loaded.slice(0, 12)} — re-running fenced load`,
+			`carry retry: unit advanced to ${expectedRevision.slice(0, 12)} but daemon is ${daemon === "absent" ? "absent" : `loaded@${loaded?.slice(0, 12) ?? "?"}`} — re-running fenced load`,
 		);
 		const retrySha = gatewayReviewToken(proposal);
-		const retried = deps.applyReviewed(retrySha);
+		const retried = applyOrThrow(deps, retrySha);
 		if (retried.status !== "ok") {
 			return {
 				state: "failed",
@@ -133,7 +147,7 @@ export function carryGenerationPinned(
 		};
 	}
 	const reviewSha256 = gatewayReviewToken(proposal);
-	const applied = deps.applyReviewed(reviewSha256);
+	const applied = applyOrThrow(deps, reviewSha256);
 	if (applied.status !== "ok") {
 		return {
 			state: "failed",
@@ -142,4 +156,19 @@ export function carryGenerationPinned(
 		};
 	}
 	return { state: "carried", reason: applied.note, reviewSha256 };
+}
+
+/** upgradeGateway THROWS on a failed fenced load (#101322 seam 3); the
+ * runner must still write its truthful partial ledger — convert the throw
+ * to a failed result, never propagate. */
+function applyOrThrow(
+	deps: CarryDeps,
+	reviewSha256: string,
+): { status: string; note: string } {
+	try {
+		return deps.applyReviewed(reviewSha256);
+	} catch (error) {
+		deps.log(`reviewed apply threw: ${String(error)}`);
+		return { status: "thrown", note: String(error) };
+	}
 }

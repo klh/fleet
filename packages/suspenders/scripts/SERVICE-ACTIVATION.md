@@ -121,3 +121,44 @@ overrides included), and publishes the receipt only — no launchd state is
 touched. `install.sh --with-launchd` from the pinned checkout then applies the
 blessed definitions, load-verifies them, and republishes what launchd actually
 loaded.
+
+## W2546 — truthful post-merge activation (two-success stamp)
+
+Publication and activation are SEPARATE successes. `syncHarness` publishing a
+harness proves nothing about the serving surfaces: the post-merge runner
+(`scripts/post-merge-sync.ts`) stamps success only after every touched label
+is verified, and a stamp that trails reality re-enters instead of suppressing
+repair.
+
+- **Both proofs** (#101043): a label is `verified` only with (1) receipt-backed
+  service identity (inspectServices — listener-owned running, or a carried
+  unit's loaded-generation match) AND (2) an outside-process wire probe (the
+  `deploy/healthcheck/probe.ts` one-shot child). Identity alone is never
+  application readiness; neither is a kickstart exit code.
+- **Stamp ledger** (`~/.local/state/suspenders/post-merge-sync.json`, 0600):
+  `{main, installedAt, activation: {requested, verified, kickFailed, unready,
+  needsReviewedUpgrade}}`. Settled = same head AND verified ⊇ requested and no
+  unresolved bucket; anything else re-enters the runner on the next fleet-loop
+  tick (which retries exactly the missing labels — kickFailed may re-kick,
+  unready only re-inspects, pinned labels ride the reviewed upgrade flow).
+- **Generation-pinned labels** rebind ONLY through `post-merge-carry.ts`'s
+  `carryGenerationPinned` (stage → digest → fenced `upgradeGateway` apply); a
+  plain kick would restart the OLD payload (#101007).
+- **Default-plan activation** (#101713/#101735): the ordinary install runs the
+  `activateGateway` step itself over the SAME shared adapter
+  (`scripts/lib/post-merge-live.ts` — `carryAdapter` + `gatewayReadiness`,
+  never a second implementation). Fresh host (no published harness receipt) is
+  a truthful skip; `--dry-run` stays inert; `--step syncHarness` alone stays
+  publication-only. The gateway step never touches this multi-service ledger.
+- **Readiness polling** (#101757/#101816): both proofs ride bounded poll loops
+  (`pollProbe`/`awaitIdentity` in `post-merge-labels.ts`) shared with the
+  install step. The probe child's stdout Sample is the verdict contract —
+  status 0 = transport failure (connection-refused/timeout keeps polling inside
+  the budget), any real HTTP status is a definitive answer. An exhausted
+  startup budget stays a truthful failure.
+- **Stopped-but-registered daemons** (#101817): `observeGateway` treats
+  `state = not running` with arguments and no pid as a doubly-observed stable
+  snapshot, so a failed load (registered job, exited child) stays repairable
+  through the fenced flow. Unknown/unparseable launchd output still refuses.
+- **Check**: `bun scripts/post-merge-sync.ts --repo . --check` prints the
+  current decision (head, stamp, labels) without mutating anything.

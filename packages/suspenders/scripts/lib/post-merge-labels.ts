@@ -29,14 +29,16 @@ export interface PostMergeRunnerDeps {
 	kick: (label: string) => number;
 	/** deploy/healthcheck/probe.ts one-shot against the label's URL. */
 	probe: ProbeFn;
+	/** revision of the daemon a carried label loads (null = unreadable). */
+	loadedRevisionFor: (label: string) => string | null;
+	/** daemon supervision state for the carry label (unknown ≠ absent). */
+	daemonStateFor: (label: string) => "loaded" | "absent" | "unknown";
 	/** the label's public status URL (receipt port + known path). */
 	probeUrlFor: (label: string) => string | null;
 	/** generation-pinned carry through the reviewed upgrade flow. */
 	carry: (
 		expectedRevision: string,
 	) => import("./post-merge-carry.ts").CarryResult;
-	/** revision of the unit a carried label now loads (null = unreadable). */
-	loadedRevisionFor: (label: string) => string | null;
 	log: (line: string) => void;
 	sleep: (ms: number) => void;
 	now: () => number;
@@ -58,9 +60,11 @@ export interface LabelOutcome {
 
 /** Probe poll inside the budget: a just-kicked listener needs a moment.
  * A definitive HTTP answer (any status) is a real verdict — only
- * connection-level failures during startup keep polling. */
+ * connection-level failures during startup keep polling. The deps type is
+ * the structural subset (W2546 #101757): the install step's readiness
+ * proof reuses this same loop without a full runner. */
 export function pollProbe(
-	deps: PostMergeRunnerDeps,
+	deps: Pick<PostMergeRunnerDeps, "probe" | "now" | "sleep">,
 	url: string,
 	budgetMs: number,
 	intervalMs: number,
@@ -79,7 +83,7 @@ export function pollProbe(
  * inside the budget; ready ends it; hard states fail fast — an unready
  * service is never "deployed". */
 export function awaitIdentity(
-	deps: PostMergeRunnerDeps,
+	deps: Pick<PostMergeRunnerDeps, "inspectLabel" | "now" | "sleep">,
 	label: string,
 	budgetMs: number,
 	intervalMs: number,

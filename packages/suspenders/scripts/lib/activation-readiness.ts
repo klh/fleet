@@ -158,6 +158,8 @@ export interface ProbeVerdict {
 	status: number;
 	reason?: string;
 }
+/** The probe seam is SYNC by design: the live face rides the probe.ts
+ * one-shot child whose exit code IS the verdict (#101667). */
 export type ProbeFn = (url: string) => ProbeVerdict;
 
 /** One-shot external probe budget — small: the service just (re)started. */
