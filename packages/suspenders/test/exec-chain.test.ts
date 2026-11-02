@@ -4,7 +4,7 @@
 // the same-bin tail rides --fallback-model, claude stays the appended last
 // resort, untranslatable feed values drop out. .prefer chains outrank
 // defaults, unchanged.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +26,7 @@ test("JSON .prefer never becomes executor garbage; malformed JSON cannot fall ba
 		hub: null,
 		hubUrls: [],
 		can: null,
+		model: null,
 	});
 	writeFileSync(join(repo, ".prefer"), "{\nmust=claude\n}");
 	expect(() => preferOf(repo)).toThrow(
@@ -310,6 +311,103 @@ describe("W813 chain semantics: comma-lists, hub targets, position law, can=", (
 	});
 });
 
+describe("W2570 model= pin: executor + model on one lane", () => {
+	test("model= pins the executor's model: copilot lane launches with the id", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=copilot\nmodel=gpt-6-sol\n",
+		);
+		const p = execPick(0, REPO);
+		expect(p.name).toBe("copilot");
+		expect(p.bin).toBe("copilot");
+		expect(p.model).toBe("gpt-6-sol");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("model= fills the default ladder's executor slot too", () => {
+		writeFileSync(join(REPO, ".prefer"), "model=glm-5.3\n");
+		const p = pick(0, ["copilot", "claude"]);
+		expect(p.bin).toBe("copilot");
+		expect(p.model).toBe("glm-5.3");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a directive's own model pin outranks the repo model= pin", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\nmodel=glm-5.3\n",
+		);
+		const p = execPick(0, REPO);
+		expect(p.model).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("tree-root model= is inherited; the repo's model= overrides per key", () => {
+		const TREE = mkdtempSync(join(tmpdir(), "w2570-tree-"));
+		try {
+			writeFileSync(join(TREE, ".prefer"), "must=copilot\nmodel=gpt-6-sol\n");
+			expect(execPick(0, TREE).model).toBe("gpt-6-sol");
+			const REPO2 = join(TREE, "repo");
+			mkdirSync(REPO2);
+			writeFileSync(join(REPO2, ".prefer"), "model=glm-5.3\n");
+			const p = execPick(0, REPO2);
+			expect(p.model).toBe("glm-5.3");
+		} finally {
+			rmSync(TREE, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("W2570 amendment: machine-conf executors row is the model default", () => {
+	const KLH = "KLH_STACK";
+	let savedStack: string | undefined;
+	beforeAll(() => {
+		savedStack = process.env[KLH];
+	});
+	afterAll(() => {
+		if (savedStack === undefined) delete process.env[KLH];
+		else process.env[KLH] = savedStack;
+	});
+	const stackOf = (executors: object): string => {
+		const path = join(HOME, "stack-w2570.json");
+		writeFileSync(path, JSON.stringify({ executors }));
+		process.env[KLH] = path;
+		return path;
+	};
+
+	test("conf-only copilot lane rides the row's model (gpt-6-sol)", () => {
+		stackOf({ copilot: { model: "gpt-6-sol" } });
+		writeFileSync(join(REPO, ".prefer"), "must=copilot\n");
+		const p = execPick(0, REPO);
+		expect(p.model).toBe("gpt-6-sol");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("default row fills executors without their own row", () => {
+		stackOf({ default: { model: "row-default" } });
+		writeFileSync(join(REPO, ".prefer"), "must=copilot\n");
+		expect(execPick(0, REPO).model).toBe("row-default");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test(".prefer model= overrides the machine-conf row", () => {
+		stackOf({ copilot: { model: "gpt-6-sol" } });
+		writeFileSync(join(REPO, ".prefer"), "must=copilot\nmodel=glm-5.3\n");
+		expect(execPick(0, REPO).model).toBe("glm-5.3");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a directive's own pin beats both conf row and repo pin", () => {
+		stackOf({ copilot: { model: "gpt-6-sol" } });
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"must=glm-5.3-flash\nmodel=glm-5.3\n",
+		);
+		expect(execPick(0, REPO).model).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+});
+
 describe("W1470 upward walk: a tree-root chain reaches the repos below it", () => {
 	const TREE = mkdtempSync(join(tmpdir(), "w1470-tree-"));
 	const MID = join(TREE, "group");
@@ -456,6 +554,7 @@ describe("W1470 upward walk: a tree-root chain reaches the repos below it", () =
 			hub: null,
 			hubUrls: [],
 			can: null,
+			model: null,
 		});
 		const own = preferFileOf(TREE);
 		expect(own.hub).toBe("nas");
