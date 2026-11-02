@@ -64,7 +64,10 @@ import { mergeLaneRegistry } from "../lanes/lane-registry.ts";
 import { laneAttemptLimit } from "../lanes/lane-retry-budget.ts";
 import { laneSid } from "../lanes/laneslug.ts";
 import { launchParent } from "../lanes/launch-parent.ts";
-import { symlinkBuildDirs } from "../work/builddirs.ts";
+import {
+	installWorktreeDependencies,
+	symlinkBuildDirs,
+} from "../work/builddirs.ts";
 import { flagFns, type LoopConfig } from "./config.ts";
 import { emitLoopEvent } from "./events.ts";
 import type { LoopDeps } from "./runtime.ts";
@@ -258,8 +261,8 @@ export async function runDispatch(
 		if (!existsSync(wt)) {
 			if (AGENT === "codex") {
 				mkdirSync(wt, { recursive: true });
-				// build dirs symlinked from the repo root — parity with worktree.ts
-				// create, so codex lanes skip reinstalls too
+				// Share only non-package build dirs; dependencies install privately
+				// after the private git store checks out the workspace.
 				symlinkBuildDirs(REPO, wt);
 			} else {
 				const wtree = runTool([
@@ -492,6 +495,13 @@ export async function runDispatch(
 				}
 			}
 			writeFileSync(`${wt}/.git`, `gitdir: ${store}\n`);
+			const dependencies = installWorktreeDependencies(REPO, wt);
+			if (!dependencies.ok) {
+				console.error(
+					`codex workspace dependencies failed: ${dependencies.note}`,
+				);
+				throw new Error("direct launch preparation failed");
+			}
 		}
 		const agentArgs =
 			AGENT === "codex"
