@@ -79,7 +79,8 @@ const primVar = (row: PrimRow): string => {
 		throw new Error(
 			`unknown primitive group "${row.group}" (${row.key}) — add its namespace to GROUP_NS`,
 		);
-	return `${ns}-${row.key}`;};
+	return `${ns}-${row.key}`;
+};
 
 const readThemes = (): Map<string, TokenMap> => {
 	const dir = join(HERE, "themes");
