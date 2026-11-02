@@ -130,6 +130,17 @@ export type TryOutcome = {
 			 *  refused (full or wait expired) BEFORE any upstream attempt —
 			 *  no fetch happened, nothing benched, no provider cooldown. */
 			localAdmission: true;
+			/** Origin metadata (W2544): WHICH local decision refused — a
+			 *  queue decision (full/expired), the shared cold mark (cold),
+			 *  or an in-flight verdict still pending with no rate/quota
+			 *  answer in existence (gate-pending/ride-deadline). Never a
+			 *  provider verdict. */
+			localCause:
+				| "full"
+				| "expired"
+				| "cold"
+				| "gate-pending"
+				| "ride-deadline";
 			status: 503;
 			error: string;
 			/** Window-derived floor from the pool policy — config, never a

@@ -207,7 +207,14 @@ export async function attemptTier(
 		}
 		if ("localAdmission" in r) {
 			const account = providerPoolIdOf(dep);
-			if (account !== null) {
+			if (
+				account !== null &&
+				r.localCause !== "gate-pending" &&
+				r.localCause !== "ride-deadline"
+			) {
+				// a pending verdict is NOT account knowledge: the in-flight
+				// knock may still succeed — only pool-saturated/cold/expired
+				// refusals fence the account's aliases for this walk.
 				st.unavailablePools ??= new Set();
 				st.unavailablePools.add(account);
 			}
@@ -218,7 +225,9 @@ export async function attemptTier(
 				st.attempts,
 				startedAt,
 				r.status,
-				"local_admission",
+				r.localCause === "gate-pending" || r.localCause === "ride-deadline"
+					? "verdict_pending"
+					: "local_admission",
 				r.retryAfterS,
 				undefined,
 				undefined,
