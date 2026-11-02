@@ -57,7 +57,15 @@ const PROBE_TARGETS: Readonly<Record<string, { port: number; path: string }>> =
 	};
 
 const sh = (cmd: string[], cwd?: string): { code: number; out: string } => {
-	const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+	// N2: spawnSync THROWS when the absolute-path binary is missing (ENOENT
+	// on a non-darwin host) — convert to a typed nonzero failure so the
+	// caller records a failed observation, never a crashed runner.
+	let p: ReturnType<typeof Bun.spawnSync>;
+	try {
+		p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+	} catch (error) {
+		return { code: 127, out: String(error) };
+	}
 	return {
 		code: p.exitCode ?? 1,
 		out: `${p.stdout?.toString() ?? ""}${p.stderr?.toString() ?? ""}`,
@@ -444,6 +452,7 @@ export function buildPostMergeDeps(
 		},
 		carry: (expectedRevision: string): CarryResult =>
 			carryGenerationPinned(carryDeps(), expectedRevision),
+		platform: () => process.platform,
 		log: say,
 		sleep: sleepSync,
 		now: () => Date.now(),

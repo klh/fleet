@@ -39,13 +39,11 @@ function pollCarriedReadiness(
 	const deadline = deps.now() + budgetMs;
 	for (;;) {
 		const attempt = carriedReadiness(deps, label, head);
-		// a definitive wire answer (ok or a real HTTP status) ends the poll;
-		// connection-refused during startup keeps polling inside the budget
-		if (
-			attempt.outcome.readiness.state === "ready" ||
-			/at http|probe ok/.test(attempt.outcome.readiness.reason)
-		)
-			return attempt;
+		// a definitive verdict (ready, wrong generation, no probe URL, or a
+		// real HTTP answer) ends the poll; only transport-level startup
+		// noise (connection refused) keeps polling inside the budget (N1 —
+		// never string-match reasons, the typed probe status decides).
+		if (attempt.final) return attempt;
 		if (deps.now() + intervalMs > deadline) return attempt;
 		deps.sleep(intervalMs);
 	}
@@ -55,10 +53,15 @@ function carriedReadiness(
 	deps: PostMergeRunnerDeps,
 	label: string,
 	head: string,
-): { verified: boolean; outcome: Parameters<typeof outcomeLine>[0] } {
+): {
+	verified: boolean;
+	outcome: Parameters<typeof outcomeLine>[0];
+	final: boolean;
+} {
 	const expectation = { kind: "generation-pinned" as const, revision: head };
-	const fail = (reason: string) => ({
+	const fail = (reason: string, final: boolean) => ({
 		verified: false,
+		final,
 		outcome: {
 			label,
 			expectation,
@@ -68,26 +71,35 @@ function carriedReadiness(
 		},
 	});
 	const loaded = deps.loadedRevisionFor(label);
+	// Identity is bounded-settling (#101172): a just-carried daemon is
+	// TEMPORARILY unobservable (null) or still reports the prior revision
+	// while the fenced load lands — pending, polled inside the budget like
+	// the parent runner; only a definitive HTTP answer or a missing probe
+	// URL is final (N1).
 	if (loaded !== head)
-		return fail("loaded generation is not the published main");
+		return fail("loaded generation is not the published main", false);
 	const url = deps.probeUrlFor(label);
-	if (url === null) return fail("no probe URL known for label");
+	if (url === null) return fail("no probe URL known for label", true);
 	const probe = deps.probe(url);
-	if (!probe.ok)
-		return fail(`external probe failed (${url}, status ${probe.status})`);
-	return {
-		verified: true,
-		outcome: {
-			label,
-			expectation,
-			kicked: true,
-			kickCode: null,
-			readiness: {
-				state: "ready" as const,
-				reason: `external probe ok (${url})`,
+	if (!probe.ok && probe.status > 0)
+		return fail(`external probe failed (${url}, status ${probe.status})`, true);
+	if (probe.ok)
+		return {
+			verified: true,
+			final: true,
+			outcome: {
+				label,
+				expectation,
+				kicked: true,
+				kickCode: null,
+				readiness: {
+					state: "ready" as const,
+					reason: `external probe ok (${url})`,
+				},
 			},
-		},
-	};
+		};
+	// transport-level failure (status 0): the startup window keeps polling
+	return fail(`external probe unreachable (${url})`, false);
 }
 
 export interface PostMergeRunArgs {
@@ -250,12 +262,18 @@ export function runPostMergeSync(
 	}
 
 	const outcomes: LabelOutcome[] = [];
+	// N2: the kick/carry machinery is launchd-backed (darwin-only). A
+	// non-darwin host publishes truthfully and records the activation as
+	// skipped — never a launchctl failure storm, never a fake success.
+	const platformDeferred = deps.platform() !== "darwin";
 	for (const label of requested) {
 		const expectation = expectationFor(label, receipt);
 		// Lifecycle eligibility BEFORE any action (#101043): a deferral or an
 		// already-complete verification never carries, kicks, or restarts.
-		if (args.skipKick) {
-			deps.log(`${label}: activation deferred (--skip-kick — published only)`);
+		if (args.skipKick || platformDeferred) {
+			deps.log(
+				`${label}: activation deferred (${args.skipKick ? "--skip-kick — published only" : "not darwin — no launchd machinery"})`,
+			);
 			outcomes.push({
 				label,
 				expectation,
@@ -345,9 +363,16 @@ export function runPostMergeSync(
 	// Pinned labels that did NOT verify this cycle: carry failed/pending or
 	// readiness unproven — the reviewed upgradeGateway path owns the rebind.
 	// A carried-and-verified label is NOT held: the cycle settles on proof.
-	const needsReviewedUpgrade = outcomes
-		.filter((o) => o.expectation.kind === "generation-pinned" && !o.verified)
-		.map((o) => o.label);
+	// Platform-deferred labels are excluded (N2): the upgrade is not
+	// pending, it is not applicable on this host — recording it would be an
+	// exit-2 storm on every cycle.
+	const needsReviewedUpgrade = platformDeferred
+		? []
+		: outcomes
+				.filter(
+					(o) => o.expectation.kind === "generation-pinned" && !o.verified,
+				)
+				.map((o) => o.label);
 	const kickFailed = outcomes
 		.filter((o) => o.kickCode !== null && o.kickCode !== 0 && !o.carried)
 		.map((o) => o.label);
@@ -358,17 +383,29 @@ export function runPostMergeSync(
 			!o.carried &&
 			o.expectation.kind !== "generation-pinned",
 	);
-	const activation: PostMergeActivation = {
-		requested,
-		verified,
-		kickFailed,
-		unready: unready.map((o) => o.label),
-		needsReviewedUpgrade,
-		...(args.skipKick ? { skipped: true } : {}),
-		note: args.skipKick
-			? "published without requested activation (--skip-kick)"
-			: failedNote(outcomes, needsReviewedUpgrade),
-	};
+	const activation: PostMergeActivation = platformDeferred
+		? {
+				// N2: no launchd machinery on this host — the demanded kick set
+				// is empty BY PLATFORM, verified honestly empty, and the stamp
+				// settles same-head (one truthful run, never a re-entry churn).
+				requested: [],
+				verified: [],
+				kickFailed: [],
+				unready: [],
+				needsReviewedUpgrade: [],
+				note: "published without activation (not darwin — no launchd machinery)",
+			}
+		: {
+				requested,
+				verified,
+				kickFailed,
+				unready: unready.map((o) => o.label),
+				needsReviewedUpgrade,
+				...(args.skipKick ? { skipped: true } : {}),
+				note: args.skipKick
+					? "published without requested activation (--skip-kick)"
+					: failedNote(outcomes, needsReviewedUpgrade),
+			};
 	deps.writeStamp({
 		main: args.head,
 		installedAt: new Date(deps.now()).toISOString(),
@@ -383,6 +420,6 @@ export function runPostMergeSync(
 		unready.length === 0 &&
 		needsReviewedUpgrade.length === 0 &&
 		verified.length >= requested.length;
-	const exit = args.skipKick || settled ? 0 : 2;
+	const exit = args.skipKick || platformDeferred || settled ? 0 : 2;
 	return { exit, activation };
 }

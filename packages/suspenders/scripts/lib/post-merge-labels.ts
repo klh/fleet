@@ -39,6 +39,10 @@ export interface PostMergeRunnerDeps {
 	carry: (
 		expectedRevision: string,
 	) => import("./post-merge-carry.ts").CarryResult;
+	/** host platform (injected seam — N2: the kick/carry machinery is
+	 * darwin-only and a non-darwin host must skip it truthfully, never
+	 * record a launchctl failure storm). */
+	platform: () => NodeJS.Platform;
 	log: (line: string) => void;
 	sleep: (ms: number) => void;
 	now: () => number;

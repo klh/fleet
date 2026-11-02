@@ -39,7 +39,8 @@ export function labelsForChanges(paths: string[]): string[] {
 }
 
 /** Every serving label the rules know (the unknown requested set of a v1
- * stamp — one migration run re-verifies them all, then the ledger exists). */
+ * stamp at a NEW head — the migration run re-verifies them all, then the
+ * ledger exists; also the same-head v1 fallback). */
 export const allServingLabels = (): string[] => [
 	...new Set(RUNTIME_SYNC_LABEL_RULES.flatMap((r) => [...r.labels])),
 ];
@@ -80,10 +81,14 @@ export function decideRuntimeSync(input: {
 	// UNRESOLVED request rides along — a Buckle carry that failed last main
 	// must not vanish because this commit only touched board/docs. Verified
 	// prior labels are NOT carried (same-head retention only, #101118).
+	// A v1 stamp (no activation ledger at all) is the migration case: its
+	// unknown requested set unions ALL serving labels conservatively — the
+	// comment's own promise — so a legacy old-Buckle state can never ride
+	// a drift window that happens not to touch its files.
 	const prior = stamp.activation;
 	const unresolved =
 		prior === undefined
-			? []
+			? allServingLabels()
 			: prior.requested.filter((l) => !prior.verified.includes(l));
 	return {
 		action: "sync",
