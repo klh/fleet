@@ -64,7 +64,7 @@ export const hubAttributionDecision = (o: {
 		mode: "refuse",
 		why: o.hasToken
 			? "hub lane-key mint failed — the hub's buckle admin did not issue a key (fail-closed W463; --allow-ungoverned overrides)"
-			: "no hub credential — set SUSPENDERS_HUB_<LABEL>_TOKEN or the hubs.json token for the label (fail-closed W463; --allow-ungoverned overrides)",
+			: "no hub credential — set SUSPENDERS_HUB_<LABEL>_TOKEN, the hubs.json token, or the stack-profile token for the label (fail-closed W463; --allow-ungoverned overrides)",
 	};
 };
 

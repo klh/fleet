@@ -127,6 +127,88 @@ test.describe("hubCredential (W615)", () => {
 		const env = {} as NodeJS.ProcessEnv;
 		expect(hubCredential("ghosthub", env)).toBeNull();
 	});
+
+	// W2566: the exact tredebanken C213 shape — hubs.json 'ikea' (lowercase)
+	// behind a .prefer hub=IKEA pin. The URL side folds (resolveHub); the
+	// credential side must fold with it or the mint fails "no credential".
+	test("registry lookup folds case (W2566: lowercase 'ikea' key, 'IKEA' pin)", () => {
+		const reg = mkdtempSync(join(tmpdir(), "w2566-hubs-"));
+		const regFile = join(reg, "hubs.json");
+		writeFileSync(regFile, JSON.stringify({ ikea: { token: "bksk_ikea" } }));
+		const saved = process.env.SUSPENDERS_HUBS_FILE;
+		process.env.SUSPENDERS_HUBS_FILE = regFile;
+		try {
+			expect(hubCredential("IKEA")).toBe("bksk_ikea");
+			expect(hubCredential("ikea")).toBe("bksk_ikea");
+			expect(hubCredential("Ikea")).toBe("bksk_ikea");
+		} finally {
+			if (saved === undefined) delete process.env.SUSPENDERS_HUBS_FILE;
+			else process.env.SUSPENDERS_HUBS_FILE = saved;
+			rmSync(reg, { recursive: true, force: true });
+		}
+	});
+
+	// W2566: the stack-profile rung — a migrated settings/stack hubs entry
+	// carries its token where resolveHub's profile stage reads it; the
+	// credential walk reaches it after a registry miss (label folded).
+	test("falls through to the stack-profile token after a registry miss (W2566)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w2566-stack-"));
+		const regFile = join(dir, "hubs.json");
+		const stackFile = join(dir, "stack.json");
+		writeFileSync(regFile, JSON.stringify({}));
+		writeFileSync(
+			stackFile,
+			JSON.stringify({
+				version: "2.0.0",
+				hubs: { TREDE: { url: "http://127.0.0.1:9", token: "bksk_stack" } },
+			}),
+		);
+		const savedReg = process.env.SUSPENDERS_HUBS_FILE;
+		const savedStack = process.env.KLH_STACK;
+		process.env.SUSPENDERS_HUBS_FILE = regFile;
+		process.env.KLH_STACK = stackFile;
+		try {
+			expect(hubCredential("trede")).toBe("bksk_stack");
+			expect(hubCredential("TREDE")).toBe("bksk_stack");
+		} finally {
+			if (savedReg === undefined) delete process.env.SUSPENDERS_HUBS_FILE;
+			else process.env.SUSPENDERS_HUBS_FILE = savedReg;
+			if (savedStack === undefined) delete process.env.KLH_STACK;
+			else process.env.KLH_STACK = savedStack;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	// W2566: token_file variant — profileToken reads the first line of the
+	// 0600 file the profile names (settings never holds the value itself).
+	test("stack-profile token_file feeds the credential after a registry miss (W2566)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "w2566-stackfile-"));
+		const regFile = join(dir, "hubs.json");
+		const stackFile = join(dir, "stack.json");
+		const tokFile = join(dir, "hub.token");
+		writeFileSync(tokFile, "bksk_filetok\n");
+		writeFileSync(regFile, JSON.stringify({}));
+		writeFileSync(
+			stackFile,
+			JSON.stringify({
+				version: "2.0.0",
+				hubs: { NAS: { token_file: tokFile } },
+			}),
+		);
+		const savedReg = process.env.SUSPENDERS_HUBS_FILE;
+		const savedStack = process.env.KLH_STACK;
+		process.env.SUSPENDERS_HUBS_FILE = regFile;
+		process.env.KLH_STACK = stackFile;
+		try {
+			expect(hubCredential("nas")).toBe("bksk_filetok");
+		} finally {
+			if (savedReg === undefined) delete process.env.SUSPENDERS_HUBS_FILE;
+			else process.env.SUSPENDERS_HUBS_FILE = savedReg;
+			if (savedStack === undefined) delete process.env.KLH_STACK;
+			else process.env.KLH_STACK = savedStack;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
 
 test.describe("revokeLaneKey", () => {
