@@ -21,6 +21,7 @@ import { ACTIVITY } from "../board-html/activity.ts";
 // v3: hash-tab shell (Decisions · Tasks · Activity · Governor · Setup),
 // global project filter, decision history, task drawer, named lane states.
 import { BODY } from "../board-html/body.ts";
+import { DECISIONS_CSS } from "../board-html/decisions-css.ts";
 import { BOOT } from "../board-html/boot.ts";
 import { FEEDS } from "../board-html/feeds.ts";
 import { CORE } from "../board-html/core.ts";
@@ -145,63 +146,7 @@ select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid v
 .fleetmodel { font-family:var(--klh-font-mono); }
 #fleetRecent, #fleetHistoryLanes { overflow-x:auto; }
 .hfclear { background:none; border:none; color:var(--klh-accent); cursor:pointer; font:inherit; padding:0; text-decoration:underline; }
-#decisions { border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-panel); margin-bottom:14px; }
-#decisions.has { border-color:var(--klh-danger-edge); }
-#decisions h2 { margin:0; padding:8px 14px; display:flex; align-items:baseline; gap:12px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-danger-ink); }
-#decToggle { background:none; border:none; padding:0; color:inherit; font:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; }
-#decCaret { display:inline-block; width:10px; }
-#decState { margin-left:auto; color:var(--klh-dim); font-weight:400; text-transform:none; letter-spacing:0; font-size:12px; }
-#decErr { padding:0 14px 8px; color:var(--klh-danger-ink); font-size:12px; }
-#decErr[hidden] { display:none; }
-#decisions.closed #decList, #decisions.closed #decErr { display:none; }
-.dec { border-top:1px solid var(--klh-edge-faint); padding:10px 14px 12px; }
-#decList .dec:first-child { border-top:none; }
-.dec.sent { opacity:.55; }
-.dhead { display:flex; gap:10px; align-items:baseline; font-size:11px; color:var(--klh-dim); flex-wrap:wrap; }
-.dproj { color:var(--klh-accent); }
-.dq { font-size:13.5px; line-height:1.4; margin:5px 0 2px; word-break:break-word; }
-.dblocks { font-size:11px; color:var(--klh-dim); margin-bottom:4px; }
-.dopts { margin:4px 0 2px; }
-.optrow { display:flex; align-items:baseline; gap:8px; margin:4px 0; }
-button.opt { background:var(--klh-bg); color:var(--klh-ink); border:1px solid var(--klh-edge-strong); border-radius:2px; padding:2px 10px; font:inherit; font-size:11.5px; cursor:pointer; }
-button.opt:hover { border-color:var(--klh-accent); color:var(--klh-accent); }
-.optrow.sel button.opt { border-color:var(--klh-accent); color:var(--klh-accent); box-shadow:0 0 0 1px var(--klh-accent); background:var(--klh-accent-bg); }
-.optrow .trade { font-size:10.5px; color:var(--klh-dim); }
-.dadv { margin:7px 0 4px; padding:8px 10px; background:var(--klh-warm); border-left:2px solid var(--klh-accent); font-size:12px; }
-.dadv .rhead { color:var(--klh-accent); font-weight:600; font-size:10px; letter-spacing:.06em; margin-bottom:2px; }
-.dadv .why { color:var(--klh-dim); margin-top:3px; white-space:pre-wrap; }
-.dadv .risk { color:var(--klh-danger-ink); margin-top:3px; }
-.dadv .pconsensus { margin-top:4px; font-weight:600; font-size:11px; }
-.dadv .pconsensus.pagree { color:var(--klh-ok-ink); }
-.dadv .pconsensus.psplit { color:var(--klh-danger-ink); }
-.dadv .pconsensus.pnone { color:var(--klh-dim); }
-.dadv .pleg { color:var(--klh-dim); }
-.dadv .plegerr { word-break:break-all; }
-.dans { display:flex; gap:6px; margin-top:7px; flex-wrap:wrap; align-items:center; }
-.dans input { flex:1; min-width:220px; background:var(--klh-bg); color:var(--klh-ink); border:1px solid var(--klh-edge); border-radius:2px; padding:5px 9px; font:inherit; font-size:12px; }
-.dans input:focus { outline:1px solid var(--klh-accent); }
-button.send { background:var(--klh-accent); color:var(--klh-on-accent); border:1px solid var(--klh-accent); border-radius:2px; padding:5px 16px; font:inherit; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
-button.send:disabled, button.getrec:disabled { opacity:.45; cursor:default; }
-button.getrec { background:var(--klh-bg); color:var(--klh-info); border:1px solid var(--klh-info); border-radius:2px; padding:5px 10px; font:inherit; font-size:11px; cursor:pointer; }
-button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); font:inherit; font-size:10.5px; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
-.derr { color:var(--klh-danger-ink); font-size:11px; margin-top:5px; }
-.derr:empty { display:none; }
-.retry { background:none; border:1px solid var(--klh-danger); color:var(--klh-danger-ink); border-radius:2px; font:inherit; font-size:10px; padding:1px 8px; cursor:pointer; margin-left:8px; }
-#hist { border:1px solid var(--klh-edge); border-radius:2px; background:var(--klh-panel); }
-.histhead { display:flex; align-items:baseline; gap:12px; padding:8px 14px; }
-#histHead { background:none; border:none; padding:0; color:var(--klh-dim); font:inherit; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; cursor:pointer; }
-#histHead:hover { color:var(--klh-ink); }
-#histCaret { display:inline-block; width:10px; }
-#histState { font-size:12px; color:var(--klh-dim); }
-#histErr { padding:0 14px 8px; color:var(--klh-danger-ink); font-size:12px; }
-#histErr[hidden] { display:none; }
-#histBody { display:none; }
-.hrow { border-top:1px solid var(--klh-edge-faint); padding:8px 14px 10px; font-size:12px; color:var(--klh-dim); display:flex; gap:10px; align-items:baseline; }
-.hrow .hq { color:var(--klh-ink-3); word-break:break-word; }
-.hans { display:block; margin-top:2px; }
-.hage { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; }
-.pill.hst { flex:none; color:var(--klh-dim); border-color:var(--klh-edge-strong); font-size:9px; }
-.pill.hst.open { color:var(--klh-danger-ink); border-color:var(--klh-danger); }
+${DECISIONS_CSS}
 .taberr { color:var(--klh-danger-ink); font-size:12px; margin-bottom:10px; }
 .taberr[hidden] { display:none; }
 #tasksTbl { width:100%; border-collapse:collapse; font-size:12.5px; }

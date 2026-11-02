@@ -459,6 +459,7 @@ export class KlhDecisions extends LitElement {
 			class="dec${rq.sentOk[id] ? " sent" : ""}"
 			data-id=${id}
 		>
+			<div class="dbody">
 			<div class="dhead">
 				<span class="dproj mono">${d.project || "(unknown project)"}</span>
 				<span class="dwho"
@@ -521,6 +522,10 @@ export class KlhDecisions extends LitElement {
 						}
 					}}
 				/>
+			</div>
+			<div class="derr" role="alert">${errText}</div>
+			</div>
+			<div class="drail" role="group" aria-label="decision actions">
 				<button
 					class="send"
 					type="button"
@@ -553,7 +558,6 @@ export class KlhDecisions extends LitElement {
 						: "Cancel"}
 				</button>
 			</div>
-			<div class="derr" role="alert">${errText}</div>
 		</div>`;
 	}
 

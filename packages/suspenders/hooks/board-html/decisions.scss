@@ -1,0 +1,552 @@
+// hooks/board-html/decisions.scss — the decisions surface styles (W2267.8
+// editorial redesign, same-name source for decisions-css.ts). Compiled by
+// design-ui's compileStylesheet; the generated module is interpolated into
+// the board page <style> (the leaf renders light DOM, so these are page
+// rules). Semantic tokens ONLY: the kernel theme layer's --klh-* custom
+// properties (colors, --klh-space-*, --klh-text-*, --klh-radius*) carry
+// both themes; Sass computes structure at build time, custom properties
+// carry the theme at runtime. MIT-Press editorial language (approved 09):
+// warm paper / deep ink, fine rules, sans questions, mono metadata,
+// near-square corners, no decorative shadows.
+
+// — decisions section —
+#tab-decisions {
+  max-width: 880px;
+}
+
+#decisions {
+  border: 1px solid var(--klh-edge);
+  border-radius: var(--klh-radius-lg);
+  background: var(--klh-surface);
+  margin-bottom: var(--klh-space-4);
+
+  &.has {
+    border-color: var(--klh-danger-edge);
+  }
+
+  h2 {
+    margin: 0;
+    padding: var(--klh-space-3) var(--klh-space-5);
+    display: flex;
+    align-items: baseline;
+    gap: var(--klh-space-4);
+    font-size: var(--board-label-size);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: var(--board-label-track);
+    color: var(--klh-danger-ink);
+    border-bottom: 1px solid var(--klh-edge-faint);
+  }
+}
+
+#decToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+#decCaret {
+  display: inline-block;
+  width: 10px;
+  font-family: var(--klh-font-mono);
+}
+
+#decState {
+  margin-left: auto;
+  color: var(--klh-dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--klh-text-md);
+}
+
+#decErr {
+  padding: 0 var(--klh-space-5) var(--klh-space-3);
+  color: var(--klh-danger-ink);
+  font-size: var(--klh-text-md);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+#decisions.closed #decList,
+#decisions.closed #decErr {
+  display: none;
+}
+
+// readable width: cards on a ruled grid, never one 1600px slab
+#decList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(560px, 100%), 1fr));
+  gap: 1px;
+  background: var(--klh-edge-faint);
+}
+
+// — the decision card —
+.dec {
+  background: var(--klh-surface);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+
+  &.sent {
+    opacity: 0.55;
+  }
+}
+
+.dbody {
+  padding: var(--klh-space-4) var(--klh-space-5) var(--klh-space-4);
+  min-width: 0;
+}
+
+// compact mono metadata header: project · source/task · age once
+.dhead {
+  display: flex;
+  gap: var(--klh-space-1) var(--klh-space-4);
+  align-items: baseline;
+  font-family: var(--klh-font-mono);
+  font-size: var(--klh-text-xs);
+  line-height: 1.6;
+  color: var(--klh-dim);
+  flex-wrap: wrap;
+
+  .dproj {
+    color: var(--klh-ink);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .dwho {
+    word-break: break-all;
+  }
+
+  .dage {
+    margin-left: auto;
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}
+
+// the prominent sans question
+.dq {
+  font-size: var(--klh-text-2xl, 15px);
+  line-height: 1.45;
+  font-weight: 600;
+  margin: var(--klh-space-2) 0 var(--klh-space-1);
+  color: var(--klh-ink);
+  overflow-wrap: anywhere;
+}
+
+.dblocks {
+  font-family: var(--klh-font-mono);
+  font-size: var(--klh-text-xs);
+  color: var(--klh-dim);
+  margin-bottom: var(--klh-space-1);
+  overflow-wrap: anywhere;
+}
+
+.dsrc {
+  font-family: var(--klh-font-mono);
+  font-size: var(--klh-text-xs);
+  color: var(--klh-dim);
+  margin-bottom: var(--klh-space-1);
+  overflow-wrap: anywhere;
+}
+
+// ruled options with tradeoffs; selection is a draft, never submission
+.dopts {
+  margin: var(--klh-space-3) 0 var(--klh-space-1);
+}
+
+.optrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--klh-space-3);
+  padding: var(--klh-space-1) 0;
+  border-top: 1px solid var(--klh-edge-faint);
+
+  &:first-child {
+    border-top: none;
+  }
+
+  .opt {
+    flex: none;
+  }
+
+  .trade {
+    font-size: var(--klh-text-s);
+    color: var(--klh-dim);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &.sel .trade {
+    color: var(--klh-ink);
+  }
+
+  &.sel button.opt {
+    border-color: var(--klh-accent);
+    color: var(--klh-accent);
+    box-shadow: 0 0 0 1px var(--klh-accent);
+    background: var(--klh-accent-bg);
+  }
+}
+
+button.opt {
+  background: var(--klh-bg);
+  color: var(--klh-ink);
+  border: 1px solid var(--klh-edge-strong);
+  border-radius: var(--klh-radius);
+  padding: var(--klh-space-1) var(--klh-space-4);
+  font: inherit;
+  font-size: var(--klh-text-s);
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--klh-accent);
+    color: var(--klh-accent);
+  }
+}
+
+// recommendation block — readable, distinct from the editable answer
+.dadv {
+  margin: var(--klh-space-3) 0 var(--klh-space-1);
+  padding: var(--klh-space-2) var(--klh-space-3);
+  background: var(--klh-warm);
+  border-left: 2px solid var(--klh-accent);
+  font-size: var(--klh-text-md);
+  overflow-wrap: anywhere;
+
+  .rhead {
+    color: var(--klh-accent);
+    font-weight: 600;
+    font-size: var(--klh-text-xs);
+    letter-spacing: 0.06em;
+    margin-bottom: var(--klh-space-1);
+  }
+
+  .rec {
+    overflow-wrap: anywhere;
+  }
+
+  .why {
+    color: var(--klh-dim);
+    margin-top: var(--klh-space-1);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .risk {
+    color: var(--klh-danger-ink);
+    margin-top: var(--klh-space-1);
+    overflow-wrap: anywhere;
+  }
+
+  .pconsensus {
+    margin-top: var(--klh-space-1);
+    font-weight: 600;
+    font-size: var(--klh-text-s);
+
+    &.pagree {
+      color: var(--klh-ok-ink);
+    }
+
+    &.psplit {
+      color: var(--klh-danger-ink);
+    }
+
+    &.pnone {
+      color: var(--klh-dim);
+    }
+  }
+
+  .pleg {
+    color: var(--klh-dim);
+    overflow-wrap: anywhere;
+  }
+
+  .plegerr {
+    word-break: break-all;
+  }
+}
+
+// answer entry sits above the rail
+.dans {
+  margin: var(--klh-space-3) 0 0;
+
+  .ans {
+    display: block;
+    width: 100%;
+    background: var(--klh-field);
+    color: var(--klh-ink);
+    border: 1px solid var(--klh-edge-mid);
+    border-radius: var(--klh-radius);
+    padding: var(--klh-space-2) var(--klh-space-3);
+    font: inherit;
+    font-size: var(--klh-text-md);
+
+    &:focus {
+      outline: 1px solid var(--klh-accent);
+    }
+  }
+}
+
+// errors wrap inside the body, never hiding the rail
+.derr {
+  color: var(--klh-danger-ink);
+  font-size: var(--klh-text-s);
+  margin-top: var(--klh-space-2);
+  overflow-wrap: anywhere;
+
+  &:empty {
+    display: none;
+  }
+}
+
+// the neutral full-width segmented action rail — flush to the card's
+// bottom edge, outside the padded body (a sibling, not a child)
+.drail {
+  display: flex;
+  width: 100%;
+  margin-top: auto;
+  border-top: 1px solid var(--klh-edge-strong);
+
+  > button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 32px;
+    background: var(--klh-surface);
+    border: none;
+    border-left: 1px solid var(--klh-edge-faint);
+    border-radius: 0;
+    padding: var(--klh-space-3) var(--klh-space-3);
+    font: inherit;
+    font-size: var(--klh-text-s);
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--klh-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &:first-child {
+      border-left: none;
+    }
+
+    &:not(:disabled):hover {
+      background: var(--klh-wash);
+      color: var(--klh-ink);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+  }
+
+  > button.send {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--klh-accent);
+
+    &:not(:disabled) {
+      background: var(--klh-accent-bg);
+    }
+  }
+
+  > button.getrec {
+    color: var(--klh-info);
+  }
+
+  > button.dismiss {
+    font-size: var(--klh-text-xs);
+    color: var(--klh-dim);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+// — gated work (compact ruled rows) —
+.gatedhead {
+  margin: 0;
+  padding: var(--klh-space-3) var(--klh-space-5);
+  font-size: var(--board-label-size);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--board-label-track);
+  color: var(--klh-dim);
+  border-top: 1px solid var(--klh-edge-faint);
+  border-bottom: 1px solid var(--klh-edge-faint);
+
+  .dim {
+    margin-left: var(--klh-space-2);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: var(--klh-text-s);
+  }
+}
+
+.gated {
+  border-top: 1px solid var(--klh-edge-faint);
+  padding: var(--klh-space-2) var(--klh-space-5) var(--klh-space-3);
+
+  .dq {
+    font-size: var(--klh-text-md);
+    font-weight: 500;
+  }
+
+  .dadv.rec {
+    background: none;
+    border-left: none;
+    padding: 0;
+    margin: var(--klh-space-1) 0 0;
+    color: var(--klh-dim);
+    font-size: var(--klh-text-s);
+  }
+
+  &:empty {
+    display: none;
+  }
+}
+
+// — history (compact ruled rows) —
+#hist {
+  border: 1px solid var(--klh-edge);
+  border-radius: var(--klh-radius-lg);
+  background: var(--klh-surface);
+  max-width: 880px;
+}
+
+.histhead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--klh-space-4);
+  padding: var(--klh-space-3) var(--klh-space-5);
+  border-bottom: 1px solid var(--klh-edge-faint);
+}
+
+#histHead {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--klh-dim);
+  font: inherit;
+  font-size: var(--board-label-size);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--board-label-track);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--klh-ink);
+  }
+}
+
+#histCaret {
+  display: inline-block;
+  width: 10px;
+  font-family: var(--klh-font-mono);
+}
+
+#histState {
+  font-size: var(--klh-text-md);
+  color: var(--klh-dim);
+}
+
+#histErr {
+  padding: 0 var(--klh-space-5) var(--klh-space-3);
+  color: var(--klh-danger-ink);
+  font-size: var(--klh-text-md);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+#histBody {
+  display: none;
+}
+
+.hrow {
+  display: flex;
+  gap: var(--klh-space-4);
+  align-items: baseline;
+  padding: var(--klh-space-2) var(--klh-space-5);
+  font-family: var(--klh-font-mono);
+  font-size: var(--klh-text-xs);
+  line-height: 1.5;
+  color: var(--klh-dim);
+  border-top: 1px solid var(--klh-edge-faint);
+
+  &:first-child {
+    border-top: none;
+  }
+
+  .hq {
+    color: var(--klh-ink-3);
+    font-family: var(--klh-font-sans);
+    font-size: var(--klh-text-md);
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+
+  .hans {
+    display: block;
+    margin-top: var(--klh-space-1);
+    font-family: var(--klh-font-sans);
+    font-size: var(--klh-text-md);
+    overflow-wrap: anywhere;
+  }
+
+  .hage {
+    margin-left: auto;
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}
+
+.pill.hst {
+  flex: none;
+  color: var(--klh-dim);
+  border-color: var(--klh-edge-strong);
+  font-size: var(--klh-text-2xs, 9px);
+
+  &.open {
+    color: var(--klh-danger-ink);
+    border-color: var(--klh-danger);
+  }
+}
+
+// — narrow viewport: one column, rail wraps 2-up —
+@media (max-width: 700px) {
+  #decList {
+    grid-template-columns: 1fr;
+  }
+
+  .drail {
+    flex-wrap: wrap;
+
+    > button {
+      flex: 1 1 50%;
+      border-top: 1px solid var(--klh-edge-faint);
+    }
+
+    > button:nth-child(-n + 2) {
+      border-top: none;
+    }
+
+    > button:nth-child(odd) {
+      border-left: none;
+    }
+  }
+}
