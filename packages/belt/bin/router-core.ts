@@ -8,11 +8,6 @@
 //   - upstream 429 + Retry-After honored (bounded wait, then fallback/propagate)
 //   - OpenAI SSE → Anthropic SSE streaming translation (TTFT = first token)
 
-import { envInt } from "./admission.ts";
-import { EXTERNAL, type Specialist } from "./registry.ts";
-import { anthropicMessagesToOpenAi } from "./router-tools.ts";
-import { childTraceparent } from "@klh/telemetry/src/http-trace.ts";
-import { primeLocalStream } from "./stream-prelude.ts";
 // W1303.3: the shared resilience kit — the router's Retry-After parse and
 // per-attempt signals now delegate to it (one implementation, both routers).
 import {
@@ -20,15 +15,21 @@ import {
 	callDeadlineMs,
 	parseRetryAfterHeader,
 } from "@klh/buckle/src/resilience.ts";
+import { childTraceparent } from "@klh/telemetry/src/http-trace.ts";
+import { envInt } from "./admission.ts";
+import { EXTERNAL, type Specialist } from "./registry.ts";
+import { anthropicMessagesToOpenAi } from "./router-tools.ts";
+import { primeLocalStream } from "./stream-prelude.ts";
 
 // SSE wire translation (OpenAI → Anthropic) lives in router-sse.ts
 // (W1238.6.1 decomposition); re-exported so the router-core face stays put.
 export {
+	anthropicSseFromBlocks,
 	anthropicSseFromOpenAi,
 	anthropicSseFromText,
+	type StreamMeta,
 	stopReason,
 	thinkFilter,
-	type StreamMeta,
 } from "./router-sse.ts";
 
 // ─── 7-dimension complexity scoring (LiteLLM Auto Router pattern) ───
@@ -273,6 +274,72 @@ export interface AnthropicBody {
 	_force_dead_port?: number;
 }
 
+/** W2182: usage a leg actually reported, normalized. Absent = the leg
+ *  didn't report; the response then carries the leg's own zeros, never an
+ *  estimate. */
+export interface UpstreamUsage {
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheWriteTokens?: number;
+}
+
+/** W2182: a tool_use block as it crossed an upstream wire (anthropic
+ *  shape). */
+export interface AnthropicToolUse {
+	type: "tool_use";
+	id: string;
+	name: string;
+	input: unknown;
+}
+
+/** OpenAI-wire usage row (chat.completions) as specialists report it. */
+export interface OpenAiUsage {
+	prompt_tokens?: number;
+	completion_tokens?: number;
+	prompt_tokens_details?: { cached_tokens?: number };
+}
+
+/** W2182: pick the numbers actually present — a field the upstream didn't
+ *  send stays absent; a 0 that was sent stays 0. */
+export function parseUpstreamUsage(
+	u: OpenAiUsage | undefined,
+): UpstreamUsage | undefined {
+	if (typeof u !== "object" || u === null) return undefined;
+	const pick = (v: unknown): number | undefined =>
+		typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+	const inp = pick(u.prompt_tokens);
+	const outp = pick(u.completion_tokens);
+	const cached = pick(u.prompt_tokens_details?.cached_tokens);
+	const out: UpstreamUsage = {
+		...(inp !== undefined ? { inputTokens: inp } : {}),
+		...(outp !== undefined ? { outputTokens: outp } : {}),
+		...(cached !== undefined ? { cacheReadTokens: cached } : {}),
+	};
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** W2182: the Anthropic usage row for a response — real numbers when a leg
+ *  reported them, honest zeros otherwise. Cache fields appear only when the
+ *  leg sent them. */
+export function usageRow(usage: UpstreamUsage | undefined): {
+	input_tokens: number;
+	output_tokens: number;
+	cache_read_input_tokens?: number;
+	cache_creation_input_tokens?: number;
+} {
+	return {
+		input_tokens: usage?.inputTokens ?? 0,
+		output_tokens: usage?.outputTokens ?? 0,
+		...(usage?.cacheReadTokens !== undefined
+			? { cache_read_input_tokens: usage.cacheReadTokens }
+			: {}),
+		...(usage?.cacheWriteTokens !== undefined
+			? { cache_creation_input_tokens: usage.cacheWriteTokens }
+			: {}),
+	};
+}
+
 export const blockText = (content: unknown): string =>
 	typeof content === "string"
 		? content
@@ -512,6 +579,8 @@ export interface LocalResult {
 	/** W761.1: OpenAI-wire tool calls translated back to tool_use blocks. */
 	toolCalls?: OpenAiToolCall[];
 	timings?: RequestTimings;
+	/** W2182: the specialist's own usage numbers when it reported them. */
+	usage?: UpstreamUsage;
 }
 
 export interface CallOpts {
@@ -618,6 +687,7 @@ export async function viaLocal(
 		// parse first (preserves unicode), fall back to escaping control chars.
 		let j: {
 			error?: string | { message?: string };
+			usage?: OpenAiUsage;
 			choices?: Array<{
 				finish_reason?: string;
 				message?: { content?: string; reasoning_content?: string };
@@ -654,12 +724,14 @@ export async function viaLocal(
 				error: `empty (finish=${choice?.finish_reason ?? "?"}, keys=${Object.keys(msg).join("+") || "none"})`,
 			};
 		}
+		const usage = parseUpstreamUsage(j.usage);
 		return {
 			ok: true,
 			response,
 			status: res.status,
 			finish: choice?.finish_reason,
 			...(toolCalls.length > 0 ? { toolCalls } : {}),
+			...(usage ? { usage } : {}),
 			...(t0 !== undefined
 				? { timings: openWindow(t0, tOpen, performance.now()) }
 				: {}),
@@ -774,6 +846,8 @@ export async function openLocalStream(
 					max_tokens: maxTokens,
 					temperature,
 					stream: true,
+					// W2182: usage arrives as the final SSE chunk only when asked for.
+					stream_options: { include_usage: true },
 					...(opts.tools ? { tools: opts.tools } : {}),
 					...(opts.toolChoice !== undefined
 						? { tool_choice: opts.toolChoice }
