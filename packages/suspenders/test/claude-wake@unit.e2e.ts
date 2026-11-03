@@ -1,7 +1,7 @@
-import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	consumeClaudeWake,
 	proveClaudeWake,
@@ -12,7 +12,7 @@ import {
 } from "../hooks/lib/executors/claude-wake.ts";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-claude-wake-"));
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+test.afterAll(() => rmSync(home, { recursive: true, force: true }));
 // W670: lane envs carry SUSPENDERS_CLAUDE_WAKE=0 (the managed runtime pins it
 // for native children) — pin the knob so native-consumer watchers arm here.
 process.env.SUSPENDERS_CLAUDE_WAKE = "1";
@@ -24,7 +24,7 @@ const event = (id: number, target: string, kind = "NOTE") => ({
 	payload: JSON.stringify({ note: `direct instruction ${id}` }),
 });
 
-describe("Claude native hook wake bridge", () => {
+test.describe("Claude native hook wake bridge", () => {
 	test("managed supervision distinguishes live lock contention and aborts its backoff", async () => {
 		const sid = "typed-managed-rearm";
 		const owner = new AbortController();

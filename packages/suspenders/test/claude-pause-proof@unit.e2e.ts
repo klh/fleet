@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 test("pause proof rejects invented and nonancestor commits despite canonical-looking facts", () => {
 	const dir = mkdtempSync(join(tmpdir(), "claude-pause-proof-"));

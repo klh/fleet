@@ -26,10 +26,13 @@ const SELF = "tests/test-framework-guard.test.ts";
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
 // remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
-// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657) —
-// the exact non-decant count measured by THIS guard's own git ls-files
-// counting at the closing sha.
-const PIN = 657;
+// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
+// W1294.9.4 sweep-G slice-4 (22 claude+hub family files, merged via W2655)
+// re-pins DOWN (658 → 636) — main had drifted +1 over the 657 pin (W2595
+// belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
+// count measured by THIS guard's own git ls-files counting at the closing
+// sha.
+const PIN = 636;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
