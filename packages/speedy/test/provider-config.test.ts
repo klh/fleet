@@ -7,11 +7,11 @@ import { join } from "node:path";
 import {
 	loadProviderConfig,
 	PROVIDER_STACK_PATH,
+	type ProviderEntry,
 	profileForEndpoint,
 	profileForEnv,
 	resolveProvider,
 	validateProviderConfig,
-	type ProviderEntry,
 } from "../src/provider-config.ts";
 
 let home = "";

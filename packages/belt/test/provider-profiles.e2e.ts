@@ -3,22 +3,23 @@
 // (speedy/src/provider-config.ts) MUST answer identically on the same
 // fixtures, or a gateway row and the hub delivery leg drift. Fixtures are
 // real mode-600 JSON files; fixture key material is fake.
-import { expect, test } from "@playwright/test";
+
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	loadProviderProfiles,
-	profileForEndpoint,
-	profileForEnv,
-	validateProviderProfiles,
-} from "../bin/provider-profiles.ts";
 import {
 	loadProviderConfig,
 	profileForEndpoint as speedyEndpoint,
 	profileForEnv as speedyEnv,
 	validateProviderConfig,
 } from "@klh/speedy/src/provider-config.ts";
+import { expect, test } from "@playwright/test";
+import {
+	loadProviderProfiles,
+	profileForEndpoint,
+	profileForEnv,
+	validateProviderProfiles,
+} from "../bin/provider-profiles.ts";
 
 let dir = "";
 let stackPath = "";

@@ -26,8 +26,8 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-	type ProviderEntry,
 	loadProviderProfiles,
+	type ProviderEntry,
 	profileForEnv,
 } from "./provider-profiles.ts";
 import type { Child, Target } from "./supervisor.ts";

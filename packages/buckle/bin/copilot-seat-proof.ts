@@ -6,15 +6,16 @@
 // no_routes at attempts=0 (finding.w695.6.2). Secrets (root key, PAT) stay
 // inside this process and are never printed. PASS = a tool_use block comes
 // back through the full stack.
-import { resolvePort, startServer } from "../src/server.ts";
+
 // W1124.8.4: the Copilot PAT resolves from the inherited env or the CENTRAL
 // provider profile bound to GITHUB_COPILOT_PAT — the implicit copilot.key
 // file read is retired (the secret stays inside this process, never printed).
 import {
-	PROVIDER_STACK_PATH,
 	loadProviderConfig,
+	PROVIDER_STACK_PATH,
 	profileForEnv,
 } from "@klh/speedy/src/provider-config.ts";
+import { resolvePort, startServer } from "../src/server.ts";
 
 const LLM = `${process.env.HOME}/.claude/local-llm`;
 const PORT = resolvePort(4104);

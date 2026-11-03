@@ -9,7 +9,7 @@
 // home (~/.claude/local-llm) is npm-free (JSON.parse + node builtins only);
 // test/provider-profiles.test.ts runs BOTH loaders on the same fixtures so
 // the contracts cannot drift.
-import { readFileSync, statSync, type Stats } from "node:fs";
+import { readFileSync, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 

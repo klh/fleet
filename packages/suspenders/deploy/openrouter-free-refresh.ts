@@ -4,13 +4,13 @@
 // provider profile (OPENROUTER_API_KEY) — the legacy openrouter.key file
 // gate is retired.
 import {
-	PROVIDER_STACK_PATH,
 	loadProviderConfig,
+	PROVIDER_STACK_PATH,
 	profileForEnv,
 } from "@klh/speedy/src/provider-config.ts";
 import type { StackConfig } from "../hooks/lib/stack-config.ts";
-import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 import * as activation from "./litellm-activation.ts";
+import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 
 /** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
  *  inherited env value or the central profile bound to that env NAME. */

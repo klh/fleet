@@ -11,12 +11,12 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { z } from "zod";
 import {
-	PROVIDER_STACK_PATH,
 	loadProviderConfig,
+	PROVIDER_STACK_PATH,
 	profileForEnv,
 } from "@klh/speedy/src/provider-config.ts";
+import { z } from "zod";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
 
 export const OPENROUTER_CATALOG_URL =
