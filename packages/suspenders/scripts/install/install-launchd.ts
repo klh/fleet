@@ -455,8 +455,7 @@ export async function registerLaunchd(ctx: StepContext): Promise<StepResult> {
 				// never reloaded, their child stays with the old supervisor).
 				let recycleFailure: string | null = null;
 				for (const child of declaredChildPorts.get(label) ?? []) {
-					if (recycleOnBootstrap(child.port, !reviewedLive) === null)
-						continue;
+					if (recycleOnBootstrap(child.port, !reviewedLive) === null) continue;
 					const recycle = await recycleChildListener(
 						{
 							port: child.port,
