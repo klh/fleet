@@ -49,6 +49,21 @@ export interface PreferExecutor {
 	model: string | null;
 }
 
+/** W2636: 1-based line of the LAST valid `model=` pin — the same last-wins
+ * law parseExecutorPrefer applies to the value, kept beside the grammar it
+ * mirrors so provenance never drifts from the parse. Null when absent. */
+export function executorModelLine(text: string): number | null {
+	let line: number | null = null;
+	for (const [index, raw] of text.split("\n").entries()) {
+		const eq = raw.indexOf("=");
+		if (eq <= 0 || raw.slice(0, eq).trim() !== "model") continue;
+		const value = raw.slice(eq + 1).trim();
+		if (!value || value.startsWith('"') || /\s/.test(value)) continue;
+		line = index + 1;
+	}
+	return line;
+}
+
 export function parseExecutorPrefer(text: string): PreferExecutor {
 	const out: PreferExecutor = {
 		directives: [],
