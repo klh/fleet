@@ -47,6 +47,8 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"hub-port-heal": "W2309",
 	"gov-gc": "W2274",
 	"knowledge-distill": "6cec9094 — fork G knowledge distiller",
+	"hub-orphan-gc": "W2321.5",
+	// heartbeat-born since W2318; row landed here first in 2b66a047 (W2484)
 	"hold-drain": "W2318",
 };
 
