@@ -58,6 +58,8 @@ export const FleetLoopConfigSchema = z
 		 *  back to SUSPENDERS_REVIEW_ROUND_CAP (the plist env is fallback-
 		 *  only), then DEFAULT_REVIEW_ROUND_CAP. */
 		review_round_cap: z.number().int().min(0).optional(),
+		review_leg_timeout_ms: z.number().int().nonnegative().optional(),
+		review_leg_max_tokens: z.number().int().nonnegative().optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 		provider_pools: ProviderPoolsSchema.optional(),
 	})
@@ -81,6 +83,8 @@ export interface FleetLoopSettings {
 	reviewStepdownClasses?: string;
 	/** W2470: the conf's review_round_cap — absence = env fallback. */
 	reviewRoundCap?: number;
+	reviewLegTimeoutMs?: number;
+	reviewLegMaxTokens?: number;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -576,6 +580,8 @@ export function fleetLoopSettings(
 		reviewFallbackModels: block?.review_fallback_models,
 		reviewStepdownClasses: block?.review_stepdown_classes,
 		reviewRoundCap: block?.review_round_cap,
+		reviewLegTimeoutMs: block?.review_leg_timeout_ms,
+		reviewLegMaxTokens: block?.review_leg_max_tokens,
 	};
 }
 

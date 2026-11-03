@@ -64,6 +64,18 @@ export const FleetLoopSchema = section(
 			.describe(
 				"Review-and-fix round cap before the reviewer stops (0 disables; SUSPENDERS_REVIEW_ROUND_CAP stays the fallback when absent)",
 			),
+		review_leg_timeout_ms: int(
+			0,
+			3_600_000,
+			900_000,
+			"Review leg timeout (0 = uncapped; W2405)",
+		),
+		review_leg_max_tokens: int(
+			0,
+			1_000_000,
+			16_000,
+			"Review leg max_tokens (0 = omit the key, provider default; W2405)",
+		),
 		projects: z
 			.array(FleetLoopProjectSchema)
 			.max(64)
