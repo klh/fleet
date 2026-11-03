@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import { assertHubActivationPreflight } from "../deploy/hubctl.ts";
 
 const good = () => ({
@@ -12,7 +12,7 @@ const good = () => ({
 	stderr: "",
 });
 
-describe("hubctl activation route gate", () => {
+test.describe("hubctl activation route gate", () => {
 	test("deploy and up accept a passing static graph and drill", () => {
 		for (const verb of ["deploy", "up"])
 			expect(() => assertHubActivationPreflight(verb, good)).not.toThrow();

@@ -25,11 +25,13 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.3 sweep-A (82 suspenders/test specs) re-pins DOWN (778 → 696) — 6
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
-// remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
-// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657) —
-// the exact non-decant count measured by THIS guard's own git ls-files
-// counting at the closing sha.
-const PIN = 657;
+// remotes specs) re-pins DOWN (696 → 661) — the pin tracks the landing
+// tree's net count (concurrent sweep slices already merged at this base);
+// W1294.9.3 sweep-G slice-3 (30 install/hubctl files) re-pins DOWN
+// (661 → 631 at the W2473 rebase-merge integration — slice-4's 653→646
+// chain was cut from the same 696 base; this tree merges slice-1 + slice-3
+// and re-pins at its own landing count).
+const PIN = 631;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

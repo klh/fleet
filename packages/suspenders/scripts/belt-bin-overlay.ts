@@ -101,20 +101,9 @@ export function klhSpecs(text: string, fromDir: string): string[] {
 }
 
 // splice chunk-A before `export interface OverlayReport {` — belt-bin-overlay.ts
-function noteExternal(
-	resolved: string,
-	repoRoot: string,
-	externals: Map<string, string>,
-): void {
-	const base = basename(resolved);
+function noteExternal(resolved: string, externals: Map<string, string>): void {
 	if (externals.has(resolved)) return;
-	for (const [prevPath, prevBase] of externals) {
-		if (prevBase === base)
-			throw new Error(
-				`flat home basename collision: ${relative(repoRoot, prevPath)} and ${relative(repoRoot, resolved)} both map to ${base}`,
-			);
-	}
-	externals.set(resolved, base);
+	externals.set(resolved, basename(resolved));
 }
 
 // splice chunk-B1 before `export interface OverlayReport {` — belt-bin-overlay.ts
@@ -144,24 +133,26 @@ export async function flatExternals(
 		]) {
 			if (!(await Bun.file(spec).exists())) continue;
 			if (isWithin(spec, root)) memberBase.set(basename(spec), spec);
-			else if (isWithin(spec, repoRoot))
-				noteExternal(spec, repoRoot, externals);
+			else if (isWithin(spec, repoRoot)) noteExternal(spec, externals);
 			if (!seen.has(spec)) queue.push(spec);
 		}
 	}
-	// member↔external sharing a basename is legal ONLY for the pure-shim
-	// pair (the shim's real module collapses into one home file); anything
-	// else collides and fails closed
-	for (const [base, member] of memberBase) {
-		const extPath = [...externals.keys()].find((p) => basename(p) === base);
-		if (extPath === undefined) continue;
-		const memberText = await Bun.file(member)
-			.text()
-			.catch(() => "");
-		if (isPureReexportShim(memberText)) continue;
-		throw new Error(
-			`flat home basename collision: a closure member shares the basename ${base} with a cross-package external`,
-		);
+	// member↔external basename sharing used to fail closed (W1250); since
+	// main's fleet wiring pulls hooks/lib into the belt closure, colliding
+	// flat names unique-ify deterministically (repo-relative path →
+	// hyphens) instead — distinct modules keep distinct home files.
+	const used = new Set(memberBase.keys());
+	for (const [resolved, base] of [...externals].sort()) {
+		if (!used.has(base)) {
+			used.add(base);
+			continue;
+		}
+		const flat = relative(repoRoot, resolved).split("/").join("-");
+		let unique = flat;
+		const n = 2;
+		while (used.has(unique)) unique = `${flat}.${n}`;
+		used.add(unique);
+		externals.set(resolved, unique);
 	}
 	return externals;
 }
@@ -244,11 +235,10 @@ export function isPureReexportShim(source: string): boolean {
 	// a shim re-exports from OUTSIDE only (`../` or, since the W1249 import
 	// law, `@klh/<pkg>/<path>`) — any `./` specifier means the file is real
 	// code with kit siblings (entries with side effects included)
-	const specs = [
-		...source.matchAll(/(["'])((?:\.\.?\/|@klh\/)[^"']+)\1/g),
-	].map((m) => m[2]);
-	if (specs.length === 0 || specs.some((s) => s.startsWith("./")))
-		return false;
+	const specs = [...source.matchAll(/(["'])((?:\.\.?\/|@klh\/)[^"']+)\1/g)].map(
+		(m) => m[2],
+	);
+	if (specs.length === 0 || specs.some((s) => s.startsWith("./"))) return false;
 	return true;
 }
 
@@ -261,8 +251,7 @@ export async function shimRealSource(
 	if (!isPureReexportShim(source)) return null;
 	for (const match of source.matchAll(/["'](\.\.[^"']+|@klh\/[^"']+)["']/g)) {
 		const resolved =
-			klhSpecPath(match[1], dirname(file)) ??
-			resolve(dirname(file), match[1]);
+			klhSpecPath(match[1], dirname(file)) ?? resolve(dirname(file), match[1]);
 		if (relative(root, resolved).startsWith("..")) return resolved;
 	}
 	return null;
