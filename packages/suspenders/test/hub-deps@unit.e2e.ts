@@ -1,4 +1,3 @@
-import { afterAll, describe, expect, test } from "bun:test";
 import {
 	existsSync,
 	lstatSync,
@@ -11,9 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
-	HUB_FLEET_ROOT,
 	bootstrapHubDeps,
+	HUB_FLEET_ROOT,
 	installBaseClosure,
 	linkBaseWorkspaces,
 	planBaseWorkspaces,
@@ -33,11 +33,11 @@ const setup = (root: string, pkgDir: string, manifest: string) => {
 	writeFileSync(join(d, "package.json"), manifest);
 };
 
-afterAll(() => {
+test.afterAll(() => {
 	for (const r of roots) rmSync(r, { recursive: true, force: true });
 });
 
-describe("planBaseWorkspaces", () => {
+test.describe("planBaseWorkspaces", () => {
 	test("absent base-monorepo dep plans nothing", () => {
 		expect(planBaseWorkspaces(makeRoot())).toEqual([]);
 	});
@@ -68,7 +68,7 @@ describe("planBaseWorkspaces", () => {
 	});
 });
 
-describe("linkBaseWorkspaces", () => {
+test.describe("linkBaseWorkspaces", () => {
 	test("applies unscoped + scoped links with correct targets", () => {
 		const root = makeRoot();
 		setup(root, "beta", '{"name":"beta"}');
@@ -110,7 +110,7 @@ describe("linkBaseWorkspaces", () => {
 	});
 });
 
-describe("HUB_FLEET_ROOT", () => {
+test.describe("HUB_FLEET_ROOT", () => {
 	test("is the compose volume root (W714 regression tripwire)", () => {
 		expect(HUB_FLEET_ROOT).toBe("/src/fleet");
 	});
@@ -135,7 +135,7 @@ test("compose bootstrap installs a frozen plain checkout", () => {
 	expect(bootstrapHubDeps(root)).toBe(0);
 });
 
-describe("installBaseClosure", () => {
+test.describe("installBaseClosure", () => {
 	test("frozen closure install of the dep copy exits 0 (W816)", () => {
 		const root = makeRoot();
 		const copy = join(root, "node_modules/fleet");

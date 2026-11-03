@@ -1,12 +1,17 @@
-import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const binary = Bun.which("claude");
-test.skipIf(!binary)(
+// port delta: playwright has no test.skipIf — the bun conditional
+// registration became an in-body conditional skip (fixme spelling: the
+// environment lacks an executable claude binary, exactly the case the
+// playwright docs give fixme for).
+test(
 	"installed Claude resumes persisted history under the same native UUID without a fork",
 	async () => {
+		test.fixme(!binary, "claude binary not installed on PATH");
 		const home = mkdtempSync(join(tmpdir(), "native-resume-contract-"));
 		const session = crypto.randomUUID();
 		const histories: number[] = [];
@@ -130,5 +135,5 @@ test.skipIf(!binary)(
 			rmSync(home, { recursive: true, force: true });
 		}
 	},
-	35_000,
+	{ timeout: 35_000 },
 );

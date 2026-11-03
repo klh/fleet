@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { laneSettingsData } from "../scripts/lib/lane-settings.ts";
+import { expect, test } from "@playwright/test";
 import { materializeRestartSettings } from "../scripts/lib/claude-restart-settings.ts";
+import { laneSettingsData } from "../scripts/lib/lane-settings.ts";
 
 test("owned materialization repairs the real gate target while preserving routing, key, effort and user fields", () => {
 	const bin = new URL("../hooks/bin", import.meta.url).pathname;

@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 // W697 (toto-gpt gap 8): container hardening profiles for hub-compose.yaml.
 type Svc = Record<string, unknown> & {
@@ -113,7 +113,8 @@ test("writable surface = explicit state mounts; code mounts stay :ro", () => {
 	for (const name of RUNTIME) {
 		for (const v of svcs[name]?.volumes ?? []) {
 			const m = String(v);
-			if (m.startsWith("fleet-repo:")) expect(m, name).toEndWith(":ro");
+			if (m.startsWith("fleet-repo:"))
+				expect(m.endsWith(":ro"), name).toBe(true);
 		}
 	}
 	// hub-init owns exactly the five state volumes it re-owns

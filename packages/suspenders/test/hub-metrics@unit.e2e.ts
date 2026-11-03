@@ -1,11 +1,12 @@
-import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { hubMetricsEnv } from "../deploy/hub-metrics.ts";
 import type { HubProfile } from "../hooks/lib/stack-config.ts";
+
 const dir = mkdtempSync(join(tmpdir(), "hub-metrics-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const profile: HubProfile = {
 	host: "127.0.0.1",
 	metrics: {
@@ -30,7 +31,10 @@ test("operator projection declares only endpoint and an existing credential name
 			...profile,
 			metrics: {
 				litellm: {
-					url: "http://host.docker.internal:4100/metrics",
+					// plain http to a public host stays refused (W1267: only the
+					// loopback set — 127.0.0.1/localhost/host.docker.internal —
+					// is http-eligible)
+					url: "http://engine.example/metrics",
 					key_env: "ENGINE_METRICS_KEY",
 					source_id: "shared-engine",
 				},
@@ -66,6 +70,18 @@ test("operator projection declares only endpoint and an existing credential name
 		expect(() =>
 			hubMetricsEnv({ ...profile, metrics: { litellm } } as HubProfile),
 		).toThrow();
+	// W1267 loopback-equivalence: the host gateway name rides plain http
+	expect(
+		hubMetricsEnv({
+			...profile,
+			metrics: {
+				litellm: {
+					...profile.metrics?.litellm,
+					url: "http://host.docker.internal:4100/metrics",
+				},
+			},
+		}),
+	).toMatchObject({ HUB_LITELLM_METRICS_URL: "http://host.docker.internal:4100/metrics" });
 });
 test("actual hubctl render and compose carry the same private connector bindings", () => {
 	const stack = join(dir, "stack.json");
