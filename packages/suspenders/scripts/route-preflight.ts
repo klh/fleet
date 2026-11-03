@@ -97,19 +97,21 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 	// W1094.1: hub profiles declare their own machine-local terminals
 	// (HubProfileSchema route_preflight) — the settings.json projection
 	// carries NO stack-level block, so hub rows are the only live source.
-	// A declared leaf counts globally for graph mapping and as declared
-	// evidence for remoteHost sources on that hub.
-	for (const raw of Object.values(hubs)) {
+	// The union is fleet-global on purpose: an origin a hub declares is a
+	// mapped leaf for the whole graph, and every declared terminal is
+	// valid declared evidence for ANY remoteHost source — the per-hub
+	// scoping stays in the declaring hub's own inventory, not here.
+	for (const [name, raw] of Object.entries(hubs)) {
 		const hubTerminals = record(record(raw).route_preflight).terminal_origins;
 		if (hubTerminals !== undefined && !Array.isArray(hubTerminals))
 			throw new Error(
-				"hub route_preflight.terminal_origins must be an array",
+				`hub ${name} route_preflight.terminal_origins must be an array`,
 			);
 		terminals.push(...((hubTerminals ?? []) as unknown[]));
 	}
 	if (terminals.some((item) => !string(item)))
 		throw new Error("route_preflight.terminal_origins must contain URLs");
-	const buckles: RouteLadderInputs.buckles = [
+	const buckles: RouteLadderInputs["buckles"] = [
 		{
 			id: "local",
 			origins: ["http://127.0.0.1:4101"],
@@ -117,7 +119,7 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			policy: source.policy,
 		},
 	];
-	const beltModels: NonNullable<RouteLadderInputs.belts> = [];
+	const beltModels: NonNullable<RouteLadderInputs["belts"]> = [];
 	for (const [name, raw] of Object.entries(hubs)) {
 		const hub = record(raw);
 		buckles.push({
