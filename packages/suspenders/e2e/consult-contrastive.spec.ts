@@ -11,6 +11,7 @@ import {
 	domainVisible,
 	parseCompose,
 } from "../hooks/lib/contrastive-selection.ts";
+import { startKevStub } from "../test/fixtures/kev-stub-start.ts";
 import {
 	cleanup,
 	initProject,
@@ -19,7 +20,6 @@ import {
 	seedSession,
 	sqlGet,
 } from "./contrastive-helpers.ts";
-import { startKevStub } from "../test/fixtures/kev-stub-start.ts";
 
 const ASKER = "asker-sess-22222222";
 const EXPERT = "expert-sess-11111111";
