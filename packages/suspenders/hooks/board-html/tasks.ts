@@ -496,7 +496,14 @@ function renderKanban(){
   var kstruct = kanbanStructural(html);
   var prevStructural = el.getAttribute('data-ksig') || '';
   if (prevStructural === kstruct) { kanbanSyncAll(el, shownAll); updateKanbanVolatile(el, shownAll); paintSparks(el); return; }
-  if (el.contains(document.activeElement) && document.activeElement.classList && (document.activeElement.classList.contains('kexecsel') || document.activeElement.classList.contains('keffortsel'))) return; // picking — defer the swap, next render applies it
+  // W2267.6 (review N1): the pickers are the Lit card's shadow <select>s now
+  // (.kexecsel/.keffortsel retired) — document.activeElement retargets to the
+  // card host, so walk the shadow chain to the focused control and defer the
+  // swap while a select is open; drafts re-hydrate from the page maps once
+  // the swap lands (#103404).
+  var ae = document.activeElement, deep = ae;
+  while (deep && deep.shadowRoot && deep.shadowRoot.activeElement) deep = deep.shadowRoot.activeElement;
+  if (ae && el.contains(ae) && deep && deep.tagName === 'SELECT') return; // picking — defer the swap, next render applies it
   var page = document.scrollingElement || document.documentElement;
   var pageY = page.scrollTop, laneX = el.parentElement.scrollLeft;
   el.setAttribute('data-ksig', kstruct);
