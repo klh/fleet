@@ -41,9 +41,7 @@ export const measureSpark = (page: Page, scope: string): Promise<SparkGeom> =>
 		const windowEnd = Number(svg?.getAttribute("data-window-end") ?? 0);
 		// the axis rides the board's shared dual-stamp embed (W1107.1.2)
 		const fmt = (ms: number) =>
-			(window as unknown as { dualShort: (v: number) => string }).dualShort(
-				ms,
-			);
+			(window as unknown as { dualShort: (v: number) => string }).dualShort(ms);
 		return {
 			trackW: track,
 			svgW: box,
@@ -73,7 +71,8 @@ export const measureStrip = (page: Page, scope: string): Promise<StripGeom> =>
 		const card = document.querySelector(sel);
 		const strip =
 			card?.querySelector("klh-card-activity") ??
-			(card?.shadowRoot?.querySelector("klh-card-activity") ?? null);
+			card?.shadowRoot?.querySelector("klh-card-activity") ??
+			null;
 		const svg = strip?.shadowRoot?.querySelector("svg.plot") ?? null;
 		const viewBox = (svg?.getAttribute("viewBox") ?? "").split(/\s+/);
 		const rectEls = [...(svg?.querySelectorAll("rect") ?? [])];
@@ -86,8 +85,7 @@ export const measureStrip = (page: Page, scope: string): Promise<StripGeom> =>
 			trackW: svg?.getBoundingClientRect().width ?? 0,
 			viewBoxW: Number(viewBox[2] ?? 0),
 			barCount: uniq.length,
-			firstLeft:
-				lefts.length > 0 ? Math.min(...lefts) - trackLeft : Number.NaN,
+			firstLeft: lefts.length > 0 ? Math.min(...lefts) - trackLeft : Number.NaN,
 			lastRight:
 				rights.length > 0 ? Math.max(...rights) - trackLeft : Number.NaN,
 			barWidths: rectEls.map((r) => r.getBoundingClientRect().width),

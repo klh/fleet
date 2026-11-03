@@ -8,18 +8,18 @@
 // its slot, and lets the card's typed events bubble composed to the
 // kanban's delegated handlers. Renders no chrome of its own:
 // display:contents keeps the kanban column layout untouched.
-import { LitElement, css, html } from "lit";
+import { css, html, LitElement } from "lit";
 import * as z from "zod/mini";
-import {
-	TaskCardModelSchema,
-	type ExecutorOption,
-	type TaskCardModel,
-	type TaskMetrics,
-} from "./klh-task-card-model.ts";
 import type {
 	ActivityPoint,
 	AttemptTimeline,
 } from "../lib/board/activity-contract.ts";
+import {
+	type ExecutorOption,
+	type TaskCardModel,
+	TaskCardModelSchema,
+	type TaskMetrics,
+} from "./klh-task-card-model.ts";
 import "./klh-task-card.ts";
 import "./klh-card-activity.ts";
 
@@ -112,7 +112,7 @@ export class KlhTaskCardHost extends LitElement {
 		series: { attribute: false },
 		attempt: { attribute: false },
 		attemptView: { attribute: false },
-			/** #103127: the verb the mediator holds in flight — data-down; the
+		/** #103127: the verb the mediator holds in flight — data-down; the
 		 * card's footer disables that verb and shows busy text until the
 		 * mediator clears it. Never derived from the feed. */
 		pendingAction: { attribute: false },

@@ -5,9 +5,9 @@
 // fails loud across host/card/activity bundles), and the canonical vendor
 // build loads exactly this entry — never a component module directly.
 import { defineElement } from "@klh/design-ui";
-import { KlhTaskCardHost } from "./klh-task-card-host.ts";
-import { KlhTaskCard } from "./klh-task-card.ts";
 import { KlhCardActivity } from "./klh-card-activity.ts";
+import { KlhTaskCard } from "./klh-task-card.ts";
+import { KlhTaskCardHost } from "./klh-task-card-host.ts";
 
 export const registerBoardElements = (): void => {
 	defineElement("klh-task-card-host", KlhTaskCardHost);

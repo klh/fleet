@@ -1,4 +1,6 @@
-import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{l}from"./lit-ca9cab28b369e215.js";var c=r`
+import { l } from "./lit-4c1b2687ab6d537d.js";
+import { e, n, r } from "./lit-9ab93f5debb235da.js";
+var c = r`
 	.hint {
 		font-size: 10.5px;
 		color: var(--klh-dim);
@@ -67,7 +69,50 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{l}from"./lit-ca9cab28b369e21
 		font-size: 11px;
 		cursor: pointer;
 	}
-`;class o extends n{static properties={heading:{type:String},options:{type:Array},chain:{state:!0},pick:{state:!0}};static styles=[l,c];constructor(){super();this.heading="executor preference order",this.options=[],this.chain=[],this.pick=""}get carrier(){return this.querySelector('input[name="default_executors"]')}connectedCallback(){super.connectedCallback();let t=this.carrier?.value??"";this.chain=t.split(",").map((i)=>i.trim()).filter(Boolean)}set(t){this.chain=t;let i=this.carrier;if(i)i.value=t.join(",")}move(t,i){let s=t+i;if(s<0||s>=this.chain.length)return;let a=[...this.chain];[a[t],a[s]]=[a[s],a[t]],this.set(a)}add(){let i=this.renderRoot.querySelector("select")?.value??this.pick;if(i&&!this.chain.includes(i))this.set([...this.chain,i])}render(){return e`<h2>${this.heading}</h2>
+`;
+class o extends n {
+	static properties = {
+		heading: { type: String },
+		options: { type: Array },
+		chain: { state: !0 },
+		pick: { state: !0 },
+	};
+	static styles = [l, c];
+	constructor() {
+		super();
+		(this.heading = "executor preference order"),
+			(this.options = []),
+			(this.chain = []),
+			(this.pick = "");
+	}
+	get carrier() {
+		return this.querySelector('input[name="default_executors"]');
+	}
+	connectedCallback() {
+		super.connectedCallback();
+		const t = this.carrier?.value ?? "";
+		this.chain = t
+			.split(",")
+			.map((i) => i.trim())
+			.filter(Boolean);
+	}
+	set(t) {
+		this.chain = t;
+		const i = this.carrier;
+		if (i) i.value = t.join(",");
+	}
+	move(t, i) {
+		const s = t + i;
+		if (s < 0 || s >= this.chain.length) return;
+		const a = [...this.chain];
+		([a[t], a[s]] = [a[s], a[t]]), this.set(a);
+	}
+	add() {
+		const i = this.renderRoot.querySelector("select")?.value ?? this.pick;
+		if (i && !this.chain.includes(i)) this.set([...this.chain, i]);
+	}
+	render() {
+		return e`<h2>${this.heading}</h2>
 			<p class="hint">
 				dispatch walks this order as its fallback chain — first entry first; a
 				dead lane re-dispatch advances to the next; the same-model tail rides
@@ -75,47 +120,67 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{l}from"./lit-ca9cab28b369e21
 				enabled_executors blocks it. Empty list = claude only.
 			</p>
 			<ol aria-label="executor preference order">
-				${this.chain.map((t,i)=>this.row(t,i))}
+				${this.chain.map((t, i) => this.row(t, i))}
 			</ol>
 			<div class="add">
 				<div>
 					<label for="exadd">add executor (catalog)</label>
 					<select id="exadd">
-						${Array.from(new Set(this.options.map((t)=>t.group??"Other"))).map((t)=>e`<optgroup label=${t}>
-								${this.options.filter((i)=>(i.group??"Other")===t).map((i)=>e`<option
+						${Array.from(
+							new Set(this.options.map((t) => t.group ?? "Other")),
+						).map(
+							(t) => e`<optgroup label=${t}>
+								${this.options
+									.filter((i) => (i.group ?? "Other") === t)
+									.map(
+										(i) => e`<option
 											value=${i.value}
 											?disabled=${this.chain.includes(i.value)}
 										>
 											${i.label}
-										</option>`)}
-							</optgroup>`)}
+										</option>`,
+									)}
+							</optgroup>`,
+						)}
 					</select>
 				</div>
-				<button type="button" @click=${()=>this.add()}>add</button>
-			</div>`}row(t,i){return e`<li data-v=${t}>
+				<button type="button" @click=${() => this.add()}>add</button>
+			</div>`;
+	}
+	row(t, i) {
+		return e`<li data-v=${t}>
 			<span class="exv">${t}</span>
 			<button
 				type="button"
 				aria-label="move up ${t}"
-				@click=${()=>this.move(i,-1)}
+				@click=${() => this.move(i, -1)}
 			>
 				↑
 			</button>
 			<button
 				type="button"
 				aria-label="move down ${t}"
-				@click=${()=>this.move(i,1)}
+				@click=${() => this.move(i, 1)}
 			>
 				↓
 			</button>
 			<button
 				type="button"
 				aria-label="remove ${t}"
-				@click=${()=>this.set(this.chain.filter((s,a)=>a!==i))}
+				@click=${() => this.set(this.chain.filter((_s, a) => a !== i))}
 			>
 				✕
 			</button>
-		</li>`}}if(!customElements.get("klh-executor-editor"))customElements.define("klh-executor-editor",o);class d extends n{static properties={heading:{type:String},lines:{type:Array}};static styles=[l,r`
+		</li>`;
+	}
+}
+if (!customElements.get("klh-executor-editor"))
+	customElements.define("klh-executor-editor", o);
+class d extends n {
+	static properties = { heading: { type: String }, lines: { type: Array } };
+	static styles = [
+		l,
+		r`
 			pre {
 				background: var(--klh-bg);
 				border: 1px solid var(--klh-edge);
@@ -136,5 +201,22 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{l}from"./lit-ca9cab28b369e21
 			.ctx {
 				display: block;
 			}
-		`];constructor(){super();this.heading="",this.lines=[]}cls(t){return t.startsWith("+ ")?"add":t.startsWith("- ")?"del":"ctx"}render(){let t=this.lines.length?this.lines.map((i)=>e`<span class=${this.cls(i)}>${i}</span>`):e`no textual change`;return e`<h2>${this.heading}</h2>
-			<pre class="diff">${t}</pre>`}}if(!customElements.get("klh-diff-view"))customElements.define("klh-diff-view",d);
+		`,
+	];
+	constructor() {
+		super();
+		(this.heading = ""), (this.lines = []);
+	}
+	cls(t) {
+		return t.startsWith("+ ") ? "add" : t.startsWith("- ") ? "del" : "ctx";
+	}
+	render() {
+		const t = this.lines.length
+			? this.lines.map((i) => e`<span class=${this.cls(i)}>${i}</span>`)
+			: e`no textual change`;
+		return e`<h2>${this.heading}</h2>
+			<pre class="diff">${t}</pre>`;
+	}
+}
+if (!customElements.get("klh-diff-view"))
+	customElements.define("klh-diff-view", d);

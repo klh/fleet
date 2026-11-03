@@ -83,9 +83,10 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	const card = page.locator(`.kcard[data-kid="${wId}"]`);
 	// W2267.4.2.2: the ONE Lit strip — stacked fresh/cached SVG bars with
 	// positive geometry (the retired legacy .kspark chunk no longer renders)
-	await expect(
-		card.locator("klh-card-activity rect.spark-fresh"),
-	).toHaveCount(1, { timeout: 20_000 });
+	await expect(card.locator("klh-card-activity rect.spark-fresh")).toHaveCount(
+		1,
+		{ timeout: 20_000 },
+	);
 	await expect(card.locator("klh-card-activity rect.spark-cached")).toHaveCount(
 		1,
 	);

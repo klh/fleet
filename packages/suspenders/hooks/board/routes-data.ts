@@ -7,36 +7,41 @@ import { loadLastKnown } from "../lib/federation/federation.ts";
 import { itemAttribution } from "../lib/lanes/lane-spend.ts";
 import { hubModelIdsFrom } from "../lib/lanes/provenance.ts";
 import { readUserPlane } from "../lib/policy/repo-laws.ts";
+import {
+	reportDefaultProject,
+	reportFace,
+	reportRowDetail,
+} from "../lib/work/report-face.ts";
+import { attemptTimelinesPayload } from "./attempt-timeline.ts";
 import { beltRegistry } from "./belt.ts";
 import { db } from "./context.ts";
-import { activity, workEvents } from "./events.ts";
+import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
 import { decisionsPayload, taskDecisions } from "./decisions.ts";
-import { payloadBody, payloadFor, sessionsPage } from "./payload.ts";
+import { activity, workEvents } from "./events.ts";
 import { stateHighWater } from "./events-memo.ts";
+import { buildBeltEntries } from "./executor-catalog.ts";
+import { json, jsonEtag, respondCached } from "./helpers.ts";
+import {
+	projectList,
+	signalFor,
+	syncDecisions,
+	transcriptTailAll,
+	unblockedBy,
+} from "./lanes.ts";
+import { launchContextForItem } from "./launch-context.ts";
+import { localSwarmEntries } from "./local-swarm.ts";
+import { orchTargets } from "./orch-targets.ts";
+import { traceForWork } from "./orch-trace.ts";
+import { payloadBody, payloadFor, sessionsPage } from "./payload.ts";
 import { pollMemoBody } from "./poll-memo.ts";
+import { recoverySnapshot } from "./recovery.ts";
+import { setupFeed } from "./setup-cache.ts";
 import {
 	taskShape,
 	tasks,
 	workSpendSeriesPayload,
 	workStateCounts,
 } from "./tasks.ts";
-import { decisionEvalStatus, decisionEvals } from "./decide-eval.ts";
-import { buildBeltEntries } from "./executor-catalog.ts";
-import { json, jsonEtag, respondCached } from "./helpers.ts";
-import { launchContextForItem } from "./launch-context.ts";
-import { projectList, signalFor, syncDecisions, unblockedBy } from "./lanes.ts";
-import { attemptTimelinesPayload } from "./attempt-timeline.ts";
-import { localSwarmEntries } from "./local-swarm.ts";
-import { orchTargets } from "./orch-targets.ts";
-import { traceForWork } from "./orch-trace.ts";
-import { recoverySnapshot } from "./recovery.ts";
-import {
-	reportDefaultProject,
-	reportFace,
-	reportRowDetail,
-} from "../lib/work/report-face.ts";
-import { setupFeed } from "./setup-cache.ts";
-import { transcriptTailAll } from "./lanes.ts";
 import { executionTraceForWork } from "./work-execution-trace.ts";
 
 // W183.1 — plane-labeled executor feed. Four planes (provenance.ts/
@@ -151,7 +156,6 @@ export async function handleData(
 		if (
 			url.pathname.startsWith("/vendor/") &&
 			(vf === "klh-components.js" ||
-				vf === "klh-task-card.js" ||
 				vf === "klh-service-row.js" ||
 				vf === "klh-recovery.js" ||
 				vf === "klh-hub-admin.js" ||

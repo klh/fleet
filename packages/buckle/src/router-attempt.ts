@@ -157,6 +157,7 @@ export async function tryOnce(
 	// remaining walk budget (deadlines only shrink); a granted lease
 	// clears the wait timer, so active streams keep their own guards.
 	const poolId = providerPoolIdOf(dep);
+	let remainingWalkMs = walkRemainingMs;
 	// Shared cold mark (anti-stampede): a cold account is never knocked; a
 	// half-open one admits exactly ONE probe; the OTHERS of this RTT burst
 	// ride the in-flight verdict (short bounded queue) — a success re-admits,
@@ -164,19 +165,48 @@ export async function tryOnce(
 	if (!host.cooldowns.cold.claimProbe(dep)) {
 		const gate = host.cooldowns.cold.gateOf(dep);
 		if (gate === null) return coldRefusal(host, dep, poolId, null);
+		const rodeAt = host.now();
+		const rideMs = resilienceOf(host).admission_ride_ms;
 		const verdict = await ColdMarks.ride(
 			gate,
 			// NaN-safe: a NaN remainder must not mint a NaN timer
-			Number.isFinite(walkRemainingMs)
-				? Math.min(1500, Math.max(1, walkRemainingMs))
-				: 1500,
+			Number.isFinite(remainingWalkMs)
+				? Math.min(rideMs, Math.max(1, remainingWalkMs))
+				: rideMs,
 			req.signal,
 		);
 		// a success opened the account / a release left it un-cold: the
 		// riding batch goes straight to admission (the pool core paces it).
-		// Only a cold verdict (or an expired ride) answers locally.
-		if (verdict === "refused" || verdict === "timeout")
-			return coldRefusal(host, dep, poolId, null);
+		if (verdict === "refused") return coldRefusal(host, dep, poolId, null);
+		if (verdict === "timeout") {
+			// A lapsed ride on a REAL half-open probe keeps every other
+			// caller cold until the probe answers (single-flight contract).
+			if (gate.kind !== "placeholder")
+				return coldRefusal(host, dep, poolId, null);
+			// A lapsed PLACEHOLDER ride carries no cold verdict at all — the
+			// first knock is merely still in flight (W2585). With a bounded
+			// pool behind the row the rider falls through to admission; the
+			// dwell shrank this walk (deadlines only shrink).
+			if (poolId !== null) {
+				const dwellMs = Math.max(0, Math.round(host.now() - rodeAt));
+				if (Number.isFinite(remainingWalkMs))
+					remainingWalkMs = Math.max(0, remainingWalkMs - dwellMs);
+			} else {
+				// No pool = no bound: a fall-through herd would knock the
+				// account unbounded. The rider gets the honest local expiry
+				// instead: no cold verdict exists, so the horizon is one
+				// ride window — never a fabricated cold remainder.
+				return {
+					ok: false as const,
+					localAdmission: true,
+					providerPool: null,
+					queueWaitMs: null,
+					status: 503,
+					error: `upstream ${dep.url} admission ride expired while the first knock is still in flight — answered locally, no cold verdict recorded`,
+					retryAfterS: Math.max(1, Math.ceil(rideMs / 1000)),
+				};
+			}
+		}
 	}
 	const admission = poolId === null ? undefined : host.pools.get(poolId);
 	let lease: ProviderLease | undefined;
@@ -192,7 +222,7 @@ export async function tryOnce(
 				req.signal,
 				Math.max(
 					1,
-					Math.min(walkRemainingMs - 1, resilienceOf(host).max_queue_wait_ms),
+					Math.min(remainingWalkMs - 1, resilienceOf(host).max_queue_wait_ms),
 				),
 			);
 		} catch (error) {
@@ -219,7 +249,7 @@ export async function tryOnce(
 			lease.release();
 			return coldRefusal(host, dep, poolId, queueWaitMs);
 		}
-		const remainingMs = walkRemainingMs - queueWaitMs;
+		const remainingMs = remainingWalkMs - queueWaitMs;
 		if (remainingMs <= 0) {
 			lease.release();
 			// this walker's knock dies pre-wire: retire its placeholder

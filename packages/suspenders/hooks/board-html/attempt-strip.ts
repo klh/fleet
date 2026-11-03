@@ -14,11 +14,11 @@ import {
 	ATTEMPT_MS_HALF,
 	ATTEMPT_SEG_H,
 	ATTEMPT_SEG_Y,
+	type AttemptHit,
 	attemptRows,
 	attemptTip,
 	attemptX,
 	hitTest,
-	type AttemptHit,
 } from "../lib/board/attempt-render.ts";
 // W2267.4.2.2: compact stamps — the full dual UTC/local pair repeated three
 // times per hover was noise; #103233/#103234 pin the exact shortforms.

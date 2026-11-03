@@ -5,10 +5,11 @@
 // scratch HOME + repo, OS-picked port, dead loopback upstreams; the ledger
 // rides SUSPENDERS_BUCKLE_DB="" (spoke-home resolution) so the ambient env
 // pin can never leak into the fixture (W670 doctrine).
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { startBoard } from "../test/helpers/board-harness";
 
 test.describe.configure({ mode: "serial" });

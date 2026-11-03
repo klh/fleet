@@ -153,7 +153,9 @@ test("pending state: busy control while in flight, unlock on failure, no double-
 	await page.route("**/api/recover", async (route) => {
 		hits++;
 		await page.waitForTimeout(1200);
-		await route.fulfill({ json: { ok: false, error: "fixture: delayed failure" } });
+		await route.fulfill({
+			json: { ok: false, error: "fixture: delayed failure" },
+		});
 	});
 	await recover.dblclick();
 	// in flight: disabled + aria-busy + the busy label (mediator stamped it)

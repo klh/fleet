@@ -1,33 +1,1026 @@
-import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5ab2a8466.js";import{o,c,b,a,i,y,T,s,d}from"./lit-2f69bfe86efc9f7c.js";import{k,N,O,Z,j}from"./lit-70c8b7a6a0a2f23a.js";var ct=new Set,P=(t,l)=>{if(customElements.get(t))throw Error(`defineElement: <${t}> is already defined — ONE register point per workspace`);ct.add(t),customElements.define(t,l)};var G=1.5;function dt(t,l,u,p=180000){let m=Array.from({length:u},()=>null);for(let f of t){let _=Math.floor((f[0]-l)/p);if(_>u-1)_=u-1;if(_<0)continue;let g=m[_];if(g==null)g={fresh:0,cached:0,out:0},m[_]=g;g.fresh+=f[1],g.cached+=f[2],g.out+=f[3]}return m}function ut(t,l,u=6,p=180000){let m=Math.max(1,Math.floor(l/u)),f=t;return{count:m,slotMs:p,start:f-m*p,end:f}}var ht={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function Q(t,l,u){if(!t.length)return ht;let{POSITIVE_INFINITY:p,NEGATIVE_INFINITY:m}=Number;for(let w of t){if(w[0]<p)p=w[0];if(w[0]>m)m=w[0]}let f=ut(m,l),_=u??Math.max(f.start,p),g=Math.ceil((m-_)/f.slotMs)+1,x=Math.max(1,Math.min(f.count,g));return{bins:dt(t,_,x),firstTs:p,windowStart:_,windowEnd:_+x*f.slotMs,count:x,slotMs:f.slotMs,startClipped:_>p,hasData:!0}}function I(t){let l=new Date(t),u=(p)=>String(p).padStart(2,"0");return`${u(l.getHours())}:${u(l.getMinutes())}`}function Y(t,l,u=86400000){let p=l/2;if(t===null||t===void 0)return{visible:!1,center:p,half:0,start:p,end:p,saturated:!1};if(!Number.isFinite(t)||t<=0)return{visible:!1,center:p,half:0,start:p,end:p,saturated:!1};let m=Math.min(l/2,t/u*(l/2));return{visible:!0,center:p,half:m,start:p-m,end:p+m,saturated:t>=u}}function S(t){if(!Number.isFinite(t)||t<=0)return"0m";let l=Math.round(t/60000);if(l<60)return`${l}m`;return`${Math.floor(l/60)}h ${String(l%60).padStart(2,"0")}m`}function F(t=86400000){return`${t/3600000}h`}function M(t,l,u,p){let m=Math.max(1,u-l),f=(t-l)/m*p;return Math.max(0,Math.min(p,f))}function C(t){let l=[];for(let p of t.attempt.segments){if(p.end<=p.start)continue;l.push({kind:p.kind,start:p.start,end:p.end})}let u=[];for(let p of t.milestones){if(p.ts<t.windowStart||p.ts>t.windowEnd)continue;u.push({kind:"milestone",start:p.ts,end:p.ts,commit:p.commit,stage:p.stage})}return{segs:l,milestones:u}}function tt(t,l,u,p,m){for(let f of t.milestones){let _=M(f.start,u,p,m);if(Math.abs(l-_)<=6)return f}for(let f of t.segs){let _=M(f.start,u,p,m),g=M(f.end,u,p,m);if(l>=_&&l<=Math.max(g,_+1))return f}return null}function L(t,l,u,p){if(t.kind==="milestone")return[`artifact · ${t.stage??""}`,u(t.start),`commit ${t.commit??""}`].join(`
-`);let m=[`${t.kind} · ${p(t.end-t.start)}`,u(t.start,t.end)];if(t.kind==="firstbyte")m.push("first attributed ledger request — not network latency");if(t.kind==="tool")m.push("request-row minutes — not tool-call duration");if(t.kind==="unknown")m.push("no fact covers this gap");return m.push(`attempt ${l.attempt.index} · ${l.attempt.sid}`),m.join(`
-`)}var W=13,U=14,R=5;function nt(t){let l=t.attempt.claimEnd??t.windowEnd,u=Math.min(l,t.windowEnd)-t.attempt.claimStart;return u>0?u:null}function q(t,l){return l===void 0?k(t):j(t,l).join(`
-`)}function mt(t,l){let{segs:u,milestones:p}=C(t),m=[];for(let f of u){let _=M(f.start,t.windowStart,t.windowEnd,l),g=Math.max(_+1,M(f.end,t.windowStart,t.windowEnd,l));m.push(E`<rect
-				class="at-${f.kind}"
+import {
+	a,
+	c,
+	g,
+	h,
+	i,
+	m,
+	o,
+	P,
+	S,
+	s,
+	T,
+	u,
+	y,
+} from "./lit-0a9982d0e15be9ce.js";
+import { d, e, n, r, t, x } from "./lit-9ab93f5debb235da.js";
+import { A, f, I, L, M } from "./lit-bbcd2c46a367dbcd.js";
+var zt = new Set(),
+	U = (l, p) => {
+		if (customElements.get(l))
+			throw Error(
+				`defineElement: <${l}> is already defined — ONE register point per workspace`,
+			);
+		zt.add(l), customElements.define(l, p);
+	};
+function pt(l) {
+	if (l === "CLAIMED" || l === "RUNNING") return "working";
+	if (l === "WAITING" || l === "BLOCKED" || l === "PAUSED") return "blocked";
+	if (l === "SHATTERED") return "split";
+	if (l === "FAILED") return "failed";
+	if (l === "DONE") return "done";
+	if (l === "CANCELLED") return "cancelled";
+	return "ready";
+}
+function dt(l) {
+	if (l === "SHATTERED") return "split";
+	return l.toLowerCase();
+}
+function ut(l) {
+	return /^\s*BLOCKED\b/i.test(l) ? "blocked" : "warning";
+}
+function ht(l) {
+	return l.replace(/^\s*BLOCKED\b[\s:]+/i, "") || l;
+}
+var K = o(u(s())),
+	D = o(u(c())),
+	Ct = i({ value: s(), label: s(), badge: o(s()), reasoningEffort: o(T()) }),
+	Ht = i({ tokens: D, wallMs: D, tokPerMin: D, cachePct: D }),
+	Ot = i({
+		mode: S(["spend", "attempt"]),
+		windowStartMs: D,
+		windowEndMs: D,
+		binMs: D,
+		elapsedMs: D,
+		scaleMs: D,
+	}),
+	ft = i({
+		id: s(),
+		project: K,
+		title: K,
+		state: s(),
+		ageS: D,
+		contextLines: o(a(s())),
+		parentRef: K,
+		model: K,
+		host: K,
+		warn: K,
+		metrics: o(Ht),
+		activity: o(Ot),
+		nested: o(T()),
+		preferColor: K,
+		executors: o(a(Ct)),
+		executorPick: K,
+		effortOptions: o(a(s())),
+		effortPick: K,
+		pendingAction: K,
+	});
+function mt(l) {
+	if (l == null) return "—";
+	if (l >= 1e6) return `${(l / 1e6).toFixed(1)}M`;
+	if (l >= 1000) return `${Math.round(l / 1000)}k`;
+	return String(Math.round(l));
+}
+function gt(l) {
+	if (l == null) return "—";
+	if (l < 60000) return `${Math.round(l / 1000)}s`;
+	const p = Math.round(l / 60000);
+	if (p >= 60)
+		return `${Math.floor(p / 60)}h${String(p % 60).padStart(2, "0")}m`;
+	return `${p}m`;
+}
+function bt(l) {
+	if (l == null) return "—";
+	if (l >= 1e6) return `${(l / 1e6).toFixed(1)}M`;
+	if (l >= 1000) return `${(l / 1000).toFixed(1)}k`;
+	return String(Math.round(l));
+}
+function vt(l) {
+	if (l == null) return "—";
+	return `${Math.round(l)}%`;
+}
+var kt = r`${d(`@charset "UTF-8";
+/* tone → color, self-contained: the page maps data-tone on .kcard/
+   .kcol only, so the card owns its own --state-color token map. */
+:host([data-tone=ready]) {
+  --state-color: var(--work-ready);
+}
+
+:host([data-tone=working]) {
+  --state-color: var(--work-working);
+}
+
+:host([data-tone=blocked]) {
+  --state-color: var(--work-blocked);
+}
+
+:host([data-tone=failed]) {
+  --state-color: var(--work-failed);
+}
+
+:host([data-tone=done]) {
+  --state-color: var(--work-done);
+}
+
+:host([data-tone=split]) {
+  --state-color: var(--work-split);
+}
+
+:host([data-tone=cancelled]) {
+  --state-color: var(--work-cancelled);
+}
+
+:host {
+  /* the host IS the card surface: configurable semantic perimeter
+     (—prefer) independent of --state-color; nested children dashed.
+     position:relative anchors the nested elbow (absolute, hung into
+     the indent gutter) to THIS card, not an unrelated ancestor. */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border: 1px solid var(--prefer, var(--state-color, var(--klh-edge-soft)));
+  border-radius: 3px;
+  background: var(--klh-wash);
+  font: var(--klh-text-md, var(--klh-typo-size-m, 12px))/1.45 var(--klh-font-sans, var(--klh-typo-sans-stack));
+  color: var(--klh-ink);
+  min-width: 0;
+}
+
+:host([data-nested]) {
+  border-style: dashed;
+}
+
+:host([data-nested]) .elbow {
+  position: absolute;
+  left: -13px;
+  top: 13px;
+  color: var(--prefer, var(--klh-edge-strong));
+  font: var(--klh-typo-size-s, 11px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+}
+
+.wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 9px 0 0;
+}
+
+.pad {
+  padding: 0 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* #101242: the readable 12px band — 10px stays axis/units only */
+  font-size: var(--klh-typo-size-m, 12px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--state-color, var(--klh-dim));
+}
+
+.sq {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--state-color, var(--klh-dim));
+  align-self: center;
+}
+
+.stw {
+  font-weight: 600;
+}
+
+.age {
+  margin-left: auto;
+  color: var(--klh-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tid {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--klh-ink);
+  /* #101242: prominent own-line mono ID — 20px readable at 380 too */
+  font: 600 var(--klh-typo-size-3xl, 20px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.tid:hover {
+  text-decoration: underline;
+}
+
+.title {
+  margin: 2px 0 0;
+  font-weight: 650;
+  font-size: var(--klh-typo-size-2xl, 16px);
+  line-height: 1.35;
+  /* long text truncates visually, full text stays accessible on hover */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.ctx {
+  margin: 3px 0 0;
+  color: var(--klh-dim);
+  font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--klh-edge-faint);
+  margin: 7px 0 0;
+}
+
+.cols {
+  display: flex;
+  gap: 0;
+  margin-top: 5px;
+  /* model/host values sit in the spec's 12–13px band (#100618) */
+  font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+}
+
+.col {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
+.col:first-child {
+  padding-left: 0;
+}
+
+.col:last-child {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.col b {
+  font-weight: 600;
+  color: var(--klh-ink-2);
+}
+
+.lab {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--klh-dim);
+}
+
+.warn {
+  margin: 7px 0 0;
+  border-left: 2px solid var(--work-failed, var(--klh-danger));
+  background: var(--klh-danger-wash);
+  padding: 4px 8px;
+  font-size: var(--klh-typo-size-m, 12px);
+  color: var(--klh-danger-ink);
+}
+
+.warn .wl {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  margin-right: 5px;
+}
+
+.warn .wt {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metrics {
+  display: flex;
+  margin-top: 8px;
+}
+
+.m {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 10px;
+  /* #103117: reference 09 card left-aligns every metric cell */
+  text-align: left;
+}
+
+.m:first-child {
+  padding-left: 0;
+}
+
+.m + .m {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.mv {
+  font: 600 var(--klh-typo-size-2xl, 16px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  font-variant-numeric: tabular-nums;
+  color: var(--klh-ink);
+}
+
+.ml {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--klh-dim);
+  white-space: nowrap;
+}
+
+.details {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--klh-dim);
+}
+
+/* the activity slot sits flush at the card bottom: the strip's own
+   1px duration rail + ~13px axis area ride the slot, no extra padding. */
+.activity {
+  display: block;
+  margin-top: 8px;
+  padding: 0;
+}
+
+footer {
+  /* neutral segmented rail, full-width flush bottom — zero margin so
+     the axis area of the slotted strip abuts it exactly (#100618) */
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  border-top: 1px solid var(--klh-edge-faint);
+  background: var(--klh-surface);
+  border-radius: 0 0 2px 2px;
+}
+
+footer:empty {
+  display: none;
+}
+
+.spacer {
+  /* the lone Prompt/Report sits rightmost; the rail's empty left
+     half stays bare surface with the segment dividers at the right */
+  flex: 1 1 auto;
+}
+
+.seg.tail {
+  /* bounded (not equal-share): the rightmost affordance keeps its
+     own width, divider at its left edge, rail bare before it */
+  flex: 0 1 auto;
+  padding-inline: 14px;
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.seg {
+  flex: 1 1 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--klh-ink-2);
+  font: var(--klh-typo-size-s, 11px) var(--klh-font-sans, var(--klh-typo-sans-stack));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg + .seg {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.seg:hover {
+  background: var(--klh-surface-hi);
+  color: var(--klh-ink);
+}
+
+.seg.retry {
+  color: var(--klh-danger-ink);
+}
+
+.seg.recover {
+  font-weight: 600;
+}
+
+.seg.prompt {
+  color: var(--klh-accent);
+}
+
+.seg select {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  background: var(--klh-field);
+  color: var(--klh-ink);
+  border: 1px solid var(--klh-edge-mid);
+  border-radius: 2px;
+  font: var(--klh-typo-size-xs, 10.5px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  padding: 0 4px;
+}
+
+footer button.seg:focus-visible,
+.tid:focus-visible,
+.seg select:focus-visible {
+  outline: 2px solid var(--klh-accent);
+  outline-offset: -2px;
+}`)}`;
+class J extends h {
+	static eventName = "task-card-action-requested";
+	action;
+	id;
+	project;
+	executor;
+	effort;
+	constructor(l, p, v, b) {
+		super(J.eventName);
+		(this.action = l),
+			(this.id = p),
+			(this.project = v),
+			(this.executor = b?.executor),
+			(this.effort = b?.effort);
+	}
+}
+class Q extends h {
+	static eventName = "task-card-draft-changed";
+	id;
+	project;
+	executor;
+	effort;
+	constructor(l, p, v) {
+		super(Q.eventName);
+		(this.id = l),
+			(this.project = p),
+			(this.executor = v?.executor),
+			(this.effort = v?.effort);
+	}
+}
+class tt extends h {
+	static eventName = "task-card-open-requested";
+	id;
+	project;
+	constructor(l, p) {
+		super(tt.eventName);
+		(this.id = l), (this.project = p);
+	}
+}
+var rt = "—";
+class st extends n {
+	static properties = { card: { attribute: !1 } };
+	static styles = kt;
+	constructor() {
+		super();
+		this.card = { id: "", state: "READY" };
+	}
+	draftId;
+	draftExecutor;
+	draftEffort;
+	tone() {
+		return pt(this.card.state);
+	}
+	open() {
+		this.dispatchEvent(new tt(this.card.id, this.card.project ?? null));
+	}
+	act(l, p) {
+		this.dispatchEvent(new J(l, this.card.id, this.card.project ?? null, p));
+	}
+	draft(l) {
+		this.dispatchEvent(new Q(this.card.id, this.card.project ?? null, l));
+	}
+	statusWord() {
+		return dt(this.card.state);
+	}
+	render() {
+		const l = this.card,
+			p = this.tone(),
+			v = l.metrics ?? null,
+			b = l.ageS == null ? rt : P(l.ageS),
+			k = l.ageS == null ? "age unknown" : `open ${y(l.ageS)}`,
+			w = l.executors ?? [],
+			_ = l.executorPick ?? "",
+			E = l.effortOptions ?? [],
+			R = l.effortPick ?? "",
+			C = l.pendingAction ?? "",
+			O = (z, Z) => (C === z ? `${Z}…` : Z),
+			N = (z) => C === z,
+			B = (z) => (C === z ? "true" : "false");
+		return e`
+			${l.nested ? e`<span class="elbow" aria-hidden="true">↳</span>` : t}
+			<div class="wrap">
+				<div class="pad">
+				<div class="head">
+					<span class="sq" data-tone=${p}></span>
+					<span class="stw">${this.statusWord()}</span>
+					<span class="age" title=${k}>${b}</span>
+				</div>
+				<button class="tid" type="button" @click=${this.open}>
+					${l.id}
+				</button>
+				${l.title ? e`<div class="title" title=${l.title}>${l.title}</div>` : t}
+				${(l.contextLines ?? []).map((z) => e`<div class="ctx" title=${z}>${z}</div>`)}
+				${
+					l.parentRef
+						? e`<div class="ctx" title=${`parent ${l.parentRef}`}
+							>↳ ${l.parentRef}</div
+						>`
+						: t
+				}
+				<hr class="rule" />
+				<div class="cols">
+					<div class="col">
+						<span class="lab">model</span>
+						<b title=${l.model ?? ""}>${l.model ?? rt}</b>
+					</div>
+					<div class="col">
+						<span class="lab">host</span>
+						<b title=${l.host ?? ""}>${l.host ?? rt}</b>
+					</div>
+				</div>
+				<hr class="rule" />
+				${
+					l.warn
+						? e`<div class="warn" role="note">
+							<span class="wl">${ut(l.warn)}</span>
+							<span class="wt" title=${l.warn}>${ht(l.warn)}</span>
+						</div>`
+						: t
+				}
+				<div class="metrics">
+					<div class="m">
+						<span class="mv">${mt(v?.tokens)}</span>
+						<span class="ml">tokens</span>
+					</div>
+					<div class="m">
+						<span class="mv">${gt(v?.wallMs)}</span>
+						<span class="ml">time</span>
+					</div>
+					<div class="m">
+						<span class="mv">${bt(v?.tokPerMin)}</span>
+						<span class="ml">tok/min</span>
+					</div>
+					<div class="m">
+						<span class="mv">${vt(v?.cachePct)}</span>
+						<span class="ml">cache</span>
+					</div>
+				</div>
+				<slot class="details" name="details"></slot>
+				</div>
+				<slot class="activity" name="activity"></slot>
+			</div>
+			<footer>
+				${
+					p === "failed"
+						? e`<button
+							class="seg retry"
+							type="button"
+							?disabled=${N("retry")}
+							aria-busy=${B("retry")}
+							@click=${() => this.act("retry")}
+						>
+							${O("retry", "Retry")}
+						</button>
+						<button
+							class="seg recover"
+							type="button"
+							?disabled=${N("recover")}
+							aria-busy=${B("recover")}
+							@click=${() => this.act("recover")}
+						>
+							${O("recover", "Recover → Ready")}
+						</button>
+						<button
+							class="seg prompt"
+							type="button"
+							@click=${() => this.act("prompt")}
+						>
+							Prompt ↗
+						</button>`
+						: t
+				}
+				${
+					p === "ready" && w.length
+						? e`<select
+							class="seg"
+							aria-label=${`executor for ${l.id}`}
+							@change=${(z) => {
+								(this.draftExecutor = z.target.value),
+									this.draft({ executor: this.draftExecutor });
+							}}
+						>
+							${w.map(
+								(z) => e`<option
+									value=${z.value}
+									?selected=${z.value === (this.draftExecutor ?? _)}
+								>
+									${z.badge ?? ""}${z.label}
+								</option>`,
+							)}
+						</select>
+						${
+							E.length
+								? e`<select
+									class="seg"
+									aria-label=${`reasoning effort for ${l.id}`}
+									@change=${(z) => {
+										(this.draftEffort = z.target.value),
+											this.draft({ effort: this.draftEffort });
+									}}
+								>
+									${E.map(
+										(z) => e`<option
+											value=${z}
+											?selected=${z === (this.draftEffort ?? R)}
+										>
+											${z}
+										</option>`,
+									)}
+								</select>`
+								: t
+						}
+						<button
+							class="seg start"
+							type="button"
+							title="dispatch on the chosen executor"
+							?disabled=${N("start")}
+							aria-busy=${B("start")}
+							@click=${() => this.act("start", { executor: this.draftExecutor ?? _, effort: this.draftEffort ?? R })}
+						>
+							${O("start", "Start ▶")}
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`
+						: t
+				}
+				${p === "ready" && !w.length ? e`<span class="spacer"></span>${this.promptSeg()}` : t}
+				${
+					p === "working" && !w.length
+						? e`<button
+								class="seg release"
+								type="button"
+								title="release the claim — a live lane banks its capsule and exits"
+								?disabled=${N("release")}
+								aria-busy=${B("release")}
+								@click=${() => this.act("release")}
+							>
+								${O("release", "Release ⏏")}
+							</button>
+							<span class="spacer"></span>
+							${this.promptSeg()}`
+						: t
+				}
+				${
+					p === "working" && w.length
+						? e`<select
+							class="seg"
+							aria-label=${`reassign executor for ${l.id}`}
+							@change=${(z) => {
+								(this.draftExecutor = z.target.value),
+									this.draft({ executor: this.draftExecutor });
+							}}
+						>
+							${w.map(
+								(z) => e`<option
+									value=${z.value}
+									?selected=${z.value === (this.draftExecutor ?? _)}
+								>
+									${z.badge ?? ""}${z.label}
+								</option>`,
+							)}
+						</select>
+						<button
+							class="seg reassign"
+							type="button"
+							title="release + re-dispatch on the chosen executor"
+							?disabled=${N("reassign")}
+							aria-busy=${B("reassign")}
+							@click=${() => this.act("reassign", { executor: this.draftExecutor ?? _ })}
+						>
+							${O("reassign", "Reassign ↻")}
+						</button>
+						<button
+							class="seg release"
+							type="button"
+							title="release the claim — a live lane banks its capsule and exits"
+							?disabled=${N("release")}
+							aria-busy=${B("release")}
+							@click=${() => this.act("release")}
+						>
+							${O("release", "Release ⏏")}
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`
+						: t
+				}
+				${
+					p === "done"
+						? e`<span class="spacer"></span>
+						<button
+							class="seg tail report"
+							type="button"
+							title="open this item's report view"
+							@click=${() => this.act("report")}
+						>
+							Report ▸
+						</button>
+						${this.promptSeg()}`
+						: t
+				}
+				${p !== "failed" && p !== "ready" && p !== "working" && p !== "done" ? e`<span class="spacer"></span>${this.promptSeg()}` : t}
+			</footer>
+		`;
+	}
+	promptSeg() {
+		return e`<button
+			class="seg tail prompt"
+			type="button"
+			@click=${() => this.act("prompt")}
+		>
+			Prompt ↗
+		</button>`;
+	}
+	willUpdate() {
+		if (
+			(this.toggleAttribute("data-nested", !!this.card.nested),
+			this.draftId !== this.card.id)
+		)
+			(this.draftId = this.card.id),
+				(this.draftExecutor = void 0),
+				(this.draftEffort = void 0);
+		if ((this.setAttribute("data-tone", this.tone()), this.card.preferColor))
+			this.style.setProperty("--prefer", this.card.preferColor);
+		else this.style.removeProperty("--prefer");
+	}
+}
+var it = 1.5;
+function It(l, p, v, b = 180000) {
+	const k = Array.from({ length: v }, () => null);
+	for (const w of l) {
+		let _ = Math.floor((w[0] - p) / b);
+		if (_ > v - 1) _ = v - 1;
+		if (_ < 0) continue;
+		let E = k[_];
+		if (E == null) (E = { fresh: 0, cached: 0, out: 0 }), (k[_] = E);
+		(E.fresh += w[1]), (E.cached += w[2]), (E.out += w[3]);
+	}
+	return k;
+}
+function Pt(l, p, v = 6, b = 180000) {
+	const k = Math.max(1, Math.floor(p / v)),
+		w = l;
+	return { count: k, slotMs: b, start: w - k * b, end: w };
+}
+var Lt = {
+	bins: [],
+	firstTs: null,
+	windowStart: null,
+	windowEnd: null,
+	count: 0,
+	slotMs: 180000,
+	startClipped: !1,
+	hasData: !1,
+};
+function xt(l, p, v) {
+	if (!l.length) return Lt;
+	let { POSITIVE_INFINITY: b, NEGATIVE_INFINITY: k } = Number;
+	for (const C of l) {
+		if (C[0] < b) b = C[0];
+		if (C[0] > k) k = C[0];
+	}
+	const w = Pt(k, p),
+		_ = v ?? Math.max(w.start, b),
+		E = Math.ceil((k - _) / w.slotMs) + 1,
+		R = Math.max(1, Math.min(w.count, E));
+	return {
+		bins: It(l, _, R),
+		firstTs: b,
+		windowStart: _,
+		windowEnd: _ + R * w.slotMs,
+		count: R,
+		slotMs: w.slotMs,
+		startClipped: _ > b,
+		hasData: !0,
+	};
+}
+function Y(l) {
+	const p = new Date(l),
+		v = (b) => String(b).padStart(2, "0");
+	return `${v(p.getHours())}:${v(p.getMinutes())}`;
+}
+function at(l, p, v = 86400000) {
+	const b = p / 2;
+	if (l === null || l === void 0)
+		return { visible: !1, center: b, half: 0, start: b, end: b, saturated: !1 };
+	if (!Number.isFinite(l) || l <= 0)
+		return { visible: !1, center: b, half: 0, start: b, end: b, saturated: !1 };
+	const k = Math.min(p / 2, (l / v) * (p / 2));
+	return {
+		visible: !0,
+		center: b,
+		half: k,
+		start: b - k,
+		end: b + k,
+		saturated: l >= v,
+	};
+}
+function q(l) {
+	if (!Number.isFinite(l) || l <= 0) return "0m";
+	const p = Math.round(l / 60000);
+	if (p < 60) return `${p}m`;
+	return `${Math.floor(p / 60)}h ${String(p % 60).padStart(2, "0")}m`;
+}
+function et(l = 86400000) {
+	return `${l / 3600000}h`;
+}
+function j(l, p, v, b) {
+	const k = Math.max(1, v - p),
+		w = ((l - p) / k) * b;
+	return Math.max(0, Math.min(b, w));
+}
+function G(l) {
+	const p = [];
+	for (const b of l.attempt.segments) {
+		if (b.end <= b.start) continue;
+		p.push({ kind: b.kind, start: b.start, end: b.end });
+	}
+	const v = [];
+	for (const b of l.milestones) {
+		if (b.ts < l.windowStart || b.ts > l.windowEnd) continue;
+		v.push({
+			kind: "milestone",
+			start: b.ts,
+			end: b.ts,
+			commit: b.commit,
+			stage: b.stage,
+		});
+	}
+	return { segs: p, milestones: v };
+}
+function yt(l, p, v, b, k) {
+	for (const w of l.milestones) {
+		const _ = j(w.start, v, b, k);
+		if (Math.abs(p - _) <= 6) return w;
+	}
+	for (const w of l.segs) {
+		const _ = j(w.start, v, b, k),
+			E = j(w.end, v, b, k);
+		if (p >= _ && p <= Math.max(E, _ + 1)) return w;
+	}
+	return null;
+}
+function X(l, p, v, b) {
+	if (l.kind === "milestone")
+		return [
+			`artifact · ${l.stage ?? ""}`,
+			v(l.start),
+			`commit ${l.commit ?? ""}`,
+		].join(`
+`);
+	const k = [`${l.kind} · ${b(l.end - l.start)}`, v(l.start, l.end)];
+	if (l.kind === "firstbyte")
+		k.push("first attributed ledger request — not network latency");
+	if (l.kind === "tool") k.push("request-row minutes — not tool-call duration");
+	if (l.kind === "unknown") k.push("no fact covers this gap");
+	return (
+		k.push(`attempt ${p.attempt.index} · ${p.attempt.sid}`),
+		k.join(`
+`)
+	);
+}
+var ot = 13,
+	lt = 14,
+	F = 5;
+function Tt(l) {
+	const p = l.attempt.claimEnd ?? l.windowEnd,
+		v = Math.min(p, l.windowEnd) - l.attempt.claimStart;
+	return v > 0 ? v : null;
+}
+function nt(l, p) {
+	return p === void 0
+		? f(l)
+		: L(l, p).join(`
+`);
+}
+function Nt(l, p) {
+	const { segs: v, milestones: b } = G(l),
+		k = [];
+	for (const w of v) {
+		const _ = j(w.start, l.windowStart, l.windowEnd, p),
+			E = Math.max(_ + 1, j(w.end, l.windowStart, l.windowEnd, p));
+		k.push(x`<rect
+				class="at-${w.kind}"
 				x=${_.toFixed(1)}
-				y=${W}
-				width=${(g-_).toFixed(1)}
-				height=${U}
+				y=${ot}
+				width=${(E - _).toFixed(1)}
+				height=${lt}
 				rx="2"
-			/>`)}for(let f of p){let _=M(f.start,t.windowStart,t.windowEnd,l),g=W+U/2;m.push(E`<path
+			/>`);
+	}
+	for (const w of b) {
+		const _ = j(w.start, l.windowStart, l.windowEnd, p),
+			E = ot + lt / 2;
+		k.push(x`<path
 				class="at-ms"
-				d="M ${_.toFixed(1)},${(g-R).toFixed(1)} l ${R},${R} l -${R},${R} l -${R},-${R} Z"
-			/>`)}return e`${m}`}var et=(t)=>({kind:t.kind,start:t.start});function it(t){return{hover:(p,m)=>{let f=p.currentTarget;if(!m||!f){t.hide();return}let _=f.getBoundingClientRect();if(_.width===0)return;let g=tt(C(m),p.clientX-_.left,m.windowStart,m.windowEnd,_.width);if(!g){t.hide();return}t.setTip(L(g,m,q,S),-1,et(g)),t.placeTip(p.clientX,p.clientY)},hide:()=>t.hide(),keydown:(p,m)=>{if(p.key==="Escape"){t.hide(),p.target.blur();return}if(p.key!=="ArrowLeft"&&p.key!=="ArrowRight")return;p.preventDefault();let f=t.slot(),{milestones:_,segs:g}=C(m),x=[..._,...g];if(!x.length)return;let w=p.key==="ArrowLeft"?-1:1,B=Math.max(0,Math.min(x.length-1,f+w)),K=x[B];if(!K)return;t.setTip(L(K,m,q,S),B,et(K));let J=p.currentTarget;if(J){let V=J.getBoundingClientRect(),lt=M(K.start,m.windowStart,m.windowEnd,V.width);t.placeTip(V.left+lt,V.top+8)}},slot:()=>t.slot()}}function st(t,l){return e`<div class="axis">
-		<span>${I(t.windowStart)}</span>
-		<span>${l} · ${t.binMs/60000}m/bin</span>
-		<span>${I(t.windowEnd)}</span>
-	</div>`}function rt(t,l,u){return e`<svg
+				d="M ${_.toFixed(1)},${(E - F).toFixed(1)} l ${F},${F} l -${F},${F} l -${F},-${F} Z"
+			/>`);
+	}
+	return e`${k}`;
+}
+var wt = (l) => ({ kind: l.kind, start: l.start });
+function _t(l) {
+	return {
+		hover: (b, k) => {
+			const w = b.currentTarget;
+			if (!k || !w) {
+				l.hide();
+				return;
+			}
+			const _ = w.getBoundingClientRect();
+			if (_.width === 0) return;
+			const E = yt(
+				G(k),
+				b.clientX - _.left,
+				k.windowStart,
+				k.windowEnd,
+				_.width,
+			);
+			if (!E) {
+				l.hide();
+				return;
+			}
+			l.setTip(X(E, k, nt, q), -1, wt(E)), l.placeTip(b.clientX, b.clientY);
+		},
+		hide: () => l.hide(),
+		keydown: (b, k) => {
+			if (b.key === "Escape") {
+				l.hide(), b.target.blur();
+				return;
+			}
+			if (b.key !== "ArrowLeft" && b.key !== "ArrowRight") return;
+			b.preventDefault();
+			const w = l.slot(),
+				{ milestones: _, segs: E } = G(k),
+				R = [..._, ...E];
+			if (!R.length) return;
+			const C = b.key === "ArrowLeft" ? -1 : 1,
+				O = Math.max(0, Math.min(R.length - 1, w + C)),
+				N = R[O];
+			if (!N) return;
+			l.setTip(X(N, k, nt, q), O, wt(N));
+			const B = b.currentTarget;
+			if (B) {
+				const z = B.getBoundingClientRect(),
+					Z = j(N.start, k.windowStart, k.windowEnd, z.width);
+				l.placeTip(z.left + Z, z.top + 8);
+			}
+		},
+		slot: () => l.slot(),
+	};
+}
+function $t(l, p) {
+	return e`<div class="axis">
+		<span>${Y(l.windowStart)}</span>
+		<span>${p} · ${l.binMs / 60000}m/bin</span>
+		<span>${Y(l.windowEnd)}</span>
+	</div>`;
+}
+function St(l, p, v) {
+	return e`<svg
 		class="plot"
-		viewBox="0 0 ${l} 40"
+		viewBox="0 0 ${p} 40"
 		preserveAspectRatio="none"
 		role="img"
-		aria-label="Current attempt: fixed 90-minute window, ${t.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
+		aria-label="Current attempt: fixed 90-minute window, ${l.binMs / 60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
 		tabindex="0"
-		@pointermove=${(p)=>u.hover(p,t)}
-		@pointerleave=${()=>u.hide()}
-		@keydown=${(p)=>u.keydown(p,t)}
+		@pointermove=${(b) => v.hover(b, l)}
+		@pointerleave=${() => v.hide()}
+		@keydown=${(b) => v.keydown(b, l)}
 	>
-		${mt(t,l)}
-	</svg>`}var ot=r`
+		${Nt(l, p)}
+	</svg>`;
+}
+var Et = r`
 	.plot rect.at-queue {
 		fill: var(--klh-chart-axis, #898781);
 	}
@@ -56,7 +1049,8 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5a
 		font: 400 11px/1.5 ui-monospace, SFMono-Regular, monospace;
 		color: var(--klh-chart-axis, #898781);
 	}
-`;var at=r`${h(`@charset "UTF-8";
+`;
+var Mt = r`${d(`@charset "UTF-8";
 :host {
   display: block;
   font: 11px/1.5 ui-sans-serif, system-ui;
@@ -73,6 +1067,9 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5a
   outline-offset: 1px;
 }
 
+/* W2267.4.2.2 spectral treatment (owner-approved 09 spec): thin
+   crisp real-bin marks, green/teal spectrum, low-opacity upward
+   fade — semantic chart tokens, honest bins only. */
 /* W2267.4.2.2 spectral treatment (owner-approved 09 spec): thin crisp
    real-bin strokes, teal fresh over green cached, fading upward via
    ONE shared linearGradient per role (objectBoundingBox: each bar
@@ -141,8 +1138,164 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5a
   font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
   white-space: pre-line;
   pointer-events: none;
-}`)}`;class X extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[at,ot];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let l=this._plotEl()?.clientWidth??0;if(l!==this._width)this._width=l,this.requestUpdate()});let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let t=this._plotEl();if(t&&this._ro)this._width=t.clientWidth,this._ro.observe(t)}updated(){let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}update(t){if(super.update(t),!t.has("points")&&!t.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:p,segs:m}=C(this.attempt),f=[...p,...m],_=this._tipRef,g=f.findIndex((x)=>x.kind===_.kind&&x.start===_.start);if(g<0){this._hideTip();return}this._tip=L(f[g],this.attempt,q,S),this._slot=g;return}let l=this._spec;if(!l.hasData||this._tipTs===null){if(!l.hasData)this._hideTip();return}let u=Math.floor((this._tipTs-(l.windowStart??0))/l.slotMs);if(u<0||u>=l.count){this._hideTip();return}this._slot=u,this._tip=this._tipText(l,u)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return Q(this.points,this._width||240)}_hover=(t)=>{let l=this._plotEl(),u=this._spec;if(!l||!u.hasData){this._hideTip();return}let p=l.getBoundingClientRect();if(p.width===0)return;let m=Math.max(0,Math.min(u.count-1,Math.floor((t.clientX-p.left)/p.width*u.count)));this._slot=m,this._tip=this._tipText(u,m),this._tipTs=(u.windowStart??0)+m*u.slotMs,this.requestUpdate(),this._placeTip(t.clientX,t.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(t)=>{let l=this._spec;if(t.key==="Escape"){this._hide();return}if(t.key!=="ArrowLeft"&&t.key!=="ArrowRight")return;t.preventDefault();let u=t.key==="ArrowLeft"?-1:1,p=Math.max(0,Math.min(l.count-1,this._slot+u));this._slot=p,this._tip=this._tipText(l,p),this._tipTs=(l.windowStart??0)+p*l.slotMs,this.requestUpdate();let m=this._plotEl();if(m){let f=m.getBoundingClientRect();this._placeTip(f.left+(p+0.5)/l.count*f.width,f.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(t,l){let u=t.bins[l],p=(t.windowStart??0)+l*t.slotMs,m=[k(p),`${N(p,O(p)!==Z(p))} · ${t.slotMs/60000}-minute bin`];if(u)m.push(`Fresh input ${u.fresh.toLocaleString("en-US")}`),m.push(`Cached input ${u.cached.toLocaleString("en-US")}`),m.push(`Output ${u.out.toLocaleString("en-US")}`);else m.push("no requests in this bin");return m.join(`
-`)}_barsSvg(t){let u=(this._width||240)/t.count,p=0;for(let f of t.bins)if(f)p=Math.max(p,f.fresh+f.cached);let m=[];if(p>0)for(let f=0;f<t.count;f++){let _=t.bins[f];if(!_)continue;let g=f*u+(u-G)/2;m.push(this._barRects(_,g,p))}if(!m.length)return e``;return E`<defs>
+}`)}`;
+class ct extends n {
+	static properties = {
+		points: { attribute: !1 },
+		wallMs: { attribute: !1 },
+		attempt: { attribute: !1 },
+		mode: { attribute: !1 },
+		_width: { state: !0 },
+		_tip: { state: !0 },
+		_slot: { state: !0 },
+	};
+	static styles = [Mt, Et];
+	constructor() {
+		super();
+		(this.points = []),
+			(this.wallMs = null),
+			(this.attempt = null),
+			(this.mode = "spend"),
+			(this._width = 0),
+			(this._tip = null),
+			(this._slot = -1),
+			(this._tipRef = null),
+			(this._tipTs = null);
+	}
+	_ro = null;
+	connectedCallback() {
+		if ((super.connectedCallback(), typeof ResizeObserver < "u"))
+			this._ro = new ResizeObserver(() => {
+				const p = this._plotEl()?.clientWidth ?? 0;
+				if (p !== this._width) (this._width = p), this.requestUpdate();
+			});
+		const l = this._plotEl();
+		if (l && this._ro) this._ro.observe(l);
+	}
+	disconnectedCallback() {
+		this._ro?.disconnect(), (this._ro = null), super.disconnectedCallback();
+	}
+	firstUpdated() {
+		const l = this._plotEl();
+		if (l && this._ro) (this._width = l.clientWidth), this._ro.observe(l);
+	}
+	updated() {
+		const l = this._plotEl();
+		if (l && this._ro) this._ro.observe(l);
+	}
+	update(l) {
+		if ((super.update(l), !l.has("points") && !l.has("attempt"))) return;
+		if (this.mode === "attempt") {
+			if (!this.attempt || !this._tipRef) {
+				this._hideTip();
+				return;
+			}
+			const { milestones: b, segs: k } = G(this.attempt),
+				w = [...b, ...k],
+				_ = this._tipRef,
+				E = w.findIndex((R) => R.kind === _.kind && R.start === _.start);
+			if (E < 0) {
+				this._hideTip();
+				return;
+			}
+			(this._tip = X(w[E], this.attempt, nt, q)), (this._slot = E);
+			return;
+		}
+		const p = this._spec;
+		if (!p.hasData || this._tipTs === null) {
+			if (!p.hasData) this._hideTip();
+			return;
+		}
+		const v = Math.floor((this._tipTs - (p.windowStart ?? 0)) / p.slotMs);
+		if (v < 0 || v >= p.count) {
+			this._hideTip();
+			return;
+		}
+		(this._slot = v), (this._tip = this._tipText(p, v));
+	}
+	_plotEl() {
+		return this.renderRoot.querySelector("svg.plot");
+	}
+	get _spec() {
+		return xt(this.points, this._width || 240);
+	}
+	_hover = (l) => {
+		const p = this._plotEl(),
+			v = this._spec;
+		if (!p || !v.hasData) {
+			this._hideTip();
+			return;
+		}
+		const b = p.getBoundingClientRect();
+		if (b.width === 0) return;
+		const k = Math.max(
+			0,
+			Math.min(
+				v.count - 1,
+				Math.floor(((l.clientX - b.left) / b.width) * v.count),
+			),
+		);
+		(this._slot = k),
+			(this._tip = this._tipText(v, k)),
+			(this._tipTs = (v.windowStart ?? 0) + k * v.slotMs),
+			this.requestUpdate(),
+			this._placeTip(l.clientX, l.clientY);
+	};
+	_hide = () => {
+		this._hideTip(), this.requestUpdate();
+	};
+	_keyNav = (l) => {
+		const p = this._spec;
+		if (l.key === "Escape") {
+			this._hide();
+			return;
+		}
+		if (l.key !== "ArrowLeft" && l.key !== "ArrowRight") return;
+		l.preventDefault();
+		const v = l.key === "ArrowLeft" ? -1 : 1,
+			b = Math.max(0, Math.min(p.count - 1, this._slot + v));
+		(this._slot = b),
+			(this._tip = this._tipText(p, b)),
+			(this._tipTs = (p.windowStart ?? 0) + b * p.slotMs),
+			this.requestUpdate();
+		const k = this._plotEl();
+		if (k) {
+			const w = k.getBoundingClientRect();
+			this._placeTip(w.left + ((b + 0.5) / p.count) * w.width, w.top + 8);
+		}
+	};
+	_hideTip() {
+		(this._tip = null),
+			(this._slot = -1),
+			(this._tipRef = null),
+			(this._tipTs = null);
+	}
+	_tipText(l, p) {
+		const v = l.bins[p],
+			b = (l.windowStart ?? 0) + p * l.slotMs,
+			k = [f(b), `${I(b, A(b) !== M(b))} · ${l.slotMs / 60000}-minute bin`];
+		if (v)
+			k.push(`Fresh input ${v.fresh.toLocaleString("en-US")}`),
+				k.push(`Cached input ${v.cached.toLocaleString("en-US")}`),
+				k.push(`Output ${v.out.toLocaleString("en-US")}`);
+		else k.push("no requests in this bin");
+		return k.join(`
+`);
+	}
+	_barsSvg(l) {
+		let v = (this._width || 240) / l.count,
+			b = 0;
+		for (const w of l.bins) if (w) b = Math.max(b, w.fresh + w.cached);
+		const k = [];
+		if (b > 0)
+			for (let w = 0; w < l.count; w++) {
+				const _ = l.bins[w];
+				if (!_) continue;
+				const E = w * v + (v - it) / 2;
+				k.push(this._barRects(_, E, b));
+			}
+		if (!k.length) return e``;
+		return x`<defs>
 			<linearGradient id="klh-spec-fresh" x1="0" y1="1" x2="0" y2="0">
 				<stop offset="0" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="1" />
 				<stop offset="1" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="0.45" />
@@ -152,17 +1305,38 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5a
 				<stop offset="1" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.4" />
 			</linearGradient>
 		</defs>
-		${m}`}_barRects(t,l,u){let m=[],f=0,_=[[t.fresh,"spark-fresh"],[t.cached,"spark-cached"]];for(let[g,x]of _){if(g<=0)continue;let w=Math.max(0.5,g/u*38);m.push(E`<rect
-					class=${x}
-					x=${l.toFixed(1)}
-					y=${Math.max(1,39-f-w).toFixed(1)}
-					width=${G}
-					height=${w.toFixed(1)}
-				/>`),f+=w}return e`${m}`}_hairlineHtml(){let t=this._width||240,l=Y(this._hairWallMs(),t);if(!l.visible)return null;return e`<div
-			class="hairline${l.saturated?" saturated":""}"
+		${k}`;
+	}
+	_barRects(l, p, v) {
+		let k = [],
+			w = 0,
+			_ = [
+				[l.fresh, "spark-fresh"],
+				[l.cached, "spark-cached"],
+			];
+		for (const [E, R] of _) {
+			if (E <= 0) continue;
+			const C = Math.max(0.5, (E / v) * 38);
+			k.push(x`<rect
+					class=${R}
+					x=${p.toFixed(1)}
+					y=${Math.max(1, 39 - w - C).toFixed(1)}
+					width=${it}
+					height=${C.toFixed(1)}
+				/>`),
+				(w += C);
+		}
+		return e`${k}`;
+	}
+	_hairlineHtml() {
+		const l = this._width || 240,
+			p = at(this._hairWallMs(), l);
+		if (!p.visible) return null;
+		return e`<div
+			class="hairline${p.saturated ? " saturated" : ""}"
 			role="img"
-			aria-label="elapsed ${S(this._hairWallMs()??0)} of ${F()} scale${l.saturated?" — saturated at full width":""}"
-			title="elapsed ${S(this._hairWallMs()??0)} of ${F()} scale${l.saturated?" — saturated at full width":""}"
+			aria-label="elapsed ${q(this._hairWallMs() ?? 0)} of ${et()} scale${p.saturated ? " — saturated at full width" : ""}"
+			title="elapsed ${q(this._hairWallMs() ?? 0)} of ${et()} scale${p.saturated ? " — saturated at full width" : ""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -170,44 +1344,308 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{D,A}from"./lit-0b5ca7a5a
 		>
 			<span
 				class="span"
-				style="left:${l.start.toFixed(1)}px;width:${(l.end-l.start).toFixed(1)}px"
+				style="left:${p.start.toFixed(1)}px;width:${(p.end - p.start).toFixed(1)}px"
 			></span>
-		</div>`}_hairFocus=()=>{let t=this._width||240,l=Y(this._hairWallMs(),t);if(!l.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${S(this._hairWallMs()??0)} of ${F()} scale`+(l.saturated?" — saturated at full width":""),this.requestUpdate();let u=this._plotEl()?.getBoundingClientRect();if(u)this._placeTip(u.left+l.center/Math.max(1,t)*u.width,u.bottom+2)};_hairKey=(t)=>{if(t.key==="Escape")this._hideTip(),this.requestUpdate(),t.target.blur()};_axisHtml(t){let l=this._tzLabel();return e`<div class="axis">
-			<span>${t.hasData?I(t.windowStart??0):""}</span>
+		</div>`;
+	}
+	_hairFocus = () => {
+		const l = this._width || 240,
+			p = at(this._hairWallMs(), l);
+		if (!p.visible) return;
+		(this._slot = -1),
+			(this._tipRef = null),
+			(this._tipTs = null),
+			(this._tip = `elapsed ${q(this._hairWallMs() ?? 0)} of ${et()} scale${p.saturated ? " — saturated at full width" : ""}`),
+			this.requestUpdate();
+		const v = this._plotEl()?.getBoundingClientRect();
+		if (v)
+			this._placeTip(
+				v.left + (p.center / Math.max(1, l)) * v.width,
+				v.bottom + 2,
+			);
+	};
+	_hairKey = (l) => {
+		if (l.key === "Escape")
+			this._hideTip(), this.requestUpdate(), l.target.blur();
+	};
+	_axisHtml(l) {
+		const p = this._tzLabel();
+		return e`<div class="axis">
+			<span>${l.hasData ? Y(l.windowStart ?? 0) : ""}</span>
 			<span
-				>${t.hasData?`${l} · ${t.slotMs/60000}m/bin`:"no activity"}</span
+				>${l.hasData ? `${p} · ${l.slotMs / 60000}m/bin` : "no activity"}</span
 			>
-			<span>${t.hasData?I(t.windowEnd??0):""}</span>
-		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),l=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(l/60)).padStart(2,"0")}:${String(l%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,l){let u=()=>{let m=this.renderRoot.querySelector(".tip");if(!m)return;let f=Math.min(t+10,window.innerWidth-m.offsetWidth-8),_=l-m.offsetHeight-10;m.style.left=`${Math.max(8,f)}px`,m.style.top=`${_>=8?_:l+12}px`};if(this.renderRoot.querySelector(".tip")){u();return}this.updateComplete.then(u).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?nt(this.attempt):this.wallMs}get _stripHost(){return{setTip:(t,l,u)=>{this._tip=t,this._slot=l,this._tipRef=u??null,this.requestUpdate()},placeTip:(t,l)=>this._placeTip(t,l),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=it(this._stripHost);_renderAttempt(){let t=this.attempt,l=this._width||240;if(!t)return e`<div class="attempt-empty" role="img">
+			<span>${l.hasData ? Y(l.windowEnd ?? 0) : ""}</span>
+		</div>`;
+	}
+	_tzLabel() {
+		const l = -new Date().getTimezoneOffset(),
+			p = Math.abs(l);
+		return `UTC${l >= 0 ? "+" : "-"}${String(Math.floor(p / 60)).padStart(2, "0")}:${String(p % 60).padStart(2, "0")}`;
+	}
+	_tipHtml() {
+		return e`<div class="tip" role="tooltip">${this._tip}</div>`;
+	}
+	_placeTip(l, p) {
+		const v = () => {
+			const k = this.renderRoot.querySelector(".tip");
+			if (!k) return;
+			const w = Math.min(l + 10, window.innerWidth - k.offsetWidth - 8),
+				_ = p - k.offsetHeight - 10;
+			(k.style.left = `${Math.max(8, w)}px`),
+				(k.style.top = `${_ >= 8 ? _ : p + 12}px`);
+		};
+		if (this.renderRoot.querySelector(".tip")) {
+			v();
+			return;
+		}
+		this.updateComplete.then(v).catch(() => {
+			return;
+		});
+	}
+	_hairWallMs() {
+		return this.mode === "attempt" && this.attempt
+			? Tt(this.attempt)
+			: this.wallMs;
+	}
+	get _stripHost() {
+		return {
+			setTip: (l, p, v) => {
+				(this._tip = l),
+					(this._slot = p),
+					(this._tipRef = v ?? null),
+					this.requestUpdate();
+			},
+			placeTip: (l, p) => this._placeTip(l, p),
+			hide: () => {
+				this._hideTip(), this.requestUpdate();
+			},
+			slot: () => this._slot,
+		};
+	}
+	_attemptHandlers = _t(this._stripHost);
+	_renderAttempt() {
+		const l = this.attempt,
+			p = this._width || 240;
+		if (!l)
+			return e`<div class="attempt-empty" role="img">
 					no attempt in the fixed 90-minute window
-				</div>`;return e`
-			${rt(t,l,this._attemptHandlers)}
+				</div>`;
+		return e`
+			${St(l, p, this._attemptHandlers)}
 			${this._hairlineHtml()}
-			${st(t,this._tzLabel())}
-			${this._tip?this._tipHtml():null}
-		`}render(){if(this.mode==="attempt")return this._renderAttempt();let t=this._spec;return e`
+			${$t(l, this._tzLabel())}
+			${this._tip ? this._tipHtml() : null}
+		`;
+	}
+	render() {
+		if (this.mode === "attempt") return this._renderAttempt();
+		const l = this._spec;
+		return e`
 			<svg
 				class="plot"
-				viewBox="0 0 ${this._width||240} 40"
+				viewBox="0 0 ${this._width || 240} 40"
 				preserveAspectRatio="none"
 				role="img"
-				aria-label="Fresh and cached input tokens in ${t.slotMs/60000}-minute bins across the measured track"
+				aria-label="Fresh and cached input tokens in ${l.slotMs / 60000}-minute bins across the measured track"
 				tabindex="0"
 				@pointermove=${this._hover}
 				@pointerleave=${this._hide}
 				@keydown=${this._keyNav}
 			>
-				${this._barsSvg(t)}
+				${this._barsSvg(l)}
 			</svg>
 			${this._hairlineHtml()}
-			${this._axisHtml(t)}
-			${this._tip?this._tipHtml():null}
-		`}}var v=s(d(o())),z=s(d(c())),ft=i({fresh:z,cached:z,out:z,wall_ms:z,model_groups:s(y(o(),b()))}),bt=i({state:o(),observed_at:z,source:v,progress:s(d(i({stage:T(["completed","reviewed","review-blocked","landed"]),ts:z})))}),_t=i({text:v}),gt=i({id:o(),project:v,title:v,state:o(),age_s:z,owner_sid:v,owner_label:v,origin:v,model:v,locality:v,parent_id:v,tag_color:v,failure_note:v,wait_kind:v,wait_reason:v,requires:v,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(d(ft)),execution:s(d(bt)),tail:s(d(_t))});class H extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(t){let l=t.spend?.model_groups,u="",p=-1;if(l)for(let[m,f]of Object.entries(l)){let _=typeof f==="object"&&f!==null?Number(f.requests??0):0;if(Number.isFinite(_)&&_>p)u=m,p=_}return u||t.model||void 0}static hostOf(t){let l=t.owner_label?.trim();if(l&&l!==t.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(l))return l;return t.owner_sid??void 0}static metricsOf(t){let l=t.spend;if(!l)return;let u=l.fresh??void 0,p=l.cached??void 0,m=l.out??void 0,f=l.wall_ms??void 0,_=u===void 0&&p===void 0&&m===void 0?void 0:(u??0)+(p??0)+(m??0),g=f!==void 0&&f>0?f/60000:0,x=g>0&&m!==void 0?m/g:void 0,w=(u??0)+(p??0),B=w>0&&p!==void 0?p/w*100:void 0;return{tokens:_,wallMs:f,tokPerMin:x,cachePct:B}}static parentRefOf(t){return t.parent_id??void 0}contextLinesOf(t){let l=[],u=t.execution;if(u){let _=u.progress?.stage;l.push(_?`${u.state} · ${_}`:`${u.state} · no artifact evidence in snapshot`)}if(t.state==="WAITING"&&t.wait_reason)l.push(`${t.wait_kind??"external"} · ${t.wait_reason}`);let p=t.blocked_by??[];if(p.length)l.push(`waiting on ${p.join(", ")}`);let m=t.waiting_on??[];if(m.length)l.push(`split into ${m.join(", ")}`);let f=t.tail?.text?.trim();if(f&&!l.includes(f))l.push(f);return l}modelOf(t){let l={id:t.id,project:t.project??void 0,title:t.title??void 0,state:t.state,ageS:t.age_s??void 0,contextLines:this.contextLinesOf(t),parentRef:H.parentRefOf(t),model:H.modelOf(t),host:H.hostOf(t),warn:t.failure_note??void 0,metrics:H.metricsOf(t),nested:this.hasAttribute("data-nested"),preferColor:t.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},u=D.safeParse(l);return u.success?u.data:null}render(){let t=gt.safeParse(this.t);if(!this.t||!t.success)return e`<div class="kcard-invalid dim" role="note">
+			${this._axisHtml(l)}
+			${this._tip ? this._tipHtml() : null}
+		`;
+	}
+}
+var H = o(u(s())),
+	V = o(u(c())),
+	Kt = i({
+		fresh: V,
+		cached: V,
+		out: V,
+		wall_ms: V,
+		model_groups: o(g(s(), m())),
+	}),
+	Dt = i({
+		state: s(),
+		observed_at: V,
+		source: H,
+		progress: o(
+			u(
+				i({
+					stage: S(["completed", "reviewed", "review-blocked", "landed"]),
+					ts: V,
+				}),
+			),
+		),
+	}),
+	Bt = i({ text: H }),
+	qt = i({
+		id: s(),
+		project: H,
+		title: H,
+		state: s(),
+		age_s: V,
+		owner_sid: H,
+		owner_label: H,
+		origin: H,
+		model: H,
+		locality: H,
+		parent_id: H,
+		tag_color: H,
+		failure_note: H,
+		wait_kind: H,
+		wait_reason: H,
+		requires: H,
+		blocked_by: o(a(s())),
+		waiting_on: o(a(s())),
+		spend: o(u(Kt)),
+		execution: o(u(Dt)),
+		tail: o(u(Bt)),
+	});
+class W extends n {
+	static properties = {
+		t: { attribute: !1 },
+		executors: { attribute: !1 },
+		executorPick: { attribute: !1 },
+		effortOptions: { attribute: !1 },
+		series: { attribute: !1 },
+		attempt: { attribute: !1 },
+		attemptView: { attribute: !1 },
+		pendingAction: { attribute: !1 },
+		draftPick: { attribute: !1 },
+		draftEffort: { attribute: !1 },
+	};
+	static styles = r``;
+	constructor() {
+		super();
+		(this.t = null),
+			(this.executors = []),
+			(this.executorPick = ""),
+			(this.effortOptions = []),
+			(this.series = null),
+			(this.attempt = null),
+			(this.attemptView = !1),
+			(this.pendingAction = ""),
+			(this.draftPick = void 0),
+			(this.draftEffort = void 0);
+	}
+	static modelOf(l) {
+		let p = l.spend?.model_groups,
+			v = "",
+			b = -1;
+		if (p)
+			for (const [k, w] of Object.entries(p)) {
+				const _ =
+					typeof w === "object" && w !== null ? Number(w.requests ?? 0) : 0;
+				if (Number.isFinite(_) && _ > b) (v = k), (b = _);
+			}
+		return v || l.model || void 0;
+	}
+	static hostOf(l) {
+		const p = l.owner_label?.trim();
+		if (p && p !== l.owner_sid && !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(p))
+			return p;
+		return l.owner_sid ?? void 0;
+	}
+	static metricsOf(l) {
+		const p = l.spend;
+		if (!p) return;
+		const v = p.fresh ?? void 0,
+			b = p.cached ?? void 0,
+			k = p.out ?? void 0,
+			w = p.wall_ms ?? void 0,
+			_ =
+				v === void 0 && b === void 0 && k === void 0
+					? void 0
+					: (v ?? 0) + (b ?? 0) + (k ?? 0),
+			E = w !== void 0 && w > 0 ? w / 60000 : 0,
+			R = E > 0 && k !== void 0 ? k / E : void 0,
+			C = (v ?? 0) + (b ?? 0),
+			O = C > 0 && b !== void 0 ? (b / C) * 100 : void 0;
+		return { tokens: _, wallMs: w, tokPerMin: R, cachePct: O };
+	}
+	static parentRefOf(l) {
+		return l.parent_id ?? void 0;
+	}
+	contextLinesOf(l) {
+		const p = [],
+			v = l.execution;
+		if (v) {
+			const _ = v.progress?.stage;
+			p.push(
+				_
+					? `${v.state} · ${_}`
+					: `${v.state} · no artifact evidence in snapshot`,
+			);
+		}
+		if (l.state === "WAITING" && l.wait_reason)
+			p.push(`${l.wait_kind ?? "external"} · ${l.wait_reason}`);
+		const b = l.blocked_by ?? [];
+		if (b.length) p.push(`waiting on ${b.join(", ")}`);
+		const k = l.waiting_on ?? [];
+		if (k.length) p.push(`split into ${k.join(", ")}`);
+		if (p.length) return p;
+		const w = l.tail?.text?.trim();
+		return w ? [w] : [];
+	}
+	modelOf(l) {
+		const p = {
+				id: l.id,
+				project: l.project ?? void 0,
+				title: l.title ?? void 0,
+				state: l.state,
+				ageS: l.age_s ?? void 0,
+				contextLines: this.contextLinesOf(l),
+				parentRef: W.parentRefOf(l),
+				model: W.modelOf(l),
+				host: W.hostOf(l),
+				warn: l.failure_note ?? void 0,
+				metrics: W.metricsOf(l),
+				nested: this.hasAttribute("data-nested"),
+				preferColor: l.tag_color ?? void 0,
+				executors: this.executors,
+				executorPick: this.draftPick ?? this.executorPick,
+				effortOptions: this.effortOptions,
+				effortPick: this.draftEffort ?? "",
+				pendingAction: this.pendingAction || void 0,
+			},
+			v = ft.safeParse(p);
+		return v.success ? v.data : null;
+	}
+	render() {
+		const l = qt.safeParse(this.t);
+		if (!this.t || !l.success)
+			return e`<div class="kcard-invalid dim" role="note">
 				card payload invalid
-			</div>`;let l=t.data,u=this.modelOf(l);if(!u)return e``;let p=this.series||this.attempt?e`<klh-card-activity
+			</div>`;
+		const p = l.data,
+			v = this.modelOf(p);
+		if (!v) return e``;
+		const b =
+			this.series || this.attempt
+				? e`<klh-card-activity
 						slot="activity"
-						.points=${this.series??[]}
-						.wallMs=${H.metricsOf(l)?.wallMs??null}
+						.points=${this.series ?? []}
+						.wallMs=${W.metricsOf(p)?.wallMs ?? null}
 						.attempt=${this.attempt}
-						.mode=${this.attemptView?"attempt":"spend"}
-					></klh-card-activity>`:null;return e`<klh-task-card .card=${u}>${p}</klh-task-card>`}createRenderRoot(){return this}}var vt=()=>{P("klh-task-card-host",H),P("klh-task-card",A),P("klh-card-activity",X)};vt();export{vt as registerBoardElements};
+						.mode=${this.attemptView ? "attempt" : "spend"}
+					></klh-card-activity>`
+				: null;
+		return e`<klh-task-card .card=${v}>${b}</klh-task-card>`;
+	}
+	createRenderRoot() {
+		return this;
+	}
+}
+var jt = () => {
+	U("klh-task-card-host", W),
+		U("klh-task-card", st),
+		U("klh-card-activity", ct);
+};
+jt();
+export { jt as registerBoardElements };
