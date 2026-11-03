@@ -26,10 +26,14 @@ const SELF = "tests/test-framework-guard.test.ts";
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
 // remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
-// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657) —
-// the exact non-decant count measured by THIS guard's own git ls-files
+// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
+// W2224 (merge of parked/W2173.5.1 full-corpus port) re-pins DOWN
+// (661 → 237) — suspenders/test's base corpus is fully ported; W2640
+// (re-merge onto main carrying the same port) nets the tree to the
+// count below — main's belt copilot-seat-rows.test.ts (W2595) still
+// rides *.test.ts here — measured by THIS guard's own git ls-files
 // counting at the closing sha.
-const PIN = 657;
+const PIN = 237;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
