@@ -232,6 +232,15 @@ export function fmtHHmm(t: number): string {
 	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** W2591: honest compact bin-width word for axis/tooltip/aria — the
+ *  ACTUAL interval (`30-second`, `2-minute`, `1-hour`), never a
+ *  hardcoded 3-minute grid. */
+export function fmtBinWidth(binMs: number): string {
+	if (binMs < 60_000) return `${Math.round(binMs / 1000)}-second`;
+	if (binMs < 3_600_000) return `${Math.round(binMs / 60_000)}-minute`;
+	return `${Math.round(binMs / 3_600_000)}-hour`;
+}
+
 export interface DurationSpan {
 	visible: boolean;
 	center: number;

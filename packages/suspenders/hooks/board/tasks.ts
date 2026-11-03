@@ -217,10 +217,25 @@ export function workAttribution(): Map<string, ItemAttribution> {
 	return m;
 }
 
-// Per-item one-minute request series for /api/spend-series, memoized 5s like
+// Per-item request series for /api/spend-series, memoized 5s like
 // workAttribution. Each refresh replaces recent buckets with absolute audit
 // totals. The histogram table retains older buckets across board restarts.
+//
+// W2591 dual resolution: the FRESH window (SERIES_FRESH_WINDOW_MS) is served
+// at SERIES_FINE_BIN_MS straight from the per-request route_audit reduction
+// (millisecond-precise source), and older history stays served by the
+// minute-grain work_spend_histogram archive — the two spans are DISJOINT by
+// bucket start (fresh: t >= cutoff; archive: bucket_ms < cutoff), so sums
+// never double-count and no schema migration is needed. Every point carries
+// its own binMs so renderers never infer grain from timestamp gaps (#103978).
 let _wSeries: { at: number; m: Map<string, ItemSpendPoint[]> } | null = null;
+
+/** W2591: the fresh high-resolution span (matches the widest card viewport
+ *  at 600px = 5h, plus margin; the 24h read bound below still applies). */
+export const SERIES_FRESH_WINDOW_MS = 6 * 3_600_000;
+/** W2591: the fresh-window grain — ~1px cells at card widths (owner #103978:
+ *  roughly 1 CSS px supports ~30s). */
+export const SERIES_FINE_BIN_MS = 30_000;
 
 export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 	if (_wSeries && Date.now() - _wSeries.at < ATTR_TTL_MS) return _wSeries.m;
@@ -253,6 +268,10 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 	const newest = db.query(
 		"SELECT MAX(bucket_ms) AS t FROM work_spend_histogram WHERE project=? AND work_id=?",
 	);
+	// W2591: fresh window (>= cutoff) served from the per-request reduction
+	// at the fine grain; archive (< cutoff) stays the histogram read below.
+	const cutoff = Date.now() - SERIES_FRESH_WINDOW_MS;
+	const fine = new Map<string, ItemSpendPoint[]>();
 	for (const { project } of db
 		.query("SELECT DISTINCT project FROM work_items")
 		.all() as { project: string }[]) {
@@ -266,20 +285,36 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 			rows,
 			windows,
 			Number.MAX_SAFE_INTEGER,
+			SERIES_FINE_BIN_MS,
 		)) {
 			const lastWritten = Number(
 				(newest.get(project, id) as { t: number | null } | null)?.t ?? 0,
 			);
-			for (const p of points)
-				if (p.t >= lastWritten - 120_000)
-					write.run(project, id, p.t, p.fresh, p.cached, p.out);
+			// the minute-grain archive keeps its retention job: per
+			// (item, minute) SUM of the fine points — same totals it
+			// always kept, derived from the same request rows
+			const minute = new Map<number, ItemSpendPoint>();
+			for (const p of points) {
+				const t = Math.floor(p.t / 60_000) * 60_000;
+				const acc = minute.get(t) ?? { t, fresh: 0, cached: 0, out: 0 };
+				acc.fresh += p.fresh;
+				acc.cached += p.cached;
+				acc.out += p.out;
+				minute.set(t, acc);
+			}
+			for (const a of minute.values())
+				if (a.t >= lastWritten - 120_000)
+					write.run(project, id, a.t, a.fresh, a.cached, a.out);
+			// W2591: the fresh window rides the wire at the fine grain
+			const finePts = points.filter((p) => p.t >= cutoff);
+			if (finePts.length) fine.set(`${project}\u0000${id}`, finePts);
 		}
 	}
 	for (const r of db
 		.query(
-			"SELECT project,work_id,bucket_ms,fresh,cached,out_tok FROM work_spend_histogram ORDER BY project,work_id,bucket_ms",
+			"SELECT project,work_id,bucket_ms,fresh,cached,out_tok FROM work_spend_histogram WHERE bucket_ms < ? ORDER BY project,work_id,bucket_ms",
 		)
-		.all() as {
+		.all(cutoff) as {
 		project: string;
 		work_id: string;
 		bucket_ms: number;
@@ -294,8 +329,12 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 			fresh: r.fresh,
 			cached: r.cached,
 			out: r.out_tok,
+			binMs: 60_000,
 		});
 		m.set(key, points);
+	}
+	for (const [key, pts] of fine) {
+		m.set(key, [...(m.get(key) ?? []), ...pts].sort((a, b) => a.t - b.t));
 	}
 	_wSeries = { at: Date.now(), m };
 	return m;
@@ -303,13 +342,16 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 
 /** Persisted per-item one-minute [t, fresh, cached, out] tuples, keyed project\0id. */
 
+/** W2591: [t, fresh, cached, out, binMs?] — the 5th element is the point's
+ *  own grain (present on coarse archive rows and fine fresh rows alike), so
+ *  the renderer picks a display rung without inferring grain from gaps. */
 export function workSpendSeriesPayload(): Record<
 	string,
-	[number, number, number, number][]
+	[number, number, number, number, number?][]
 > {
-	const out: Record<string, [number, number, number, number][]> = {};
+	const out: Record<string, [number, number, number, number, number?][]> = {};
 	for (const [k, points] of workSpendSeries()) {
-		out[k] = points.map((p) => [p.t, p.fresh, p.cached, p.out]);
+		out[k] = points.map((p) => [p.t, p.fresh, p.cached, p.out, p.binMs]);
 	}
 	return out;
 }
