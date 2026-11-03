@@ -36,11 +36,11 @@ function retryExecItem(id, proj, btn, force, agent){
   if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); btn.textContent = 'retrying…'; }
   var body = { project: proj, id: id, force: !!force };
   if (agent) body.agent = agent;
-  postJSON('/api/retry', body).then(function(j){
+  return postJSON('/api/retry', body).then(function(j){
     if (btn) btn.removeAttribute('aria-busy');
     recoveryFinish(k, btn, label);
     if (j && j.operatorGated && !force) {
-      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the retry? Auto-dispatch will spawn a lane for it.')) retryExecItem(id, proj, null, true, agent);
+      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the retry? Auto-dispatch will spawn a lane for it.')) return retryExecItem(id, proj, null, true, agent);
       return;
     }
     recoveryToast(j, id, true);
@@ -60,11 +60,11 @@ function recoverItem(id, proj, btn, force){
   recoveryBusy[k] = true;
   var label = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); btn.textContent = 'recovering…'; }
-  postJSON('/api/recover', { project: proj, id: id, force: !!force }).then(function(j){
+  return postJSON('/api/recover', { project: proj, id: id, force: !!force }).then(function(j){
     if (btn) btn.removeAttribute('aria-busy');
     recoveryFinish(k, btn, label);
     if (j && j.operatorGated && !force) {
-      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the recover to READY?')) recoverItem(id, proj, null, true);
+      if (confirm('Operator-gated item (open NEED_DECISION or operator tag) — force the recover to READY?')) return recoverItem(id, proj, null, true);
       return;
     }
     recoveryToast(j, id, false);

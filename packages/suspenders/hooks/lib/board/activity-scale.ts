@@ -15,7 +15,9 @@
 //     normalization): zero/unknown draws nothing, overflow saturates and
 //     says so, elapsed time is never progress.
 export const ACTIVITY_STEP_PX = 6;
-export const ACTIVITY_BAR_PX = 4;
+/** W2267.4.2.2 (#103177): thin ~1.5px real-bin strokes — the approved 09
+ * spectral look. Bin spacing/count and data geometry are unchanged. */
+export const ACTIVITY_BAR_PX = 1.5;
 /** The design bin: a 6px cell ↔ 3 minutes — the board's one bin width. */
 export const ACTIVITY_BIN_MS = 180_000;
 /**

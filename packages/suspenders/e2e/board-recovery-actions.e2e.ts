@@ -93,7 +93,7 @@ test("retry click: toast, no drawer, the fresh attempt really claims the item", 
 	await openLanes(page, board);
 	const card = failedCard(page, id);
 	await expect(card).toBeVisible();
-	await card.locator("button[data-retry]").click();
+	await card.locator("klh-task-card button.seg.retry").click();
 	// an action click never falls through to the card-open handler
 	await expect(page.locator("#drawer")).toBeHidden();
 	await expect(page.locator("#toasts .toast").first()).toBeVisible({
@@ -128,8 +128,49 @@ test("FAILED-card actions are keyboard reachable", {
 	await openLanes(page, board);
 	const card = failedCard(page, id);
 	await expect(card).toBeVisible();
-	const btn = card.locator("button[data-retry]");
+	const btn = card.locator("klh-task-card button.seg.retry");
 	await btn.focus();
 	await expect(btn).toBeFocused();
 	expect(await btn.getAttribute("type")).toBe("button");
+});
+
+// W2267.4.2.2 (#103127): mediator-owned pending state, data-down. A
+// delayed-then-failing /api/recover (route fixture) proves the whole
+// contract in one leg: the verb's control disables with busy text the
+// moment the request is in flight, a double click cannot double-fire, the
+// failure unlocks (a later click fires again), and the honest error toast
+// replaces the busy state.
+test("pending state: busy control while in flight, unlock on failure, no double-fire", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	const [id] = await seedFailed(board, "w2267 pending state probe");
+	await openLanes(page, board);
+	const card = failedCard(page, id);
+	await expect(card).toBeVisible();
+	const recover = card.locator("klh-task-card button.seg.recover");
+	await expect(recover).toBeVisible();
+	let hits = 0;
+	await page.route("**/api/recover", async (route) => {
+		hits++;
+		await page.waitForTimeout(1200);
+		await route.fulfill({ json: { ok: false, error: "fixture: delayed failure" } });
+	});
+	await recover.dblclick();
+	// in flight: disabled + aria-busy + the busy label (mediator stamped it)
+	await expect(recover).toBeDisabled();
+	await expect(recover).toHaveAttribute("aria-busy", "true");
+	await expect(recover).toHaveText("Recover → Ready…");
+	expect(hits).toBe(1); // one request — the double click could not double-fire
+	// settle: the honest failure toast replaces the busy state, the control
+	// unlocks (a fresh click fires a second request — never a stranded lock)
+	await expect(
+		page.locator("#toasts .toast", { hasText: "recover failed" }),
+	).toBeVisible({ timeout: 10_000 });
+	await expect(recover).toBeEnabled();
+	await expect(recover).toHaveText("Recover → Ready");
+	expect(await recover.getAttribute("aria-busy")).toBe("false");
+	await recover.click();
+	await page.waitForTimeout(1500);
+	expect(hits).toBe(2);
+	await page.unroute("**/api/recover");
 });

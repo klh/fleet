@@ -35,6 +35,23 @@ export function taskStatusWord(state: string): string {
 	return state.toLowerCase();
 }
 
+/** #103218: the warn band's label derives from the note's own blocking
+ * marker, NEVER the tone — the host passes arbitrary failure_note, so a
+ * FAILED timeout/crash/validation loop must not read BLOCKED. A note that
+ * identifies blocking (the fleet's "BLOCKED …" vocabulary) keeps the
+ * blocked treatment; anything else is a neutral warning. */
+export function taskWarnLabel(warn: string): string {
+	return /^\s*BLOCKED\b/i.test(warn) ? "blocked" : "warning";
+}
+
+/** #103218: band body — elide the redundant leading marker when the label
+ * already carries it ("blocked BLOCKED W1: …" duplicates); the verbatim
+ * reason always stays available on the title attribute. */
+export function taskWarnBody(warn: string): string {
+	const elided = warn.replace(/^\s*BLOCKED\b[\s:]+/i, "");
+	return elided || warn;
+}
+
 const optStr = z.optional(z.nullable(z.string()));
 const optNum = z.optional(z.nullable(z.number()));
 
@@ -87,8 +104,10 @@ export const TaskCardModelSchema = z.looseObject({
 	 * CANCELLED/SHATTERED/WAITING) — the tone derives from it. */
 	state: z.string(),
 	ageS: optNum,
-	/** Quiet mono context line (execution state · proof, wait reason …). */
-	context: optStr,
+	/** Quiet mono context lines (#103191): execution proof AND wait/split
+	 * reasons each ride their OWN visible line — one joined line truncated
+	 * the split/wait context away. */
+	contextLines: z.optional(z.array(z.string())),
 	/** Parent/split reference rendered as a quiet "↳ <ref>" line. */
 	parentRef: optStr,
 	/** MODEL column value; unknown stays null. */
@@ -109,6 +128,10 @@ export const TaskCardModelSchema = z.looseObject({
 	executorPick: optStr,
 	effortOptions: z.optional(z.array(z.string())),
 	effortPick: optStr,
+	/** W2267.4.2.2 (#103127): a verb currently in flight on this card —
+	 * the footer disables that verb's control and shows busy text until
+	 * the mediator clears it (data-down; the leaf never self-serves). */
+	pendingAction: optStr,
 });
 export type TaskCardModel = z.output<typeof TaskCardModelSchema>;
 

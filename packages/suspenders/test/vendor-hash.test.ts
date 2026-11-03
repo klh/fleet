@@ -94,10 +94,15 @@ describe("vendor-hash (W292)", () => {
 	});
 
 	test("one shared lit runtime chunk; every entry imports it", () => {
+		// W2267.4.2.2: once two entries import the same component modules,
+		// bun's splitter hoists the shared bodies into hash chunks and leaves
+		// the original entries as pure side-effect shims — their chunk pulls
+		// are bare `import"./lit-x.js"`, not `from"./lit-x.js"`. Both forms
+		// load the chunk; count both.
 		const importsOf = (f: string): string[] =>
 			[
 				...readFileSync(join(VENDOR, f), "utf8").matchAll(
-					/from"\.\/(lit-[^"]+\.js)"/g,
+					/(?:from|import)"\.\/(lit-[^"]+\.js)"/g,
 				),
 			].map((m) => m[1] ?? "");
 		const entries = readdirSync(VENDOR).filter(
