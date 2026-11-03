@@ -165,7 +165,7 @@ export async function tryOnce(
 	if (!host.cooldowns.cold.claimProbe(dep)) {
 		const gate = host.cooldowns.cold.gateOf(dep);
 		if (gate === null) return coldRefusal(host, dep, poolId, null);
-		const rodeAt = host.now();
+		const rideStart = host.now();
 		const rideMs = resilienceOf(host).admission_ride_ms;
 		const verdict = await ColdMarks.ride(
 			gate,
@@ -175,8 +175,17 @@ export async function tryOnce(
 				: rideMs,
 			req.signal,
 		);
+		// deadline honesty (W2544): the ride consumed real walk budget —
+		// every downstream spend (admission wait, fetch timeout) sees the
+		// shrunken remainder, never the pre-ride number.
+		remainingWalkMs -= Math.max(0, host.now() - rideStart);
+		// an aborted rider never knocks and never gets a fabricated answer
+		// (the walk's abort handling owns the halt), whatever the verdict
+		if (req.signal?.aborted)
+			throw new Error("caller aborted while riding an in-flight verdict");
 		// a success opened the account / a release left it un-cold: the
 		// riding batch goes straight to admission (the pool core paces it).
+		// Only a cold verdict answers locally as a cold mark.
 		if (verdict === "refused") return coldRefusal(host, dep, poolId, null);
 		if (verdict === "timeout") {
 			// A lapsed ride on a REAL half-open probe keeps every other
@@ -186,26 +195,12 @@ export async function tryOnce(
 			// A lapsed PLACEHOLDER ride carries no cold verdict at all — the
 			// first knock is merely still in flight (W2585). With a bounded
 			// pool behind the row the rider falls through to admission; the
-			// dwell shrank this walk (deadlines only shrink).
-			if (poolId !== null) {
-				const dwellMs = Math.max(0, Math.round(host.now() - rodeAt));
-				if (Number.isFinite(remainingWalkMs))
-					remainingWalkMs = Math.max(0, remainingWalkMs - dwellMs);
-			} else {
-				// No pool = no bound: a fall-through herd would knock the
-				// account unbounded. The rider gets the honest local expiry
-				// instead: no cold verdict exists, so the horizon is one
-				// ride window — never a fabricated cold remainder.
-				return {
-					ok: false as const,
-					localAdmission: true,
-					providerPool: null,
-					queueWaitMs: null,
-					status: 503,
-					error: `upstream ${dep.url} admission ride expired while the first knock is still in flight — answered locally, no cold verdict recorded`,
-					retryAfterS: Math.max(1, Math.ceil(rideMs / 1000)),
-				};
-			}
+			// ride already shrank this walk (deadlines only shrink). A rider
+			// whose ride ate the whole remaining walk never launches a knock
+			// of its own past the deadline (W2544) — the typed pending
+			// refusal answers instead.
+			if (poolId === null || remainingWalkMs <= 0)
+				return pendingVerdictRefusal(host, dep, poolId, remainingWalkMs);
 		}
 	}
 	const admission = poolId === null ? undefined : host.pools.get(poolId);
@@ -535,6 +530,7 @@ function admissionRefusal(
 	return {
 		ok: false,
 		localAdmission: true,
+		localCause: cause,
 		providerPool,
 		queueWaitMs,
 		status: 503,
@@ -561,11 +557,38 @@ function coldRefusal(
 	return {
 		ok: false,
 		localAdmission: true,
+		localCause: "cold",
 		providerPool,
 		queueWaitMs,
 		status: 503,
 		error: `upstream ${dep.url} is cooling down (shared cold mark) — answered locally, no upstream knock`,
 		retryAfterS: host.cooldowns.cold.remainingS(dep) ?? 1,
+	};
+}
+
+/** A rider whose bounded wait on the in-flight verdict expired — or whose
+ *  ride budget hit the walk deadline — while NO rate/quota verdict exists.
+ *  Typed local "pending" outcome: never a cooldown claim, never a
+ *  fabricated provider refusal; the bounded advice is the gate's own
+ *  recovery horizon (probe_stale_s), not a provider Retry-After. */
+function pendingVerdictRefusal(
+	host: RouterHost,
+	dep: Deployment,
+	providerPool: string | null,
+	walkRemainingMs: number,
+): TryOutcome {
+	const expired = !Number.isFinite(walkRemainingMs) || walkRemainingMs <= 0;
+	return {
+		ok: false,
+		localAdmission: true,
+		localCause: expired ? "ride-deadline" : "gate-pending",
+		providerPool,
+		queueWaitMs: null,
+		status: 503,
+		error: expired
+			? `verdict wait for ${dep.url} reached the walk deadline — no provider verdict exists, retried when a knock is free`
+			: `an upstream verdict for ${dep.url} is still pending — this caller's bounded wait expired before any rate/quota answer existed (no cooldown, no upstream knock)`,
+		retryAfterS: host.cooldowns.cold.pendingS(dep),
 	};
 }
 
