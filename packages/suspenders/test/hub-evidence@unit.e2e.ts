@@ -4,6 +4,11 @@
 // paging, lane+window filters, auth header) and the authority-side window
 // replay (finalClaimWindow over a scratch governor store, latestStamp
 // digest over the events bus).
+// W2679 repair: page-1 rows ordered newest-first (the face's real
+// ORDER BY ts DESC, rid DESC — the oldest row is the LAST element, so the
+// keyset cursor r0 is well-defined); re_rid/before_rid asserted from the
+// stub's recorded query strings; dead `u` construction gone; cross-page
+// rid dedup pinned (a hub that ignores before_rid must not double-count).
 import { serveStub, scratchWorld } from "@klh/test-kit";
 import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
@@ -63,17 +68,43 @@ test.describe("@unit", () => {
 			cache_r: cr,
 			cache_c: 0,
 		});
-		// two pages: 500 rows then a short tail — exercises the keyset cursor
+		// two pages, newest-first like the real face (ORDER BY ts DESC, rid
+		// DESC): page 1 holds r499..r0 (r0 = the LAST element = the oldest),
+		// page 2 the older tail + one smuggled out-of-window row
 		const page1 = Array.from({ length: 500 }, (_, k) =>
-			mkRow(`r${k}`, new Date(now - 10 * 60_000 + k).toISOString(), "glm-5.3", 10, 2, 3),
+			mkRow(
+				`r${499 - k}`,
+				new Date(now - 10 * 60_000 + (499 - k)).toISOString(),
+				"glm-5.3",
+				10,
+				2,
+				3,
+			),
 		);
 		const page2 = [
-			mkRow("r500", new Date(now - 25 * 60_000).toISOString(), "glm-5.3-flash", 7, 1, 0),
+			mkRow(
+				"r500",
+				new Date(now - 25 * 60_000).toISOString(),
+				"glm-5.3-flash",
+				7,
+				1,
+				0,
+			),
 			// out-of-window row must be dropped even if the hub smuggles it
-			mkRow("r501", new Date(now - 3 * 86_400_000).toISOString(), "stale", 999, 999, 999),
+			mkRow(
+				"r501",
+				new Date(now - 3 * 86_400_000).toISOString(),
+				"stale",
+				999,
+				999,
+				999,
+			),
 		];
-		const hub = serveStub((_req, _body, n) => {
+		const hub = serveStub((req, _body, n) => {
 			const isSecond = n === 2;
+			// a hub honoring the keyset contract never re-serves page 1
+			if (isSecond && new URL(req.url).searchParams.get("before_rid") !== "r0")
+				return Response.json({ requests: [] });
 			return Response.json({ requests: isSecond ? page2 : page1 });
 		});
 		const res = await hubLaneSpend({
@@ -86,13 +117,19 @@ test.describe("@unit", () => {
 				const r = await fetch(input, init);
 				seen = hub.requests;
 				return r;
-		 }) as typeof fetch,
+			}) as typeof fetch,
 			maxPages: 3,
 		});
 		expect(res.reason).toBe("ok");
 		expect(res.rows).toBe(502);
 		expect(res.spend).not.toBeNull();
-		const s = res.spend as { fresh: number; out: number; cached: number; requests: number; groups: Record<string, { in: number; out: number; requests: number }> };
+		const s = res.spend as {
+			fresh: number;
+			out: number;
+			cached: number;
+			requests: number;
+			groups: Record<string, { in: number; out: number; requests: number }>;
+		};
 		expect(s.fresh).toBe(500 * 10 + 7);
 		expect(s.out).toBe(500 * 2 + 1);
 		expect(s.cached).toBe(500 * 3);
@@ -101,10 +138,77 @@ test.describe("@unit", () => {
 		expect(s.groups["glm-5.3-flash"].in).toBe(7);
 		expect(s.groups.stale).toBeUndefined();
 		// the wire asked lane + window + cursor, with the bearer token
-		const u = new URL(seen[1].path === "/v1/admin/requests" ? `http://x${seen[1].path}` : `http://x/v1/admin/requests`);
-		expect(seen[0].auth).toBe("Bearer bksk-test");
 		expect(seen.length).toBe(2);
+		expect(seen[0].auth).toBe("Bearer bksk-test");
+		const q = (r: StubRequest): URLSearchParams => new URL(r.url).searchParams;
+		expect(q(seen[0]).get("lane")).toBe("autow2321-3");
+		expect(q(seen[0]).get("since")).toBe(new Date(claimAt).toISOString());
+		expect(q(seen[0]).get("until")).toBe(new Date(doneAt).toISOString());
+		expect(q(seen[0]).get("before_rid")).toBeNull();
+		// keyset cursor: page 2 carries page 1's OLDEST rid (newest-first)
+		expect(q(seen[1]).get("before_rid")).toBe("r0");
 		hub.close();
+	});
+
+	test("cross-page rid dedup: a hub ignoring before_rid counts each rid once", async () => {
+		// full page served identically on every fetch — without the dedup
+		// guard the same 500 rows double-count into the spend
+		const dup = Array.from({ length: 500 }, (_, k) => ({
+			rid: `d${k}`,
+			ts: new Date(now - 10 * 60_000 + k).toISOString(),
+			requested_group: "glm-5.3",
+			in_tok: 10,
+			out_tok: 2,
+			cache_r: 3,
+			cache_c: 0,
+		}));
+		const hub = serveStub(() => Response.json({ requests: dup }));
+		const res = await hubLaneSpend({
+			base: hub.url,
+			lane: "x",
+			fromMs: claimAt,
+			toMs: doneAt,
+			maxPages: 5,
+		});
+		expect(res.reason).toBe("ok");
+		// 500 unique rows — not 1000 (page 1) + the same 500 re-served
+		expect(res.rows).toBe(500);
+		const s = res.spend as { fresh: number; requests: number };
+		expect(s.fresh).toBe(5000);
+		expect(s.requests).toBe(500);
+		hub.close();
+	});
+
+	test("malformed hub body degrades to honest no-data, never a hand-cast read", async () => {
+		// schema law (W1238.4): a body that is not the W824 envelope parses
+		// empty — no hand-cast rows, honest no-data
+		const junk = serveStub(() => Response.json({ unexpected: true }));
+		const r1 = await hubLaneSpend({
+			base: junk.url,
+			lane: "x",
+			fromMs: claimAt,
+			toMs: doneAt,
+		});
+		expect(r1.spend).toBeNull();
+		expect(r1.reason).toBe("no rows in the claim window");
+		junk.close();
+		// row-level non-conformance (rid not a string, in_tok not a number)
+		const bad = serveStub(() =>
+			Response.json({
+				requests: [
+					{ rid: 1, ts: new Date(now - 60_000).toISOString(), in_tok: "x" },
+				],
+			}),
+		);
+		const r2 = await hubLaneSpend({
+			base: bad.url,
+			lane: "x",
+			fromMs: claimAt,
+			toMs: doneAt,
+		});
+		expect(r2.spend).toBeNull();
+		expect(r2.reason).toBe("no rows in the claim window");
+		bad.close();
 	});
 
 	test("empty window and HTTP failure degrade to honest no-data", async () => {
@@ -139,7 +243,11 @@ test.describe("@unit", () => {
 		// an open claim runs to nowMs
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target, project) VALUES (?, 't', 'work.claimed', NULL, ?, NULL, ?)",
-		).run(now - 60_000, JSON.stringify({ work: "W2", project: PROJECT, by: "lane-b" }), PROJECT);
+		).run(
+			now - 60_000,
+			JSON.stringify({ work: "W2", project: PROJECT, by: "lane-b" }),
+			PROJECT,
+		);
 		expect(finalClaimWindow(db, PROJECT, "W2", now)).toEqual({
 			sid: "lane-b",
 			start: now - 60_000,
@@ -189,7 +297,11 @@ test.describe("@unit", () => {
 		);
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target, project) VALUES (?, 't', 'work.claimed', NULL, ?, NULL, ?)",
-		).run(claimAt, JSON.stringify({ work: "WH", project: PROJECT, by: "lane-h" }), PROJECT);
+		).run(
+			claimAt,
+			JSON.stringify({ work: "WH", project: PROJECT, by: "lane-h" }),
+			PROJECT,
+		);
 		db.query(
 			"INSERT INTO events (ts, source, kind, scope, payload, target, project) VALUES (?, 't', 'work.done', NULL, ?, NULL, ?)",
 		).run(doneAt, JSON.stringify({ work: "WH", project: PROJECT }), PROJECT);
@@ -212,7 +324,7 @@ test.describe("@unit", () => {
 				resolveBuckleDb: () => null,
 				emit: (_k: string, _id: string, extra: Record<string, string>) => {
 					emitted = extra;
-			},
+				},
 				log: () => {},
 				green: (s: string) => s,
 				cyan: (s: string) => s,
@@ -222,7 +334,8 @@ test.describe("@unit", () => {
 				hubFace: async () => origResolve,
 			},
 			"WH",
-			(n: string) => (n === "--hub" ? "hub.test" : n === "--as" ? "lane-h" : null),
+			(n: string) =>
+				n === "--hub" ? "hub.test" : n === "--as" ? "lane-h" : null,
 		);
 		hub.close();
 		expect(emitted).not.toBeNull();

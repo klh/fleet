@@ -13,24 +13,34 @@
 // the local ledger already attributed). Honest no-data: a hub that answers
 // zero rows for the window stays '-' — never invented attribution.
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { claimWindows } from "./work-timing.ts";
 import type { BackfillSpend } from "../lanes/lane-backfill.ts";
 import type { GroupSpend } from "../lanes/lane-spend.ts";
 
 /** The hub's /v1/admin/requests row subset this module consumes (W824 face
- *  — buckles older than W824 answer 404 and degrade to no-data). */
-interface HubRequestRow {
-	rid: string;
-	ts: string;
-	in_tok: number | null;
-	out_tok: number | null;
-	cache_r: number | null;
-	cache_c: number | null;
-	cost_usd?: number | null;
-	requested_group?: string | null;
-	served_model?: string | null;
-}
+ *  — buckles older than W824 answer 404 and degrade to no-data). Schema
+ *  law (W1238.4): the wire body safeParses through this named schema —
+ *  never a hand cast. Non-consumed face fields (actor, lane, …) are
+ *  stripped by the parse, not relied on. */
+const HubRequestRowSchema = z.object({
+	rid: z.string(),
+	ts: z.string(),
+	in_tok: z.number().nullable(),
+	out_tok: z.number().nullable(),
+	cache_r: z.number().nullable(),
+	cache_c: z.number().nullable(),
+	cost_usd: z.number().nullable().optional(),
+	requested_group: z.string().nullable().optional(),
+	served_model: z.string().nullable().optional(),
+});
+type HubRequestRow = z.infer<typeof HubRequestRowSchema>;
+
+/** GET /v1/admin/requests response envelope (W824): { requests: [...] }. */
+const HubRequestsPageSchema = z.object({
+	requests: z.array(HubRequestRowSchema),
+});
 
 export interface HubSpendResult {
 	/** null = honest no-data (unreachable hub, auth refused, zero rows). */
@@ -51,7 +61,11 @@ async function fetchPage(
 	untilIso: string,
 	beforeRid: string | null,
 	fetchImpl: typeof fetch,
-): Promise<{ rows: HubRequestRow[]; status: number; oldest: HubRequestRow | null }> {
+): Promise<{
+	rows: HubRequestRow[];
+	status: number;
+	oldest: HubRequestRow | null;
+}> {
 	const u = new URL(`${base.replace(/\/+$/, "")}/v1/admin/requests`);
 	u.searchParams.set("lane", lane);
 	u.searchParams.set("since", sinceIso);
@@ -62,12 +76,13 @@ async function fetchPage(
 		headers: token ? { authorization: `Bearer ${token}` } : {},
 	});
 	if (res.status !== 200) return { rows: [], status: res.status, oldest: null };
-	const body = (await res.json().catch(() => null)) as {
-		requests?: HubRequestRow[];
-	} | null;
-	const rows = Array.isArray(body?.requests)
-		? (body.requests as HubRequestRow[])
-		: [];
+	// Schema law (W1238.4): the hub body safeParses through the named page
+	// schema — a malformed/non-conforming body is an empty page (degrades to
+	// honest no-data), never a hand-cast read.
+	const parsed = HubRequestsPageSchema.safeParse(
+		await res.json().catch(() => null),
+	);
+	const rows = parsed.success ? parsed.data.requests : [];
 	// newest-first: the page's oldest row is the LAST element
 	const oldest = rows.length ? rows[rows.length - 1] : null;
 	return { rows, status: 200, oldest };
@@ -77,23 +92,25 @@ async function fetchPage(
  *  reduced to the BackfillSpend shape (group = requested_group, else
  *  served_model, else '?'). Cost stays null — the hub's cost_usd is a
  *  per-row floor and the W2059 stamp never carried cost. */
-export async function hubLaneSpend(
-	opts: {
-		base: string;
-		token?: string | null;
-		lane: string;
-		fromMs: number;
-		toMs: number;
-		fetchImpl?: typeof fetch;
-		maxPages?: number;
-	},
-): Promise<HubSpendResult> {
+export async function hubLaneSpend(opts: {
+	base: string;
+	token?: string | null;
+	lane: string;
+	fromMs: number;
+	toMs: number;
+	fetchImpl?: typeof fetch;
+	maxPages?: number;
+}): Promise<HubSpendResult> {
 	const f = opts.fetchImpl ?? fetch;
 	const sinceIso = new Date(opts.fromMs).toISOString();
 	const untilIso = new Date(opts.toMs).toISOString();
 	const maxPages = opts.maxPages ?? 20;
 	let beforeRid: string | null = null;
 	let all: HubRequestRow[] = [];
+	// cross-page rid guard: a hub that ignores before_rid re-serves rows —
+	// count each rid once, and stop (bounded, honest) when a full page adds
+	// nothing new instead of looping on the same page until maxPages.
+	const seen = new Set<string>();
 	for (let page = 0; page < maxPages; page++) {
 		const r = await fetchPage(
 			opts.base,
@@ -110,8 +127,11 @@ export async function hubLaneSpend(
 				reason: `hub ${opts.base} answered HTTP ${r.status}`,
 				rows: 0,
 			};
-		all = all.concat(r.rows);
+		const fresh = r.rows.filter((row) => !seen.has(row.rid));
+		for (const row of fresh) seen.add(row.rid);
+		all = all.concat(fresh);
 		if (r.rows.length < 500 || !r.oldest) break;
+		if (!fresh.length) break;
 		beforeRid = r.oldest.rid;
 	}
 	if (!all.length)
@@ -179,10 +199,7 @@ export function finalClaimWindow(
 }
 
 /** The stamp digest — payload identity for idempotence. */
-export const hubStampDigest = (
-	spend: BackfillSpend,
-	hub: string,
-): string =>
+export const hubStampDigest = (spend: BackfillSpend, hub: string): string =>
 	`${hub}|${spend.fresh}|${spend.cached}|${spend.out}|${spend.requests}|${Object.keys(spend.groups).sort().join(",")}`;
 
 /** Latest work.attribution stamp digest for an item, or null when none.
@@ -306,14 +323,7 @@ async function stampBackfill(
 ): Promise<void> {
 	const { store, project } = deps;
 	const bf = hubLabel
-		? await hubBackfillForItem(
-				store,
-				project,
-				id,
-				sid,
-				hubLabel,
-				deps.hubFace,
-			)
+		? await hubBackfillForItem(store, project, id, sid, hubLabel, deps.hubFace)
 		: deps.backfillForItem(
 				store as never,
 				project,
