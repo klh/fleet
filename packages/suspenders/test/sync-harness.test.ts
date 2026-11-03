@@ -94,6 +94,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"subagent-statusline.ts",
 		"bin/coord.ts",
 		"bin/work.ts",
+		"bin/launchd-launcher.ts",
 		"bin/oracle.ts",
 		"bin/fleet-loop.ts",
 		"bin/fleet-tracker.ts",

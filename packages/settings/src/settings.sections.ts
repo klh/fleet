@@ -76,6 +76,15 @@ export const FleetLoopSchema = section(
 			16_000,
 			"Review leg max_tokens (0 = omit the key, provider default; W2405)",
 		),
+		launchd_env: z
+			.record(
+				z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+				z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(8192)),
+			)
+			.default({})
+			.describe(
+				"W2470.2: per-service EnvironmentVariables the launchd launcher reads at run time (units become env-less shells; values live here)",
+			),
 		projects: z
 			.array(FleetLoopProjectSchema)
 			.max(64)

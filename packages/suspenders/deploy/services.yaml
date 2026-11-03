@@ -30,6 +30,18 @@
 #                from flags / process env at render time. PATH values are
 #                darwin-scoped: win32 units never emit them as live <env>
 #                (host PATH applies, W767).
+#   confEnv      W2470.2 — darwin only. The generic launcher
+#                (hooks/bin/launchd-launcher.ts, rides the payload to
+#                __PREFIX__/bin) sits between launchd and the entry and
+#                applies the machine settings' fleet_loop.launchd_env.<name>
+#                row over its HOME/PATH/NODE_EXTRA_CA_CERTS baseline at
+#                START time. The rendered plist carries NO
+#                EnvironmentVariables dict and its own ProgramArguments
+#                (launchd never reads fleet conf — the launch contract stays
+#                in the unit; only the env VALUES centralize). An env change
+#                is a conf edit, never a launchd reload. Services whose env
+#                carries real VALUES (credentials, __REPO__ roots, ports)
+#                stay on the render-time env dict.
 #   envFile      PATH or ordered list of machine-level env PATHS. Darwin
 #                sources them with export enabled before exec; systemd gets
 #                one EnvironmentFile directive per path. Later files override
@@ -63,6 +75,7 @@ defaults:
 services:
   # Restore ephemeral Bonjour claims after login; no routes or model services.
   - name: local-dns
+    confEnv: true
     bunEntry: "__HOME__/.local/klh-local/bin/klh-local.ts"
     args: ["dns-serve"]
     env: { HOME: "__HOME__" }
@@ -77,6 +90,7 @@ services:
   # unit; the legacy boot-out runs after activation, so the throttled
   # retry absorbs the one-time port hand-off.
   - name: local-bar
+    confEnv: true
     bunEntry: "__HOME__/.local/klh-local/bin/dashboard.ts"
     args: []
     port: 7792
@@ -90,6 +104,7 @@ services:
   # Cloud transport remains available while the local model swarm is paused.
   # Only LiteLLM is owned here; model/router startup is never part of this unit.
   - name: cloud-gateway
+    confEnv: true
     bunEntry: "__PREFIX__/.harness/packages/belt/bin/cloud-gateway.ts"
     env:
       HOME: "__HOME__"
@@ -179,6 +194,7 @@ services:
   # starts when the machine conf (~/.claude/lane-guard.json) carries an
   # egress.allow list; absent conf = nothing wired, nothing denied.
   - name: lane-guard
+    confEnv: true
     bunEntry: "__PREFIX__/bin/lane-guard.ts"
     args: ["--repo", "__REPO__"]
     env:
@@ -257,6 +273,7 @@ services:
 
   # consult-relay (W480) — resident relay with a 10s relaunch throttle
   - name: consult-relay
+    confEnv: true
     bunEntry: "__PREFIX__/bin/consult-relay.ts"
     env:
       PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -268,6 +285,7 @@ services:
   # hub-down, lane-death → desktop/email/Slack). Idles without
   # ~/.config/klh/notify.yaml; the daemon owns its own WS reconnect.
   - name: notify
+    confEnv: true
     bunEntry: "__PREFIX__/bin/notify.ts"
     env:
       PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -283,6 +301,7 @@ services:
   # registers it, session-independent. cwd=__REPO__ anchors resolveProject on
   # the pinned fleet checkout.
   - name: fleet-pulse
+    confEnv: true
     bunEntry: "__PREFIX__/bin/notify.ts"
     args: ["pulse"]
     cwd: "__REPO__"
@@ -300,6 +319,7 @@ services:
   # install --with-launchd. runAtLoad=false: the daily fire is the schedule,
   # never a login run.
   - name: claude-insights
+    confEnv: true
     bunEntry: "__HOME__/.claude/local-llm/daily-insights.ts"
     args: []
     env:
