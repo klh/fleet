@@ -2,7 +2,11 @@
 // the shell is the klh-topbar Lit component (avatar dropdown + settings
 // gear; me fetched live from /api/console/me by the component); the fleet
 // strip above it stays server-rendered theme.ts fleetNav().
-import { FLEET_NAV_CSS, fleetNav, THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
+import {
+	FLEET_NAV_CSS,
+	fleetNav,
+	THEME_HEAD,
+} from "@klh/kernel/src/kernel.theme.module.ts";
 import { U_CSS, UPLOT_CSS, UPLOT_SRC } from "./usage-chrome.ts";
 
 const unesc = (s) =>
@@ -14,6 +18,7 @@ const unesc = (s) =>
 		.split("\\u00B7")
 		.join(String.fromCharCode(0xb7));
 
+import { ACTIONS_RETRY } from "../board-html/actions-retry.ts";
 import { ACTIVITY } from "../board-html/activity.ts";
 // fleet-board-html.ts — the fleet board page, split from the server so the
 // HTML payload stays reviewable. Pure string; served by fleet-board.ts.
@@ -22,18 +27,17 @@ import { ACTIVITY } from "../board-html/activity.ts";
 // global project filter, decision history, task drawer, named lane states.
 import { BODY } from "../board-html/body.ts";
 import { BOOT } from "../board-html/boot.ts";
-import { FEEDS } from "../board-html/feeds.ts";
 import { CORE } from "../board-html/core.ts";
 import { DECISIONS } from "../board-html/decisions.ts";
 import { DIFF } from "../board-html/diff.ts";
-import { LAUNCH } from "../board-html/launch.ts";
+import { FEEDS } from "../board-html/feeds.ts";
 import { HISTORY } from "../board-html/history.ts";
+import { LAUNCH } from "../board-html/launch.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
 import { REPORT } from "../board-html/report.ts";
 import { SETUP } from "../board-html/setup.ts";
 import { SHIP } from "../board-html/ship.ts";
-import { ACTIONS_RETRY } from "../board-html/actions-retry.ts";
 import { TABS } from "../board-html/tabs.ts";
 import { TAIL } from "../board-html/tail.ts";
 import { TASKS } from "../board-html/tasks.ts";
