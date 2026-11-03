@@ -26,10 +26,12 @@ const SELF = "tests/test-framework-guard.test.ts";
 // post-commit gate inputs (.githooks/post-commit, bun-run) stay bun:test;
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
 // remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
-// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657) —
-// the exact non-decant count measured by THIS guard's own git ls-files
-// counting at the closing sha.
-const PIN = 657;
+// 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
+// W1294.12 sweep-I (2026-10-29, landed via W2651) ports all 35 remaining
+// specs in speedy/local/telemetry/kernel/local-llm/blam — 657-side later
+// waves ported more, so the merged tree measures 622 under the guard's own
+// git ls-files counting; re-pinned DOWN to that exact count.
+const PIN = 622;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
