@@ -171,7 +171,8 @@ export async function handleData(
 				vf === "klh-decisions-mediator.js" ||
 				// W2267.4.2.2 (#103176): the ONE registration entry — the
 				// card/activity/host class modules export definitions only
-				vf === "klh-board-register.js" ||				isLitChunk)
+				vf === "klh-board-register.js" ||
+				isLitChunk)
 		) {
 			const f = `${import.meta.dir}/../board-html/vendor/${vf}`;
 			return new Response(Bun.file(f), {

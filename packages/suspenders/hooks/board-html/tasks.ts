@@ -9,7 +9,8 @@ import { TASKS_ACTIONS } from "./tasks-actions.ts";
 import { TASKS_OWNER } from "./tasks-owner.ts";
 import { TASKS_EXECUTORS } from "./tasks-executors.ts";
 import { TASKS_SPEND } from "./tasks-spend.ts";
-import { TASKS_VIEW } from "./tasks-view.ts";import { embedDualShort, embedDualStamp } from "../lib/wallclock.ts";
+import { TASKS_VIEW } from "./tasks-view.ts";
+import { embedDualShort, embedDualStamp } from "../lib/wallclock.ts";
 import { executionSummary } from "../lib/work/work-execution.ts";
 
 export const TASKS =
