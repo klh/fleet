@@ -5,7 +5,9 @@
 // openRouterFreeRows and exit-1'd the whole install. Every case here runs
 // the REAL seedLocalLlm (belt closure heal + REAL generator spawn on the
 // happy path) against a kit scratchWorld repo + an isolated flat home —
-// no ambient machine state, fetchers injected, key file owned by the fixture.
+// no ambient machine state, fetchers injected, inference key owned by the
+// fixture home's stack.json provider profile (W1124.8.4 contract — the
+// implicit openrouter.key file read is retired).
 // W2546.2.2 fixture lifecycle: every world registers at mint and cleans in
 // afterEach even when setup or an assertion fails; the kit's env pins are
 // APPLIED to process.env (not just returned) so in-process reads and every
@@ -40,6 +42,12 @@ const CACHE_BASE = join(process.env.HOME ?? "", ".cache", "w25462-tests");
 // writes to the operator's real ~/.gitconfig.
 const ENV_PINS: Record<string, string> = {
 	GOVERNOR_STORE_URL: "local",
+	// W1124.8.4: key resolution rides the central provider profile. The
+	// "" apply is transient — worldFor immediately repins KLH_STACK at the
+	// fixture home's stack.json; the entry exists so snapshot/restore
+	// covers the key (bun's os.homedir() ignores process.env.HOME, so the
+	// fixture HOME alone cannot redirect the default resolver).
+	KLH_STACK: "",
 	SUSPENDERS_KEV_URL: "http://127.0.0.1:9",
 	SUSPENDERS_KNOWLEDGE_SINK_URL: "http://127.0.0.1:9",
 	SUSPENDERS_KNOWLEDGE_SINK_TIMEOUT_MS: "50",
@@ -79,6 +87,9 @@ const worldFor = (label: string): ScratchWorld => {
 	for (const [key, value] of Object.entries(world.env))
 		if (value !== undefined) process.env[key] = value;
 	for (const [key, value] of Object.entries(ENV_PINS)) process.env[key] = value;
+	// W1124.8.4: the default inference-key resolver walks KLH_STACK (the
+	// fixture home's provider-profile stack), never an ambient machine one.
+	process.env.KLH_STACK = join(world.home, ".config", "klh", "stack.json");
 	return world;
 };
 
@@ -120,11 +131,31 @@ const staleHome = (
 	writeFileSync(snapshot, JSON.stringify(freeSnapshotDoc(groups, ageMs)), {
 		mode: 0o600,
 	});
-	if (key)
-		writeFileSync(join(llm, "openrouter.key"), "fixture-secret\n", {
-			mode: 0o600,
-		});
-	return { llm, snapshot };
+	// W1124.8.4: the inference key rides a provider profile in the fixture
+	// home's OWN stack.json (mode 600, KLH_STACK-pinned below) — the implicit
+	// openrouter.key file read is retired.
+	if (key) {
+		const stackDir = join(home, ".config", "klh");
+		mkdirSync(stackDir, { recursive: true });
+		writeFileSync(
+			join(stackDir, "stack.json"),
+			JSON.stringify({
+				providers: {
+					"openrouter-inference": {
+						provider: "openrouter",
+						key: "fixture-secret",
+						env: "OPENROUTER_API_KEY",
+					},
+				},
+			}),
+			{ mode: 0o600 },
+		);
+	}
+	return {
+		llm,
+		snapshot,
+		stackPath: join(home, ".config", "klh", "stack.json"),
+	};
 };
 
 const freeSnapshotDoc = (groups: string[], ageMs: number): unknown => ({
@@ -287,7 +318,7 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			const { runs, run } = recorder();
 			const res = await seedLocalLlm(ctxFor(llm), {
 				openRouterFetcher: serving(FREE_IDS),
-				openRouterKey: () => readFileSync(join(llm, "openrouter.key"), "utf8"),
+				openRouterKey: () => "fixture-secret",
 				run,
 			});
 			expect(res.status, label).toBe("failed");
@@ -335,7 +366,8 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 		] as const) {
 			// iteration 1 writes the key file; the missing-key case must not
 			// inherit it (same flat home across iterations)
-			if (!key) rmSync(join(world.home, ".claude/local-llm/openrouter.key"));
+			if (!key)
+				rmSync(join(world.home, ".config/klh/stack.json"), { force: true });
 			const { llm, snapshot } = staleHome(world.home, { key });
 			const before = readFileSync(snapshot, "utf8");
 			const calls: string[] = [];
@@ -346,8 +378,13 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 			const { runs, run } = recorder();
 			const res = await seedLocalLlm(ctxFor(llm), {
 				openRouterFetcher: fetcher,
-				// key resolution pinned to the fixture home — never the ambient HOME
-				openRouterKey: () => readFileSync(join(llm, "openrouter.key"), "utf8"),
+				// key resolution pinned to the fixture — never the ambient machine
+				openRouterKey:
+					key === false
+						? () => {
+								throw new Error("ENOENT: no provider profile bound");
+							}
+						: () => "fixture-secret",
 				run,
 			});
 			expect(res.status).toBe("failed");
@@ -400,9 +437,9 @@ test.describe("@unit install OpenRouter stale-snapshot preflight", () => {
 		expect(res.note).not.toContain("OpenRouter free catalog snapshot");
 		expect(calls).toEqual([]);
 		expect(runs).toHaveLength(1);
-		// absent: same no-op (no snapshot file, no key file, no fetch)
+		// absent: same no-op (no snapshot file, no key profile, no fetch)
 		rmSync(join(fresh.llm, "openrouter-free.json"));
-		rmSync(join(fresh.llm, "openrouter.key"));
+		rmSync(join(world.home, ".config/klh/stack.json"), { force: true });
 		const absentCalls: string[] = [];
 		const res2 = await seedLocalLlm(ctxFor(fresh.llm), {
 			openRouterFetcher: serving(FREE_IDS, absentCalls),
