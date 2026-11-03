@@ -36,8 +36,11 @@ export interface HubPoolNumbers {
 }
 
 /** W2635: hub-level pool aggregate — every member model shares one pool's
- *  admission, so the hub row names the pool once with its member models. */
-export interface HubPoolRow extends HubPoolNumbers {
+ *  admission, so the hub row names the pool once with its member models.
+ *  The pool's id is the row key (poolRowsOf), NOT provider_pool — that
+ *  name belongs to the wire admission block (HubPoolNumbers) alone. */
+export interface HubPoolRow extends Omit<HubPoolNumbers, "provider_pool"> {
+	id: string;
 	models: string[];
 }
 
@@ -208,6 +211,21 @@ function stackHubsByLabel(): Map<string, HubProfile> {
 	return out;
 }
 
+/** W2635.2 (N2): the fetch bound for hub /v1/models listings —
+ *  SUSPENDERS_HUB_MODELS_TIMEOUT_MS, clamped to 100..10_000 (the
+ *  front-probe.ts knob contract), default 2000 (the historical hardcode,
+ *  unchanged). Unset/empty/non-numeric = default; out-of-range clamps,
+ *  never applies raw. */
+const HUB_MODELS_TIMEOUT_DEFAULT = 2000;
+const hubModelsTimeoutMs = (): number => {
+	const raw = process.env.SUSPENDERS_HUB_MODELS_TIMEOUT_MS;
+	if (raw === undefined || raw.trim().length === 0)
+		return HUB_MODELS_TIMEOUT_DEFAULT;
+	const n = Number(raw.trim());
+	if (!Number.isFinite(n)) return HUB_MODELS_TIMEOUT_DEFAULT;
+	return Math.min(10_000, Math.max(100, Math.round(n)));
+};
+
 /** W2635: fetch one up hub's model listing from its buckle front — the
  *  stack token_file is the credential (the belt hubProviderObservations
  *  precedent); no credential or unreachable face = null, never a guess. */
@@ -221,7 +239,7 @@ export async function fetchHubModels(
 		if (!key) return null;
 		const response = await fetch(new URL("/v1/models", base), {
 			headers: { Authorization: `Bearer ${key}` },
-			signal: AbortSignal.timeout(2000),
+			signal: AbortSignal.timeout(hubModelsTimeoutMs()),
 		});
 		if (!response.ok) return null;
 		return parseHubModels(await response.json());

@@ -13,6 +13,23 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseHubModels, poolRowsOf } from "../hooks/coord/hubs.ts";
 
+/** W2635.2: shared listing assertions — the hub is up, the token-authed
+ *  /v1/models rows ride the output, the pool aggregate is id-keyed. */
+const expectHubListing = (payload: unknown): void => {
+	const j = payload as {
+		hubs: Array<{
+			label: string;
+			up: boolean;
+			models: Array<{ id: string }> | null;
+			pools: Array<{ id: string; models: string[] }>;
+		}>;
+	};
+	const h = j.hubs.find((row) => row.label === "TestHub");
+	expect(h?.up).toBe(true);
+	expect(h?.models?.map((m) => m.id)).toContain("glm-5.3");
+	expect(h?.pools[0]?.id).toBe("zai-coding-account");
+};
+
 test.describe("@api", () => {
 	const world = scratchWorld({ prefix: "coord-hubs-models-" });
 	const home = world.home;
@@ -89,6 +106,16 @@ test.describe("@api", () => {
 		expect(pools[0]?.id).toBe("zai-coding-account");
 		expect(pools[0]?.concurrency).toBe(6);
 		expect(pools[0]?.models).toEqual(["glm-5.3", "glm-5.3-flash"]);
+	});
+
+	// W2635.2 (B1): the pool row keys the pool by id — provider_pool is the
+	// wire admission name (HubPoolNumbers) and never rides the aggregate row.
+	// The interface once extended HubPoolNumbers verbatim, lying to every
+	// .provider_pool reader (undefined at runtime, tsc error at build).
+	test("poolRowsOf row keys the pool by id, never provider_pool", () => {
+		const pools = poolRowsOf([{ id: "glm-5.3", admission: ADMISSION }]);
+		expect(pools[0]?.id).toBe("zai-coding-account");
+		expect("provider_pool" in (pools[0] ?? {})).toBe(false);
 	});
 
 	test("--json: up hub lists models + pool aggregate via the stack token", async () => {
@@ -182,10 +209,44 @@ test.describe("@api", () => {
 		expect(p.code).toBe(0);
 		const out = p.out;
 		const j = JSON.parse(out) as {
-			hubs: Array<{ models: unknown; pools: unknown[] }>;
+			hubs: Array<{ label: string; models: unknown; pools: unknown[] }>;
 		};
 		const h = j.hubs.find((row) => row.label === "TestHub");
 		expect(h?.models).toBeNull();
 		expect(h?.pools).toEqual([]);
+	});
+
+	// W2635.2 (N1): the stack.json buckle arm — no hubs.json entry at all
+	// (SUSPENDERS_HUBS_FILE points at a nonexistent path), the only candidate
+	// is the stack-declared buckle_port. The listing must still ride it with
+	// the stack token, same as the hubs.json arm above.
+	test("--json: stack.json buckle candidate alone serves the listing", async () => {
+		writeFileSync(TOKEN, "test-key\n");
+		writeFileSync(
+			STACK,
+			JSON.stringify({
+				hubs: {
+					TestHub: {
+						host: "127.0.0.1",
+						buckle_port: hub.port,
+						token_file: TOKEN,
+					},
+				},
+			}),
+		);
+		const p = await runCliAsync(
+			join(import.meta.dir, "..", "hooks", "bin", "coord.ts"),
+			["hubs", "--json"],
+			{
+				env: {
+					HOME: home,
+					SUSPENDERS_HUBS_FILE: join(home, "no-such-hubs.json"),
+					KLH_STACK: STACK,
+				},
+			},
+		);
+		expect(p.err).toBe("");
+		expect(p.code).toBe(0);
+		await expectHubListing(JSON.parse(p.out));
 	});
 });
