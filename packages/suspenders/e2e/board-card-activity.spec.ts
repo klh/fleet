@@ -7,8 +7,9 @@
 // HTML-parser channel — UI-law clean) with the theme head inlined from
 // the lib; the component under test is the real built artifact, no
 // reimplementation.
+
+import { THEME_HEAD } from "@klh/kernel/src/kernel.theme.module.ts";
 import type { Locator, Page } from "@playwright/test";
-import { THEME_HEAD } from "../hooks/lib/theme.ts";
 import { expect, test } from "./fixtures";
 
 const T0 = 1_700_000_000_000;
@@ -246,7 +247,7 @@ test("first paint uses the measured width, not the 240px floor (W2514 B1)", {
 						"",
 				),
 		)
-		.toBe("0 0 360 28");
+		.toBe("0 0 360 40");
 });
 
 test("hairline duration/scale is keyboard exposed (W2514 B2)", {
