@@ -5,9 +5,40 @@
 // every declared candidate so lanes and users SEE the topology instead of
 // guessing which label reaches what. Read-only: probes, never mutates.
 //   coord hubs [--label name] [--json]
+// W2635: --json also carries each up hub's model offerings with the
+// concurrency/connection numbers users map.prefer model pins against
+// (hub= picks the hub, must=/prefer= picks the model; the numbers show
+// whether a pin will queue or shed) — sourced from the hub buckle
+// /v1/models face, which rides the router's admission pool snapshots.
 import { arg, die, dim, green, red } from "./shared.ts";
+import { readFileSync } from "node:fs";
 import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub/hub-locate.ts";
 import { loadStack, STACK_PATH, type HubProfile } from "../lib/stack-config.ts";
+
+/** W2635: one model row from a hub's /v1/models face — the admission block
+ *  is present only for models bound to an explicit provider pool. */
+export interface HubModelRow {
+	id: string;
+	admission?: HubPoolNumbers;
+}
+
+export interface HubPoolNumbers {
+	provider_pool: string;
+	concurrency: number;
+	concurrency_ceiling: number;
+	outstanding: number;
+	queued: number;
+	active: number;
+	max_outstanding: number;
+	rate_per_interval: number;
+	interval_ms: number;
+}
+
+/** W2635: hub-level pool aggregate — every member model shares one pool's
+ *  admission, so the hub row names the pool once with its member models. */
+export interface HubPoolRow extends HubPoolNumbers {
+	models: string[];
+}
 
 type Registry = ReturnType<typeof readRegistry>;
 
@@ -104,6 +135,93 @@ export function hubTopology(): {
 	return { labels, candidates, registry, stackLoaded };
 }
 
+/** W2635: parse a hub /v1/models payload — unknown shapes degrade to a null
+ *  listing (never guessed rows), malformed admission blocks are dropped. */
+export function parseHubModels(payload: unknown): HubModelRow[] | null {
+	if (!payload || typeof payload !== "object") return null;
+	const data = (payload as { data?: unknown }).data;
+	if (!Array.isArray(data)) return null;
+	const rows: HubModelRow[] = [];
+	for (const row of data) {
+		if (!row || typeof row !== "object") continue;
+		const id = (row as { id?: unknown }).id;
+		if (typeof id !== "string" || !id.trim()) continue;
+		const admission = (row as { admission?: unknown }).admission;
+		rows.push(
+			admission && typeof admission === "object" && isPoolNumbers(admission)
+				? { id, admission }
+				: { id },
+		);
+	}
+	return rows;
+}
+
+const isPoolNumbers = (value: object): value is HubPoolNumbers => {
+	const v = value as Record<string, unknown>;
+	return (
+		typeof v.provider_pool === "string" &&
+		typeof v.concurrency === "number" &&
+		typeof v.concurrency_ceiling === "number" &&
+		typeof v.outstanding === "number" &&
+		typeof v.queued === "number" &&
+		typeof v.active === "number" &&
+		typeof v.max_outstanding === "number" &&
+		typeof v.rate_per_interval === "number" &&
+		typeof v.interval_ms === "number"
+	);
+};
+
+/** W2635: collapse model rows into hub-level pool aggregates — every member
+ *  model of one pool reports identical numbers (they share one admission
+ *  core); divergent copies would be a hub-side bug and surface as two rows. */
+export function poolRowsOf(models: HubModelRow[]): HubPoolRow[] {
+	const pools = new Map<string, HubPoolRow>();
+	for (const row of models) {
+		const a = row.admission;
+		if (!a) continue;
+		const existing = pools.get(a.provider_pool);
+		if (existing) {
+			existing.models.push(row.id);
+			continue;
+		}
+		const { provider_pool: id, ...numbers } = a;
+		pools.set(id, { id, ...numbers, models: [row.id] });
+	}
+	return [...pools.values()];
+}
+
+/** Stack hub profiles by lowercased label (hubTopology's keying). */
+function stackHubsByLabel(): Map<string, HubProfile> {
+	const out = new Map<string, HubProfile>();
+	try {
+		for (const [label, hub] of Object.entries(loadStack().hubs))
+			out.set(label.toLowerCase(), hub);
+	} catch {} // unparseable stack.json already reported via stackLoaded=false
+	return out;
+}
+
+/** W2635: fetch one up hub's model listing from its buckle front — the
+ *  stack token_file is the credential (the belt hubProviderObservations
+ *  precedent); no credential or unreachable face = null, never a guess. */
+export async function fetchHubModels(
+	base: string,
+	tokenFile: string | undefined,
+): Promise<HubModelRow[] | null> {
+	if (!tokenFile) return null;
+	try {
+		const key = readFileSync(tokenFile, "utf8").trim();
+		if (!key) return null;
+		const response = await fetch(new URL("/v1/models", base), {
+			headers: { Authorization: `Bearer ${key}` },
+			signal: AbortSignal.timeout(2000),
+		});
+		if (!response.ok) return null;
+		return parseHubModels(await response.json());
+	} catch {
+		return null;
+	}
+}
+
 export async function cmdHubs(rest: string[]): Promise<void> {
 	const wantLabel = arg("--label");
 	const asJson = rest.includes("--json");
@@ -129,9 +247,33 @@ export async function cmdHubs(rest: string[]): Promise<void> {
 	}
 
 	if (asJson) {
+		// W2635: each UP hub carries its model listing + pool aggregates in
+		// parallel (bounded wait; a down hub or missing credential simply
+		// reports models: null). The listing rides the BUCKLE front — the
+		// first up hubs.json candidate or stack.json buckle port, never a
+		// probe winner that happens to be the board/store.
+		const stackHubs = stackHubsByLabel();
+		const offerings = await Promise.all(
+			probed.map(async (hub) => {
+				const buckle = hub.candidates.find(
+					(c) =>
+						c.up &&
+						(c.source === "hubs.json" || c.source === "stack.json buckle"),
+				)?.url;
+				if (!buckle) return null;
+				const profile = stackHubs.get(hub.label.toLowerCase());
+				return fetchHubModels(buckle, profile?.token_file);
+			}),
+		);
+		const hubs = probed.map((hub, i) => {
+			const models = offerings[i];
+			return models === null || models === undefined
+				? { ...hub, models: null, pools: [] }
+				: { ...hub, models, pools: poolRowsOf(models) };
+		});
 		console.log(
 			JSON.stringify({
-				hubs: probed,
+				hubs,
 				sources: {
 					registry: REGISTRY_PATH(),
 					stack: stackLoaded ? STACK_PATH() : null,
