@@ -11,19 +11,19 @@
 // configurable perimeter (--prefer) is independent of the status hue;
 // nested split children get the dashed border + elbow. Light-DOM friendly:
 // tokens only, no hardcoded colors.
-import { LitElement, css, html, nothing } from "lit";
+import { css, html, LitElement, nothing } from "lit";
 import { ago, agoShort } from "./board-format.ts";
 import {
 	TaskCardActionRequestedEvent,
 	TaskCardOpenRequestedEvent,
 } from "./klh-task-card-events.ts";
 import {
-	type TaskCardActionKind,
-	type TaskCardModel,
 	fmtPct,
 	fmtRate,
 	fmtTokens,
 	fmtWall,
+	type TaskCardActionKind,
+	type TaskCardModel,
 	taskStatusWord,
 	taskTone,
 } from "./klh-task-card-model.ts";
@@ -31,11 +31,11 @@ import {
 const UNK = "—";
 
 export class KlhTaskCard extends LitElement {
-	static properties = { card: { attribute: false } };
+	static override properties = { card: { attribute: false } };
 
 	declare card: TaskCardModel;
 
-	static styles = css`
+	static override styles = css`
 		/* tone → color, self-contained: the page maps data-tone on .kcard/
 		   .kcol only, so the card owns its own --state-color token map. */
 		:host([data-tone="ready"]) { --state-color: var(--work-ready); }
@@ -372,7 +372,7 @@ export class KlhTaskCard extends LitElement {
 		return taskStatusWord(this.card.state);
 	}
 
-	protected render() {
+	protected override render() {
 		const c = this.card;
 		const tone = this.tone();
 		const m = c.metrics ?? null;
@@ -638,7 +638,7 @@ export class KlhTaskCard extends LitElement {
 		</button>`;
 	}
 
-	protected willUpdate(): void {
+	protected override willUpdate(): void {
 		// status square + perimeter stay independent: tone rides the host
 		// attribute (page CSS maps data-tone → --state-color), --prefer is
 		// set by the owner and never touched here.

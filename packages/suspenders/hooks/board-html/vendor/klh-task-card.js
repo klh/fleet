@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from"./lit-95d219d6b2f49222.js";class b extends h{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(a,l,k,m){super(b.eventName);this.action=a,this.id=l,this.project=k,this.executor=m?.executor,this.effort=m?.effort}}class y extends h{static eventName="task-card-open-requested";id;project;constructor(a,l){super(y.eventName);this.id=a,this.project=l}}function R(a){if(a==="CLAIMED"||a==="RUNNING")return"working";if(a==="WAITING"||a==="BLOCKED"||a==="PAUSED")return"blocked";if(a==="SHATTERED")return"split";if(a==="FAILED")return"failed";if(a==="DONE")return"done";if(a==="CANCELLED")return"cancelled";return"ready"}function A(a){if(a==="SHATTERED")return"split";return a.toLowerCase()}var u=o(E(s())),g=o(E(p())),I=i({value:s(),label:s(),badge:o(s()),reasoningEffort:o(w())}),D=i({tokens:g,wallMs:g,tokPerMin:g,cachePct:g}),K=i({mode:z(["spend","attempt"]),windowStartMs:g,windowEndMs:g,binMs:g,elapsedMs:g,scaleMs:g}),U=i({id:s(),project:u,title:u,state:s(),ageS:g,context:u,parentRef:u,model:u,host:u,warn:u,metrics:o(D),activity:o(K),nested:o(w()),preferColor:u,executors:o(c(I)),executorPick:u,effortOptions:o(c(s())),effortPick:u});function P(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${Math.round(a/1000)}k`;return String(Math.round(a))}function O(a){if(a==null)return"—";if(a<60000)return`${Math.round(a/1000)}s`;let l=Math.round(a/60000);if(l>=60)return`${Math.floor(l/60)}h${String(l%60).padStart(2,"0")}m`;return`${l}m`}function N(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${(a/1000).toFixed(1)}k`;return String(Math.round(a))}function j(a){if(a==null)return"—";return`${Math.round(a)}%`}var S="—";class L extends n{static properties={card:{attribute:!1}};static styles=r`
+import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from"./lit-95d219d6b2f49222.js";class b extends h{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(a,l,v,m){super(b.eventName);this.action=a,this.id=l,this.project=v,this.executor=m?.executor,this.effort=m?.effort}}class y extends h{static eventName="task-card-open-requested";id;project;constructor(a,l){super(y.eventName);this.id=a,this.project=l}}function R(a){if(a==="CLAIMED"||a==="RUNNING")return"working";if(a==="WAITING"||a==="BLOCKED"||a==="PAUSED")return"blocked";if(a==="SHATTERED")return"split";if(a==="FAILED")return"failed";if(a==="DONE")return"done";if(a==="CANCELLED")return"cancelled";return"ready"}function A(a){if(a==="SHATTERED")return"split";return a.toLowerCase()}var u=o(E(s())),g=o(E(p())),I=i({value:s(),label:s(),badge:o(s()),reasoningEffort:o(w())}),D=i({tokens:g,wallMs:g,tokPerMin:g,cachePct:g}),K=i({mode:z(["spend","attempt"]),windowStartMs:g,windowEndMs:g,binMs:g,elapsedMs:g,scaleMs:g}),U=i({id:s(),project:u,title:u,state:s(),ageS:g,context:u,parentRef:u,model:u,host:u,warn:u,metrics:o(D),activity:o(K),nested:o(w()),preferColor:u,executors:o(c(I)),executorPick:u,effortOptions:o(c(s())),effortPick:u});function P(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${Math.round(a/1000)}k`;return String(Math.round(a))}function O(a){if(a==null)return"—";if(a<60000)return`${Math.round(a/1000)}s`;let l=Math.round(a/60000);if(l>=60)return`${Math.floor(l/60)}h${String(l%60).padStart(2,"0")}m`;return`${l}m`}function N(a){if(a==null)return"—";if(a>=1e6)return`${(a/1e6).toFixed(1)}M`;if(a>=1000)return`${(a/1000).toFixed(1)}k`;return String(Math.round(a))}function j(a){if(a==null)return"—";return`${Math.round(a)}%`}var S="—";class L extends n{static properties={card:{attribute:!1}};static styles=r`
 		/* tone → color, self-contained: the page maps data-tone on .kcard/
 		   .kcol only, so the card owns its own --state-color token map. */
 		:host([data-tone="ready"]) { --state-color: var(--work-ready); }
@@ -292,7 +292,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from
 			outline: 2px solid var(--klh-accent);
 			outline-offset: -2px;
 		}
-	`;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return R(this.card.state)}open(){this.dispatchEvent(new y(this.card.id,this.card.project??null))}act(a,l){this.dispatchEvent(new b(a,this.card.id,this.card.project??null,l))}statusWord(){return A(this.card.state)}render(){let a=this.card,l=this.tone(),k=a.metrics??null,m=a.ageS==null?S:T(a.ageS),q=a.ageS==null?"age unknown":`open ${f(a.ageS)}`,v=a.executors??[],x=a.executorPick??"",M=a.effortOptions??[],C=a.effortPick??"";return e`
+	`;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return R(this.card.state)}open(){this.dispatchEvent(new y(this.card.id,this.card.project??null))}act(a,l){this.dispatchEvent(new b(a,this.card.id,this.card.project??null,l))}statusWord(){return A(this.card.state)}render(){let a=this.card,l=this.tone(),v=a.metrics??null,m=a.ageS==null?S:T(a.ageS),q=a.ageS==null?"age unknown":`open ${f(a.ageS)}`,k=a.executors??[],x=a.executorPick??"",M=a.effortOptions??[],C=a.effortPick??"";return e`
 			${a.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
 				<div class="pad">
@@ -326,19 +326,19 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from
 						</div>`:t}
 				<div class="metrics">
 					<div class="m">
-						<span class="mv">${P(k?.tokens)}</span>
+						<span class="mv">${P(v?.tokens)}</span>
 						<span class="ml">tokens</span>
 					</div>
 					<div class="m">
-						<span class="mv">${O(k?.wallMs)}</span>
+						<span class="mv">${O(v?.wallMs)}</span>
 						<span class="ml">time</span>
 					</div>
 					<div class="m">
-						<span class="mv">${N(k?.tokPerMin)}</span>
+						<span class="mv">${N(v?.tokPerMin)}</span>
 						<span class="ml">tok/min</span>
 					</div>
 					<div class="m">
-						<span class="mv">${j(k?.cachePct)}</span>
+						<span class="mv">${j(v?.cachePct)}</span>
 						<span class="ml">cache</span>
 					</div>
 				</div>
@@ -368,12 +368,12 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from
 						>
 							Prompt ↗
 						</button>`:t}
-				${l==="ready"&&v.length?e`<select
+				${l==="ready"&&k.length?e`<select
 							class="seg"
 							aria-label=${`executor for ${a.id}`}
 							@change=${(d)=>{this.draftExecutor=d.target.value}}
 						>
-							${v.map((d)=>e`<option
+							${k.map((d)=>e`<option
 									value=${d.value}
 									?selected=${d.value===(this.draftExecutor??x)}
 								>
@@ -402,8 +402,8 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
-				${l==="ready"&&!v.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
-				${l==="working"&&!v.length?e`<button
+				${l==="ready"&&!k.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${l==="working"&&!k.length?e`<button
 								class="seg release"
 								type="button"
 								title="release the claim — a live lane banks its capsule and exits"
@@ -413,12 +413,12 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{f,T,h,s,p,w,c,i,z,o,E}from
 							</button>
 							<span class="spacer"></span>
 							${this.promptSeg()}`:t}
-				${l==="working"&&v.length?e`<select
+				${l==="working"&&k.length?e`<select
 							class="seg"
 							aria-label=${`reassign executor for ${a.id}`}
 							@change=${(d)=>{this.draftExecutor=d.target.value}}
 						>
-							${v.map((d)=>e`<option
+							${k.map((d)=>e`<option
 									value=${d.value}
 									?selected=${d.value===(this.draftExecutor??x)}
 								>

@@ -8,6 +8,8 @@
 // build:vendor runs this file verbatim — flags, banner and prune have one
 // source of truth; the W292 vendor-hash test reuses the same face with
 // --outdir swapped for a tmpdir.
+
+import { createHash } from "node:crypto";
 import {
 	mkdirSync,
 	readdirSync,
@@ -17,7 +19,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import { parse } from "acorn";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -197,8 +198,8 @@ export function buildVendor(outdir: string): {
 if (import.meta.main) {
 	const argv = process.argv.slice(2);
 	const oi = argv.indexOf("--outdir");
-	const outdir =
-		oi > -1 && argv[oi + 1] ? resolve(argv[oi + 1]) : DEFAULT_OUTDIR;
+	const outArg = oi > -1 ? argv[oi + 1] : undefined;
+	const outdir = outArg ? resolve(outArg) : DEFAULT_OUTDIR;
 	const r = buildVendor(outdir);
 	if (r.pruned.length > 0) console.log(`pruned: ${r.pruned.join(" ")}`);
 	if (r.bannered.length > 0) console.log(`bannered: ${r.bannered.join(" ")}`);
