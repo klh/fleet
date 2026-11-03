@@ -213,6 +213,39 @@ describe("route preflight before activation", () => {
 		);
 	});
 
+	test("hub-level route_preflight.terminal_origins declare the hub's own leaves (settings projection shape)", async () => {
+		const source = fixture();
+		source.stack = {
+			hubs: {
+				nas: {
+					host: "nas.example",
+					buckle_port: 4301,
+					route_preflight: { terminal_origins: ["http://127.0.0.1:11434"] },
+					belt_model: {
+						port: 8914,
+						health_port: 8915,
+						upstream: "http://127.0.0.1:11434",
+					},
+					upstreams: {
+						groups: {
+							model: [{ url: "http://127.0.0.1:8914", dialect: "openai" }],
+						},
+					},
+				},
+			},
+		};
+		source.localPool = pool({
+			model: [{ url: "http://nas.example:4301", dialect: "openai" }],
+			fallback: [{ url: "https://other.example/v1", dialect: "openai" }],
+		});
+		const inputs = routeInputs(source);
+		expect(inputs.terminalOrigins).toContain("http://127.0.0.1:11434");
+		expect(inputs.declaredTerminals).toContain("http://127.0.0.1:11434");
+		const result = await checkRoutePreflight(source, async () => true);
+		expect(result.ok).toBe(true);
+		expect(result.findings).toEqual([]);
+	});
+
 	test("unmapped local leaf and cyclic LiteLLM fallbacks block activation", async () => {
 		const source = fixture();
 		source.localPool = pool({

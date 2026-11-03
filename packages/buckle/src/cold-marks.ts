@@ -49,12 +49,14 @@ interface ColdCell {
 	gate?: VerdictGate;
 }
 
-type ColdRowState = Exclude<ColdState, "none">;
+type ColdRowState = Exclude<ColdState, "none"> | "pending";
 
 export interface ColdSnapshotRow {
 	key: string;
 	groups: string[];
-	reason: "rate" | "quota";
+	/** Why the mark exists. "none" = an in-flight knock's placeholder — NO
+	 *  rate/quota verdict ever landed, never label it a provider limit. */
+	reason: "rate" | "quota" | "none";
 	state: ColdRowState;
 	remainingS: number;
 }
@@ -262,6 +264,18 @@ export class ColdMarks {
 		const now = this.now();
 		const rows: ColdSnapshotRow[] = [];
 		for (const [key, cell] of this.cells) {
+			if (cell.placeholder === true) {
+				// a placeholder holds NO rate/quota verdict — an ordinary
+				// request is in flight. "pending", never a provider limit.
+				rows.push({
+					key,
+					groups: [...cell.groups].sort(),
+					reason: "none",
+					state: "pending",
+					remainingS: 0,
+				});
+				continue;
+			}
 			const busy =
 				cell.probeAt !== null &&
 				now - cell.probeAt < this.cfg.probe_stale_s * 1000;
@@ -279,5 +293,21 @@ export class ColdMarks {
 			});
 		}
 		return rows;
+	}
+
+	/** Bounded retry advice for an UNRESOLVED in-flight verdict (a knock's
+	 *  placeholder or a half-open probe): the gate's own recovery horizon
+	 *  (probe_stale_s), never a fabricated provider Retry-After. */
+	pendingS(dep: Deployment): number {
+		const cell = this.cells.get(coldKeyOf(dep));
+		if (cell === undefined) return 0;
+		const bornAt = cell.placeholder === true ? cell.until : cell.probeAt;
+		if (bornAt === null) return 0;
+		const ageMs = this.now() - bornAt;
+		const leftMs = this.cfg.probe_stale_s * 1000 - ageMs;
+		return Math.max(
+			1,
+			Math.min(this.cfg.probe_stale_s, Math.ceil(leftMs / 1000)),
+		);
 	}
 }
