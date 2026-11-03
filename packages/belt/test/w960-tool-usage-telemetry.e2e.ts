@@ -1,9 +1,11 @@
-// test/w960-tool-usage-telemetry.e2e.ts — W2182 re-land of W960.1: the router
-// keeps tools and real usage end-to-end. Stub fetchers / stub specialist
+// w960-tool-usage-telemetry.e2e.ts — W2182 re-land of W960.1: the router
+// keeps tools and real usage end-to-end. Stub fetchers / kit stub upstream
 // only; never the live swarm. Covers: parseUpstreamUsage field picking,
-// escalate() forwarding tools/tool_choice + parsing tool_use blocks + usage,
-// the buffered SSE blocks translator, and viaLocal usage passthrough.
+// escalate() forwarding tools/tool_choice + parsing tool_use blocks + usage
+// (+ W2417.1: gate stop_reason threading), the buffered SSE blocks
+// translator, and viaLocal usage passthrough.
 import { expect, test } from "@playwright/test";
+import { serveStub } from "@klh/test-kit";
 import { escalate } from "../bin/escalate.ts";
 import {
 	type AnthropicBody,
@@ -25,8 +27,13 @@ const TOOLS = [
 	},
 ];
 
+const STUB_ENV = {
+	BELT_ESCALATE_URL: "http://127.0.0.1:4101",
+	BELT_ESCALATE_KEY: "bksk_test",
+};
+
 test.describe("W960 parseUpstreamUsage", () => {
-	test("picks present fields, drops absent ones, keeps sent zeros", () => {
+	test("picks present fields, drops absent ones, keeps sent zeros @unit", () => {
 		expect(
 			parseUpstreamUsage({
 				prompt_tokens: 14,
@@ -39,7 +46,7 @@ test.describe("W960 parseUpstreamUsage", () => {
 			cacheReadTokens: 13,
 		});
 	});
-	test("sent zeros stay, absent fields stay absent", () => {
+	test("sent zeros stay, absent fields stay absent @unit", () => {
 		expect(parseUpstreamUsage({ prompt_tokens: 0 })).toEqual({
 			inputTokens: 0,
 		});
@@ -48,7 +55,7 @@ test.describe("W960 parseUpstreamUsage", () => {
 });
 
 test.describe("W960 escalate() forwards tools + parses the answer", () => {
-	test("request body carries tools and tool_choice verbatim", async () => {
+	test("request body carries tools and tool_choice verbatim @unit", async () => {
 		let seenBody: Record<string, unknown> = {};
 		const fetcher = (async (
 			_url: string | URL | Request,
@@ -67,17 +74,14 @@ test.describe("W960 escalate() forwards tools + parses the answer", () => {
 		await escalate(body, {
 			maxTokens: 64,
 			wantFast: true,
-			env: {
-				BELT_ESCALATE_URL: "http://127.0.0.1:4101",
-				BELT_ESCALATE_KEY: "bksk_test",
-			},
+			env: STUB_ENV,
 			fetcher,
 		});
 		expect(seenBody.tools).toEqual(TOOLS);
 		expect(seenBody.tool_choice).toEqual({ type: "auto" });
 	});
 
-	test("tool_use answer becomes toolUses + usage on the result", async () => {
+	test("tool_use answer becomes toolUses + usage + stop_reason on the result @unit", async () => {
 		const fetcher = (async () =>
 			Response.json({
 				content: [
@@ -89,6 +93,7 @@ test.describe("W960 escalate() forwards tools + parses the answer", () => {
 						input: { path: "a.txt" },
 					},
 				],
+				stop_reason: "tool_use",
 				usage: { input_tokens: 120, output_tokens: 34 },
 			})) as typeof fetch;
 		const r = await escalate(
@@ -101,21 +106,21 @@ test.describe("W960 escalate() forwards tools + parses the answer", () => {
 			{
 				maxTokens: 64,
 				wantFast: true,
-				env: {
-					BELT_ESCALATE_URL: "http://127.0.0.1:4101",
-					BELT_ESCALATE_KEY: "bksk_test",
-				},
+				env: STUB_ENV,
 				fetcher,
 			},
 		);
 		expect(r.text).toBe("Creating");
 		expect(r.toolUses?.[0]?.name).toBe("write_file");
 		expect(r.usage).toEqual({ inputTokens: 120, outputTokens: 34 });
+		// W2417.1 B2: the gate's stop_reason survives the escalation leg —
+		// the stream face needs it to emit tool_use, not end_turn.
+		expect(r.stopReason).toBe("tool_use");
 	});
 });
 
 test.describe("W960 buffered SSE carries blocks + usage", () => {
-	test("tool_use block streams as start + input_json_delta", async () => {
+	test("tool_use block streams as start + input_json_delta @unit", async () => {
 		const stream = anthropicSseFromBlocks(
 			[
 				{ type: "text", text: "hi" },
@@ -131,12 +136,29 @@ test.describe("W960 buffered SSE carries blocks + usage", () => {
 		const txt = await new Response(stream).text();
 		expect(txt).toContain('"name":"Bash"');
 		expect(txt).toContain('"partial_json"');
-		expect(txt).toContain('"stop_reason":"end_turn"');
+		// W2417.1 B2: toolUses present ⇒ stop_reason tool_use on the wire.
+		expect(txt).toContain('"stop_reason":"tool_use"');
 		// W2182: the tool block is the SECOND block — its index must advance.
 		expect(txt).toContain('"index":1');
+		// W2417.1 N3: each block closes before the next opens; the head's
+		// text block stops before the tool block starts.
+		const textStop = txt.indexOf('"index":0');
+		const toolStart = txt.indexOf('"index":1');
+		expect(textStop).toBeGreaterThan(-1);
+		expect(toolStart).toBeGreaterThan(textStop);
 	});
 
-	test("usage fields ride the tail (blocks + text forms)", async () => {
+	test("text-only blocks stay end_turn (no fabricated tool_use) @unit", async () => {
+		const txt = await new Response(
+			anthropicSseFromBlocks([{ type: "text", text: "hi" }], {
+				id: "m",
+				model: "x",
+			}),
+		).text();
+		expect(txt).toContain('"stop_reason":"end_turn"');
+	});
+
+	test("usage fields ride the tail (blocks + text forms) @unit", async () => {
 		const t1 = await new Response(
 			anthropicSseFromText("pong", { id: "m", model: "x" }, undefined, {
 				inputTokens: 3,
@@ -160,27 +182,27 @@ test.describe("W960 buffered SSE carries blocks + usage", () => {
 });
 
 test.describe("W960 viaLocal usage passthrough", () => {
-	test("non-stream specialist usage lands on the result", async () => {
-		const stub = Bun.serve({
-			port: 0,
-			fetch: () =>
-				Response.json({
-					choices: [{ finish_reason: "stop", message: { content: "hi" } }],
-					usage: { prompt_tokens: 14, completion_tokens: 11 },
-				}),
-		});
+	test("non-stream specialist usage lands on the result @unit", async () => {
+		// W1135.1.3: the kit's stub upstream replaces the hand-rolled
+		// Bun.serve — recorded requests, scratch port, close() teardown.
+		const stub = serveStub(() =>
+			Response.json({
+				choices: [{ finish_reason: "stop", message: { content: "hi" } }],
+				usage: { prompt_tokens: 14, completion_tokens: 11 },
+			}),
+		);
 		try {
 			const r = await viaLocal(
 				{ port: stub.port, model: "stub" },
 				[{ role: "user", content: "hi" }],
 				64,
 				0.7,
-				{ base: `http://localhost:${stub.port}` },
+				{ base: stub.url },
 			);
 			expect(r.ok).toBe(true);
 			expect(r.usage).toEqual({ inputTokens: 14, outputTokens: 11 });
 		} finally {
-			stub.stop(true);
+			stub.close();
 		}
 	});
 });

@@ -149,7 +149,7 @@ const NEAR_CAP_PINNED = {
 	// 1200 stop rule. The rest re-pin to the actual merged-tree counts
 	// (work.ts rides the W2294 lineage: W2186 CAS extraction + W822.1
 	// done-broadcast call; debt: decompose).
-	"packages/belt/bin/router-shim.ts": 1315, // W1238.6.1 decomposition (W2261 re-pin) + W2182 re-land of W960.1 usage reporting + W2258 origin-qualified error details (W2417 merge re-pin to the measured count; debt: decompose)
+	"packages/belt/bin/router-shim.ts": 1309, // W1238.6.1 decomposition (W2261 re-pin) + W2182 re-land of W960.1 usage reporting + W2258 origin-qualified error details; W2417.1 extracted buffered-answer.ts (both response faces + the stop_reason law) — 1315 → 1309 (debt: keep decomposing)
 	"packages/buckle/src/ledger.ts": 1375, // W2260 StreamReceipt move shrank 1389 → 1375 at the W2403 merge; W2417 merge re-pinned the same measured count
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1268, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2409 folds W2385's 1272 pin; W2441 (W2410), W2445, W2452 (parked/W2440) and W2446 (W2435, via W2415) merges all re-measured 1268 (split-newline convention) on their merged trees (debt: decompose)

@@ -79,7 +79,8 @@
 		"@klh/suspenders": "2.1.3",
 		"@klh/telemetry": "2.1.3",
 		"bonjour-service": "1.4.4",
-		"lit": "3.3.3"
+		"lit": "3.3.3",
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@klh/test-kit": "2.1.3",
