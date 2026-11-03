@@ -11,21 +11,21 @@
 // configurable perimeter (--prefer) is independent of the status hue;
 // nested split children get the dashed border + elbow. Light-DOM friendly:
 // tokens only, no hardcoded colors.
-import { LitElement, html, nothing } from "lit";
+import { html, LitElement, nothing } from "lit";
 import { ago, agoShort } from "./board-format.ts";
+import { TASK_CARD_STYLES } from "./klh-task-card-css.ts";
 import {
 	TaskCardActionRequestedEvent,
 	TaskCardDraftChangedEvent,
 	TaskCardOpenRequestedEvent,
 } from "./klh-task-card-events.ts";
-import { TASK_CARD_STYLES } from "./klh-task-card-css.ts";
 import {
-	type TaskCardActionKind,
-	type TaskCardModel,
 	fmtPct,
 	fmtRate,
 	fmtTokens,
 	fmtWall,
+	type TaskCardActionKind,
+	type TaskCardModel,
 	taskStatusWord,
 	taskTone,
 	taskWarnBody,
@@ -83,11 +83,7 @@ export class KlhTaskCard extends LitElement {
 	 * card (an unrelated card changed column) re-hydrates the draft. */
 	private draft(d: { executor?: string; effort?: string }): void {
 		this.dispatchEvent(
-			new TaskCardDraftChangedEvent(
-				this.card.id,
-				this.card.project ?? null,
-				d,
-			),
+			new TaskCardDraftChangedEvent(this.card.id, this.card.project ?? null, d),
 		);
 	}
 

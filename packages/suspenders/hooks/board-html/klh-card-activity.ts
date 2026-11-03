@@ -16,37 +16,37 @@
 // — never a progress bar, zero/unknown draws nothing, overflow saturates
 // and says so.
 import { html, LitElement, svg, type TemplateResult } from "lit";
+import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
 import {
 	ACTIVITY_BAR_PX,
 	durationSpan,
 	fmtDurationExact,
 	fmtHHmm,
 	fmtScaleLabel,
-	spectralBins,
 	type SpectralBins,
+	spectralBins,
 } from "../lib/board/activity-scale.ts";
-import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
 import {
+	type AttemptHit,
 	attemptRows,
 	attemptTip,
-	type AttemptHit,
 } from "../lib/board/attempt-render.ts";
-import {
-	attemptAxis,
-	attemptIntervalStamp,
-	attemptPlot,
-	attemptStripHandlers,
-	attemptStripStyles,
-	attemptWallMs,
-	type AttemptStripHost,
-	type AttemptTipRef,
-} from "./attempt-strip.ts";
 import {
 	humanZoneWord,
 	localDate,
 	utcDate,
 	utcShort,
 } from "../lib/wallclock.ts";
+import {
+	type AttemptStripHost,
+	type AttemptTipRef,
+	attemptAxis,
+	attemptIntervalStamp,
+	attemptPlot,
+	attemptStripHandlers,
+	attemptStripStyles,
+	attemptWallMs,
+} from "./attempt-strip.ts";
 import { CARD_ACTIVITY_STYLES } from "./klh-card-activity-css.ts";
 
 /** The ONE activity strip (definition only — registration rides the
