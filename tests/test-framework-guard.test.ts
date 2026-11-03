@@ -27,12 +27,14 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W1294.9.1 sweep-G slice-1 (16 policy/copilot/litellm/servicemon/services/
 // remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
 // 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
-// W1294.9.4 sweep-G slice-4 (22 claude+hub family files, merged via W2655)
-// re-pins DOWN (658 → 636) — main had drifted +1 over the 657 pin (W2595
-// belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
-// count measured by THIS guard's own git ls-files counting at the closing
-// sha.
-const PIN = 636;
+// W2667 (re-merge of the W2652/W2640 full-corpus playwright port onto
+// main carrying the W1294.9.4 @unit split) re-pins DOWN (636 to 236) -
+// the 19 conflicted claude and hub families resolve to main @unit.e2e.ts
+// naming; main belt copilot-seat-rows.test.ts (W2595) still rides
+// *.test.ts here - measured by THIS guard own git ls-files counting at
+// the closing sha.
+const PIN = 236;
+
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
