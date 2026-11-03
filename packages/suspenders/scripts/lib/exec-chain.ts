@@ -32,6 +32,16 @@ import {
 	preferOverlayOf,
 	readPreferText,
 } from "../../hooks/lib/prefer-format.ts";
+// W2593: the kev model sentinel — `kev` as a model value means the local
+// kev (:8912) picks the real model; the pure grammar lives next door and
+// the async resolution rides launch admission (kev-model.ts).
+import {
+	type KevPlan,
+	kevChainView,
+	kevPlanOf,
+	kevSentinel,
+	stripKevDirectives,
+} from "./kev-sentinel.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 // W374: the per-provider quota measure — providerOf keys a chain slot to its
 // provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
@@ -323,6 +333,9 @@ export const execPick = (
 	chainLen: number;
 	chainIdx: number;
 	preference: PreferDecision;
+	/** W2593: present when the kev sentinel fired — the launch admission
+	 * gate (kev-model.ts) resolves it into the real model. */
+	kevPlan?: KevPlan;
 } => {
 	const prefer = preferOf(repo);
 	// W2570 amendment: the machine-conf executor row is the MODEL default —
@@ -339,7 +352,67 @@ export const execPick = (
 		const h = hubOverride ?? prefer.hub;
 		return h ? `[${h.toUpperCase()}] ${executor}` : executor;
 	};
-	const { entries: chainEntries, can } = chainEntriesOf(prefer, cvOf, quota);
+	// W2593 kev model sentinel: model=kev (pin, directive token, or a conf
+	// executors row) means the local kev (:8912) picks the real model from
+	// the rule-allowed candidates — resolved at launch admission (async),
+	// never here. misconfig throws like any owner-error .prefer; noop keeps
+	// today's walk with the kev token stripped (it must never ride a model
+	// pin — the CLI would 400 on it).
+	const kevView = kevChainView(prefer);
+	const confEx = tryLoadStack()?.executors;
+	const confKev =
+		!!confEx &&
+		Object.values(confEx).some(
+			(r) => (r as { model?: string } | undefined)?.model === "kev",
+		);
+	const kevFired = kevSentinel({
+		modelPin: prefer.model,
+		directives: kevView.directives,
+		confModel: confKev ? "kev" : null,
+	});
+	const kevPlan = kevFired ? kevPlanOf(stripKevDirectives(kevView)) : null;
+	if (kevPlan?.kind === "misconfig")
+		throw new Error(`.prefer: kev sentinel — ${kevPlan.why}`);
+	if (kevPlan?.kind === "choose") {
+		return {
+			name: "kev",
+			agent: label("kev"),
+			model: null,
+			bin: "claude",
+			hub: prefer.hub,
+			hubUrls: prefer.hubUrls,
+			fallbackModels: [],
+			chainLen: 1,
+			chainIdx: 0,
+			preference: {
+				source: "dotfile",
+				directive: "default",
+				line: 0,
+				index: 0,
+				target: "kev",
+				can: "absent",
+			},
+			kevPlan,
+		};
+	}
+	// noop (or no sentinel): today's behavior — with the kev token removed
+	// from every model layer so nothing forwards the literal "kev" id.
+	const effPrefer =
+		kevPlan?.kind === "noop"
+			? {
+					...prefer,
+					directives: prefer.directives.filter((d) => d.value !== "kev"),
+					model: prefer.model === "kev" ? null : prefer.model,
+				}
+			: prefer;
+	const effConfModel =
+		kevPlan?.kind === "noop"
+			? (binName: string): string | null => {
+					const m = confModel(binName);
+					return m === "kev" ? null : m;
+				}
+			: confModel;
+	const { entries: chainEntries, can } = chainEntriesOf(effPrefer, cvOf, quota);
 	if (chainEntries.length > 0) {
 		const chain = chainEntries.map((d) => d.value);
 		const idx = Math.min(attempt, chain.length - 1);
@@ -359,7 +432,10 @@ export const execPick = (
 		// always outranks it (owner intent, must= parity). The machine-conf
 		// executor row is the last default (amendment: it was unreachable
 		// dead config — laneModelOf collapsed null before insertion).
-		const model = slot.model ?? prefer.model ?? confModel(slot.bin);
+		// W2593 noop guard: a kev/glob token as a must=/prefer= target under
+		// noop never rides the model pin (the CLI would 400 on it); the pick
+		// falls to the conf layer. Glob tokens (trailing *) are kev-only too.
+		const model = slot.model ?? effPrefer.model ?? effConfModel(slot.bin);
 		const qwhy = quota?.get(providerOf(model ?? e) ?? "");
 		if (qwhy)
 			console.log(
@@ -445,7 +521,8 @@ export const execPick = (
 		// W2570: the repo's model= pin fills a null slot model on the
 		// default ladder too (an executor row picks no model by design);
 		// the machine-conf row is the last default (amendment).
-		const pinned = model ?? prefer.model ?? confModel(bin);
+		// W2593: the eff layers strip kev tokens (noop) — never forwarded.
+		const pinned = model ?? effPrefer.model ?? effConfModel(bin);
 		const fallbackModels = chain
 			.slice(idx + 1)
 			.filter((next) => next.bin === bin)
@@ -474,7 +551,7 @@ export const execPick = (
 	return {
 		name: "claude",
 		agent: "claude",
-		model: prefer.model ?? confModel("claude"),
+		model: effPrefer.model ?? effConfModel("claude"),
 		bin: "claude",
 		hub: prefer.hub,
 		hubUrls: prefer.hubUrls,
