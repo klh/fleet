@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ProviderAdmissionCore } from "../src/provider-admission-core.ts";
+import { parseResilience } from "../src/resilience-config.ts";
 import { Router } from "../src/router.ts";
 
 test.describe("@unit", () => {
@@ -86,6 +87,114 @@ test.describe("@unit", () => {
 		const lease = await core.acquire(undefined, 150);
 		expect(Date.now() - started).toBeLessThan(150);
 		lease.release();
+	});
+
+	test("a lapsed ride on a real half-open probe stays cold: no second upstream knock", async () => {
+		// W2585 (root #103842): genuine 429 → cool() → expiry → ONE slow
+		// half-open probe; a sibling whose ride lapses while that probe is
+		// unresolved must answer locally — the probe's single-flight owns
+		// the account until it answers. Never a second knock.
+		test.setTimeout(10_000);
+		let now = 1_000;
+		let fetches = 0;
+		let answerProbe!: () => void;
+		// deterministic probe-entered barrier: resolves once the half-open
+		// probe's knock is truly in flight (no fixed sleep to guess)
+		let markProbeEntered!: () => void;
+		const probeEntered = new Promise<void>((r) => {
+			markProbeEntered = r;
+		});
+		const router = new Router(
+			{
+				allowed_fails: 1000,
+				request_timeout_s: 30,
+				first_byte_budget_s: 30,
+				resilience: parseResilience({
+					rate_cooldown_s: 1,
+					rate_cooldown_max_s: 2,
+					admission_ride_ms: 250,
+				}),
+			},
+			{
+				pool: {
+					groups: () => ["a"],
+					deployments: () => [
+						{
+							group: "a",
+							url: "https://fixture.invalid",
+							dialect: "anthropic" as const,
+						},
+					],
+				},
+				now: () => now,
+				rng: () => 0, // no jitter: the rate cold is exactly 1s
+				sleepMs: async () => {},
+				fetchImpl: async () => {
+					fetches++;
+					if (fetches === 1)
+						return Response.json(
+							{ error: { code: "1302", message: "rate limited" } },
+							{ status: 429 },
+						);
+					// only the half-open probe (fetch 2) is slow; the reopened
+					// account answers at once
+					if (fetches === 2) {
+						markProbeEntered();
+						await new Promise<void>((r) => {
+							answerProbe = r;
+						});
+					}
+					return new Response("ok");
+				},
+			},
+		);
+		const call = () =>
+			router.execute({
+				group: "a",
+				dialect: "anthropic",
+				path: "/v1/messages",
+				key: "",
+				body: { stream: false },
+			});
+		// 1) the genuine 429 colds the account (rate window = exactly 1s)
+		const refused = await call();
+		if (refused.kind !== "client-error")
+			throw new Error(`expected 429, got ${refused.kind}`);
+		// 2) expiry → exactly ONE half-open probe, and it is SLOW
+		now += 1_000;
+		const probe = call();
+		await probeEntered; // deterministic: the probe's knock is in flight
+		if (fetches !== 2)
+			throw new Error(`probe did not knock (fetches=${fetches})`);
+		// 3) the sibling rides the probe gate, lapses at 250ms, and must
+		// answer LOCALLY — still no third knock (single-flight holds)
+		const started = Date.now();
+		try {
+			const sibling = await call();
+			if (sibling.kind !== "exhausted")
+				throw new Error(`expected local cold answer, got ${sibling.kind}`);
+			if (sibling.status !== 503)
+				throw new Error(`expected 503, got ${String(sibling.status)}`);
+			const waited = Date.now() - started;
+			if (waited < 250)
+				throw new Error(`ride lapsed early: ${String(waited)}ms`);
+			if (fetches !== 2)
+				throw new Error(`second knock leaked (fetches=${String(fetches)})`);
+			// 4) the probe answers success → the account reopens
+			answerProbe();
+			await probe;
+			const after = await call();
+			if (after.kind !== "upstream")
+				throw new Error(`account did not reopen: ${after.kind}`);
+			// framework expect: the awaited probe mutates `fetches` outside
+			// TS's narrowing view — expect() keeps the assertion honest
+			expect(fetches).toBe(3);
+		} finally {
+			// bounded cleanup: the held probe never strands a request past
+			// the test, whatever the assertions did
+			answerProbe();
+			await probe.catch(() => {});
+		}
 	});
 
 	test("twelve concurrent callers share the account's real-clock pace; the shared queue delivers all — the gateway never retries", async () => {

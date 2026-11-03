@@ -3,9 +3,11 @@
 // through the real Router seam (mocked fetchImpl, in-process): account pools
 // pace starts across aliases, bound streams hold their lease to EOF/cancel/
 // error, and a local queue refusal never masquerades as an upstream verdict.
+import type { HopReceipt } from "@klh/telemetry/src/http-trace.ts";
 import { expect, test } from "@playwright/test";
 import { errorResponse } from "../src/error-response.ts";
 import { parsePolicy } from "../src/policy.ts";
+import { parseResilience } from "../src/resilience-config.ts";
 import { Router } from "../src/router.ts";
 import type { Deployment, UpstreamPool } from "../src/upstreams.ts";
 
@@ -619,6 +621,108 @@ test.describe("@api", () => {
 		expect(calls).toBe(1);
 		await Bun.sleep(5);
 		expect(router.providerAdmissionSnapshot()["zai-main"]?.outstanding).toBe(0);
+	});
+
+	test("a slow first knock's lapsed placeholder ride falls through to admission, not a false cold 503", async () => {
+		test.setTimeout(20_000);
+		// C249 flavor A (W2585): the first knock of an RTT burst legitimately
+		// spends > admission_ride_ms to its verdict; the sibling riding its
+		// placeholder gate must NOT be answered as a cold account (no cold
+		// verdict exists — zero outbound, fabricated retryAfter). It falls
+		// through to bounded pool admission and is served.
+		const receipts: HopReceipt[] = [];
+		let fetches = 0;
+		let releaseFirst!: () => void;
+		// deterministic entered-fetch barrier: resolves once the first knock
+		// is truly in flight (no fixed startup sleep to guess)
+		let markFirstEntered!: () => void;
+		const firstEntered = new Promise<void>((r) => {
+			markFirstEntered = r;
+		});
+		const router = new Router(
+			{
+				...POLICY,
+				first_byte_budget_s: 10,
+				request_timeout_s: 10,
+				// C249 shape: the ACCOUNT gate is the blocker, not the pool —
+				// the pool has a free slot for the fall-through rider.
+				provider_pools: {
+					// POLICY's zai-main pool, fully typed, with the one knob
+					// this test moves: concurrency 2 (a free pool slot for the
+					// fall-through rider — the ACCOUNT gate is the blocker).
+					"zai-main": {
+						concurrency: 2,
+						intervalCap: 100,
+						intervalMs: 50,
+						maxOutstanding: 3,
+						queueWaitMs: 1000,
+						recovery: { successWindow: 8, decreasePercent: 5 },
+					},
+				},
+				resilience: parseResilience({ admission_ride_ms: 300 }),
+			},
+			{
+				pool: poolOf([dep("http://a", "m1", "zai-main")]),
+				sleepMs: async () => {},
+				metrics: {
+					fallback() {},
+					cooldown() {},
+					refused() {},
+					attempt(receipt) {
+						receipts.push(receipt);
+					},
+				},
+				fetchImpl: async () => {
+					fetches++;
+					if (fetches === 1) {
+						// the first knock is IN FLIGHT (deterministic barrier), and
+						// outlives the ride window by a wide margin
+						markFirstEntered();
+						await new Promise<void>((r) => {
+							releaseFirst = r;
+						});
+					}
+					return new Response("useful result");
+				},
+			},
+		);
+		const first = router.execute(req("m1"));
+		await firstEntered; // deterministic: the first knock is in flight
+		const started = Date.now();
+		// settle the held knock exactly once; the finally net re-fires it
+		// harmlessly (a promise resolver is idempotent) so a failed assertion
+		// can never strand the request past the test
+		let released = false;
+		const release = () => {
+			if (!released) {
+				released = true;
+				releaseFirst();
+			}
+		};
+		try {
+			const siblingOutcome = await router.execute(req("m1"));
+			const waitedMs = Date.now() - started;
+			// the sibling was served — after a bounded fall-through wait, well
+			// inside the walk budget, never the instant false-cold 503
+			expect(siblingOutcome.kind).toBe("upstream");
+			expect(waitedMs).toBeGreaterThanOrEqual(300);
+			expect(waitedMs).toBeLessThan(2000);
+			if (siblingOutcome.kind === "upstream")
+				await siblingOutcome.response.text();
+			// the fall-through knocked exactly once for the sibling: no herd
+			expect(fetches).toBe(2);
+			// the sibling's receipt is a success, not a local-admission refusal
+			expect(
+				receipts.find((r) => r.status === 200 && r.refusal === null),
+			).toBeTruthy();
+			// the first knock settles now (release BEFORE awaiting it)
+			release();
+			const firstOutcome = await first;
+			expect(firstOutcome.kind).toBe("upstream");
+		} finally {
+			release();
+			await first.catch(() => {});
+		}
 	});
 
 	test("nested peer network refusal skips shared account aliases within the original walk", async () => {
