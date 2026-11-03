@@ -4,16 +4,22 @@
 // row for the local spoke — the board's monitored-service probe reused, so
 // the browser never fetches :4101 cross-origin. Absent dbs = honest
 // ok:false; unavailable beats zero.
+// W2673.1: flow feed — package-name import (W1249; the sibling relative
+// edges below are the pinned inherited set, shrink-only)
+import {
+	type FlowResult,
+	flowSnapshot,
+} from "@klh/buckle/src/flow-read-model.ts";
 import {
 	type NetworkOverviewResult,
 	networkOverview,
 	resolveNetworkDbPaths,
 } from "../../../buckle/src/network-read-model.ts";
 import { topologySnapshot } from "../../../buckle/src/topology-read-model.ts";
-import { cachedProbes } from "./console-view.ts";
-import { withRecovery } from "./service-probe.ts";
-import { db } from "./context.ts";
 import { downModelGroups } from "../lib/hub/model-health.ts";
+import { cachedProbes } from "./console-view.ts";
+import { db } from "./context.ts";
+import { withRecovery } from "./service-probe.ts";
 
 /** /api/console/network payload — read model + the local spoke probe. */
 export interface NetworkPayload {
@@ -54,6 +60,19 @@ export async function networkPayload(): Promise<NetworkPayload> {
 export function topologyPayload() {
 	return topologySnapshot(
 		resolveNetworkDbPaths(process.env),
+		Date.now,
+		process.env.BUCKLE_HUB_ID ?? "local",
+	);
+}
+
+/** W2673.1: the gateway flow feed payload — windowed request-edge
+ *  aggregation (senders/gateway/targets/attention) over the same db-path
+ *  resolution as the Network overview. window=1|5|10 (minutes); invalid
+ *  or absent values normalize to 5 inside the read model. */
+export function flowPayload(windowRaw: string | null): FlowResult {
+	return flowSnapshot(
+		resolveNetworkDbPaths(process.env),
+		windowRaw,
 		Date.now,
 		process.env.BUCKLE_HUB_ID ?? "local",
 	);

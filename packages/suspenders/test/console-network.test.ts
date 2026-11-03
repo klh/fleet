@@ -3,12 +3,13 @@
 // the seeded ledger + projection dbs (honest sections, no fabricated zeros),
 // /console/buckle renders the klh-network-card host with the SSR seed, and
 // /api/lane-routes stops 404ing once the projection db resolves.
-import { waitUp } from "@klh/test-kit";
-import { afterAll, describe, expect, test } from "bun:test";
+
 import { Database } from "bun:sqlite";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { waitUp } from "@klh/test-kit";
 import { resolveNetworkDbPaths } from "../../buckle/src/network-read-model.ts";
 import { LaneProjection } from "../../buckle/src/projection.ts";
 
@@ -227,7 +228,47 @@ describe("/api/console/network", () => {
 	});
 });
 
-describe("/console/buckle + /api/lane-routes", () => {
+describe("/api/console/flow (W2673.1)", () => {
+	test("windowed flow feed reads the seeded dbs through the board route", async () => {
+		const res = await fetch(`${BASE}/api/console/flow?window=60`);
+		expect(res.status).toBe(200);
+		const flow = (await res.json()) as {
+			ok: boolean;
+			schemaVersion: number;
+			windowS: number;
+			gateway: { requests: number; reqPerS: number };
+			senders: Array<{ lane: string; requests: number }>;
+			targets: Array<{ name: string; requests: number }>;
+			coverage: {
+				projectionAvailable: boolean;
+				ledgerAvailable: boolean;
+			};
+		};
+		expect(flow.ok).toBe(true);
+		expect(flow.schemaVersion).toBe(1);
+		expect(flow.windowS).toBe(60);
+		// the OBS seed: one admitted+ended edge on lane L1
+		expect(flow.gateway.requests).toBe(1);
+		expect(flow.senders).toMatchObject([{ lane: "L1", requests: 1 }]);
+		// the LEDGER seed: one settled route to glm-5.3-flash
+		expect(flow.targets).toMatchObject([
+			{ name: "glm-5.3-flash", requests: 1 },
+		]);
+		expect(flow.coverage).toEqual({
+			projectionAvailable: true,
+			ledgerAvailable: true,
+			sendersTruncated: 0,
+			targetsTruncated: 0,
+		});
+	});
+	test("absent or invalid window normalizes to 300", async () => {
+		for (const q of ["", "?window=zzz", "?window=10"]) {
+			const flow = (await (
+				await fetch(`${BASE}/api/console/flow${q}`)
+			).json()) as { windowS: number };
+			expect(flow.windowS).toBe(300);
+		}
+	});
 	test("legacy Belt console URL redirects to Buckle", async () => {
 		const response = await fetch(`${BASE}/console/belt`, {
 			redirect: "manual",

@@ -62,6 +62,7 @@ import {
 	collectModelCapabilities,
 } from "./model-capability-collector.ts";
 import { buildModelInventory } from "./model-inventory.ts";
+import { flowFeed } from "./flow-feed.ts";
 import { observation, observationFresh } from "./observation.ts";
 import { DOWNLOAD_MODELS, ROUTER, registryEntries } from "./registry.ts";
 import { registryResponse } from "./registry-emit.ts";
@@ -928,6 +929,7 @@ const ROUTES: RouteMethods = {
 	"/api/status": ["GET", "HEAD"],
 	"/api/remotes": ["GET", "HEAD"],
 	"/api/network": ["GET", "HEAD"],
+	"/api/flow": ["GET", "HEAD"],
 	"/api/topology-context": ["GET", "HEAD"],
 	"/api/model-access": ["GET", "HEAD"],
 	"/api/model-inventory": ["GET", "HEAD"],
@@ -1009,6 +1011,9 @@ Bun.serve({
 		if (path === "/registry.json") return registryResponse(req);
 		if (path === "/api/remotes") return json(await remotesSnapshot());
 		if (path === "/api/network") return networkSnapshot(authority);
+		// W2673.1: the gateway flow feed — the board's windowed aggregation
+		// proxied read-only (window seconds ride the query string verbatim).
+		if (path === "/api/flow") return flowFeed(req);
 		if (path === "/api/topology-context") return topologyContext();
 		if (path === "/api/model-access") return json(await accessSnapshot());
 		if (path === "/api/model-inventory") {

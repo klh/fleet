@@ -15,40 +15,41 @@
 // /console/settings/preview (validate + diff) → confirm form →
 // /console/settings/apply (mtime guard + atomic write). Invalid config is
 // rejected with the parser's own error, verbatim.
-import type {
-	BoardSettingsState,
-	PolicyGatewayParsed,
-	ResolvedPolicy,
-} from "../lib/board/board-config.ts";
-import type { AdminAuditRow } from "../lib/govdb/admin-audit.ts";
-import { scrub } from "../lib/servicemon.ts";
+
 import {
-	matchingRegistrations,
-	registrationPort,
-} from "../lib/hub/service-inventory.ts";
-import {
+	displayLabel,
 	FLEET_NAV_CSS,
 	fleetNav,
-	displayLabel,
 	THEME_HEAD,
 } from "@klh/kernel/src/kernel.theme.module.ts";
-import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
+import type { ExecutorEntry } from "../board/executor-catalog.ts";
 // W858.10.3: the Network overview payload (type-only — erased at runtime;
 // the card component owns the DOM)
 import type { NetworkPayload } from "../board/network-overview.ts";
+import { type ServiceProbe, withRecovery } from "../board/service-probe.ts";
 // W669.11: the console data cards ride klh-console-cards (UI law) — pages
 // emit static card hosts + esc(JSON) data attributes (klh-service-row
 // pattern); the components render shadow DOM from the slices.
 import type {
-	AuditRow,
 	AuditListData,
+	AuditRow,
 	PolicyCardData,
 	RegistryCardData,
 	RegistryRow,
 	UpstreamsCardData,
 } from "../board-html/klh-console-cards.ts";
-import type { ExecutorEntry } from "../board/executor-catalog.ts";
-import { withRecovery, type ServiceProbe } from "../board/service-probe.ts";
+import type {
+	BoardSettingsState,
+	PolicyGatewayParsed,
+	ResolvedPolicy,
+} from "../lib/board/board-config.ts";
+import type { RecoveryEntry } from "../lib/fleet-loop/recovery-map.ts";
+import type { AdminAuditRow } from "../lib/govdb/admin-audit.ts";
+import {
+	matchingRegistrations,
+	registrationPort,
+} from "../lib/hub/service-inventory.ts";
+import { scrub } from "../lib/servicemon.ts";
 
 export interface ConsoleMe {
 	actor: string;
@@ -213,6 +214,8 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		// W2673: the live flow view first — who is using the gateway right now
+		`<klh-gateway-flow-card heading="Gateway flow · who is using the gateway right now"></klh-gateway-flow-card>` +
 		`<belt-topology></belt-topology><belt-topology-details></belt-topology-details><belt-topology-hubs></belt-topology-hubs>` +
 		`<section class="panel" aria-label="Fleet model inventory"><h2>Fleet model inventory</h2><p class="dimpl">Models exposed through registered hubs and providers.</p><belt-model-inventory></belt-model-inventory><div id="modelaccess" aria-live="polite">Checking model access…</div></section>` +
 		(v.network
