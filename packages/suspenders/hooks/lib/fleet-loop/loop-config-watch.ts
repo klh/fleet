@@ -95,10 +95,11 @@ export function createLoopConfigWatch(opts: {
 			before.everyS !== current.everyS ||
 			before.dispatchTarget !== current.dispatchTarget ||
 			before.reviewFallbackModels !== current.reviewFallbackModels ||
-			before.reviewStepdownClasses !== current.reviewStepdownClasses
+			before.reviewStepdownClasses !== current.reviewStepdownClasses ||
+			before.reviewRoundCap !== current.reviewRoundCap
 		) {
 			log(
-				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"}`,
+				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"}`,
 			);
 		}
 	};
