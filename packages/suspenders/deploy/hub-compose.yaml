@@ -529,6 +529,100 @@ services:
       retries: 3
       start_period: 15s
 
+  # W2595 owner ruling: litellm rides behind EVERY buckle. The engine fronts
+  # every provider row the hub's ladder names (zai/glm, copilot seat, local
+  # legs) so drop_params + the router ladders apply uniformly across hubs.
+  # Profile-gated (`litellm` compose profile, declared via the stack profile
+  # `litellm:` block — config-over-code); the per-hub litellm.yaml +
+  # token cache are operator-maintained 0600 files beside the compose dir
+  # (rendered/mounted read-only; secrets ride env, never the image). The
+  # official image is version-pinned to the same 1.103.0 the Mac engine
+  # runs (github_copilot provider native since this version).
+  litellm-hub:
+    profiles: [litellm]
+    image: ghcr.io/berriai/litellm:v1.103.0@sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7
+    container_name: ${HUB_NAME:-desktop}-litellm-hub
+    logging: *default-logging
+    # official image runs as root with its entrypoint; drop caps + lock
+    # privilege gain, keep its writable needs to tmpfs only
+    cap_drop: *cap-drop
+    security_opt: *no-new-privs
+    init: true
+    pids_limit: 256
+    stop_grace_period: 20s
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config
+      - /etc/litellm/litellm.yaml
+      - --port
+      - ${HUB_LITELLM_PORT:-4100}
+      - --host
+      - 127.0.0.1
+    depends_on:
+      hub-init:
+        condition: service_completed_successfully
+    env_file:
+      # LITELLM_KEY (master) + provider keys — the same 0600 upstream.env the
+      # buckle gate rides (hubctl push builds it from stack.json secrets)
+      - ./upstream.env
+    environment:
+      # W2595: the github_copilot provider's token cache (PAT pre-seed; the
+      # interactive device flow is fallback-only and never fires with a
+      # seeded cache). Mounted read-only below.
+      # No DATABASE_URL/STORE_MODEL_IN_DB: absent = config-only, verified
+      # from v1.103.0 source (C253) — an explicit empty string could read
+      # as present and drag the DB path on.
+      GITHUB_COPILOT_TOKEN_DIR: /etc/litellm/copilot-tokens
+    volumes:
+      - ./litellm.yaml:/etc/litellm/litellm.yaml:ro
+      - ./copilot-tokens:/etc/litellm/copilot-tokens:ro
+
+  # W2595: outside-process health verdict for the litellm engine (owner law:
+  # compose health hits the SIDECAR, never the served process). Authenticated
+  # /v1/models probe — 200 = serving + authorized; 401 still proves alive.
+  litellm-health:
+    profiles: [litellm]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232b1630f0546895
+    container_name: ${HUB_NAME:-desktop}-litellm-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      litellm-hub:
+        condition: service_started
+    command:
+      - bun
+      - ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts
+      - --target
+      - http://127.0.0.1:${HUB_LITELLM_PORT:-4100}/v1/models
+      - --listen
+      - ${HUB_LITELLM_HEALTH_PORT:-4105}
+      - --auth-env
+      - LITELLM_KEY
+    env_file:
+      - ./upstream.env
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_LITELLM_HEALTH_PORT: ${HUB_LITELLM_HEALTH_PORT:-4105}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_LITELLM_HEALTH_PORT ?? "4105") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # Optional Belt-owned model wire. A machine profile selects the upstream;
   # its live /v1/models response supplies inventory, without model IDs here.
   belt-model:

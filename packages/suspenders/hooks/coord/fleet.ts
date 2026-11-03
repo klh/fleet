@@ -9,9 +9,10 @@ import { attachSubscribe } from "../lib/lanes/subscribe-attach.ts";
 import { ensureCompletionIdentityMigration } from "../lib/work/work-completion-record.ts";
 import { listLiveTargets } from "./addressing.ts";
 import { ageOf, formatEventLine } from "./bus.ts";
-import { buildFleetTable, fleetGlyph } from "./fleet-table.ts";
+import { renderFleetFaces } from "./fleet-faces.ts";
 import { cmdBind, cmdEnroll, cmdVerify } from "./identity.ts";
 import { verbContract, wantsJson } from "./json-out.ts";
+import { projectDisplayName, resolveProjectArg } from "./project-arg.ts";
 import { cmdProjectRegistry } from "./project-registry-cli.ts";
 import type { Database, Ev } from "./shared.ts";
 // hooks/coord/fleet.ts — fleet-wide reads: bootstrap, fleet, metrics, doctor-session, diff (W157 command modules).
@@ -225,13 +226,7 @@ export async function cmdBootstrap(_rest: string[]): Promise<void> {
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
 			.get() as { value: string } | null
 	)?.value;
-	const pname =
-		project
-			.split("/")
-			.pop()
-			?.replace(/\.git$/, "") ||
-		project.split("/").slice(-2, -1).pop() ||
-		project;
+	const pname = projectDisplayName(project);
 	if (wantsJson(_rest)) {
 		// W2569: the machine face — the same session-state projection
 		bootstrapContract.emit({
@@ -288,6 +283,11 @@ export async function cmdRename(_rest: string[]): Promise<void> {
 }
 
 export async function cmdFleet(_rest: string[]): Promise<void> {
+	// W1242 --project <path|name> filter: resolved up front so a bad ref dies
+	// loud before either face renders; default = the cwd project identity.
+	const projArg = arg("--project");
+	const project =
+		projArg == null ? projectIdentity() : resolveProjectArg(projArg);
 	// one-line fleet projection for a terminal pane (the Desktop panel
 	// projection lives in subagent-statusline.ts; the CLI inline rows are
 	// harness-owned and ignore it)
@@ -371,68 +371,24 @@ export async function cmdFleet(_rest: string[]): Promise<void> {
 			.query("SELECT value FROM facts WHERE key = 'integration.head'")
 			.get() as { value: string } | null
 	)?.value;
-	// W522 fleet-watch feed — the same projection, machine-readable: lane
-	// state facts + session names + claim intents, no ANSI. Undefined state
-	// facts mean a fresh claim (text path paints ▶ too). W1258: --njson adds
-	// the same lane entries as NDJSON, one fleet entry per line; the --json
-	// contract is unchanged.
-	const laneEntry = (l: string) => {
-		const v = verdictOf(l);
-		return {
-			sid: l,
-			name: sessionNames.get(l) ?? null,
-			intent: names.get(l) ?? null,
-			state: byKey.get(`lane.${l}.state`) ?? sessions.get(l) ?? "UNKNOWN",
-			sessionState: sessions.get(l) ?? null,
-			fileClaims: crows
-				.filter((claim) => claim.sid === l)
-				.map(({ scope, intent }) => ({ scope, intent })),
-			workItems: work
-				.filter((item) => item.sid === l)
-				.map(({ project, id, title, state }) => ({
-					project,
-					id,
-					title,
-					state,
-				})),
-			verdict: v,
-			live: v === "alive",
-		};
-	};
-	if (_rest.includes("--njson")) {
-		for (const l of lanes) console.log(JSON.stringify(laneEntry(l)));
-		return;
-	}
-	if (_rest.includes("--json")) {
-		console.log(
-			JSON.stringify({
-				head: head?.slice(0, 7) ?? null,
-				lanes: lanes.map(laneEntry),
-			}),
-		);
-		return;
-	}
-	// W1258 text face: the fixed-width fleet table (hooks/coord/fleet-table.ts)
-	// — one lane per row; HEAD stays its own dim line and the `[sid=...]`
-	// recipient field survives as the SID column. W652.1/W378 glyph honesty
-	// is unchanged (fleet-table.ts fleetGlyph).
-	if (!lanes.length) {
-		console.log(dim("(no claimed lanes)"));
-		return;
-	}
-	if (head) console.log(dim(`HEAD ${head.slice(0, 7)}`));
-	console.log(
-		buildFleetTable(
-			lanes.map((l) => ({
-				lane: sessionNames.get(l) ?? names.get(l) ?? l.slice(0, 8),
-				st: fleetGlyph(verdictOf(l), byKey.get(`lane.${l}.state`)),
-				task: names.get(l) ?? "",
-				sid: l,
-			})),
-		),
-	);
+	// W1242×W1258 faces (see fleet-faces.ts): --njson/--json machine faces
+	// then the text face — the W892 supervisor table leads, the W1258 lane
+	// projection (fleet-table.ts honesty glyphs) stays beneath.
+	renderFleetFaces({
+		rest: _rest,
+		db: db as unknown as Database,
+		project,
+		head,
+		lanes,
+		crows,
+		work,
+		sessions,
+		byKey,
+		sessionNames,
+		names,
+		verdictOf,
+	});
 }
-
 export async function cmdDoctorSession(rest: string[]): Promise<void> {
 	// rebind integrity: NO live coordination state may point at a closed
 	// predecessor — everything here should be zero after resume-session
