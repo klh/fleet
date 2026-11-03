@@ -341,6 +341,8 @@ test("an open picker defers the structural swap until it closes (review N1)", {
 	// closing the picker lets the deferred swap land on the next tick
 	await host.locator(execSel).blur();
 	await expect(
-		page.locator(`.kcol[data-kcol-key="READY"] klh-task-card-host[data-kid="${other}"]`),
+		page.locator(
+			`.kcol[data-kcol-key="READY"] klh-task-card-host[data-kid="${other}"]`,
+		),
 	).toBeVisible({ timeout: 20_000 });
 });

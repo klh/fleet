@@ -118,7 +118,9 @@ test("kanban card carries the bound tail on the lanes view", {
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	await expect(card.locator("klh-task-card .ctx").first()).toBeVisible();
 	await expect(
-		card.locator("klh-task-card .ctx", { hasText: "bound lane reading the diff" }),
+		card.locator("klh-task-card .ctx", {
+			hasText: "bound lane reading the diff",
+		}),
 	).toHaveCount(1);
 	// same owner sid, no registry row: the sibling CANNOT inherit the tail
 	await expect(
@@ -129,7 +131,9 @@ test("kanban card carries the bound tail on the lanes view", {
 	).toHaveCount(0);
 	// the stale pre-launch record never surfaces on the bound card either
 	await expect(
-		card.locator("klh-task-card .ctx", { hasText: "stale pre-launch progress" }),
+		card.locator("klh-task-card .ctx", {
+			hasText: "stale pre-launch progress",
+		}),
 	).toHaveCount(0);
 });
 

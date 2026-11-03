@@ -42,7 +42,14 @@ async function seedDecision(
 			);
 		db.query(
 			"INSERT INTO decisions (event_id, target, asked_by, project, question, state, created_at) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)",
-		).run(ev.lastInsertRowid, "lane-w2550", "lane-w2550", board.MY_PROJ, question, Date.now());
+		).run(
+			ev.lastInsertRowid,
+			"lane-w2550",
+			"lane-w2550",
+			board.MY_PROJ,
+			question,
+			Date.now(),
+		);
 		return String(ev.lastInsertRowid);
 	} finally {
 		db.close();
@@ -171,7 +178,9 @@ test("history toggles open, lists archived rows, filters by project", async ({
 	const { Database } = await import("bun:sqlite");
 	const db = new Database(`${board.HOME}/.cache/claude-governor/governor.db`);
 	db.run("PRAGMA busy_timeout = 4500");
-	db.query("UPDATE decisions SET state='ANSWERED', answered_at=? WHERE event_id = ?").run(Date.now(), Number(id));
+	db.query(
+		"UPDATE decisions SET state='ANSWERED', answered_at=? WHERE event_id = ?",
+	).run(Date.now(), Number(id));
 	db.close();
 
 	await page.goto(`${board.BASE}/#decisions`);

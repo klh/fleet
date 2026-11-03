@@ -122,7 +122,7 @@ async function measure(page: Page, board: Board) {
 					tone: sq.getAttribute("data-tone") ?? "?",
 					word: stw.textContent ?? "?",
 					dx: s.left - h.left,
-					dy: (s.top + s.height / 2) - (h.top + h.height / 2),
+					dy: s.top + s.height / 2 - (h.top + h.height / 2),
 					sqH: s.height,
 					alignSelf: getComputedStyle(sq).alignSelf,
 				});
@@ -200,9 +200,7 @@ test("tones resolve to their tokens in the light theme", {
 	for (const tone of Object.keys(TOKEN_OF)) {
 		const token = await page.evaluate(
 			(v) =>
-				getComputedStyle(document.documentElement)
-					.getPropertyValue(v)
-					.trim(),
+				getComputedStyle(document.documentElement).getPropertyValue(v).trim(),
 			TOKEN_OF[tone],
 		);
 		await expect
