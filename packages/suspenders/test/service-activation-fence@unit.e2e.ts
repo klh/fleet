@@ -1,4 +1,6 @@
-import { expect, test } from "bun:test";
+// test/service-activation-fence.test.ts — sweep-G slice-7 port (W1294.9.7):
+// bun:test -> @playwright/test @unit, titles verbatim.
+import { expect, test } from "@playwright/test";
 import {
 	mkdtempSync,
 	mkdirSync,
