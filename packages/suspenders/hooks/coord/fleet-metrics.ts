@@ -19,6 +19,7 @@ import {
 } from "../lib/lanes/lane-spend.ts";
 import { claimWindows } from "../lib/work/work-timing.ts";
 import { verbContract, wantsJson } from "./json-out.ts";
+import { projectDisplayName } from "./project-arg.ts";
 import {
 	amber,
 	arg,
@@ -100,13 +101,7 @@ export async function cmdMetrics(rest: string[]): Promise<void> {
 			? realpathSync(resolve(projArgs[0], dir))
 			: realpathSync(projArgs[0]);
 	}
-	const name =
-		project
-			.split("/")
-			.pop()
-			?.replace(/\.git$/, "") ||
-		project.split("/").slice(-2, -1).pop() ||
-		project;
+	const name = projectDisplayName(project);
 	const runs = db
 		.query(
 			"SELECT role, COUNT(*) AS n FROM sessions WHERE project = ? AND started_at >= ? GROUP BY role ORDER BY n DESC",
