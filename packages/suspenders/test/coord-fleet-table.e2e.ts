@@ -118,8 +118,13 @@ test("text face: table with HEAD line, name column, state glyph", () => {
 	expect(err).toBe("");
 	expect(out).toContain("HEAD deadbee");
 	const lines = out.trim().split("\n");
-	// HEAD, then header, then separator, then one row per lane
-	expect(lines[1].trim().split(/\s{2,}/)).toEqual([
+	// W2214 merged face: the W892 supervisor table leads (its spend line is
+	// the stable marker when the fixture graphs hold no work items), then the
+	// fleet lane table
+	expect(out).toContain("cache saved");
+	const laneHeader = lines.findIndex((l) => l.trim().startsWith("LANE"));
+	expect(laneHeader).toBeGreaterThan(0);
+	expect(lines[laneHeader].trim().split(/\s{2,}/)).toEqual([
 		"LANE",
 		"ST",
 		"TASK",
