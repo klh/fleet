@@ -35,8 +35,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // copilot-seat-rows.test.ts ported to a tagged e2e spec in the same
 // landing) re-pins DOWN (237 → 236) — the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
-// sha.
-const PIN = 236;
+// sha; W2663's fresh-main leg (ac088302: W2609/W2431 + W2630 route-
+// preflight) measures 235 and re-pins DOWN again.
+const PIN = 235;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
