@@ -79,6 +79,16 @@ export const ResilienceConfigSchema = z
 				/** Share of a group's in-flight cap lanes may hold — the rest is
 				 *  reserved so a lane flood never starves interactive sessions. */
 				share: z.number().gt(0).max(1).default(0.75),
+				/** W2617: the bounded wait an INTERACTIVE caller may spend for a
+				 *  short rate-shaped cold mark to lapse (then it claims the
+				 *  half-open probe itself) before being answered locally. A
+				 *  quota wall never earns the wait; 0 disables. */
+				interactive_cold_wait_ms: z
+					.number()
+					.int()
+					.min(0)
+					.max(60_000)
+					.default(2_000),
 				/** Per-key token buckets (429 + Retry-After when empty). */
 				lane_bucket: z
 					.object({
