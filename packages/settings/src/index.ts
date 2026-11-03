@@ -9,6 +9,13 @@ export {
 	SECRET_ENV,
 } from "./settings.env-map.ts";
 export { type Hub, HubSchema } from "./settings.hubs.ts";
+export {
+	type KnobHome,
+	type KnobHomeKind,
+	knobHome,
+	KNOB_FAMILY_PREFIXES,
+	KNOB_REGISTRY,
+} from "./settings.knob-registry.ts";
 export { SCHEMA_FILE, settingsJsonSchemaText } from "./settings.jsonschema.ts";
 export {
 	migrate,

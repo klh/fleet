@@ -54,6 +54,10 @@ export const FleetLoopConfigSchema = z
 		config_poll_s: z.number().int().positive().optional(),
 		review_fallback_models: z.string().min(1).optional(),
 		review_stepdown_classes: z.string().min(1).optional(),
+		/** W2470: the review-and-fix round cap — 0 disables; absence falls
+		 *  back to SUSPENDERS_REVIEW_ROUND_CAP (the plist env is fallback-
+		 *  only), then DEFAULT_REVIEW_ROUND_CAP. */
+		review_round_cap: z.number().int().min(0).optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 		provider_pools: ProviderPoolsSchema.optional(),
 	})
@@ -75,6 +79,8 @@ export interface FleetLoopSettings {
 	pollS: number;
 	reviewFallbackModels?: string;
 	reviewStepdownClasses?: string;
+	/** W2470: the conf's review_round_cap — absence = env fallback. */
+	reviewRoundCap?: number;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -500,6 +506,7 @@ function stackFromSettings(): StackConfig | null {
 		config_poll_s,
 		review_fallback_models,
 		review_stepdown_classes,
+		review_round_cap,
 	} = s.fleet_loop;
 	const parsed = StackConfigSchema.safeParse({
 		version: s.version,
@@ -517,6 +524,7 @@ function stackFromSettings(): StackConfig | null {
 			config_poll_s,
 			review_fallback_models,
 			review_stepdown_classes,
+			review_round_cap,
 		},
 		hubs,
 	});
@@ -567,6 +575,7 @@ export function fleetLoopSettings(
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
 		reviewFallbackModels: block?.review_fallback_models,
 		reviewStepdownClasses: block?.review_stepdown_classes,
+		reviewRoundCap: block?.review_round_cap,
 	};
 }
 

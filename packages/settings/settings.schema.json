@@ -734,6 +734,12 @@
 					"minLength": 1,
 					"maxLength": 4096
 				},
+				"review_round_cap": {
+					"description": "Review-and-fix round cap before the reviewer stops (0 disables; SUSPENDERS_REVIEW_ROUND_CAP stays the fallback when absent)",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100
+				},
 				"projects": {
 					"default": [],
 					"description": "Registered repos (empty = the --repo arg only)",

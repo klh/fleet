@@ -24,6 +24,13 @@ GitHub push — W422.9/W422.1).
   transition (.json law name first, legacy .yaml second — honored only
   while its content is already JSON); the install `migrateConf` step cuts
   machine conf over once (yaml → .json 0600, original kept as .yaml.bak).
+- **Knob declaration ratchet (W2470)**: every `SUSPENDERS_*` env knob a
+  fleet process reads maps to exactly ONE designated home — a
+  `KNOB_REGISTRY` row in `packages/settings/src/settings.knob-registry.ts`
+  (conf / secret / plumbing / machine-conf / model-plane / internal).
+  A new knob lands WITH its row in the same commit;
+  `tests/knob-registry.guard.e2e.ts` fails on any undeclared knob, dead
+  row, or launchd plist env dict carrying a `SUSPENDERS_*` key.
 - **Health is outside-process** (owner law 2026-10-05): a server cannot
   paint itself healthy. Every hub service gets a `*-health` probe sidecar
   (deploy/healthcheck/probe.ts) that polls the real target over the
