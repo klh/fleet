@@ -207,7 +207,15 @@ function mountAll(): void {
 	const cards = document.querySelectorAll<HTMLElement>(".dec[data-id]");
 	for (const card of cards) {
 		if (card.querySelector("klh-decision-eval")) continue;
-		const host = card.querySelector(".dec-actions") ?? card;
+		// W2267.8: the editorial card is .dbody + .drail — the eval
+		// affordance belongs in the body, ABOVE the full-bleed rail (the
+		// rail must stay the card's bottom edge; appending to the card
+		// root would strand it below the rail). .dec-actions is the
+		// legacy host; card is the last-resort fallback.
+		const host =
+			card.querySelector(".dec-actions") ??
+			card.querySelector(".dbody") ??
+			card;
 		const el = document.createElement("klh-decision-eval");
 		el.setAttribute("event-id", card.getAttribute("data-id") ?? "");
 		host.appendChild(el);

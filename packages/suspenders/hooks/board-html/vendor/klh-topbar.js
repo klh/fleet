@@ -1,16 +1,5 @@
-import { d, e, n, r } from "./lit-9ab93f5debb235da.js";
-import { C, O, R } from "./lit-d7542ba252e61217.js";
-var o = (t) => (t && t !== "unassigned" ? t.charAt(0).toUpperCase() : "?"),
-	l = (t) =>
-		["team", "department"].filter((a) => t[a]).join(" · ") || "no team tags";
-class c extends n {
-	static properties = {
-		me: { type: Object },
-		open: { state: !0 },
-		themePref: { state: !0 },
-	};
-	static styles = r`
-		${d(O)}
+import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{L,N,j}from"./lit-545c35c70481d3d8.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${h(j)}
 		:host {
 			display: block;
 		}
@@ -136,94 +125,24 @@ class c extends n {
 			font-size: 10.5px;
 			color: var(--klh-dim);
 		}
-	`;
-	constructor() {
-		super();
-		(this.open = !1),
-			(this.themePref = "system"),
-			(this.onDocClick = this.onDocClick.bind(this)),
-			(this.onDocKeydown = this.onDocKeydown.bind(this)),
-			(this.onThemeChange = this.onThemeChange.bind(this));
-	}
-	connectedCallback() {
-		if (
-			(super.connectedCallback(),
-			document.addEventListener("click", this.onDocClick),
-			document.addEventListener("keydown", this.onDocKeydown),
-			document.addEventListener("klh-themechange", this.onThemeChange),
-			(this.themePref = window.klhTheme?.pref() ?? "system"),
-			!this.me)
-		)
-			this.hydrate();
-	}
-	disconnectedCallback() {
-		super.disconnectedCallback(),
-			document.removeEventListener("click", this.onDocClick),
-			document.removeEventListener("keydown", this.onDocKeydown),
-			document.removeEventListener("klh-themechange", this.onThemeChange);
-	}
-	async hydrate() {
-		try {
-			const t = await fetch("/api/console/me");
-			if (!t.ok) return;
-			const a = await t.json();
-			if (!a.ok) return;
-			(this.me = a), (window.__execPrefs = a.executor_prefs ?? []);
-		} catch {}
-	}
-	onDocClick(t) {
-		if (this.open && !t.composedPath().includes(this)) this.open = !1;
-	}
-	onDocKeydown(t) {
-		if (this.open && t.key === "Escape")
-			(this.open = !1), this.renderRoot.querySelector(".cavbtn")?.focus();
-	}
-	onThemeChange(t) {
-		const a = t.detail;
-		if (a) this.themePref = a.pref;
-	}
-	toggle() {
-		this.open = !this.open;
-	}
-	setTheme(t) {
-		const a = t.target.value;
-		window.klhTheme?.set(a);
-	}
-	actorOptions() {
-		const t = this.me;
-		if (!t) return [];
-		const a = t.defaultActor ?? t.default_actor ?? "",
-			s = t.actors.slice();
-		if (a && !s.includes(a)) s.unshift(a);
-		return s.length ? s : ["unassigned"];
-	}
-	mePanel() {
-		const t = this.me,
-			a = t.actor || "unassigned",
-			s = t.defaultActor ?? t.default_actor ?? "";
-		return e`
+	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",s=t.actors.slice();if(a&&!s.includes(a))s.unshift(a);return s.length?s:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",s=t.defaultActor??t.default_actor??"";return e`
 			<div class="cavhead">
 				<span class="cavbig">${o(a)}</span>
 				<span>
 					<span class="cavname">${a}</span><br />
-					<span class="cavsub">${l(t.tags ?? {})}</span>
+					<span class="cavsub">${l(t.tags??{})}</span>
 				</span>
 			</div>
 			<div class="cavsec">switch actor (demo preview)</div>
 			<select aria-label="switch actor (demo preview)">
-				${this.actorOptions().map(
-					(i) => e`<option value=${i} ?selected=${i === s}>
+				${this.actorOptions().map((i)=>e`<option value=${i} ?selected=${i===s}>
 							${i}
-						</option>`,
-				)}
+						</option>`)}
 			</select>
 			<div class="cavnote">
 				demo preview — stamps nothing live; live switching is a follow-up item
 			</div>
-		`;
-	}
-	settingsPanel() {
-		return e`
+		`}settingsPanel(){return e`
 			<details class="klh-settings">
 				<summary aria-label="settings" title="settings">
 					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
@@ -231,28 +150,23 @@ class c extends n {
 				<div class="klh-settings-panel" role="group" aria-label="settings">
 					<fieldset class="klh-theme">
 						<legend>theme</legend>
-						${C.map(
-							(t) => e`
+						${N.map((t)=>e`
 								<label>
 									<input
 										type="radio"
-										name=${R}
+										name=${L}
 										value=${t}
-										?checked=${this.themePref === t}
+										?checked=${this.themePref===t}
 										@change=${this.setTheme}
 									/>
 									${t}
 								</label>
-							`,
-						)}
+							`)}
 					</fieldset>
 					<slot name="settings-extra"></slot>
 				</div>
 			</details>
-		`;
-	}
-	render() {
-		return e`
+		`}render(){return e`
 			<nav id="cbar" aria-label="klh console">
 				<a class="cw" href="/">klh<span class="cwdot">·</span>console</a>
 				<span class="cend">
@@ -262,19 +176,16 @@ class c extends n {
 							type="button"
 							class="cavbtn"
 							aria-haspopup="true"
-							aria-expanded=${this.open ? "true" : "false"}
+							aria-expanded=${this.open?"true":"false"}
 							aria-label="current actor"
 							@click=${this.toggle}
 						>
-							${o(this.me?.actor ?? "")}
+							${o(this.me?.actor??"")}
 						</button>
 						<div class="cavdrop" ?hidden=${!this.open}>
-							${this.me ? this.mePanel() : e`<div class="cavname">loading actor…</div>`}
+							${this.me?this.mePanel():e`<div class="cavname">loading actor…</div>`}
 						</div>
 					</span>
 				</span>
 			</nav>
-		`;
-	}
-}
-customElements.define("klh-topbar", c);
+		`}}customElements.define("klh-topbar",c);

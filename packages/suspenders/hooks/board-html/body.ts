@@ -53,21 +53,9 @@ export const BODY = String.raw`
 <div id="hashChipBar"></div>
 <main>
 <section id="tab-decisions">
-  <section id="decisions">
-    <h2><button id="decToggle" type="button"><span id="decCaret">-</span> Decisions needed</button><span id="decState" aria-live="polite">loading decisions...</span></h2>
-    <klh-err-banner id="decErr" feed="dec" hidden></klh-err-banner>
-    <div id="decList"></div>
-    <h3 class="gatedhead">Gated work <span class="dim">owner-gated + blocked items — the report's needs-you rows</span></h3>
-    <div id="gatedList"></div>
-  </section>
-  <div id="hist">
-    <div class="histhead">
-      <button id="histHead" type="button" aria-expanded="false"><span id="histCaret">+</span> History</button>
-      <span id="histState"></span>
-    </div>
-    <klh-err-banner id="histErr" feed="hist" hidden></klh-err-banner>
-    <div id="histBody"></div>
-  </div>
+  <klh-decisions-mediator>
+    <klh-decisions></klh-decisions>
+  </klh-decisions-mediator>
 </section>
 <section id="tab-tasks" hidden>
   <div class="taskbar">
@@ -185,19 +173,9 @@ var sel = document.getElementById('proj'); // global project filter (full git-co
 var lastData = null; // last good /api/data
 var lastDataTs = 0;
 var dataOkAt = 0; var dataErr = null; var dataBusy = false;
-var lastDec = null; // last good /api/decisions {ts, decisions}
-var decOkAt = 0; var decErr = null; var decBusy = false; var decLoaded = false; var decBaseline = false;
-var seen = {}; // decision ids ever toasted (baseline on first good fetch)
-var drafts = {}; // dec id -> typed-but-unsent text, survives re-renders
-var selOpt = {}; // dec id -> chosen option label (selecting, not submitting)
-var advising = {}; // dec id -> ms when the advise request started
-var advRetry = {}; // dec id -> {n, at} advise transport-failure backoff
-var advAttempts = {}; // dec id -> completed automatic retries
-var advErr = {}; // dec id -> advise request error (inline)
-var answering = {}; // dec id -> true while an answer POST is in flight
-var ansErr = {}; // dec id -> inline answer/delivery error
-var sentOk = {}; // dec id -> answer accepted (until the poll drops the card)
-var decCollapsed = false;
+// decisions state (lastDec, request flags, drafts) lives in <klh-decisions-mediator>
+var lastDec = null; // last good /api/decisions {ts, decisions} — kept for openDecs() (fleet lanes view)
+var decOkAt = 0; var decLoaded = false;
 var evFilter = 'all';
 var hubOrigin = 'all'; var hubPeer = 'all';
 var projBaseline = false; // suppress toast storm right after a project switch
@@ -207,7 +185,6 @@ var curTab = 'decisions';
 var tasksData = null; var tasksOkAt = 0; var tasksErr = null; var tasksBusy = false; var tasksLoaded = false;
 var actData = null; var actOkAt = 0; var actErr = null; var actBusy = false; var actLoaded = false;
 var actDrill = null; // W858.7.4.2 {start,end} ms — the histogram bar drilled into (null = whole feed)
-var histOpen = false; var histData = null; var histOkAt = 0; var histErr = null; var histBusy = false; var histLoaded = false;
 var setupData = window.__SETUP__ || null; var setupOkAt = setupData ? (setupData.ts || 1) : 0; var setupErr = null; var setupBusy = false; var setupLoaded = !!setupData;
 var task = { id: null, proj: null, data: null, err: null, busy: false, okAt: 0, trigger: null }; // open drawer state
 // W55 per-item diff + line comments (state outlives the drawer's 5s rebuilds;
