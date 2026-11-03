@@ -1,10 +1,5 @@
 // Vendored from the Lit monorepo (lit, lit-html, lit-element, @lit/reactive-element) — BSD-3-Clause License (https://github.com/lit/lit); bundled offline.
-<<<<<<< HEAD:packages/suspenders/hooks/board-html/vendor/lit-ca9cab28b369e215.js
-import{r}from"./lit-b59bf30faa0b21f8.js";var l=r`
-=======
-import { r } from "./lit-9ab93f5debb235da.js";
-var l = r`
->>>>>>> ea45c310175bae88c6e09cdd6cbb9773ee0ea3bc:packages/suspenders/hooks/board-html/vendor/lit-4c1b2687ab6d537d.js
+import{r}from"./lit-b59bf30faa0b21f8.js";var c=r`
 	:host {
 		display: block;
 		background: var(--klh-surface);
@@ -97,5 +92,4 @@ var l = r`
 		font-family: var(--klh-font-mono);
 	}
 `;
-
-export { l };
+export{c};
