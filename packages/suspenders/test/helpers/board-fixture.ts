@@ -4,7 +4,7 @@
 // test file awaits its own instance via top-level await, so hooks stay
 // bound to the importing file. Bodies moved verbatim from
 // fleet-board.test.ts lines 22-157.
-import { expect } from "bun:test";
+import { expect } from "../pw";
 import { Database } from "bun:sqlite";
 import {
 	mkdirSync,
