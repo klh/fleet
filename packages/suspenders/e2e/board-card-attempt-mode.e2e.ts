@@ -63,7 +63,7 @@ async function mount(
 			contentType: "text/html; charset=utf-8",
 			body:
 				`<!doctype html><html data-theme="${theme}"><head>${THEME_HEAD}` +
-				`<script type="module" src="/vendor/klh-card-activity.js"></script>` +
+				`<script type="module" src="/vendor/klh-board-register.js"></script>` +
 				`</head><body><div style="width:${width}px">` +
 				`<klh-card-activity></klh-card-activity></div></body></html>`,
 		}),

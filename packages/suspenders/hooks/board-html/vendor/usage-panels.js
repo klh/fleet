@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464071.js";var x=()=>{let s=g("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>x()?.panels??null,E=()=>x()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),R=(s)=>`${(s*100).toFixed(1)}%`,v=r`
+import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{w}from"./lit-863b7c3c032c5da6.js";var y=()=>{let s=w("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>y()?.panels??null,E=()=>y()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),R=(s)=>`${(s*100).toFixed(1)}%`,k=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -75,8 +75,8 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 		border-radius: 2px;
 		margin-right: 6px;
 	}
-`,w=(s,l)=>s[l]??"#888",U=(s,l,i)=>{let a=s.tok?`${(s.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
-		style=${`width:${a};background:${w(i,s.g)}`}
+`,x=(s,l)=>s[l]??"#888",U=(s,l,i)=>{let a=s.tok?`${(s.tok/Math.max(1,l)*100).toFixed(2)}%`:"0";return e`<i
+		style=${`width:${a};background:${x(i,s.g)}`}
 		title=${`${s.g}: ${d(s.tok)} tok`}
 	></i>`};class P extends n{static properties={header:{type:Object,state:!0}};constructor(){super();this.header=null}connectedCallback(){super.connectedCallback(),this.header=u()?.header??null}chips(s,l,i){return e`<span class="ufgroup" data-label=${s}
 			>${l.map((a)=>e`<a class="${i}${a.on?" on":""}" href=${a.href}
@@ -244,13 +244,13 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			<td>
 				<i
 					class="udot"
-					style=${`background:${w(this.slot,s.g)}`}
+					style=${`background:${x(this.slot,s.g)}`}
 				></i
 				>${s.m}
 			</td>
 			<td class="unum">${d(s.tok)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}L.styles=[v,r`
+		</tr>`}}L.styles=[k,r`
 		.actor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
 		.actor-head h2 { margin:0; }
 		.actor-head label { display:flex; align-items:center; gap:8px; color:var(--klh-dim); font-size:11px; }
@@ -310,7 +310,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			<td class="unum">${d(s.inj)}</td>
 			<td class="unum">${d(s.skip)}</td>
 			<td class="unum">${d(s.tok)}</td>
-		</tr>`}}q.styles=[v,r`
+		</tr>`}}q.styles=[k,r`
 		:host {
 			display: block;
 		}
@@ -385,7 +385,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			<td class="unum">${s.spr}</td>
 			<td class="unum">${d(s.cost)}</td>
 			<td class="unum">${d(s.req)}</td>
-		</tr>`}}H.styles=[v,r`
+		</tr>`}}H.styles=[k,r`
 		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
 		.mixbar span { display:block; height:100%; }
 		.mixlegend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:9px; font-size:11px; color:var(--klh-dim, #98958e); }
@@ -437,7 +437,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			</td>
 			<td class="unum">${d(s.total)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}z.styles=[v,r`
+		</tr>`}}z.styles=[k,r`
 		:host {
 			display: block;
 		}
@@ -485,7 +485,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 				</tbody>
 			</table>
 			<p class="ufoot">${u()?.crosshub?.foot??""}</p>
-		</div>`}}O.styles=[v,r`
+		</div>`}}O.styles=[k,r`
 		:host {
 			display: block;
 		}
@@ -497,7 +497,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 		details code {
 			overflow-wrap: anywhere;
 		}
-	`];class A extends n{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(s){let l=new Date(s),i=(a)=>String(a).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(s){let[l,i,a]=s.split("-");return`${a}.${i}.${l?.slice(-2)}`}hourLabel(s){return`${String(new Date(s).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let s=x()?.timeline??[],l=s[0]??[];this.hours=l.map((a,o)=>({bucket:a*1000,tokens:s.slice(1).reduce((c,h)=>c+(h[o]??0),0)})).filter((a)=>a.tokens>0).map((a)=>a.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let s=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(s!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(s!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(s){this.bucket=s;let l=new URL(location.href);l.searchParams.set("hour",String(s)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let s=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),a=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
+	`];class A extends n{static properties={bucket:{type:Number,state:!0},hours:{type:Array,state:!0},report:{type:Object,state:!0},error:{type:String,state:!0},loading:{type:Boolean,state:!0}};dayKey(s){let l=new Date(s),i=(a)=>String(a).padStart(2,"0");return`${String(l.getFullYear())}-${i(l.getMonth()+1)}-${i(l.getDate())}`}dayLabel(s){let[l,i,a]=s.split("-");return`${a}.${i}.${l?.slice(-2)}`}hourLabel(s){return`${String(new Date(s).getHours()).padStart(2,"0")}:00`}requestId=0;constructor(){super();this.bucket=0,this.hours=[],this.report=null,this.error="",this.loading=!1}connectedCallback(){super.connectedCallback();let s=y()?.timeline??[],l=s[0]??[];this.hours=l.map((a,o)=>({bucket:a*1000,tokens:s.slice(1).reduce((c,h)=>c+(h[o]??0),0)})).filter((a)=>a.tokens>0).map((a)=>a.bucket).reverse();let i=Number(new URLSearchParams(location.search).get("hour"));if(this.bucket=this.hours.includes(i)?i:this.hours[0]??0,this.bucket)this.refresh()}refresh(){let s=++this.requestId,l=new URLSearchParams(location.search);l.set("bucket",String(this.bucket)),l.delete("hour"),this.loading=!0,this.error="",fetch(`/api/usage/hour?${l.toString()}`,{signal:AbortSignal.timeout(15000)}).then((i)=>{if(!i.ok)throw Error(`HTTP ${String(i.status)}`);return i.json()}).then((i)=>{if(s!==this.requestId)return;this.report=i.report,this.loading=!1}).catch((i)=>{if(s!==this.requestId)return;this.error=String(i.message??i),this.loading=!1})}selectHour(s){this.bucket=s;let l=new URL(location.href);l.searchParams.set("hour",String(s)),history.replaceState(null,"",l),this.refresh()}render(){if(!this.hours.length)return e``;let s=[...new Set(this.hours.map((o)=>this.dayKey(o)))],l=this.dayKey(this.bucket),i=this.hours.filter((o)=>this.dayKey(o)===l),a=this.report?.actors.flatMap((o)=>o.byModel.map((c)=>({actor:o.actor,...c})))??[];return e`<div class="upanel" id="usage-hour">
 			<div class="uhead">
 				<h2>HOUR DETAIL</h2>
 				<p class="ufoot">Select a day and hour to inspect its actors and models.</p>
@@ -524,17 +524,17 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 				<thead><tr><th>actor</th><th>model</th><th>group</th><th>input</th><th>cache read</th><th>cache write</th><th>output</th><th>requests</th></tr></thead>
 				<tbody>${a.map((o)=>e`<tr><td>${o.actor}</td><td>${o.model}</td><td>${o.group}</td><td>${d(o.i)}</td><td>${d(o.cr)}</td><td>${d(o.cc)}</td><td>${d(o.o)}</td><td>${String(o.rq)}</td></tr>`)}</tbody>
 			</table></div>`:t}
-		</div>`}}A.styles=[v,r`
+		</div>`}}A.styles=[k,r`
 	.hour-picker { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--klh-dim); font-size: 11px; }
 	.hour-picker select { background: var(--klh-surface); color: var(--klh-ink); border: 1px solid var(--klh-edge); padding: 5px; }
 	.hour-scroll { overflow-x: auto; }
-`];class N extends n{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let s=x();if(this.slot=s?.slot??{},this.groups=s?.groups??[],this.timeline=s?.timeline??[],this.byHour=s?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let s of this.ros)s.disconnect();this.ros=[];for(let s of this.resizes)window.removeEventListener("resize",s);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="usage-chart-grid"><div class="upanel">
+`];class N extends n{static properties={tl:{type:String},hours:{type:String}};slot={};groups=[];timeline=[];byHour=[];charts=[];ros=[];resizes=[];onTheme=null;constructor(){super();this.tl="TOKENS · STACKED BY MODEL GROUP",this.hours="WHEN THE FLEET WORKS · HOUR OF DAY (LOCAL)"}connectedCallback(){super.connectedCallback(),this.tl=this.getAttribute("tl")??this.tl,this.hours=this.getAttribute("hours")??this.hours;let s=y();if(this.slot=s?.slot??{},this.groups=s?.groups??[],this.timeline=s?.timeline??[],this.byHour=s?.byHour??[],this.onTheme===null)this.onTheme=()=>{for(let l of this.charts)l.redraw(!1,!0)},document.addEventListener("klh-themechange",this.onTheme)}disconnectedCallback(){super.disconnectedCallback();for(let s of this.ros)s.disconnect();this.ros=[];for(let s of this.resizes)window.removeEventListener("resize",s);if(this.resizes=[],this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme),this.onTheme=null}createRenderRoot(){return this}render(){if(!this.timeline.length&&!this.byHour.length)return e``;return e`<div class="usage-chart-grid"><div class="upanel">
 				<div class="uhead">
 					<h2>${this.tl}</h2>
 					<p class="ufoot">hover = values · drag = zoom · double-click = reset</p>
 				</div>
 				<div class="ulegend">
-					${this.groups.map((s)=>e`<span><i style=${`background:${w(this.slot,s)}`}></i
+					${this.groups.map((s)=>e`<span><i style=${`background:${x(this.slot,s)}`}></i
 								>${s}</span>`)}
 				</div>
 				<div id="u-timeline" class="uchart"></div>
@@ -542,11 +542,11 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			<div class="upanel">
 				<h2>${this.hours}</h2>
 				<div id="u-hours" class="uchart"></div>
-			</div></div>`}firstUpdated(){let s=globalThis.uPlot;if(!s)return;let l=(f,m)=>getComputedStyle(document.documentElement).getPropertyValue(f).trim()||m,i=()=>l("--klh-chart-grid","#2c2c2a"),a=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(f,m)=>m.map((k)=>d(k)),h=(f,m)=>{let k={side:f,...f===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:a,width:1}};if(m)k.values=m;return k},p=this.querySelector("#u-timeline");if(p&&this.groups.length){let f=[{}];for(let m of this.groups){let k=w(this.slot,m);f.push({label:m,stacked:!0,stroke:k,fill:k,width:1,points:{show:!1},value:(b,C)=>F(C)})}this.chart(p,s,{width:p.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:f,axes:[h(2),h(3,c)]},this.timeline,300)}let S=this.querySelector("#u-hours");if(S)this.chart(S,s,{width:S.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:w(this.slot,"flash"),fill:w(this.slot,"flash"),paths:s.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(f,m)=>F(m)}],axes:[h(2,(f,m)=>m.map((k)=>String(Math.round(k)).padStart(2,"0"))),h(3,c)]},this.byHour,190)}chart(s,l,i,a,o){let c=new l(i,a,s);this.charts.push(c);let h=()=>{let p=s.clientWidth;if(p>0&&p!==c.width)c.setSize({width:p,height:o})};if(typeof ResizeObserver==="function"){let p=new ResizeObserver(h);p.observe(s),this.ros.push(p)}else this.resizes.push(h),window.addEventListener("resize",h)}}N.styles=r`
+			</div></div>`}firstUpdated(){let s=globalThis.uPlot;if(!s)return;let l=(b,m)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||m,i=()=>l("--klh-chart-grid","#2c2c2a"),a=()=>l("--klh-chart-hair","#383835"),o=()=>l("--klh-chart-axis","#898781"),c=(b,m)=>m.map((f)=>d(f)),h=(b,m)=>{let f={side:b,...b===3?{size:72}:{},stroke:o,grid:{show:!0,stroke:i,width:1},ticks:{show:!0,stroke:a,width:1}};if(m)f.values=m;return f},p=this.querySelector("#u-timeline");if(p&&this.groups.length){let b=[{}];for(let m of this.groups){let f=x(this.slot,m);b.push({label:m,stacked:!0,stroke:f,fill:f,width:1,points:{show:!1},value:(g,C)=>F(C)})}this.chart(p,s,{width:p.clientWidth,height:300,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:b,axes:[h(2),h(3,c)]},this.timeline,300)}let S=this.querySelector("#u-hours");if(S)this.chart(S,s,{width:S.clientWidth,height:190,legend:{show:!1},scales:{x:{time:!1}},series:[{},{label:"tokens",stroke:x(this.slot,"flash"),fill:x(this.slot,"flash"),paths:s.paths?.bars({size:[0.72,100]}),points:{show:!1},value:(b,m)=>F(m)}],axes:[h(2,(b,m)=>m.map((f)=>String(Math.round(f)).padStart(2,"0"))),h(3,c)]},this.byHour,190)}chart(s,l,i,a,o){let c=new l(i,a,s);this.charts.push(c);let h=()=>{let p=s.clientWidth;if(p>0&&p!==c.width)c.setSize({width:p,height:o})};if(typeof ResizeObserver==="function"){let p=new ResizeObserver(h);p.observe(s),this.ros.push(p)}else this.resizes.push(h),window.addEventListener("resize",h)}}N.styles=r`
 	:host {
 		display: block;
 	}
-`;var se=()=>x()?.head??null;class j extends n{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=se()}render(){let s=this.head;if(s===null)return t;return e`<h1 class="utitle">${s.title}</h1>
+`;var se=()=>y()?.head??null;class j extends n{static properties={head:{type:Object,state:!0}};constructor(){super();this.head=null}connectedCallback(){super.connectedCallback(),this.head=se()}render(){let s=this.head;if(s===null)return t;return e`<h1 class="utitle">${s.title}</h1>
 			<div class="uback">
 				<a href=${s.backHref}>&larr; ${s.backLabel}</a>
 				<span class=${s.note.kind==="on"?"uon":"uwin"}
@@ -617,7 +617,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 		color: var(--klh-accent, #e0a458);
 		border-color: var(--klh-accent, #e0a458);
 	}
-`;customElements.define("klh-usage-head",j);var y=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),T=(s)=>`${(s*100).toFixed(1)}%`,W=(s,l=!1)=>{if(s===null)return"—";let i=new Date(s);if(Number.isNaN(i.getTime()))return"—";let a=(c)=>String(c).padStart(2,"0"),o=`${a(i.getHours())}:${a(i.getMinutes())}`;return l?`${o}:${a(i.getSeconds())}`:o},ae=(s)=>s===null||s===void 0||s.length<16?"—":s.slice(0,16).replace("T"," "),V=(s)=>s.filter((l)=>l.ok&&l.truncated===!0);class B extends n{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0},sla:{type:Object,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1,this.sla=null}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let s=new URLSearchParams;if(s.set("days",String(this.days)),this.lane)s.set("lane",this.lane);if(this.model)s.set("model",this.model);if(this.day)s.set("day",this.day);if(this.missOnly)s.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${s.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1}),this.fetchSla()}fetchSla(){fetch("/api/usage/cache-sla?window_min=60",{signal:AbortSignal.timeout(15000)}).then((s)=>s.ok?s.json():null).then((s)=>{this.sla=s}).catch(()=>{this.sla=null})}slaLine(){let s=this.sla;if(s===null||s.lanes.length===0)return t;let l=s.lanes.map((a)=>e`<span class=${a.breaching?"uwarn":""}>${a.lane}
+`;customElements.define("klh-usage-head",j);var v=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),T=(s)=>`${(s*100).toFixed(1)}%`,W=(s,l=!1)=>{if(s===null)return"—";let i=new Date(s);if(Number.isNaN(i.getTime()))return"—";let a=(c)=>String(c).padStart(2,"0"),o=`${a(i.getHours())}:${a(i.getMinutes())}`;return l?`${o}:${a(i.getSeconds())}`:o},ae=(s)=>s===null||s===void 0||s.length<16?"—":s.slice(0,16).replace("T"," "),V=(s)=>s.filter((l)=>l.ok&&l.truncated===!0);class B extends n{static properties={report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0},lane:{type:String,state:!0},days:{type:Number,state:!0},model:{type:String,state:!0},day:{type:String,state:!0},missOnly:{type:Boolean,state:!0},sla:{type:Object,state:!0}};constructor(){super();this.report=null,this.err="",this.loading=!0,this.lane="",this.days=7,this.model="",this.day="",this.missOnly=!1,this.sla=null}connectedCallback(){super.connectedCallback(),this.refresh()}refresh(){let s=new URLSearchParams;if(s.set("days",String(this.days)),this.lane)s.set("lane",this.lane);if(this.model)s.set("model",this.model);if(this.day)s.set("day",this.day);if(this.missOnly)s.set("miss_only","1");this.loading=!0,this.err="",fetch(`/api/usage/cache-drill?${s.toString()}`,{signal:AbortSignal.timeout(15000)}).then((l)=>{if(!l.ok)throw Error(`HTTP ${String(l.status)}`);return l.json()}).then((l)=>{this.report=l,this.loading=!1}).catch((l)=>{this.err=String(l.message??l),this.loading=!1}),this.fetchSla()}fetchSla(){fetch("/api/usage/cache-sla?window_min=60",{signal:AbortSignal.timeout(15000)}).then((s)=>s.ok?s.json():null).then((s)=>{this.sla=s}).catch(()=>{this.sla=null})}slaLine(){let s=this.sla;if(s===null||s.lanes.length===0)return t;let l=s.lanes.map((a)=>e`<span class=${a.breaching?"uwarn":""}>${a.lane}
 					${T(a.hitShare)}</span>`),i=s.breaches.length>0?`${String(s.breaches.length)} breach(es)`:"ok";return e`<p class="ufoot">
 			cache-SLA (${String(s.windowMinutes)}m rolling, threshold
 			${T(s.threshold)}, ≥${String(s.minRequests)} req):
@@ -651,8 +651,8 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 					healthcheck traffic, excluded from the lane and model ratios
 					above.</p>`:t}
 			${s.local_transcripts&&s.local_transcripts.cache_read_tokens>0?e`<p class="ufoot">Local Claude transcripts report
-					${y(s.local_transcripts.cache_read_tokens)} cache-read tokens
-					across ${y(s.local_transcripts.requests)} requests in this
+					${v(s.local_transcripts.cache_read_tokens)} cache-read tokens
+					across ${v(s.local_transcripts.requests)} requests in this
 					window. This total has no Buckle lane attribution${s.local_transcripts.source==="legacy-aggregate"?" and uses the legacy rollup":""}.</p>`:t}
 			${l.length>0?e`<p class="uwarn">Missing request data: ${l.map((a)=>`${a.label} (${a.reason??"unavailable"})`).join(", ")}. Rates cover responding sources only.</p>`:t}
 			${V(s.hubs).length>0?e`<p class="uwarn">Warm ratios cover the fetched span only: ${V(s.hubs).map((a)=>`${a.label} back to ${ae(a.coverageFrom)} of the ${String(s.days)}d window`).join("; ")}.</p>`:t}
@@ -667,10 +667,10 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 			<table class="uacts">
 				<thead><tr><th>model</th><th class="unum">req</th><th class="unum">verdicts</th><th>warm</th><th class="unum">cache read</th><th>status</th></tr></thead>
 				<tbody>${s.map((l)=>e`<tr>
-						<td>${l.model}</td><td class="unum">${y(l.requests)}</td>
-						<td class="unum">${y(l.known)}</td>
+						<td>${l.model}</td><td class="unum">${v(l.requests)}</td>
+						<td class="unum">${v(l.known)}</td>
 						<td>${l.known>0?T(l.warm_ratio):"—"}</td>
-						<td class="unum">${y(l.cache_r_tok)}</td><td>${l.status}</td>
+						<td class="unum">${v(l.cache_r_tok)}</td><td>${l.status}</td>
 					</tr>`)}</tbody>
 			</table>`}filterRow(s){let l=[...new Set(s.lanes.flatMap((a)=>a.models))].sort(),i=[...new Set(s.lanes.flatMap((a)=>a.day_series.map((o)=>o.d)))].sort().reverse();return e`<div class="ufrow">
 			<label>
@@ -761,7 +761,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 							${a.models.length>1?e`<span class="uwarn">${String(a.models.length)} models</span>`:t}
 						</td>
 						<td class="unum">
-							${y(a.requests)}
+							${v(a.requests)}
 							<span class="ubarslot"
 								><i
 									class="ureq"
@@ -779,8 +779,8 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 							></span>
 							<span class="unum">${a.known>0?T(o/100):"—"}</span>
 						</td>
-						<td class="unum">${y(a.cache_r_tok)}</td>
-						<td class="unum" title=${a.cache_c_known?`${String(a.cache_c_known)} requests reported cache writes`:"Provider did not report cache writes"}>${a.cache_c_known?y(a.cache_c_tok):"—"}</td>
+						<td class="unum">${v(a.cache_r_tok)}</td>
+						<td class="unum" title=${a.cache_c_known?`${String(a.cache_c_known)} requests reported cache writes`:"Provider did not report cache writes"}>${a.cache_c_known?v(a.cache_c_tok):"—"}</td>
 						<td class="unum"><time title=${a.last_ts??"Unknown time"} datetime=${a.last_ts??""}>${W(a.last_ts)}</time></td>
 					</tr>`})}
 			</tbody>
@@ -815,13 +815,13 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 									<td>${o.target_model??"—"}</td>
 									<td class="unum">${o.status===null?"—":String(o.status)}</td>
 									<td class="unum ${o.cache_r===0?"ucoldtext":""}">
-										${o.cache_r===null?"—":y(o.cache_r)}
+										${o.cache_r===null?"—":v(o.cache_r)}
 									</td>
 									<td class="unum">
-										${o.cache_c_reported?y(o.cache_c??0):"—"}
+										${o.cache_c_reported?v(o.cache_c??0):"—"}
 									</td>
 									<td class="unum">
-										${o.duration_ms===null?"—":y(o.duration_ms)}
+										${o.duration_ms===null?"—":v(o.duration_ms)}
 									</td>
 									<td><span class="uchip">${c}</span></td>
 								</tr>`})}
@@ -1151,7 +1151,7 @@ import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";import{g}from"./lit-822b5a9352464
 .kmon th { color:var(--klh-dim); font-weight:600; text-transform:uppercase; letter-spacing:.06em; font-size:10px; }
 .kmon td.k { color:var(--klh-ink); font-family:var(--klh-font-mono); }
 .kmon .dim2 { color:var(--klh-dim); }
-`;class Z extends n{static properties={dim:{type:String,state:!0},metric:{type:String,state:!0},report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0}};days=7;chart=null;ro=null;onTheme=null;gen=0;constructor(){super();this.dim="lane",this.metric="requests",this.report=null,this.err="",this.loading=!0}connectedCallback(){super.connectedCallback(),this.days=Math.min(90,Math.max(1,Number(new URLSearchParams(location.search).get("days")??7)||7));let s=location.hash.replace(/^#monitor\/?/,"").split("/"),l=Q.find((a)=>a.key===s[0]);if(l!==void 0)this.dim=l.key;let i=X.find((a)=>a.key===s[1]);if(i!==void 0)this.metric=i.key;this.onTheme=()=>this.mountChart(!0),document.addEventListener("klh-themechange",this.onTheme),this.load()}disconnectedCallback(){if(super.disconnectedCallback(),this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme);this.onTheme=null,this.ro?.disconnect(),this.ro=null,this.chart?.destroy(),this.chart=null}async load(){let s=++this.gen;this.loading=!0,this.err="";try{let l=await fetch(`/api/usage/monitor?days=${String(this.days)}&dim=${this.dim}`),i=await l.json();if(s!==this.gen)return;if(!l.ok||i.ok!==!0)throw Error(i.error??`status ${String(l.status)}`);this.report=i,this.loading=!1,await this.updateComplete,this.mountChart(!1)}catch(l){if(s!==this.gen)return;this.err=String(l),this.loading=!1}}setDim(s){this.dim=s,history.replaceState(null,"",`#monitor/${s}/${this.metric}`),this.load()}setMetric(s){this.metric=s,history.replaceState(null,"",`#monitor/${this.dim}/${s}`),this.mountChart(!1)}createRenderRoot(){return this}mountChart(s){let l=globalThis.uPlot,i=this.querySelector("#kmon-chart"),a=this.report?.series;if(!l||!i||!a)return;let o=this.metric,c=a[o];if(c===void 0)return;if(s&&this.chart!==null)this.chart.destroy(),this.chart=null;if(this.chart!==null){let b=i.clientWidth;if(b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240});return}let h=a.labels.length,p=[{}];for(let b=0;b<h;b++){let C=D[b%D.length];p.push({label:a.labels[b],stroke:C,fill:o==="requests"||o==="throughput"?C:void 0,width:1.4,points:{show:h<=2},value:(ne,M)=>M===null||!Number.isFinite(M)?"—":o==="throughput"?Y(M):o==="latency"?`${String(Math.round(M))}ms`:String(Math.round(M))})}let S=(b,C)=>getComputedStyle(document.documentElement).getPropertyValue(b).trim()||C,f=()=>S("--klh-chart-axis","#898781"),m=()=>S("--klh-chart-grid","#2c2c2a"),k=()=>S("--klh-chart-hair","#383835");if(this.chart=new l({width:i.clientWidth,height:240,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:p,axes:[{side:2,stroke:f,grid:{show:!0,stroke:m,width:1},ticks:{show:!0,stroke:k,width:1}},{side:3,size:72,stroke:f,grid:{show:!1},ticks:{show:!0,stroke:k,width:1}}]},c,i),typeof ResizeObserver==="function")this.ro?.disconnect(),this.ro=new ResizeObserver(()=>{let b=i.clientWidth;if(this.chart!==null&&b>0&&b!==this.chart.width)this.chart.setSize({width:b,height:240})}),this.ro.observe(i)}render(){let s=this.report,l=s?.coverage,i=(s?.hubs??[]).filter((a)=>!a.ok);return e`<style>
+`;class Z extends n{static properties={dim:{type:String,state:!0},metric:{type:String,state:!0},report:{type:Object,state:!0},err:{type:String,state:!0},loading:{type:Boolean,state:!0}};days=7;chart=null;ro=null;onTheme=null;gen=0;constructor(){super();this.dim="lane",this.metric="requests",this.report=null,this.err="",this.loading=!0}connectedCallback(){super.connectedCallback(),this.days=Math.min(90,Math.max(1,Number(new URLSearchParams(location.search).get("days")??7)||7));let s=location.hash.replace(/^#monitor\/?/,"").split("/"),l=Q.find((a)=>a.key===s[0]);if(l!==void 0)this.dim=l.key;let i=X.find((a)=>a.key===s[1]);if(i!==void 0)this.metric=i.key;this.onTheme=()=>this.mountChart(!0),document.addEventListener("klh-themechange",this.onTheme),this.load()}disconnectedCallback(){if(super.disconnectedCallback(),this.onTheme!==null)document.removeEventListener("klh-themechange",this.onTheme);this.onTheme=null,this.ro?.disconnect(),this.ro=null,this.chart?.destroy(),this.chart=null}async load(){let s=++this.gen;this.loading=!0,this.err="";try{let l=await fetch(`/api/usage/monitor?days=${String(this.days)}&dim=${this.dim}`),i=await l.json();if(s!==this.gen)return;if(!l.ok||i.ok!==!0)throw Error(i.error??`status ${String(l.status)}`);this.report=i,this.loading=!1,await this.updateComplete,this.mountChart(!1)}catch(l){if(s!==this.gen)return;this.err=String(l),this.loading=!1}}setDim(s){this.dim=s,history.replaceState(null,"",`#monitor/${s}/${this.metric}`),this.load()}setMetric(s){this.metric=s,history.replaceState(null,"",`#monitor/${this.dim}/${s}`),this.mountChart(!1)}createRenderRoot(){return this}mountChart(s){let l=globalThis.uPlot,i=this.querySelector("#kmon-chart"),a=this.report?.series;if(!l||!i||!a)return;let o=this.metric,c=a[o];if(c===void 0)return;if(s&&this.chart!==null)this.chart.destroy(),this.chart=null;if(this.chart!==null){let g=i.clientWidth;if(g>0&&g!==this.chart.width)this.chart.setSize({width:g,height:240});return}let h=a.labels.length,p=[{}];for(let g=0;g<h;g++){let C=D[g%D.length];p.push({label:a.labels[g],stroke:C,fill:o==="requests"||o==="throughput"?C:void 0,width:1.4,points:{show:h<=2},value:(ne,M)=>M===null||!Number.isFinite(M)?"—":o==="throughput"?Y(M):o==="latency"?`${String(Math.round(M))}ms`:String(Math.round(M))})}let S=(g,C)=>getComputedStyle(document.documentElement).getPropertyValue(g).trim()||C,b=()=>S("--klh-chart-axis","#898781"),m=()=>S("--klh-chart-grid","#2c2c2a"),f=()=>S("--klh-chart-hair","#383835");if(this.chart=new l({width:i.clientWidth,height:240,legend:{show:!0,live:!0},scales:{x:{time:!0}},series:p,axes:[{side:2,stroke:b,grid:{show:!0,stroke:m,width:1},ticks:{show:!0,stroke:f,width:1}},{side:3,size:72,stroke:b,grid:{show:!1},ticks:{show:!0,stroke:f,width:1}}]},c,i),typeof ResizeObserver==="function")this.ro?.disconnect(),this.ro=new ResizeObserver(()=>{let g=i.clientWidth;if(this.chart!==null&&g>0&&g!==this.chart.width)this.chart.setSize({width:g,height:240})}),this.ro.observe(i)}render(){let s=this.report,l=s?.coverage,i=(s?.hubs??[]).filter((a)=>!a.ok);return e`<style>
 				${oe}
 			</style><div class="upanel kmon">
 			<div class="uhead">

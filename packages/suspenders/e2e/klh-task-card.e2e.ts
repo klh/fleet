@@ -1,9 +1,11 @@
-// e2e/klh-task-card.spec.ts — W2267.4.1: the standalone Lit task card,
+// e2e/klh-task-card.e2e.ts — W2267.4.1: the standalone Lit task card,
 // render-and-look on a REAL board page (scratch HOME, /vendor bundles
 // served by routes-data). The card markup rides a route-interception mount
 // (the board-status-badge pattern — no DOM-building APIs in spec source;
-// only .card property assignment happens in-page), because the wiring lane
-// W2267.4.2 owns board integration. Proves the component's own contract:
+// only .card property assignment happens in-page). The production shell
+// loads the ONE registration entry (klh-board-register.js), which defines
+// klh-task-card — the fixture mounts into that same registration, never a
+// standalone card bundle. Proves the component's own contract:
 // state fixtures render, unknown metrics stay "—", long text keeps its
 // full form accessible, footer actions are keyboard-reachable and carry
 // id/project/action on typed events, property updates preserve a focused
@@ -90,6 +92,14 @@ const FIXTURES: TaskCardModel[] = [
 			cachePct: 0,
 		},
 	},
+	{
+		id: "W2267.6",
+		project: "/tmp/fleet/.git",
+		title: "Gated sibling",
+		state: "FAILED",
+		ageS: 345_600,
+		warn: "BLOCKED W2267.1: owner gate holds the sibling until the rail lands",
+	},
 ];
 
 /** Indexed fixture access without `!` (biome noNonNullAssertion). */
@@ -102,13 +112,12 @@ const fx = (i: number): TaskCardModel => {
 /** Serve the board page with a fixture host appended after the last vendor
  * script, then assign each card its model. The template's only </body> sits
  * INSIDE an inline <script> string, so a </body>-replace would inject into
- * script text — anchor on the tail mediator tag instead. The card bundle
- * rides the injection too (#101184): production boot does not load it until
- * W2267.4.2 wires the board, so the standalone fixture imports it itself. */
+ * script text — anchor on the tail register tag instead (the mediator tag
+ * is no longer last: register rides after it). klh-task-card comes from the
+ * production registration entry the board already loads — no standalone
+ * card bundle is injected (W2587). */
 const ANCHOR =
-	'<script type="module" src="/vendor/klh-board-mediator.js"></script>';
-const CARD_BUNDLE =
-	'<script type="module" src="/vendor/klh-task-card.js"></script>';
+	'<script type="module" src="/vendor/klh-board-register.js"></script>';
 
 async function mount(
 	page: Page,
@@ -130,7 +139,7 @@ async function mount(
 		const response = await route.fetch();
 		const html = (await response.text()).replace(
 			ANCHOR,
-			`${ANCHOR}${CARD_BUNDLE}${hostHtml}`,
+			`${ANCHOR}${hostHtml}`,
 		);
 		await route.fulfill({ response, body: html });
 	});
@@ -203,6 +212,17 @@ test("renders every state fixture with the SIGNAL hierarchy", {
 	).toHaveText(["Report ▸", "Prompt ↗"]);
 	const failed = card(3);
 	await expect(failed.locator(".warn")).toBeVisible();
+	// #103218: a FAILED card whose note does NOT identify blocking renders a
+	// neutral warning label — never BLOCKED from tone alone; the full
+	// verbatim reason stays on the title attribute.
+	await expect(failed.locator(".wl")).toHaveText("warning");
+	await expect(failed.locator(".wt")).toHaveText(
+		"3 honest attempts — provider 503 loop; tree restored",
+	);
+	await expect(failed.locator(".wt")).toHaveAttribute(
+		"title",
+		"3 honest attempts — provider 503 loop; tree restored",
+	);
 	const warnBeforeMetrics = await failed.evaluate((n) => {
 		const root = n.shadowRoot;
 		const warn = root?.querySelector(".warn");
@@ -225,6 +245,18 @@ test("renders every state fixture with the SIGNAL hierarchy", {
 	await expect(
 		failed.locator("footer .seg").filter({ hasText: /\S/ }),
 	).toHaveText(["Retry", "Recover → Ready", "Prompt ↗"]);
+	// #103218: a note that DOES identify blocking keeps the blocked label,
+	// with the redundant leading marker elided from the body (no "blocked
+	// BLOCKED …") but preserved verbatim on the title.
+	const blockedNote = card(5);
+	await expect(blockedNote.locator(".wl")).toHaveText("blocked");
+	await expect(blockedNote.locator(".wt")).toHaveText(
+		"W2267.1: owner gate holds the sibling until the rail lands",
+	);
+	await expect(blockedNote.locator(".wt")).toHaveAttribute(
+		"title",
+		"BLOCKED W2267.1: owner gate holds the sibling until the rail lands",
+	);
 	await page.screenshot({ path: `${SHOTS}/1-fixtures-dark-600.png` });
 });
 

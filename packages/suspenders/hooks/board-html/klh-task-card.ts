@@ -11,10 +11,12 @@
 // configurable perimeter (--prefer) is independent of the status hue;
 // nested split children get the dashed border + elbow. Light-DOM friendly:
 // tokens only, no hardcoded colors.
-import { css, html, LitElement, nothing } from "lit";
+import { html, LitElement, nothing } from "lit";
 import { ago, agoShort } from "./board-format.ts";
+import { TASK_CARD_STYLES } from "./klh-task-card-css.ts";
 import {
 	TaskCardActionRequestedEvent,
+	TaskCardDraftChangedEvent,
 	TaskCardOpenRequestedEvent,
 } from "./klh-task-card-events.ts";
 import {
@@ -26,6 +28,8 @@ import {
 	type TaskCardModel,
 	taskStatusWord,
 	taskTone,
+	taskWarnBody,
+	taskWarnLabel,
 } from "./klh-task-card-model.ts";
 
 const UNK = "—";
@@ -35,301 +39,7 @@ export class KlhTaskCard extends LitElement {
 
 	declare card: TaskCardModel;
 
-	static override styles = css`
-		/* tone → color, self-contained: the page maps data-tone on .kcard/
-		   .kcol only, so the card owns its own --state-color token map. */
-		:host([data-tone="ready"]) { --state-color: var(--work-ready); }
-		:host([data-tone="working"]) { --state-color: var(--work-working); }
-		:host([data-tone="blocked"]) { --state-color: var(--work-blocked); }
-		:host([data-tone="failed"]) { --state-color: var(--work-failed); }
-		:host([data-tone="done"]) { --state-color: var(--work-done); }
-		:host([data-tone="split"]) { --state-color: var(--work-split); }
-		:host([data-tone="cancelled"]) { --state-color: var(--work-cancelled); }
-		:host {
-			/* the host IS the card surface: configurable semantic perimeter
-			   (—prefer) independent of --state-color; nested children dashed.
-			   position:relative anchors the nested elbow (absolute, hung into
-			   the indent gutter) to THIS card, not an unrelated ancestor. */
-			display: flex;
-			flex-direction: column;
-			position: relative;
-			border: 1px solid
-				var(--prefer, var(--state-color, var(--klh-edge-soft)));
-			border-radius: 3px;
-			background: var(--klh-wash);
-			font: var(--klh-text-md, var(--klh-typo-size-m, 12px))/1.45
-				var(--klh-font-sans, var(--klh-typo-sans-stack));
-			color: var(--klh-ink);
-			min-width: 0;
-		}
-		:host([data-nested]) {
-			border-style: dashed;
-		}
-		:host([data-nested]) .elbow {
-			position: absolute;
-			left: -13px;
-			top: 13px;
-			color: var(--prefer, var(--klh-edge-strong));
-			font: var(--klh-typo-size-s, 11px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-		}
-		.wrap {
-			position: relative;
-			display: flex;
-			flex-direction: column;
-			min-height: 100%;
-			padding: 9px 0 0;
-		}
-		.pad {
-			padding: 0 12px;
-		}
-		.head {
-			display: flex;
-			align-items: baseline;
-			gap: 6px;
-			/* #101242: the readable 12px band — 10px stays axis/units only */
-			font-size: var(--klh-typo-size-m, 12px);
-			letter-spacing: var(--klh-typo-track-label, 0.09em);
-			text-transform: uppercase;
-			color: var(--state-color, var(--klh-dim));
-		}
-		.sq {
-			flex: none;
-			width: 10px;
-			height: 10px;
-			border-radius: 1px;
-			background: var(--state-color, var(--klh-dim));
-			align-self: center;
-		}
-		.stw {
-			font-weight: 600;
-		}
-		.age {
-			margin-left: auto;
-			color: var(--klh-dim);
-			text-transform: none;
-			letter-spacing: 0;
-			font-variant-numeric: tabular-nums;
-			white-space: nowrap;
-		}
-		.tid {
-			margin: 4px 0 0;
-			padding: 0;
-			border: 0;
-			background: none;
-			color: var(--klh-ink);
-			/* #101242: prominent own-line mono ID — 20px readable at 380 too */
-			font: 600 var(--klh-typo-size-3xl, 20px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-			text-align: left;
-			cursor: pointer;
-			overflow-wrap: anywhere;
-		}
-		.tid:hover {
-			text-decoration: underline;
-		}
-		.title {
-			margin: 2px 0 0;
-			font-weight: 650;
-			font-size: var(--klh-typo-size-2xl, 16px);
-			line-height: 1.35;
-			/* long text truncates visually, full text stays accessible on hover */
-			display: -webkit-box;
-			-webkit-box-orient: vertical;
-			-webkit-line-clamp: 3;
-			overflow: hidden;
-		}
-		.ctx {
-			margin: 3px 0 0;
-			color: var(--klh-dim);
-			font: var(--klh-typo-size-m, 12px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-		}
-		.rule {
-			border: 0;
-			border-top: 1px solid var(--klh-edge-faint);
-			margin: 7px 0 0;
-		}
-		.cols {
-			display: flex;
-			gap: 0;
-			margin-top: 5px;
-			/* model/host values sit in the spec's 12–13px band (#100618) */
-			font: var(--klh-typo-size-m, 12px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-		}
-		.col {
-			flex: 1 1 0;
-			min-width: 0;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-			padding: 0 10px;
-		}
-		.col:first-child {
-			padding-left: 0;
-		}
-		.col:last-child {
-			border-left: 1px solid var(--klh-edge-faint);
-		}
-		.col b {
-			font-weight: 600;
-			color: var(--klh-ink-2);
-		}
-		.lab {
-			display: block;
-			margin-top: 2px;
-			font-size: var(--klh-typo-size-2xs, 10px);
-			letter-spacing: var(--klh-typo-track-label, 0.09em);
-			text-transform: uppercase;
-			color: var(--klh-dim);
-		}
-		.warn {
-			margin: 7px 0 0;
-			border-left: 2px solid var(--work-failed, var(--klh-danger));
-			background: var(--klh-danger-wash);
-			padding: 4px 8px;
-			font-size: var(--klh-typo-size-m, 12px);
-			color: var(--klh-danger-ink);
-		}
-		.warn .wl {
-			font-weight: 700;
-			text-transform: uppercase;
-			font-size: var(--klh-typo-size-2xs, 10px);
-			letter-spacing: var(--klh-typo-track-label, 0.09em);
-			margin-right: 5px;
-		}
-		.warn .wt {
-			display: block;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-		.metrics {
-			display: flex;
-			margin-top: 8px;
-		}
-		.m {
-			flex: 1 1 0;
-			min-width: 0;
-			padding: 0 10px;
-			text-align: right;
-		}
-		.m:first-child {
-			padding-left: 0;
-			text-align: left;
-		}
-		.m + .m {
-			border-left: 1px solid var(--klh-edge-faint);
-		}
-		.mv {
-			font: 600 var(--klh-typo-size-2xl, 16px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-			font-variant-numeric: tabular-nums;
-			color: var(--klh-ink);
-		}
-		.ml {
-			display: block;
-			margin-top: 1px;
-			font-size: var(--klh-typo-size-2xs, 10px);
-			letter-spacing: var(--klh-typo-track-label, 0.09em);
-			text-transform: uppercase;
-			color: var(--klh-dim);
-			white-space: nowrap;
-		}
-		.details {
-			display: block;
-			margin-top: 6px;
-			font-size: 10.5px;
-			color: var(--klh-dim);
-		}
-		/* the activity slot sits flush at the card bottom: the strip's own
-		   1px duration rail + ~13px axis area ride the slot, no extra padding. */
-		.activity {
-			display: block;
-			margin-top: 8px;
-			padding: 0;
-		}
-		footer {
-			/* neutral segmented rail, full-width flush bottom — zero margin so
-			   the axis area of the slotted strip abuts it exactly (#100618) */
-			display: flex;
-			align-items: stretch;
-			width: 100%;
-			margin: 0;
-			border-top: 1px solid var(--klh-edge-faint);
-			background: var(--klh-surface);
-			border-radius: 0 0 2px 2px;
-		}
-		footer:empty {
-			display: none;
-		}
-		.spacer {
-			/* the lone Prompt/Report sits rightmost; the rail's empty left
-			   half stays bare surface with the segment dividers at the right */
-			flex: 1 1 auto;
-		}
-		.seg.tail {
-			/* bounded (not equal-share): the rightmost affordance keeps its
-			   own width, divider at its left edge, rail bare before it */
-			flex: 0 1 auto;
-			padding-inline: 14px;
-			border-left: 1px solid var(--klh-edge-faint);
-		}
-		.seg {
-			flex: 1 1 0;
-			min-height: 32px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			gap: 5px;
-			padding: 4px 8px;
-			border: 0;
-			background: none;
-			color: var(--klh-ink-2);
-			font: var(--klh-typo-size-s, 11px)
-				var(--klh-font-sans, var(--klh-typo-sans-stack));
-			cursor: pointer;
-			white-space: nowrap;
-		}
-		.seg + .seg {
-			border-left: 1px solid var(--klh-edge-faint);
-		}
-		.seg:hover {
-			background: var(--klh-surface-hi);
-			color: var(--klh-ink);
-		}
-		.seg.retry {
-			color: var(--klh-danger-ink);
-		}
-		.seg.recover {
-			font-weight: 600;
-		}
-		.seg.prompt {
-			color: var(--klh-accent);
-		}
-		.seg select {
-			flex: 1 1 0;
-			min-width: 0;
-			height: 32px;
-			background: var(--klh-field);
-			color: var(--klh-ink);
-			border: 1px solid var(--klh-edge-mid);
-			border-radius: 2px;
-			font: var(--klh-typo-size-xs, 10.5px)
-				var(--klh-font-mono, var(--klh-typo-mono-stack));
-			padding: 0 4px;
-		}
-		footer button.seg:focus-visible,
-		.tid:focus-visible,
-		.seg select:focus-visible {
-			outline: 2px solid var(--klh-accent);
-			outline-offset: -2px;
-		}
-	`;
+	static override styles = TASK_CARD_STYLES;
 
 	constructor() {
 		super();
@@ -368,6 +78,15 @@ export class KlhTaskCard extends LitElement {
 		);
 	}
 
+	/** Root #103404: an unsubmitted pick is news too — the mediator banks it
+	 * in its rebuild-proof map, so a structural render that recreates this
+	 * card (an unrelated card changed column) re-hydrates the draft. */
+	private draft(d: { executor?: string; effort?: string }): void {
+		this.dispatchEvent(
+			new TaskCardDraftChangedEvent(this.card.id, this.card.project ?? null, d),
+		);
+	}
+
 	private statusWord(): string {
 		return taskStatusWord(this.card.state);
 	}
@@ -382,6 +101,14 @@ export class KlhTaskCard extends LitElement {
 		const pick = c.executorPick ?? "";
 		const effortOptions = c.effortOptions ?? [];
 		const effortPick = c.effortPick ?? "";
+		// #103127: the verb in flight renders busy + disabled (data-down
+		// pendingAction from the mediator; the leaf never self-serves)
+		const pending = c.pendingAction ?? "";
+		const busy = (verb: string, label: string): string =>
+			pending === verb ? `${label}…` : label;
+		const off = (verb: string): boolean => pending === verb;
+		const ariaBusy = (verb: string): "true" | "false" =>
+			pending === verb ? "true" : "false";
 		return html`
 			${
 				c.nested
@@ -403,11 +130,9 @@ export class KlhTaskCard extends LitElement {
 						? html`<div class="title" title=${c.title}>${c.title}</div>`
 						: nothing
 				}
-				${
-					c.context
-						? html`<div class="ctx" title=${c.context}>${c.context}</div>`
-						: nothing
-				}
+				${(c.contextLines ?? []).map(
+					(line) => html`<div class="ctx" title=${line}>${line}</div>`,
+				)}
 				${
 					c.parentRef
 						? html`<div class="ctx" title=${`parent ${c.parentRef}`}
@@ -426,11 +151,12 @@ export class KlhTaskCard extends LitElement {
 						<b title=${c.host ?? ""}>${c.host ?? UNK}</b>
 					</div>
 				</div>
+				<hr class="rule" />
 				${
 					c.warn
 						? html`<div class="warn" role="note">
-							<span class="wl">${tone === "failed" ? "blocked" : "warning"}</span>
-							<span class="wt" title=${c.warn}>${c.warn}</span>
+							<span class="wl">${taskWarnLabel(c.warn)}</span>
+							<span class="wt" title=${c.warn}>${taskWarnBody(c.warn)}</span>
 						</div>`
 						: nothing
 				}
@@ -462,16 +188,20 @@ export class KlhTaskCard extends LitElement {
 						? html`<button
 							class="seg retry"
 							type="button"
+							?disabled=${off("retry")}
+							aria-busy=${ariaBusy("retry")}
 							@click=${() => this.act("retry")}
 						>
-							Retry
+							${busy("retry", "Retry")}
 						</button>
 						<button
 							class="seg recover"
 							type="button"
+							?disabled=${off("recover")}
+							aria-busy=${ariaBusy("recover")}
 							@click=${() => this.act("recover")}
 						>
-							Recover → Ready
+							${busy("recover", "Recover → Ready")}
 						</button>
 						<button
 							class="seg prompt"
@@ -490,6 +220,7 @@ export class KlhTaskCard extends LitElement {
 							@change=${(e: Event) => {
 								/* draft only — Start executes (#100441) */
 								this.draftExecutor = (e.target as HTMLSelectElement).value;
+								this.draft({ executor: this.draftExecutor });
 							}}
 						>
 							${executors.map(
@@ -508,6 +239,7 @@ export class KlhTaskCard extends LitElement {
 									aria-label=${`reasoning effort for ${c.id}`}
 									@change=${(e: Event) => {
 										this.draftEffort = (e.target as HTMLSelectElement).value;
+										this.draft({ effort: this.draftEffort });
 									}}
 								>
 									${effortOptions.map(
@@ -525,13 +257,15 @@ export class KlhTaskCard extends LitElement {
 							class="seg start"
 							type="button"
 							title="dispatch on the chosen executor"
+							?disabled=${off("start")}
+							aria-busy=${ariaBusy("start")}
 							@click=${() =>
 								this.act("start", {
 									executor: this.draftExecutor ?? pick,
 									effort: this.draftEffort ?? effortPick,
 								})}
 						>
-							Start ▶
+							${busy("start", "Start ▶")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`
@@ -550,9 +284,11 @@ export class KlhTaskCard extends LitElement {
 								class="seg release"
 								type="button"
 								title="release the claim — a live lane banks its capsule and exits"
+								?disabled=${off("release")}
+								aria-busy=${ariaBusy("release")}
 								@click=${() => this.act("release")}
 							>
-								Release ⏏
+								${busy("release", "Release ⏏")}
 							</button>
 							<span class="spacer"></span>
 							${this.promptSeg()}`
@@ -566,6 +302,7 @@ export class KlhTaskCard extends LitElement {
 							@change=${(e: Event) => {
 								/* draft only — Reassign executes (#100476) */
 								this.draftExecutor = (e.target as HTMLSelectElement).value;
+								this.draft({ executor: this.draftExecutor });
 							}}
 						>
 							${executors.map(
@@ -581,20 +318,24 @@ export class KlhTaskCard extends LitElement {
 							class="seg reassign"
 							type="button"
 							title="release + re-dispatch on the chosen executor"
+							?disabled=${off("reassign")}
+							aria-busy=${ariaBusy("reassign")}
 							@click=${() =>
 								this.act("reassign", {
 									executor: this.draftExecutor ?? pick,
 								})}
 						>
-							Reassign ↻
+							${busy("reassign", "Reassign ↻")}
 						</button>
 						<button
 							class="seg release"
 							type="button"
 							title="release the claim — a live lane banks its capsule and exits"
+							?disabled=${off("release")}
+							aria-busy=${ariaBusy("release")}
 							@click=${() => this.act("release")}
 						>
-							Release ⏏
+							${busy("release", "Release ⏏")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`
@@ -656,9 +397,6 @@ export class KlhTaskCard extends LitElement {
 		else this.style.removeProperty("--prefer");
 	}
 }
-
-if (!customElements.get("klh-task-card"))
-	customElements.define("klh-task-card", KlhTaskCard);
 
 declare global {
 	interface HTMLElementTagNameMap {

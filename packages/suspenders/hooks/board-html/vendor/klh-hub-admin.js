@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-f23c5efb0b6d9812.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let o=String(a??"").toLowerCase();return g.includes(o)?o:"dim"};class m extends n{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let o=String(a??"").toLowerCase();return g.includes(o)?o:"dim"};class m extends n{static properties={tone:{type:String,reflect:!0}};static styles=r`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);

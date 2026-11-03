@@ -18,7 +18,7 @@ export type ThemePref = Theme | "system";
 
 // Bumped on every change to this file; the vendored copies carry it too, so
 // "same version" means "same bytes" (each consumer's drift test checks it).
-export const KLH_THEME_VERSION = "1.4.4";
+export const KLH_THEME_VERSION = "1.4.5";
 
 export const THEME_KEY = "klh-theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
@@ -64,6 +64,14 @@ export const TOKENS: Readonly<Record<string, readonly [string, string]>> = {
 	"--klh-chart-grid": ["#2c2c2a", "#e2dfd8"],
 	"--klh-chart-hair": ["#383835", "#cfcbc2"],
 	"--klh-chart-axis": ["#898781", "#6b675f"],
+	// W2267.4.2.2 (#103117): the activity strip's spectral strokes — thin
+	// fresh/cached bars fading upward, replacing the flat amber/olive
+	// histogram fill. Teal (info family) = fresh input; green (ok family) =
+	// cached input; the height variant drives the fade's upper rung.
+	"--klh-chart-fresh": ["#8cbbad", "#2f7a68"],
+	"--klh-chart-cached": ["#5c7a35", "#5c7a35"],
+	"--klh-chart-fresh-hi": ["#a5c78a", "#35591a"],
+	"--klh-chart-cached-hi": ["#7da652", "#3f6a1c"],
 	"--klh-accent-dim": ["rgba(216,144,15,.45)", "rgba(168,106,0,.40)"],
 	// W1043: enterprise plane (W775.1). The page block in
 	// hooks/bin/fleet-board-html.ts used to define these; they live here so

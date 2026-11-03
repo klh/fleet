@@ -1,6 +1,9 @@
 // e2e/spark-geom.ts — W1203: measured-width geometry probe for the board
 // sparklines: the svg's rendered bars vs its track, plus the axis label the
 // chunk derives from the actual window, read inside the page under test.
+// W2267.4.2.2 adds StripGeom: the same measured-track law for the ONE Lit
+// strip (klh-card-activity) — its viewBox width IS its measured client
+// width, so viewBox units are CSS px and the W1203 invariants carry over.
 import type { Page } from "@playwright/test";
 
 export type SparkGeom = {
@@ -13,6 +16,15 @@ export type SparkGeom = {
 	barWidths: number[];
 	axisLabel: string;
 	axisExpected: string;
+};
+
+export type StripGeom = {
+	trackW: number;
+	viewBoxW: number;
+	barCount: number;
+	firstLeft: number;
+	lastRight: number;
+	barWidths: number[];
 };
 
 export const measureSpark = (page: Page, scope: string): Promise<SparkGeom> =>
@@ -52,4 +64,32 @@ export const measureSpark = (page: Page, scope: string): Promise<SparkGeom> =>
 					.left ?? 0
 			);
 		}
+	}, scope);
+
+/** The Lit strip's measured geometry (W2267.4.2.2): bars vs the svg.plot
+ *  track it measured itself — one card selector in, one StripGeom out. */
+export const measureStrip = (page: Page, scope: string): Promise<StripGeom> =>
+	page.evaluate((sel) => {
+		const card = document.querySelector(sel);
+		const strip =
+			card?.querySelector("klh-card-activity") ??
+			(card?.shadowRoot?.querySelector("klh-card-activity") ?? null);
+		const svg = strip?.shadowRoot?.querySelector("svg.plot") ?? null;
+		const viewBox = (svg?.getAttribute("viewBox") ?? "").split(/\s+/);
+		const rectEls = [...(svg?.querySelectorAll("rect") ?? [])];
+		const xs = rectEls.map((r) => Number(r.getAttribute("x")));
+		const uniq = [...new Set(xs)].sort((a, b) => a - b);
+		const lefts = rectEls.map((r) => r.getBoundingClientRect().left);
+		const rights = rectEls.map((r) => r.getBoundingClientRect().right);
+		const trackLeft = svg?.getBoundingClientRect().left ?? 0;
+		return {
+			trackW: svg?.getBoundingClientRect().width ?? 0,
+			viewBoxW: Number(viewBox[2] ?? 0),
+			barCount: uniq.length,
+			firstLeft:
+				lefts.length > 0 ? Math.min(...lefts) - trackLeft : Number.NaN,
+			lastRight:
+				rights.length > 0 ? Math.max(...rights) - trackLeft : Number.NaN,
+			barWidths: rectEls.map((r) => r.getBoundingClientRect().width),
+		};
 	}, scope);
