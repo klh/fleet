@@ -9,9 +9,9 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Ledger } from "../../buckle/src/ledger.ts";
-import type { Observation } from "../../buckle/src/observe.ts";
-import { LaneProjection } from "../../buckle/src/projection.ts";
+import { Ledger } from "@klh/buckle/src/ledger.ts";
+import type { Observation } from "@klh/buckle/src/observe.ts";
+import { LaneProjection } from "@klh/buckle/src/projection.ts";
 import { expect, test } from "./fixtures";
 
 const dir = mkdtempSync(join(tmpdir(), "gateway-flow-"));

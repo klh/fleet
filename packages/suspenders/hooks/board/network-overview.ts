@@ -4,10 +4,12 @@
 // row for the local spoke — the board's monitored-service probe reused, so
 // the browser never fetches :4101 cross-origin. Absent dbs = honest
 // ok:false; unavailable beats zero.
+// W2673.1: flow feed — package-name import (W1249; the sibling relative
+// edges below are the pinned inherited set, shrink-only)
 import {
 	type FlowResult,
 	flowSnapshot,
-} from "../../../buckle/src/flow-read-model.ts";
+} from "@klh/buckle/src/flow-read-model.ts";
 import {
 	type NetworkOverviewResult,
 	networkOverview,
