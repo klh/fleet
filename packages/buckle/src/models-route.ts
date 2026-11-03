@@ -41,14 +41,13 @@ export function poolNumbersOf(
 	deps: AppDeps,
 	group: string,
 ): PoolNumbers | null {
-	const ids = new Set(
-		deps.pool
-			.deployments(group)
-			.map((dep) => providerPoolIdOf(dep))
-			.filter((id): id is string => id !== null),
-	);
-	if (ids.size !== 1) return null;
-	const id = [...ids][0] as string;
+	// W2635.1: EVERY deployment must ride the same explicit pool — filtering
+	// pool-less deployments out first let [poolA, no-pool] report poolA's
+	// numbers, which describe only half the model's rides.
+	const deployments = deps.pool.deployments(group);
+	const id = deployments[0] ? providerPoolIdOf(deployments[0]) : null;
+	if (id === null) return null;
+	if (!deployments.every((dep) => providerPoolIdOf(dep) === id)) return null;
 	const snap = deps.router.providerAdmissionSnapshot()[id];
 	if (!snap) return null;
 	const policy = deps.router.policy.provider_pools?.[id];

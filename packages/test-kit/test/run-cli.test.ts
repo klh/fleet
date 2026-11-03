@@ -3,8 +3,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { runCli } from "../src/run-cli.ts";
+import { runCli, runCliAsync } from "../src/run-cli.ts";
 import { scratchWorld } from "../src/scratch-world.ts";
+import { serveStub } from "../src/serve-stub.ts";
 
 const w = scratchWorld({ prefix: "kit-runcli-" });
 
@@ -41,6 +42,27 @@ test("runCli: cwd + env overrides reach the child", () => {
 test("runCli: child exit codes pass through", () => {
 	const r = runCli(bin, ["--die"]);
 	expect(r.code).toBe(3);
+});
+
+test("runCliAsync: same result shape, and the parent's hosted server answers while the child runs", async () => {
+	// the child FETCHES a stub THIS process hosts — runCliAsync must let the
+	// event loop serve it (a sync runner blocks the loop, the child hangs)
+	const fetchBin = join(w.home, "probe-fetch.ts");
+	writeFileSync(
+		fetchBin,
+		[
+			"const res = await fetch(process.argv[2] ?? '');",
+			"console.log(res.status, await res.text());",
+			"",
+		].join("\n"),
+		{ mode: 0o755 },
+	);
+	const stub = serveStub();
+	const r = await runCliAsync(fetchBin, [stub.url]);
+	expect(r.code).toBe(0);
+	expect(r.out.trim()).toBe("200 ok");
+	expect(stub.requests).toHaveLength(1);
+	stub.close();
 });
 
 afterAll(() => {

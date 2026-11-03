@@ -5,7 +5,12 @@ export {
 	type ScratchWorld,
 	scratchWorld,
 } from "./scratch-world.ts";
-export { type CliResult, type RunCliOpts, runCli } from "./run-cli.ts";
+export {
+	type CliResult,
+	type RunCliOpts,
+	runCli,
+	runCliAsync,
+} from "./run-cli.ts";
 export {
 	boundPort,
 	freePort,

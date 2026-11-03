@@ -36,3 +36,26 @@ export function runCli(
 		err: p.stderr.toString(),
 	};
 }
+
+/** Run a bun script to completion, ASYNC — for suites whose parent process
+ *  HOSTS the target the child talks to (a serveStub the CLI probes):
+ *  spawnSync blocks the event loop the hosted server needs to answer, so
+ *  the child times out against a sync-blocked parent (the coord-hubs
+ *  trap, proven 5-fail before the async spawn). Same result shape. */
+export async function runCliAsync(
+	bin: string,
+	args: string[] = [],
+	opts: RunCliOpts = {},
+): Promise<CliResult> {
+	const p = Bun.spawn(["bun", bin, ...args], {
+		cwd: opts.cwd,
+		env: opts.env ? { ...process.env, ...opts.env } : process.env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [out, err] = await Promise.all([
+		new Response(p.stdout).text(),
+		new Response(p.stderr).text(),
+	]);
+	return { code: await p.exited, out, err };
+}

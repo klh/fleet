@@ -12,6 +12,7 @@
 // /v1/models face, which rides the router's admission pool snapshots.
 import { arg, die, dim, green, red } from "./shared.ts";
 import { readFileSync } from "node:fs";
+import { z } from "zod";
 import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub/hub-locate.ts";
 import { loadStack, STACK_PATH, type HubProfile } from "../lib/stack-config.ts";
 
@@ -136,44 +137,51 @@ export function hubTopology(): {
 }
 
 /** W2635: parse a hub /v1/models payload — unknown shapes degrade to a null
- *  listing (never guessed rows), malformed admission blocks are dropped. */
+ *  listing (never guessed rows), malformed admission blocks are dropped
+ *  (the row passes bare, the block never reaches HubModelRow). */
 export function parseHubModels(payload: unknown): HubModelRow[] | null {
-	if (!payload || typeof payload !== "object") return null;
-	const data = (payload as { data?: unknown }).data;
-	if (!Array.isArray(data)) return null;
+	const parsed = z.object({ data: z.array(z.unknown()) }).safeParse(payload);
+	if (!parsed.success) return null;
 	const rows: HubModelRow[] = [];
-	for (const row of data) {
-		if (!row || typeof row !== "object") continue;
-		const id = (row as { id?: unknown }).id;
-		if (typeof id !== "string" || !id.trim()) continue;
-		const admission = (row as { admission?: unknown }).admission;
+	for (const entry of parsed.data.data) {
+		// id alone admits a row; a malformed admission degrades to bare (the
+		// block is advisory, the listing must never lose the model)
+		const bare = z
+			.object({ id: z.string().min(1), admission: z.unknown().optional() })
+			.safeParse(entry);
+		if (!bare.success) continue;
+		const admission = hubPoolNumbersSchema
+			.nullish()
+			.safeParse(bare.data.admission);
 		rows.push(
-			admission && typeof admission === "object" && isPoolNumbers(admission)
-				? { id, admission }
-				: { id },
+			admission.success && admission.data
+				? { id: bare.data.id, admission: admission.data }
+				: { id: bare.data.id },
 		);
 	}
 	return rows;
 }
 
-const isPoolNumbers = (value: object): value is HubPoolNumbers => {
-	const v = value as Record<string, unknown>;
-	return (
-		typeof v.provider_pool === "string" &&
-		typeof v.concurrency === "number" &&
-		typeof v.concurrency_ceiling === "number" &&
-		typeof v.outstanding === "number" &&
-		typeof v.queued === "number" &&
-		typeof v.active === "number" &&
-		typeof v.max_outstanding === "number" &&
-		typeof v.rate_per_interval === "number" &&
-		typeof v.interval_ms === "number"
-	);
-};
+/** W2635.1 (Schema law): the admission block shape a hub /v1/models row may
+ *  carry — one zod source of truth instead of hand-cast property probes, so
+ *  a wire-shape drift fails loud at parse, never silently coerces. */
+const hubPoolNumbersSchema = z.object({
+	provider_pool: z.string().min(1),
+	concurrency: z.number(),
+	concurrency_ceiling: z.number(),
+	outstanding: z.number(),
+	queued: z.number(),
+	active: z.number(),
+	max_outstanding: z.number(),
+	rate_per_interval: z.number(),
+	interval_ms: z.number(),
+});
 
 /** W2635: collapse model rows into hub-level pool aggregates — every member
  *  model of one pool reports identical numbers (they share one admission
- *  core); divergent copies would be a hub-side bug and surface as two rows. */
+ *  core), so the FIRST sighting is the aggregate; the pool id is the key,
+ *  never a numbers hash (divergent copies under one id are a hub-side bug
+ *  and stay collapsed into that one row — the source is one snapshot). */
 export function poolRowsOf(models: HubModelRow[]): HubPoolRow[] {
 	const pools = new Map<string, HubPoolRow>();
 	for (const row of models) {

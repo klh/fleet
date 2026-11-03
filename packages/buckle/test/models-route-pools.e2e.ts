@@ -118,4 +118,24 @@ test.describe("@api", () => {
 		};
 		expect(out.data.find((m) => m.id === "glm-5.3")?.admission).toBeUndefined();
 	});
+
+	test("a pool-pool-less mix reports no numbers (W2635.1: half-pool honesty)", async () => {
+		const mixed: Deployment[] = [
+			...capped,
+			{
+				group: "glm-5.3",
+				url: "https://api.poolless.invalid",
+				dialect: "openai",
+			},
+		];
+		const app = createApp(testDeps(poolOf(mixed, plain), { policy: POLICY }));
+		const res = await app.fetch(
+			new Request("http://buckle.test/v1/models", { method: "GET" }),
+		);
+		expect(res.status).toBe(200);
+		const out = (await res.json()) as {
+			data: Array<{ id: string; admission?: unknown }>;
+		};
+		expect(out.data.find((m) => m.id === "glm-5.3")?.admission).toBeUndefined();
+	});
 });

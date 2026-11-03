@@ -15,6 +15,10 @@ green suite and zero caller migration).
   Import: `@klh/test-kit` (workspace dep) or `../src/...` inside the kit.
 - `runCli(bin, args?, opts?)` — `["bun", bin, ...args]` spawnSync →
   `{code, out, err}` with cwd/env overrides (env spread over process.env).
+  `runCliAsync(...)` is the same runner ASYNC (Bun.spawn + streamed pipes)
+  for suites whose parent process HOSTS the target the child talks to —
+  spawnSync blocks the event loop a hosted serveStub needs to answer
+  (the coord-hubs trap; kit test pins the hosted-server fetch).
 - `freePort()` / `waitUp(url, opts?)` — Bun.serve `port: 0` reservation +
   100x100ms readiness poll (500ms per-attempt abort; throws after the last
   try; `tries`/`intervalMs` overridable).
