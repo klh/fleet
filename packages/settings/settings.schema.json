@@ -446,6 +446,16 @@
 						"minLength": 1,
 						"maxLength": 4096
 					},
+					"default_models": {
+						"description": "W2637 default model chain: what a bare hub= lane with no model pin rides, in order",
+						"maxItems": 256,
+						"type": "array",
+						"items": {
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 4096
+						}
+					},
 					"http_upstream_hosts": {
 						"description": "Private hosts reachable over plain http",
 						"maxItems": 256,

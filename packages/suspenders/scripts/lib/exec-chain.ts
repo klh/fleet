@@ -28,6 +28,7 @@ import {
 } from "../../hooks/lib/hub/hub-locate.ts";
 import { readUserPlane } from "../../hooks/lib/policy/repo-laws.ts";
 import {
+	executorModelLine,
 	parseExecutorPrefer,
 	preferOverlayOf,
 	readPreferText,
@@ -74,6 +75,8 @@ export interface PreferChainEntry {
 	line: number;
 	/** W1470: 0 = the nearest .prefer on the upward walk, +1 per farther file. */
 	rank: number;
+	/** W2636: the file the directive came from — refusal provenance. */
+	file: string;
 }
 
 /** Audit metadata for the actual executor selection, never a routing input. */
@@ -99,10 +102,24 @@ export const posturePreference = (
 	can: selected.can,
 });
 
+/** W2636: provenance of the model pin a refusal should name — file:line +
+ * the key that pinned it. A directive token that IS the model (must=opus)
+ * names the directive's line; a separate model= pin names that line; a
+ * machine-conf default has no dotfile to edit, so it stays null. */
+export interface ModelPinProvenance {
+	file: string;
+	line: number;
+	/** The .prefer key that produced the pin: "must" | "prefer" | "can" | "model". */
+	key: "must" | "prefer" | "can" | "model";
+	target: string;
+}
+
 export interface PreferCan {
 	value: string;
 	line: number;
 	rank: number;
+	/** W2636: the file the can= came from — refusal provenance. */
+	file: string;
 }
 
 /** One file's chain lines; `rank` = distance on the upward walk (0 = nearest). */
@@ -113,6 +130,10 @@ export interface PreferChain {
 	can: PreferCan | null;
 	/** W2570: the file's `model=<id>` pin (null = not defined here). */
 	model: string | null;
+	/** W2636: the file's absolute path — refusal provenance. */
+	file: string;
+	/** W2636: 1-based line of this file's LAST valid `model=` (null = absent). */
+	modelLine: number | null;
 }
 
 const EMPTY_CHAIN: PreferChain = {
@@ -121,6 +142,8 @@ const EMPTY_CHAIN: PreferChain = {
 	hubUrls: [],
 	can: null,
 	model: null,
+	file: "",
+	modelLine: null,
 };
 
 /** Exactly `<dir>/.prefer`, no walk (connections.ts preferPin owns its
@@ -134,11 +157,13 @@ export const preferFileOf = (dir: string, rank = 0): PreferChain => {
 	if (preferOverlayOf(path, text) !== null) return EMPTY_CHAIN;
 	const parsed = parseExecutorPrefer(text);
 	return {
-		directives: parsed.directives.map((d) => ({ ...d, rank })),
+		directives: parsed.directives.map((d) => ({ ...d, rank, file: path })),
 		hub: parsed.hub,
 		hubUrls: parsed.hubUrls,
-		can: parsed.can ? { ...parsed.can, rank } : null,
+		can: parsed.can ? { ...parsed.can, rank, file: path } : null,
 		model: parsed.model,
+		file: path,
+		modelLine: executorModelLine(text),
 	};
 };
 
@@ -147,7 +172,9 @@ const MAX_WALK = 64; // depth cap — never walk into a symlink farm (prefer.ts 
 /** `.prefer hub=<label>` warnings already printed by this process. */
 const warnedHubs = new Set<string>();
 
-/** W1470: walks upward from `start`; the nearest file defining a key wins it. */
+/** W1470: walks upward from `start`; the nearest file defining a key wins it.
+ * W2636: the merged chain carries the winning `model=` pin's file:line so a
+ * downstream refusal can name exactly what to edit. */
 export const preferOf = (start: string): PreferChain => {
 	const files: PreferChain[] = [];
 	let dir = resolve(start);
@@ -173,6 +200,7 @@ export const preferOf = (start: string): PreferChain => {
 		warnedHubs.add(unknown);
 		process.stderr.write(`${unknown}\n`);
 	}
+	const modelFile = files.find((f) => f.model !== null);
 	return {
 		directives: [...linesOf("must"), ...linesOf("prefer")],
 		hub,
@@ -180,7 +208,9 @@ export const preferOf = (start: string): PreferChain => {
 		can: files.find((f) => f.can !== null)?.can ?? null,
 		// W2570: model= resolves per key like hub= — the nearest file
 		// defining it wins, independent of the chain directives.
-		model: files.find((f) => f.model !== null)?.model ?? null,
+		model: modelFile?.model ?? null,
+		file: modelFile?.file ?? "",
+		modelLine: modelFile?.modelLine ?? null,
 	};
 };
 
@@ -323,6 +353,8 @@ export const execPick = (
 	chainLen: number;
 	chainIdx: number;
 	preference: PreferDecision;
+	/** W2636: null = no dotfile pin behind the model (conf default/no pin). */
+	modelPin: ModelPinProvenance | null;
 } => {
 	const prefer = preferOf(repo);
 	// W2570 amendment: the machine-conf executor row is the MODEL default —
@@ -331,6 +363,19 @@ export const execPick = (
 	const confModel = (binName: string): string | null => {
 		const ex = tryLoadStack()?.executors;
 		return ex?.[binName]?.model ?? ex?.default?.model ?? null;
+	};
+	// W2637: the per-hub default model chain (machine conf
+	// hubs.<label>.default_models) — the MODEL default for a hub-pinned
+	// lane with no pin of its own. Ordered like any chain: the attempt
+	// index walks it, the tail rides --fallback-model. Null = no hub
+	// picked or the hub declares none (DEFAULT_LANE_MODEL stands).
+	const hubDefaultModels = (hubLabel: string | null): string[] => {
+		if (!hubLabel) return [];
+		const hubs = tryLoadStack()?.hubs ?? {};
+		const hit = Object.entries(hubs).find(
+			([label]) => label.toLowerCase() === hubLabel.toLowerCase(),
+		);
+		return hit ? (hit[1].default_models ?? []) : [];
 	};
 	const s = readBoardSettings().settings;
 	const enabled = s.enabled_executors;
@@ -359,7 +404,34 @@ export const execPick = (
 		// always outranks it (owner intent, must= parity). The machine-conf
 		// executor row is the last default (amendment: it was unreachable
 		// dead config — laneModelOf collapsed null before insertion).
-		const model = slot.model ?? prefer.model ?? confModel(slot.bin);
+		// W2637: a hub-pinned slot with no pin of its own takes the HUB's
+		// default chain (per-hub serving reality) before the executor row.
+		const slotHub = slot.hub ?? prefer.hub;
+		const hubDefaults = hubDefaultModels(slotHub);
+		const hubIdx =
+			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
+		const model =
+			slot.model ??
+			prefer.model ??
+			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
+			confModel(slot.bin);
+		// W2636: which dotfile key actually produced `model`, for refusals.
+		const modelPin =
+			slot.model !== null
+				? {
+						file: chosen.file,
+						line: chosen.line,
+						key: chosen.kind,
+						target: e,
+					}
+				: prefer.model !== null && prefer.file
+					? {
+							file: prefer.file,
+							line: prefer.modelLine ?? 0,
+							key: "model" as const,
+							target: prefer.model,
+						}
+					: null;
 		const qwhy = quota?.get(providerOf(model ?? e) ?? "");
 		if (qwhy)
 			console.log(
@@ -392,6 +464,7 @@ export const execPick = (
 				target: e,
 				can,
 			},
+			modelPin,
 		};
 	}
 	// W183.2 - the ordered default_executors list IS the fallback chain: the
@@ -445,12 +518,36 @@ export const execPick = (
 		// W2570: the repo's model= pin fills a null slot model on the
 		// default ladder too (an executor row picks no model by design);
 		// the machine-conf row is the last default (amendment).
-		const pinned = model ?? prefer.model ?? confModel(bin);
-		const fallbackModels = chain
-			.slice(idx + 1)
-			.filter((next) => next.bin === bin)
-			.map((next) => next.model)
-			.filter((m): m is string => !!m);
+		// W2637: a hub-pinned default pick with no model of its own takes
+		// the HUB's default chain at the attempt index; the chain tail
+		// rides --fallback-model with the ladder's own tail.
+		const hubDefaults = hubDefaultModels(prefer.hub);
+		const hubIdx =
+			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
+		const pinned =
+			model ??
+			prefer.model ??
+			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
+			confModel(bin);
+		// W2636: an executor-row slot model pins nothing the user can edit;
+		// only a dotfile model= (or a directive token) carries provenance.
+		const modelPin =
+			prefer.model !== null && prefer.file
+				? {
+						file: prefer.file,
+						line: prefer.modelLine ?? 0,
+						key: "model" as const,
+						target: prefer.model,
+					}
+				: null;
+		const fallbackModels = [
+			...chain
+				.slice(idx + 1)
+				.filter((next) => next.bin === bin)
+				.map((next) => next.model)
+				.filter((m): m is string => !!m),
+			...(hubIdx >= 0 ? hubDefaults.slice(hubIdx + 1) : []),
+		];
 		return {
 			agent: label(name),
 			model: pinned,
@@ -469,6 +566,7 @@ export const execPick = (
 				target: name,
 				can,
 			},
+			modelPin,
 		};
 	}
 	return {
@@ -489,5 +587,14 @@ export const execPick = (
 			target: "claude",
 			can,
 		},
+		modelPin:
+			prefer.model !== null && prefer.file
+				? {
+						file: prefer.file,
+						line: prefer.modelLine ?? 0,
+						key: "model" as const,
+						target: prefer.model,
+					}
+				: null,
 	};
 };

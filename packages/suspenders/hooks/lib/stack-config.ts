@@ -321,6 +321,14 @@ export const HubProfileSchema = z
 		 *  hub is EXPECTED down in it (NAS DSM poweroff); routing skips. */
 		quiet_hours: z.string().optional(),
 		trace_tunnel: TraceTunnelSchema.optional(),
+		/** W2637: the hub's DEFAULT model chain — what a lane with bare
+		 *  hub=<label> and no model pin anywhere (.prefer model=, a chain
+		 *  directive's pin, the executors row) rides, in order. Data, never
+		 *  code: each hub's upstreams differ (ikea != zai != desktop), so
+		 *  the chain names models that hub actually serves. Serving reality
+		 *  is enforced downstream (served-models gate, the ladder itself),
+		 *  never wire dialect — any client may ride any model here. */
+		default_models: z.array(z.string().min(1)).optional(),
 		/** W688.7.1: the hub's REAL upstream ladder (config-over-code) —
 		 *  inline groups rows merge over the committed placeholder ladder;
 		 *  keys ride env vars named per-row, never values here. */

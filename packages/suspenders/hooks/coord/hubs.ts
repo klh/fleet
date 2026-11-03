@@ -5,9 +5,44 @@
 // every declared candidate so lanes and users SEE the topology instead of
 // guessing which label reaches what. Read-only: probes, never mutates.
 //   coord hubs [--label name] [--json]
+// W2635: --json also carries each up hub's model offerings with the
+// concurrency/connection numbers users map.prefer model pins against
+// (hub= picks the hub, must=/prefer= picks the model; the numbers show
+// whether a pin will queue or shed) — sourced from the hub buckle
+// /v1/models face, which rides the router's admission pool snapshots.
 import { arg, die, dim, green, red } from "./shared.ts";
+import { readFileSync } from "node:fs";
+import { z } from "zod";
 import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub/hub-locate.ts";
 import { loadStack, STACK_PATH, type HubProfile } from "../lib/stack-config.ts";
+
+/** W2635: one model row from a hub's /v1/models face — the admission block
+ *  is present only for models bound to an explicit provider pool. */
+export interface HubModelRow {
+	id: string;
+	admission?: HubPoolNumbers;
+}
+
+export interface HubPoolNumbers {
+	provider_pool: string;
+	concurrency: number;
+	concurrency_ceiling: number;
+	outstanding: number;
+	queued: number;
+	active: number;
+	max_outstanding: number;
+	rate_per_interval: number;
+	interval_ms: number;
+}
+
+/** W2635: hub-level pool aggregate — every member model shares one pool's
+ *  admission, so the hub row names the pool once with its member models.
+ *  The pool's id is the row key (poolRowsOf), NOT provider_pool — that
+ *  name belongs to the wire admission block (HubPoolNumbers) alone. */
+export interface HubPoolRow extends Omit<HubPoolNumbers, "provider_pool"> {
+	id: string;
+	models: string[];
+}
 
 type Registry = ReturnType<typeof readRegistry>;
 
@@ -104,6 +139,115 @@ export function hubTopology(): {
 	return { labels, candidates, registry, stackLoaded };
 }
 
+/** W2635: parse a hub /v1/models payload — unknown shapes degrade to a null
+ *  listing (never guessed rows), malformed admission blocks are dropped
+ *  (the row passes bare, the block never reaches HubModelRow). */
+export function parseHubModels(payload: unknown): HubModelRow[] | null {
+	const parsed = z.object({ data: z.array(z.unknown()) }).safeParse(payload);
+	if (!parsed.success) return null;
+	const rows: HubModelRow[] = [];
+	for (const entry of parsed.data.data) {
+		// id alone admits a row; a malformed admission degrades to bare (the
+		// block is advisory, the listing must never lose the model)
+		const bare = z
+			.object({ id: z.string().min(1), admission: z.unknown().optional() })
+			.safeParse(entry);
+		if (!bare.success) continue;
+		const admission = hubPoolNumbersSchema
+			.nullish()
+			.safeParse(bare.data.admission);
+		rows.push(
+			admission.success && admission.data
+				? { id: bare.data.id, admission: admission.data }
+				: { id: bare.data.id },
+		);
+	}
+	return rows;
+}
+
+/** W2635.1 (Schema law): the admission block shape a hub /v1/models row may
+ *  carry — one zod source of truth instead of hand-cast property probes, so
+ *  a wire-shape drift fails loud at parse, never silently coerces. */
+const hubPoolNumbersSchema = z.object({
+	provider_pool: z.string().min(1),
+	concurrency: z.number(),
+	concurrency_ceiling: z.number(),
+	outstanding: z.number(),
+	queued: z.number(),
+	active: z.number(),
+	max_outstanding: z.number(),
+	rate_per_interval: z.number(),
+	interval_ms: z.number(),
+});
+
+/** W2635: collapse model rows into hub-level pool aggregates — every member
+ *  model of one pool reports identical numbers (they share one admission
+ *  core), so the FIRST sighting is the aggregate; the pool id is the key,
+ *  never a numbers hash (divergent copies under one id are a hub-side bug
+ *  and stay collapsed into that one row — the source is one snapshot). */
+export function poolRowsOf(models: HubModelRow[]): HubPoolRow[] {
+	const pools = new Map<string, HubPoolRow>();
+	for (const row of models) {
+		const a = row.admission;
+		if (!a) continue;
+		const existing = pools.get(a.provider_pool);
+		if (existing) {
+			existing.models.push(row.id);
+			continue;
+		}
+		const { provider_pool: id, ...numbers } = a;
+		pools.set(id, { id, ...numbers, models: [row.id] });
+	}
+	return [...pools.values()];
+}
+
+/** Stack hub profiles by lowercased label (hubTopology's keying). */
+function stackHubsByLabel(): Map<string, HubProfile> {
+	const out = new Map<string, HubProfile>();
+	try {
+		for (const [label, hub] of Object.entries(loadStack().hubs))
+			out.set(label.toLowerCase(), hub);
+	} catch {} // unparseable stack.json already reported via stackLoaded=false
+	return out;
+}
+
+/** W2635.2 (N2): the fetch bound for hub /v1/models listings —
+ *  SUSPENDERS_HUB_MODELS_TIMEOUT_MS, clamped to 100..10_000 (the
+ *  front-probe.ts knob contract), default 2000 (the historical hardcode,
+ *  unchanged). Unset/empty/non-numeric = default; out-of-range clamps,
+ *  never applies raw. */
+const HUB_MODELS_TIMEOUT_DEFAULT = 2000;
+const hubModelsTimeoutMs = (): number => {
+	const raw = process.env.SUSPENDERS_HUB_MODELS_TIMEOUT_MS;
+	if (raw === undefined || raw.trim().length === 0)
+		return HUB_MODELS_TIMEOUT_DEFAULT;
+	const n = Number(raw.trim());
+	if (!Number.isFinite(n)) return HUB_MODELS_TIMEOUT_DEFAULT;
+	return Math.min(10_000, Math.max(100, Math.round(n)));
+};
+
+/** W2635: fetch one up hub's model listing from its buckle front — the
+ *  stack token_file is the credential (the belt hubProviderObservations
+ *  precedent); no credential or unreachable face = null, never a guess. */
+export async function fetchHubModels(
+	base: string,
+	tokenFile: string | undefined,
+): Promise<HubModelRow[] | null> {
+	if (!tokenFile) return null;
+	try {
+		const key = readFileSync(tokenFile, "utf8").trim();
+		if (!key) return null;
+		const response = await fetch(new URL("/v1/models", base), {
+			headers: { Authorization: `Bearer ${key}` },
+			signal: AbortSignal.timeout(hubModelsTimeoutMs()),
+		});
+		if (!response.ok) return null;
+		return parseHubModels(await response.json());
+	} catch {
+		return null;
+	}
+}
+
 export async function cmdHubs(rest: string[]): Promise<void> {
 	const wantLabel = arg("--label");
 	const asJson = rest.includes("--json");
@@ -129,9 +273,33 @@ export async function cmdHubs(rest: string[]): Promise<void> {
 	}
 
 	if (asJson) {
+		// W2635: each UP hub carries its model listing + pool aggregates in
+		// parallel (bounded wait; a down hub or missing credential simply
+		// reports models: null). The listing rides the BUCKLE front — the
+		// first up hubs.json candidate or stack.json buckle port, never a
+		// probe winner that happens to be the board/store.
+		const stackHubs = stackHubsByLabel();
+		const offerings = await Promise.all(
+			probed.map(async (hub) => {
+				const buckle = hub.candidates.find(
+					(c) =>
+						c.up &&
+						(c.source === "hubs.json" || c.source === "stack.json buckle"),
+				)?.url;
+				if (!buckle) return null;
+				const profile = stackHubs.get(hub.label.toLowerCase());
+				return fetchHubModels(buckle, profile?.token_file);
+			}),
+		);
+		const hubs = probed.map((hub, i) => {
+			const models = offerings[i];
+			return models === null || models === undefined
+				? { ...hub, models: null, pools: [] }
+				: { ...hub, models, pools: poolRowsOf(models) };
+		});
 		console.log(
 			JSON.stringify({
-				hubs: probed,
+				hubs,
 				sources: {
 					registry: REGISTRY_PATH(),
 					stack: stackLoaded ? STACK_PATH() : null,

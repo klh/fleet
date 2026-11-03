@@ -27,6 +27,8 @@ test("JSON .prefer never becomes executor garbage; malformed JSON cannot fall ba
 		hubUrls: [],
 		can: null,
 		model: null,
+		file: "",
+		modelLine: null,
 	});
 	writeFileSync(join(repo, ".prefer"), "{\nmust=claude\n}");
 	expect(() => preferOf(repo)).toThrow(
@@ -352,6 +354,72 @@ describe("W2570 model= pin: executor + model on one lane", () => {
 	});
 });
 
+describe("W2636 model pin provenance: the refusal names the .prefer line", () => {
+	test("model= pin carries file:line, key 'model', and the target", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"hub=ikea\nmust=copilot\nmodel=gpt-6-sol\n",
+		);
+		const p = execPick(0, REPO);
+		expect(p.modelPin).toEqual({
+			file: join(REPO, ".prefer"),
+			line: 3,
+			key: "model",
+			target: "gpt-6-sol",
+		});
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a directive token that IS the model names the directive's line", () => {
+		writeFileSync(join(REPO, ".prefer"), "# pin\nmust=glm-9-nonexistent\n");
+		const p = execPick(0, REPO);
+		expect(p.modelPin).toEqual({
+			file: join(REPO, ".prefer"),
+			line: 2,
+			key: "must",
+			target: "glm-9-nonexistent",
+		});
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("directive pin outranks a separate model= (same law as the model itself)", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\nmodel=glm-5.3\n");
+		const p = execPick(0, REPO);
+		expect(p.modelPin?.key).toBe("must");
+		expect(p.modelPin?.line).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("the tree's model= provenance reaches the repo below it; nearest wins", () => {
+		const TREE = mkdtempSync(join(tmpdir(), "w2636-tree-"));
+		try {
+			writeFileSync(join(TREE, ".prefer"), "model=gpt-6-sol\n");
+			const WORK = join(TREE, "repo");
+			mkdirSync(WORK);
+			expect(execPick(0, WORK).modelPin).toEqual({
+				file: join(TREE, ".prefer"),
+				line: 1,
+				key: "model",
+				target: "gpt-6-sol",
+			});
+			writeFileSync(join(WORK, ".prefer"), "model=glm-5.3\n");
+			expect(execPick(0, WORK).modelPin).toEqual({
+				file: join(WORK, ".prefer"),
+				line: 1,
+				key: "model",
+				target: "glm-5.3",
+			});
+		} finally {
+			rmSync(TREE, { recursive: true, force: true });
+		}
+	});
+
+	test("no dotfile pin (conf default / unpinned executor) stays null", () => {
+		const p = pick(0, ["copilot", "claude"]);
+		expect(p.modelPin).toBeNull();
+	});
+});
+
 describe("W2570 amendment: machine-conf executors row is the model default", () => {
 	const KLH = "KLH_STACK";
 	let savedStack: string | undefined;
@@ -395,6 +463,91 @@ describe("W2570 amendment: machine-conf executors row is the model default", () 
 		stackOf({ copilot: { model: "gpt-6-sol" } });
 		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\nmodel=glm-5.3\n");
 		expect(execPick(0, REPO).model).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+});
+
+describe("W2637 per-hub default model chain (hubs.<label>.default_models)", () => {
+	const KLH = "KLH_STACK";
+	let savedStack: string | undefined;
+	beforeAll(() => {
+		savedStack = process.env[KLH];
+	});
+	afterAll(() => {
+		if (savedStack === undefined) delete process.env[KLH];
+		else process.env[KLH] = savedStack;
+	});
+	const stackOf = (hubs: object): string => {
+		const path = join(HOME, "stack-w2637.json");
+		writeFileSync(path, JSON.stringify({ hubs }));
+		process.env[KLH] = path;
+		return path;
+	};
+
+	test("bare hub=: attempt 0 rides the chain head, the tail rides --fallback-model", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\n");
+		const p = execPick(0, REPO);
+		expect(p.hub).toBe("ikea");
+		expect(p.model).toBe("claude-sonnet-5");
+		expect(p.fallbackModels).toEqual(["glm-5.3-flash"]);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("attempt walks the chain; overrun parks on the last rung", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\n");
+		expect(execPick(1, REPO).model).toBe("glm-5.3-flash");
+		const parked = execPick(9, REPO);
+		expect(parked.model).toBe("glm-5.3-flash");
+		expect(parked.fallbackModels).toEqual([]);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("the chain is PER-HUB (ikea != desktop) and case-insensitive on the label", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5"] },
+			desktop: { host: "h2", default_models: ["zai-glm-5.3"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=desktop\n");
+		expect(execPick(0, REPO).model).toBe("zai-glm-5.3");
+		writeFileSync(join(REPO, ".prefer"), "hub=IKEA\n");
+		expect(execPick(0, REPO).model).toBe("claude-sonnet-5");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a hub slot token (must=ikea) fills its null model from the chain", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "must=ikea\n");
+		const p = execPick(0, REPO);
+		expect(p.model).toBe("claude-sonnet-5");
+		expect(p.hub).toBe("ikea");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("pins outrank the chain: .prefer model= and a directive own pin", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\nmodel=glm-5.3\n");
+		expect(execPick(0, REPO).model).toBe("glm-5.3");
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\nmust=glm-5.3-flash\n");
+		expect(execPick(0, REPO).model).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("hub without default_models, and no hub at all: model stays null", () => {
+		stackOf({ zai: { host: "h3" } });
+		writeFileSync(join(REPO, ".prefer"), "hub=zai\n");
+		expect(execPick(0, REPO).model).toBeNull();
+		writeFileSync(join(REPO, ".prefer"), "must=claude\n");
+		expect(execPick(0, REPO).model).toBeNull();
 		rmSync(join(REPO, ".prefer"));
 	});
 });
@@ -546,11 +699,19 @@ describe("W1470 upward walk: a tree-root chain reaches the repos below it", () =
 			hubUrls: [],
 			can: null,
 			model: null,
+			file: "",
+			modelLine: null,
 		});
 		const own = preferFileOf(TREE);
 		expect(own.hub).toBe("nas");
 		expect(own.directives).toEqual([
-			{ value: "glm-5.3-flash", kind: "must", line: 1, rank: 0 },
+			{
+				value: "glm-5.3-flash",
+				kind: "must",
+				line: 1,
+				rank: 0,
+				file: join(TREE, ".prefer"),
+			},
 		]);
 	});
 });

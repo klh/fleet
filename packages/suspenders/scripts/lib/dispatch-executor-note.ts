@@ -2,7 +2,8 @@
 import type { PreferDecision } from "./exec-chain.ts";
 import type { PreferRouting } from "./prefer-routing.ts";
 
-// every launch pins a model: an unpinned lane inherits the owner's global settings.json model and dies on client-side unrecognized_model
+// every launch pins a model: an unpinned lane inherits the owner's global settings.json model and dies on client-side unrecognized_model.
+// W2637: a hub-pinned unpinned lane takes the hub's default_models chain FIRST (exec-chain fills pick.model); this literal is the hubless last resort.
 export const DEFAULT_LANE_MODEL = "glm-5.3-flash";
 
 export const laneModelOf = (pick: { model?: string | null }): string =>
