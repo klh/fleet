@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d537d.js";import{b,v}from"./lit-32ed6538877fdb0d.js";var d=(s)=>{if(s===null||!Number.isFinite(s))return"—";if(Math.abs(s)>=1e6)return`${(s/1e6).toFixed(1)}M`;if(Math.abs(s)>=1000)return`${(s/1000).toFixed(1)}k`;return String(s)},R=(s)=>s===null?"unknown":s<90?`${s}s`:`${Math.round(s/60)}m`,T=(s)=>{if(s===null)return 1;if(s>=100)return 4;if(s>=20)return 3;if(s>=5)return 2;return 1},_=r`
+import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{l}from"./lit-ca9cab28b369e215.js";import{x,w}from"./lit-70c8b7a6a0a2f23a.js";var d=(s)=>{if(s===null||!Number.isFinite(s))return"—";if(Math.abs(s)>=1e6)return`${(s/1e6).toFixed(1)}M`;if(Math.abs(s)>=1000)return`${(s/1000).toFixed(1)}k`;return String(s)},R=(s)=>s===null?"unknown":s<90?`${s}s`:`${Math.round(s/60)}m`,T=(s)=>{if(s===null)return 1;if(s>=100)return 4;if(s>=20)return 3;if(s>=5)return 2;return 1},_=r`
 	.hrow {
 		display: flex;
 		gap: 8px;
@@ -95,7 +95,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 			<summary>Lifecycle sample · ${a.rows.length}</summary>
 			<div class="routesBody">
 				${a.rows.length?a.rows.map((o)=>e`<div class="hrow">
-							<time class="unknown" datetime=${new Date(o.admittedAt).toISOString()} title=${b(o.admittedAt)}>${v(o.admittedAt)}</time>
+							<time class="unknown" datetime=${new Date(o.admittedAt).toISOString()} title=${x(o.admittedAt)}>${w(o.admittedAt)}</time>
 							<span class="title">${o.model??"?"}</span>
 							<span class="unknown">${o.lane?`lane ${o.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 							<span class="num">${o.outcome??"in flight"}</span>
@@ -135,7 +135,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 			style="width:${T(a)*14}px;background:var(--klh-edge)"
 		></span>
 	</div>`},M=(s)=>e`<div class="routeRow">
-	<time class="unknown" datetime=${s.ts} title=${b(s.ts)}>${v(s.ts)}</time>
+	<time class="unknown" datetime=${s.ts} title=${x(s.ts)}>${w(s.ts)}</time>
 	<span class="title">${s.target_model??"model unknown"}</span>
 	<span class="unknown" title=${s.lane||"No lane attribution"}>${s.lane?`lane ${s.lane.replace(/^autow([\d.]+)-.*/,"W$1")}`:"unattributed"}</span>
 	<span class="num">${s.target_kind??"?"} ${s.target_host??""}</span>
@@ -219,7 +219,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 						<td>${g(this.pills(o[1])," → ")}</td>
 					</tr>`)}
 			</tbody>
-		</table>`}chips(s){return s.map((a)=>e`${a[0]} → ${a[1].length} tiers`)}pills(s){return s.map((a,o)=>e`<span class="pill">${o+1}. ${a}</span>`)}}if(!customElements.get("klh-policy-card"))customElements.define("klh-policy-card",k);class w extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="Configured upstream pool",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;if(!s.groups)return e`<h2>Upstream pool</h2>
+		</table>`}chips(s){return s.map((a)=>e`${a[0]} → ${a[1].length} tiers`)}pills(s){return s.map((a,o)=>e`<span class="pill">${o+1}. ${a}</span>`)}}if(!customElements.get("klh-policy-card"))customElements.define("klh-policy-card",k);class v extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="Configured upstream pool",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;if(!s.groups)return e`<h2>Upstream pool</h2>
 				<p class="dimpl">
 					upstreams.yaml unreadable — the ladder above still applies
 				</p>`;return e`<h2>${this.heading} · ${s.source}</h2>${this.table(s.groups)}`}table(s){return e`<table class="ct">
@@ -243,7 +243,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 			<td class="num">${s.tiers}</td>
 			<td>${a}</td>
 			<td>${s.source}</td>
-		</tr>`}}if(!customElements.get("klh-upstreams-card"))customElements.define("klh-upstreams-card",w);class f extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="Registered services",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(s)}`}body(s){return e`<table class="ct">
+		</tr>`}}if(!customElements.get("klh-upstreams-card"))customElements.define("klh-upstreams-card",v);class f extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="Registered services",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(s)}`}body(s){return e`<table class="ct">
 			<thead>
 				<tr>
 					<th>Service</th>
@@ -265,11 +265,11 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 			<td><span class="pill">${s.scope}</span></td>
 			<td class="mono">${s.upstream}</td>
 			<td>${s.monitored}</td>
-		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",f);class y extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(s)}`}body(s){if(s.error)return e`<div class="errbox">
+		</tr>`}}if(!customElements.get("klh-registry-card"))customElements.define("klh-registry-card",f);class b extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l];constructor(){super();this.heading="suspenders-board.json",this.data=null}render(){let s=this.data;if(!s)return e`${t}`;return e`<h2>${this.heading}</h2>${this.body(s)}`}body(s){if(s.error)return e`<div class="errbox">
 				current file does not parse: ${s.error}
 			</div>`;return e`<div class="knobs">
 			${s.knobs.map((a)=>e`<span class="kchip">${a.k}: <b>${a.v}</b></span>`)}
-		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",y);class x extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l,r`
+		</div>`}}if(!customElements.get("klh-knobs-card"))customElements.define("klh-knobs-card",b);class y extends n{static properties={heading:{type:String},data:{type:Object}};static styles=[l,r`
 		.auditrow { border-top:1px solid var(--klh-rule); font-size:11.5px; }
 		.auditrow summary { display:flex; gap:10px; align-items:baseline; padding:5px 0; cursor:pointer; list-style:none; }
 		.auditrow summary::-webkit-details-marker { display:none; }
@@ -292,4 +292,4 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d5
 			</p>`}chip(s){return e`<details class="auditrow">
 			<summary><b>${s.action}</b><span>${s.actor}</span><span class="when mono">${s.when}</span></summary>
 			<div class="detail">${s.target??"—"}${s.detail?e`<br />${s.detail}`:t}</div>
-		</details>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",x);
+		</details>`}}if(!customElements.get("klh-audit-list"))customElements.define("klh-audit-list",y);

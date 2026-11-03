@@ -15,6 +15,7 @@ import { LitElement, html, nothing } from "lit";
 import { ago, agoShort } from "./board-format.ts";
 import {
 	TaskCardActionRequestedEvent,
+	TaskCardDraftChangedEvent,
 	TaskCardOpenRequestedEvent,
 } from "./klh-task-card-events.ts";
 import { TASK_CARD_STYLES } from "./klh-task-card-css.ts";
@@ -73,6 +74,19 @@ export class KlhTaskCard extends LitElement {
 				this.card.id,
 				this.card.project ?? null,
 				pick,
+			),
+		);
+	}
+
+	/** Root #103404: an unsubmitted pick is news too — the mediator banks it
+	 * in its rebuild-proof map, so a structural render that recreates this
+	 * card (an unrelated card changed column) re-hydrates the draft. */
+	private draft(d: { executor?: string; effort?: string }): void {
+		this.dispatchEvent(
+			new TaskCardDraftChangedEvent(
+				this.card.id,
+				this.card.project ?? null,
+				d,
 			),
 		);
 	}
@@ -210,6 +224,7 @@ export class KlhTaskCard extends LitElement {
 							@change=${(e: Event) => {
 								/* draft only — Start executes (#100441) */
 								this.draftExecutor = (e.target as HTMLSelectElement).value;
+								this.draft({ executor: this.draftExecutor });
 							}}
 						>
 							${executors.map(
@@ -228,6 +243,7 @@ export class KlhTaskCard extends LitElement {
 									aria-label=${`reasoning effort for ${c.id}`}
 									@change=${(e: Event) => {
 										this.draftEffort = (e.target as HTMLSelectElement).value;
+										this.draft({ effort: this.draftEffort });
 									}}
 								>
 									${effortOptions.map(
@@ -290,6 +306,7 @@ export class KlhTaskCard extends LitElement {
 							@change=${(e: Event) => {
 								/* draft only — Reassign executes (#100476) */
 								this.draftExecutor = (e.target as HTMLSelectElement).value;
+								this.draft({ executor: this.draftExecutor });
 							}}
 						>
 							${executors.map(

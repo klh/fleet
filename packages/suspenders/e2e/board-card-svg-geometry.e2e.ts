@@ -144,7 +144,7 @@ async function mount(
 			contentType: "text/html; charset=utf-8",
 			body:
 				`<!doctype html><html data-theme="${theme}"><head>${THEME_HEAD}` +
-				`<script type="module" src="/vendor/klh-card-activity.js"></script>` +
+				`<script type="module" src="/vendor/klh-board-register.js"></script>` +
 				`</head><body><div style="width:${width}px">` +
 				`<klh-card-activity></klh-card-activity></div></body></html>`,
 		}),
@@ -373,7 +373,7 @@ test("poll refresh retains node identity, focus and selection (spend)", {
 	// against the SAME timestamp, not a slot index (#102929).
 	for (let i = 0; i <= 10; i++) await page.keyboard.press("ArrowRight");
 	const tipBefore = await tipText(host);
-	expect(tipBefore).toContain("3 min");
+	expect(tipBefore).toContain("3-minute");
 	const stampLine = tipBefore.split("\n")[0] ?? "";
 	if (!stampLine) throw new Error("no dual stamp on the bin tip");
 	await host.evaluate((el) => {

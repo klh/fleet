@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd920.js";var y=()=>{let s=_("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>y()?.panels??null,C=()=>y()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),S=(s)=>`${(s*100).toFixed(1)}%`,k=r`
+import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{z}from"./lit-fbdd53458f7ad94d.js";var y=()=>{let s=z("usage-data");if(!s)return null;try{return JSON.parse(s.textContent??"")}catch{return null}},u=()=>y()?.panels??null,C=()=>y()?.slot??{},d=(s)=>s>=1e9?`${(s/1e9).toFixed(1)}B`:s>=1e6?`${(s/1e6).toFixed(1)}M`:s>=1000?`${(s/1000).toFixed(1)}K`:String(Math.round(s)),F=(s)=>s==null||!Number.isFinite(s)?"—":d(s),S=(s)=>`${(s*100).toFixed(1)}%`,k=r`
 	.upanel {
 		display: block;
 		background: var(--klh-surface, #1c1b19);
@@ -188,7 +188,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 		flex-wrap: wrap;
 		margin: 14px 0;
 	}
-`;class L extends n{static properties={rows:{type:Array,state:!0},query:{type:String,state:!0}};slot={};constructor(){super();this.rows=[],this.query=""}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=C()}render(){let s=u()?.actors;if(!s?.rows.length)return e`<div class="upanel"><h2>ACTORS</h2><p class="uempty">No actor usage in this window.</p></div>`;return this.body(s.rows)}body(s){let l=this.query.trim().toLocaleLowerCase(),i=l?s.filter((a)=>[a.actor,...a.chips,...a.models.map((o)=>o.m)].some((o)=>o.toLocaleLowerCase().includes(l))):s;return e`<div class="upanel">
+`;class _ extends n{static properties={rows:{type:Array,state:!0},query:{type:String,state:!0}};slot={};constructor(){super();this.rows=[],this.query=""}connectedCallback(){super.connectedCallback(),this.rows=u()?.actors?.rows??[],this.slot=C()}render(){let s=u()?.actors;if(!s?.rows.length)return e`<div class="upanel"><h2>ACTORS</h2><p class="uempty">No actor usage in this window.</p></div>`;return this.body(s.rows)}body(s){let l=this.query.trim().toLocaleLowerCase(),i=l?s.filter((a)=>[a.actor,...a.chips,...a.models.map((o)=>o.m)].some((o)=>o.toLocaleLowerCase().includes(l))):s;return e`<div class="upanel">
 			<div class="actor-head">
 				<h2>ACTORS · ${String(i.length)} OF ${String(s.length)}</h2>
 				<label>Search actor or model
@@ -250,7 +250,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 			</td>
 			<td class="unum">${d(s.tok)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}L.styles=[k,r`
+		</tr>`}}_.styles=[k,r`
 		.actor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
 		.actor-head h2 { margin:0; }
 		.actor-head label { display:flex; align-items:center; gap:8px; color:var(--klh-dim); font-size:11px; }
@@ -284,7 +284,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 		:host {
 			display: block;
 		}
-	`];class q extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let s=this.panel;if(!s)return e``;if(s.empty)return e`<div class="upanel">
+	`];class L extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.aids??null}render(){let s=this.panel;if(!s)return e``;if(s.empty)return e`<div class="upanel">
 				<h2>${s.title}</h2>
 				<p class="uempty">${s.empty}</p>
 			</div>`;return this.body(s)}body(s){return e`<div class="upanel">
@@ -310,11 +310,11 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 			<td class="unum">${d(s.inj)}</td>
 			<td class="unum">${d(s.skip)}</td>
 			<td class="unum">${d(s.tok)}</td>
-		</tr>`}}q.styles=[k,r`
+		</tr>`}}L.styles=[k,r`
 		:host {
 			display: block;
 		}
-	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class H extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let s=this.panel;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
+	`];var I={context:"#3987e5",planning:"#199e70",code:"#d95926",communicating:"#c98500"};class q extends n{static properties={panel:{type:Object,state:!0}};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.activity??null}render(){let s=this.panel;if(!s)return e``;if("empty"in s)return e`<div class="upanel">
 				<h2>WORK MIX</h2>
 				<p class="uempty">${s.empty}</p>
 			</div>`;return this.body(s)}body(s){let l=[...s.weekly].sort((i,a)=>a.d.localeCompare(i.d))[0];return e`<div class="upanel">
@@ -385,7 +385,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 			<td class="unum">${s.spr}</td>
 			<td class="unum">${d(s.cost)}</td>
 			<td class="unum">${d(s.req)}</td>
-		</tr>`}}H.styles=[k,r`
+		</tr>`}}q.styles=[k,r`
 		.mixbar { display:flex; height:12px; overflow:hidden; border-radius:3px; background:var(--klh-edge, #555); }
 		.mixbar span { display:block; height:100%; }
 		.mixlegend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:9px; font-size:11px; color:var(--klh-dim, #98958e); }
@@ -407,7 +407,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 		:host {
 			display: block;
 		}
-	`];var ee="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class z extends n{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let s=u()?.spokes;if(!s)return e``;if(!s.rows.length)return this.empty();return this.body(s.rows)}empty(){return e`<div class="upanel">
+	`];var ee="no spokes reporting — aggregate self-report is opt-in per team (default OFF; the hub policy lists opted-in teams under gateway.federation.self_report.teams)";class H extends n{static properties={panel:{type:Object,state:!0}};slot={};constructor(){super();this.panel=null}connectedCallback(){super.connectedCallback(),this.panel=u()?.spokes??null,this.slot=C()}render(){let s=u()?.spokes;if(!s)return e``;if(!s.rows.length)return this.empty();return this.body(s.rows)}empty(){return e`<div class="upanel">
 			<h2>SPOKES</h2>
 			<p class="uempty">${ee}</p>
 		</div>`}body(s){return e`<div class="upanel">
@@ -437,7 +437,7 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 			</td>
 			<td class="unum">${d(s.total)}</td>
 			<td class="unum">${d(s.rq)}</td>
-		</tr>`}}z.styles=[k,r`
+		</tr>`}}H.styles=[k,r`
 		:host {
 			display: block;
 		}
@@ -1207,4 +1207,4 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";import{_}from"./lit-1eff6173525dd
 								${this.dim==="lane"?e`<td class="dim2">${a.work===null?"—":`orient ${K(a.work.orient)} · ctx ${K(a.work.context)} · ${a.work.spr.toFixed(2)} srq`}</td>`:t}
 							</tr>`)}</tbody>
 					</table></div>`}
-		</div>`}}customElements.define("klh-usage-monitor",Z);customElements.define("klh-usage-header",M);customElements.define("klh-usage-tiles",P);customElements.define("klh-usage-actors",L);customElements.define("klh-usage-aids",q);customElements.define("klh-usage-activity",H);customElements.define("klh-usage-spokes",z);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",A);customElements.define("klh-usage-charts",N);
+		</div>`}}customElements.define("klh-usage-monitor",Z);customElements.define("klh-usage-header",M);customElements.define("klh-usage-tiles",P);customElements.define("klh-usage-actors",_);customElements.define("klh-usage-aids",L);customElements.define("klh-usage-activity",q);customElements.define("klh-usage-spokes",H);customElements.define("klh-usage-crosshub",O);customElements.define("klh-usage-drilldown",A);customElements.define("klh-usage-charts",N);

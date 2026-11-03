@@ -112,10 +112,15 @@ export class KlhTaskCardHost extends LitElement {
 		series: { attribute: false },
 		attempt: { attribute: false },
 		attemptView: { attribute: false },
-		/** #103127: the verb the mediator holds in flight — data-down; the
+			/** #103127: the verb the mediator holds in flight — data-down; the
 		 * card's footer disables that verb and shows busy text until the
 		 * mediator clears it. Never derived from the feed. */
 		pendingAction: { attribute: false },
+		/** Root #103404: the page-banked unsubmitted picks — re-hydrated on
+		 * the host after a structural rebuild (the previous card's own draft
+		 * fields died with it). Undefined keys mean "no banked draft". */
+		draftPick: { attribute: false },
+		draftEffort: { attribute: false },
 	};
 
 	declare t: Record<string, unknown> | null;
@@ -126,6 +131,8 @@ export class KlhTaskCardHost extends LitElement {
 	declare attempt: AttemptTimeline | null;
 	declare attemptView: boolean;
 	declare pendingAction: string;
+	declare draftPick: string | undefined;
+	declare draftEffort: string | undefined;
 
 	// Light DOM bridge: createRenderRoot returns this, so :host never
 	// matches — the page's .kcard rules own the wrapper box (W2267.4.2.2:
@@ -142,6 +149,8 @@ export class KlhTaskCardHost extends LitElement {
 		this.attempt = null;
 		this.attemptView = false;
 		this.pendingAction = "";
+		this.draftPick = undefined;
+		this.draftEffort = undefined;
 	}
 
 	// ── model derivation (validated shape in, card model out) ──
@@ -248,9 +257,13 @@ export class KlhTaskCardHost extends LitElement {
 			nested: this.hasAttribute("data-nested"),
 			preferColor: t.tag_color ?? undefined,
 			executors: this.executors,
-			executorPick: this.executorPick,
+			// Root #103404: a banked draft wins over the fresh default —
+			// the new card's own fields are empty, so the pick re-hydrates
+			// the select; once the user touches it again the card's own
+			// draft overrides from there.
+			executorPick: this.draftPick ?? this.executorPick,
 			effortOptions: this.effortOptions,
-			effortPick: "",
+			effortPick: this.draftEffort ?? "",
 			pendingAction: this.pendingAction || undefined,
 		};
 		const r = TaskCardModelSchema.safeParse(base);

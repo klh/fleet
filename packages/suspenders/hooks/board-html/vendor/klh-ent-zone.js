@@ -1,4 +1,4 @@
-import{r,e,n}from"./lit-9ab93f5debb235da.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(l,t)=>e`<span class="chip ${l}">${t}</span>`,o=(l)=>l===null||l===void 0?"—":new Date(l).toISOString().slice(5,16).replace("T"," "),c=(l)=>l>=1e6?`${(l/1e6).toFixed(1)}M`:l>=1000?`${(l/1000).toFixed(0)}k`:String(l);class i extends n{static properties={data:{state:!0}};static styles=r`
+import{r,e,n}from"./lit-b59bf30faa0b21f8.js";var u=["identity","federation","audit","usage","policy","vault","ma"];var a=(l,t)=>e`<span class="chip ${l}">${t}</span>`,o=(l)=>l===null||l===void 0?"—":new Date(l).toISOString().slice(5,16).replace("T"," "),c=(l)=>l>=1e6?`${(l/1e6).toFixed(1)}M`:l>=1000?`${(l/1000).toFixed(0)}k`:String(l);class i extends n{static properties={data:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			background: var(--klh-surface);

@@ -29,6 +29,19 @@
 // renders.ts embedDualStamp precedent — while the Lit mediator adopts the
 // one page-wide instance (globalThis.klhFeeds).
 
+declare global {
+	var klhFeeds: FeedStore | undefined;
+}
+
+/** The one page-wide store, whichever script reaches it first. Lives here
+ * (not in a mediator entry) so no vendored entry imports another entry —
+ * the bundler would otherwise duplicate the lit runtime across that seam
+ * (vendor-hash shared-chunk guard). */
+export function boardFeeds(): FeedStore {
+	globalThis.klhFeeds ??= new FeedStore().share();
+	return globalThis.klhFeeds;
+}
+
 export type FeedState = {
 	data: unknown;
 	err: string | null;

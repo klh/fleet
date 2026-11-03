@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var h=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],p={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class g extends n{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
+import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var h=[["prompt.condense","condense"],["prompt.enhance","enhance (local LLM)"],["prompt.debug","debug preview"],["prompt.log","log all stages"]],p={"prompt.condense":!1,"prompt.enhance":!1,"prompt.debug":!1,"prompt.log":!1};class g extends n{static properties={settings:{state:!0},view:{state:!0},busy:{state:!0},err:{state:!0},sent:{state:!0}};static styles=r`
 		:host {
 			display: block;
 			margin: 4px 0;
@@ -348,4 +348,4 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var h=[["prompt.condense","conden
 			${this.latest?e`<output>
 						${this.when(this.latest.ts)} — ${this.latest.text}
 					</output>`:""}
-		`}}customElements.define("klh-decision-eval",b);function f(){let s=document.querySelectorAll(".dec[data-id]");for(let i of s){if(i.querySelector("klh-decision-eval"))continue;let a=i.querySelector(".dec-actions")??i,l=document.createElement("klh-decision-eval");l.setAttribute("event-id",i.getAttribute("data-id")??""),a.appendChild(l)}}var w=new MutationObserver(f);function y(){let s=document.querySelector("#decisions");if(!s){setTimeout(y,300);return}w.observe(s,{childList:!0,subtree:!0}),f()}y();
+		`}}customElements.define("klh-decision-eval",b);function f(){let s=document.querySelectorAll(".dec[data-id]");for(let i of s){if(i.querySelector("klh-decision-eval"))continue;let a=i.querySelector(".dec-actions")??i.querySelector(".dbody")??i,l=document.createElement("klh-decision-eval");l.setAttribute("event-id",i.getAttribute("data-id")??""),a.appendChild(l)}}var w=new MutationObserver(f);function y(){let s=document.querySelector("#decisions");if(!s){setTimeout(y,300);return}w.observe(s,{childList:!0,subtree:!0}),f()}y();

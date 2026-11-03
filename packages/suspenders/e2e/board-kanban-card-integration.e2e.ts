@@ -284,3 +284,32 @@ test("assembled Recover → READY: no drawer, no dispatch (#103104)", {
 	// recover requeues only — no dispatch leg fired for this click
 	expect(dispatched.n).toBe(0);
 });
+
+test("unsubmitted drafts survive an unrelated recovery (root #103404)", {
+	tag: "@ui",
+}, async ({ page, cleanBoard }) => {
+	const ready = cleanBoard.mintedId(
+		cleanBoard.workOk(["add", "draft probe ready item"], "add"),
+	);
+	const failed = seedFailed(cleanBoard, "draft probe failed item");
+	await openLanes(page, cleanBoard);
+	const host = hostOf(page, ready);
+	await expect(host).toBeVisible({ timeout: 20_000 });
+	// pick codex + medium on the READY card (draft only — never submitted)
+	const execSel = `klh-task-card select.seg[aria-label="executor for ${ready}"]`;
+	await host.locator(execSel).selectOption("codex");
+	const effortSel = `klh-task-card select.seg[aria-label="reasoning effort for ${ready}"]`;
+	await host.locator(effortSel).selectOption("medium");
+	// the unrelated recovery: FAILED → READY is structural, the kanban
+	// rebuild recreates EVERY host (the draft died here before)
+	const failedHost = hostOf(page, failed);
+	await failedHost.locator("klh-task-card button.seg.recover").click();
+	await expect(
+		page.locator(
+			`.kcol[data-kcol-key="READY"] klh-task-card-host[data-kid="${failed}"]`,
+		),
+	).toBeVisible({ timeout: 20_000 });
+	// the probe card rebuilt — its selects re-hydrate the banked draft
+	await expect(host.locator(execSel)).toHaveValue("codex");
+	await expect(host.locator(effortSel)).toHaveValue("medium");
+});

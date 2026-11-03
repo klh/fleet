@@ -31,6 +31,29 @@ export class TaskCardActionRequestedEvent extends BoardEvent {
 	}
 }
 
+/** An unsubmitted footer selection changed (root #103404): the draft
+ * rides the event so the MEDIATOR banks it in a rebuild-proof map — the
+ * card's own fields die with it when a structural render (an unrelated
+ * card changing column) recreates every host. */
+export class TaskCardDraftChangedEvent extends BoardEvent {
+	static readonly eventName = "task-card-draft-changed" as const;
+	readonly id: string;
+	readonly project: string | null;
+	readonly executor?: string;
+	readonly effort?: string;
+	constructor(
+		id: string,
+		project: string | null,
+		draft?: { executor?: string; effort?: string },
+	) {
+		super(TaskCardDraftChangedEvent.eventName);
+		this.id = id;
+		this.project = project;
+		this.executor = draft?.executor;
+		this.effort = draft?.effort;
+	}
+}
+
 /** The id/title/age band was activated (click or Enter/Space on the ID
  * button) — the mediator opens the task drawer. */
 export class TaskCardOpenRequestedEvent extends BoardEvent {
@@ -47,6 +70,7 @@ export class TaskCardOpenRequestedEvent extends BoardEvent {
 declare global {
 	interface HTMLElementEventMap {
 		"task-card-action-requested": TaskCardActionRequestedEvent;
+		"task-card-draft-changed": TaskCardDraftChangedEvent;
 		"task-card-open-requested": TaskCardOpenRequestedEvent;
 	}
 }
