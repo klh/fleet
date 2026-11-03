@@ -71,6 +71,9 @@ export interface Ctx {
 	 *  carries the x-klh-traffic: readiness mark (the healthcheck sidecar's
 	 *  synthetic full-chain poll); 'inference' otherwise. */
 	trafficKind: string;
+	/** W2617 traffic class from the authenticated mint name (absent =
+	 *  interactive-grade — unknown callers never get the punitive class). */
+	trafficClass?: "lane" | "interactive";
 	/** W1106: the request's abort signal — the honest downstream_cancel
 	 *  evidence for stream receipts (Bun surfaces destination death lazily:
 	 *  a pipeTo only rejects on the NEXT failed write, so a quiet abort

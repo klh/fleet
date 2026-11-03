@@ -150,6 +150,7 @@ export async function runExecute(
 			sel,
 			tier: ctx.tier,
 			hintRaw: ctx.hintRaw,
+			trafficClass: ctx.trafficClass,
 		});
 	} catch (e) {
 		deps.table.inflight(sel.head.candidate_id, -1);

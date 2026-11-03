@@ -19,10 +19,9 @@ import { deriveAdapter } from "./adapters/types.ts";
 import { bridgeRequest, bridgeResponse } from "./bridge.ts";
 import { ColdMarks } from "./cold-marks.ts";
 import { retryAfterS } from "./cooldown.ts";
-import { clampRetryAfter } from "./http-kit.ts";
 import { peerErrorTrace } from "./error-trace.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import type { GatewayPolicy } from "./policy.ts";
-import { parseResilience, type ResilienceConfig } from "./resilience-config.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
 	bindProviderLease,
@@ -32,6 +31,7 @@ import {
 	providerPressureOf,
 	refusalShrinks,
 } from "./provider-admission-core.ts";
+import { parseResilience, type ResilienceConfig } from "./resilience-config.ts";
 import {
 	type RouterHost,
 	type TryOutcome,
@@ -164,7 +164,38 @@ export async function tryOnce(
 	// a refusal answers locally at once. No fetch, no queue, no sleep.
 	if (!host.cooldowns.cold.claimProbe(dep)) {
 		const gate = host.cooldowns.cold.gateOf(dep);
-		if (gate === null) return coldRefusal(host, dep, poolId, null);
+		if (gate === null) {
+			// W2617: one bounded INTERACTIVE wait — a short rate-shaped cold
+			// lapses and the waiter claims the half-open probe itself; lanes
+			// never wait (they back off before interactive is refused). The
+			// recursion is self-limiting: after the lapse the claim wins, and
+			// a probe stolen in between rides the in-flight verdict below.
+			const waitMs =
+				req.trafficClass === "lane"
+					? null
+					: interactiveColdWaitMs(host, dep, remainingWalkMs);
+			if (waitMs !== null) {
+				const waitStart = host.now();
+				await host.sleepMs(waitMs, req.signal);
+				if (req.signal?.aborted) throw req.signal.reason;
+				// Lapsed → the recursive frame's own claimProbe claims the probe
+				// (or rides a sibling's in-flight one). Still cold (the window
+				// grew) → the honest local answer stands, no second wait.
+				if (host.cooldowns.cold.state(dep) !== "cold")
+					return await tryOnce(
+						host,
+						req,
+						dep,
+						timeoutMs,
+						stream,
+						Number.isFinite(remainingWalkMs)
+							? Math.max(0, remainingWalkMs - (host.now() - waitStart))
+							: remainingWalkMs,
+						connectMs,
+					);
+			}
+			return coldRefusal(host, dep, poolId, null);
+		}
 		const rodeAt = host.now();
 		const rideMs = resilienceOf(host).admission_ride_ms;
 		const verdict = await ColdMarks.ride(
@@ -224,6 +255,9 @@ export async function tryOnce(
 					1,
 					Math.min(remainingWalkMs - 1, resilienceOf(host).max_queue_wait_ms),
 				),
+				// W2617: interactive callers dequeue ahead of backlogged lanes
+				// in the shared account pool's queue.
+				req.trafficClass === "lane" ? 0 : 1,
 			);
 		} catch (error) {
 			if (req.signal?.aborted) throw error;
@@ -549,6 +583,31 @@ function admissionRefusal(
 			pausedForMs === null ? 0 : Math.ceil(pausedForMs / 1000),
 		),
 	};
+}
+
+/** W2617: the ONE bounded wait an interactive caller may spend for a short
+ *  rate-shaped cold mark to lapse (then it claims the half-open probe
+ *  itself). Null when nothing is wait-worthy: lane class (instant local
+ *  answer — lanes back off before interactive is refused), a quota wall
+ *  (never waits), probe-busy (ride the in-flight verdict instead), the
+ *  knob off, or no walk budget left. */
+function interactiveColdWaitMs(
+	host: RouterHost,
+	dep: Deployment,
+	remainingWalkMs: number,
+): number | null {
+	if (host.cooldowns.cold.state(dep) !== "cold") return null;
+	if (host.cooldowns.cold.quotaWall(dep)) return null;
+	const remainS = host.cooldowns.cold.remainingS(dep);
+	if (remainS === null) return null;
+	const knobMs = resilienceOf(host).lanes.interactive_cold_wait_ms;
+	if (knobMs <= 0 || !Number.isFinite(remainingWalkMs)) return null;
+	const waitMs = Math.min(
+		remainS * 1000,
+		knobMs,
+		Math.max(0, remainingWalkMs - 1),
+	);
+	return waitMs > 0 ? waitMs : null;
 }
 
 /** The shared cold mark answering locally — no fetch, no sleep. */

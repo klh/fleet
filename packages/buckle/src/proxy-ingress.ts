@@ -33,6 +33,7 @@ import {
 import { keyIdFromToken, tokenFromHeaders } from "./ledger.ts";
 import { runExecute } from "./proxy-execute.ts";
 import { type Ctx, newRid, observe, trafficKindOf } from "./request-context.ts";
+import { trafficClassOf } from "./resilience-config.ts";
 import {
 	allowlistedBaggage,
 	newTraceparent,
@@ -206,6 +207,13 @@ export async function proxy(
 		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
 	}
 	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
+	// W2617: classify once at ingress from the AUTHENTICATED mint name —
+	// lane keys (dispatch-minted auto*/review*/ramp*) vs everything else.
+	// The router's pool queues and cold-mark answers key off this class.
+	ctx.trafficClass = trafficClassOf(
+		principal?.name ?? null,
+		deps.router.resilience,
+	);
 	const matchingGroup = deps.pool
 		.deployments(model)
 		.filter((dep) => pin === undefined || dep.adapter === pin);
