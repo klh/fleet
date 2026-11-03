@@ -259,6 +259,15 @@ export async function defaultFetch(
 			headers: wire.headers,
 			body: wire.body,
 			signal: ctrl.signal,
+			// W2588: Bun's fetch carries an independent default 5-minute
+			// socket-idle timer that aborts an open body IN BAND — observed as
+			// local.buckle.stream_failed 'The operation timed out' with
+			// timeoutPhase=null (the W450 guards never fired). timeout:false
+			// disables that hidden timer only; the explicit TTFB signal above,
+			// the W450 idle/total stream guards, and the caller abort stay the
+			// sole deadline authorities — bodies stay bounded by configured
+			// Fleet budgets, never unbounded.
+			timeout: false,
 		});
 	} catch (error) {
 		if (ctrl.signal.aborted) evidence.cancellation = "local_settled";
