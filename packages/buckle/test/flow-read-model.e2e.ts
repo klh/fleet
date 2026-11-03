@@ -6,9 +6,8 @@
 // signals (error-rate, guardrail blocks, unsettled climb).
 
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import {
 	FLOW_ROWS_CAP,
@@ -22,7 +21,12 @@ import type { Observation } from "../src/observe.ts";
 import { LaneProjection } from "../src/projection.ts";
 
 test.describe("@unit", () => {
-	const tmpDir = (): string => mkdtempSync(join(tmpdir(), "flow-model-"));
+	// W2673.3: kit-mandated scratch fixture (W1135.1.3) — seeded dbs live in
+	// the scratch home; world.clean() is the bounded teardown.
+	const world = (): { dir: string; clean: () => void } => {
+		const w = scratchWorld({ prefix: "flow-model-" });
+		return { dir: w.home, clean: () => w.clean() };
+	};
 
 	const NOW = Date.parse("2026-11-03T21:00:00.000Z");
 	const now = (): number => NOW;
@@ -67,7 +71,8 @@ test.describe("@unit", () => {
 	});
 
 	test("seeded window aggregates senders, gateway series, targets, attention", () => {
-		const dir = tmpDir();
+		const scratch = world();
+		const dir = scratch.dir;
 		try {
 			const proj = new LaneProjection(join(dir, "obs.db"));
 			// W2673.1 lane: 6 requests in-window (2 errored), 1 pre-window
@@ -257,12 +262,13 @@ test.describe("@unit", () => {
 				targetsTruncated: 0,
 			});
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			scratch.clean();
 		}
 	});
 
 	test("empty window stays honest: 0 counts, series [], no fabricated attention", () => {
-		const dir = tmpDir();
+		const scratch = world();
+		const dir = scratch.dir;
 		try {
 			const ledger = join(dir, "buckle.db");
 			new Ledger(ledger).close();
@@ -307,12 +313,13 @@ test.describe("@unit", () => {
 			expect(r.targets).toEqual([]);
 			expect(r.attention).toEqual([]);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			scratch.clean();
 		}
 	});
 
 	test("denied + degraded outcomes surface guardrail attention rows", () => {
-		const dir = tmpDir();
+		const scratch = world();
+		const dir = scratch.dir;
 		try {
 			const proj = new LaneProjection(join(dir, "obs.db"));
 			proj.ingest(
@@ -335,12 +342,13 @@ test.describe("@unit", () => {
 			expect(r.coverage.projectionAvailable).toBe(true);
 			expect(r.coverage.ledgerAvailable).toBe(false);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			scratch.clean();
 		}
 	});
 
 	test(`sender rows past the cap report truncation, never silent drop`, () => {
-		const dir = tmpDir();
+		const scratch = world();
+		const dir = scratch.dir;
 		try {
 			const proj = new LaneProjection(join(dir, "obs.db"));
 			const rows: Observation[] = [];
@@ -376,7 +384,7 @@ test.describe("@unit", () => {
 			// gateway totals stay full-fidelity (the cap is a display bound)
 			expect(r.gateway.requests).toBe(FLOW_ROWS_CAP + 3);
 		} finally {
-			rmSync(dir, { recursive: true, force: true });
+			scratch.clean();
 		}
 	});
 

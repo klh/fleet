@@ -67,8 +67,8 @@ export function topologyPayload() {
 
 /** W2673.1: the gateway flow feed payload — windowed request-edge
  *  aggregation (senders/gateway/targets/attention) over the same db-path
- *  resolution as the Network overview. window=1|5|10 (minutes); invalid
- *  or absent values normalize to 5 inside the read model. */
+ *  resolution as the Network overview. window=60|300|600 (seconds); invalid
+ *  or absent values normalize to 300 inside the read model. */
 export function flowPayload(windowRaw: string | null): FlowResult {
 	return flowSnapshot(
 		resolveNetworkDbPaths(process.env),
