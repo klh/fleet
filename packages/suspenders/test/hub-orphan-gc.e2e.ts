@@ -5,6 +5,8 @@
 // injected — no ssh, no git, no network.
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { scratchWorld } from "@klh/test-kit";
 import {
 	classifyWorktree,
 	claimTerminal,
@@ -19,6 +21,7 @@ import {
 } from "../hooks/lib/fleet-loop/hub-orphan-gc.ts";
 import {
 	ancestryProbe,
+	gcPaused,
 	toGcTarget,
 	type realGcExec,
 } from "../hooks/bin/hub-orphan-gc.ts";
@@ -145,6 +148,13 @@ test.describe("@unit", () => {
 			1_000_000,
 		);
 		expect(s).toContain("update-ref refs/recover/suspenders-W1-1000");
+		// B1 (W2661): HEAD resolves AT the worktree — the pin must carry the
+		// worktree -C, never the repo root (root HEAD is main's tip, an
+		// unrelated object; refs are shared, only the resolution point differs)
+		expect(s).toContain(
+			"git -C '/wt/a' update-ref refs/recover/suspenders-W1-1000",
+		);
+		expect(s).not.toContain(`git -C '${target.repoRoot}' update-ref`);
 		expect(s).toContain("worktree remove '/wt/a'");
 		expect(s).toContain("branch -d 'suspenders/W1'");
 		expect(s).not.toContain("branch -d 'suspenders/W2'");
@@ -230,6 +240,8 @@ test.describe("@unit", () => {
 			ancestry: () => ({ merged: true, pushed: true }),
 		});
 		expect(r.authorityReachable).toBe(false);
+		// N3: authority loss is NOT hub-connectivity loss — the listing ran
+		expect(r.listingFailed).toBe(false);
 		expect(r.rows.every((x) => x.action !== "reap")).toBe(true);
 		expect(r.serves).toEqual([]);
 		expect(acts).toEqual([]);
@@ -242,6 +254,8 @@ test.describe("@unit", () => {
 			claimState: () => "DONE",
 		});
 		expect(r.authorityReachable).toBe(false);
+		// N3: the listing itself failed — hub connectivity, not authority loss
+		expect(r.listingFailed).toBe(true);
 		expect(r.rows).toEqual([]);
 	});
 
@@ -313,5 +327,49 @@ test.describe("@unit", () => {
 			"--repo",
 			"/repo",
 		]);
+	});
+
+	test("N1: gcPaused keys on .fleet/hub-orphan-gc-paused in the authority repo", () => {
+		const world = scratchWorld({ prefix: "klh-gc-pause-" });
+		try {
+			expect(gcPaused(world.repo)).toBe(false);
+			mkdirSync(join(world.repo, ".fleet"), { recursive: true });
+			writeFileSync(join(world.repo, ".fleet", "hub-orphan-gc-paused"), "");
+			expect(gcPaused(world.repo)).toBe(true);
+		} finally {
+			world.clean();
+		}
+		// a repo without .fleet at all never pauses
+		expect(gcPaused("/nonexistent-klh-gc")).toBe(false);
+	});
+
+	test("N1: paused bin exits before any hub fire — dry-run 1, act 0, PAUSED on stderr", () => {
+		const world = scratchWorld({ prefix: "klh-gc-pausespawn-" });
+		try {
+			mkdirSync(join(world.repo, ".fleet"), { recursive: true });
+			writeFileSync(join(world.repo, ".fleet", "hub-orphan-gc-paused"), "");
+			const run = (act: boolean) =>
+				Bun.spawnSync(
+					[
+						process.execPath,
+						join(import.meta.dir, "../hooks/bin/hub-orphan-gc.ts"),
+						...(act ? ["--act"] : []),
+						"--repo",
+						world.repo,
+					],
+					{
+						cwd: import.meta.dir,
+						env: { ...process.env, KLH_STACK_CONF: "/nonexistent/stack.json" },
+						stdout: "pipe",
+						stderr: "pipe",
+					},
+				);
+			const dry = run(false);
+			expect(dry.exitCode).toBe(1);
+			expect(new TextDecoder().decode(dry.stderr)).toContain("PAUSED");
+			expect(run(true).exitCode).toBe(0);
+		} finally {
+			world.clean();
+		}
 	});
 });

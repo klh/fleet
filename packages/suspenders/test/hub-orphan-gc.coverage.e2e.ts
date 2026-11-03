@@ -121,6 +121,40 @@ test.describe("@unit", () => {
 			});
 			// a live claim on the SAME real tree protects it (fail-closed)
 			expect(fire("CLAIMED").rows[0]?.action).toBe("protected");
+			// B1 (W2661): the REAL act fire pins the REAPED WORKTREE's tip —
+			// the branch is ahead of main, so a repo-root HEAD pin (main's tip)
+			// would capture the wrong object. Execute the real reap script and
+			// dereference the pin: it must equal the worktree's own HEAD.
+			const wtTip = new TextDecoder()
+				.decode(
+					Bun.spawnSync(["git", "-C", wt, "rev-parse", "HEAD"], {
+						cwd: world.repo,
+						env: world.env,
+						stdout: "pipe",
+					}).stdout,
+				)
+				.trim();
+			const reap = gcHub(target, {
+				act: true,
+				exec,
+				claimState: () => "DONE",
+				ancestry: () => ({ merged: true, pushed: true }),
+			});
+			expect(reap.reaped).toBe(1);
+			const pinned = new TextDecoder()
+				.decode(
+					Bun.spawnSync(
+						["git", "-C", world.repo, "for-each-ref", "refs/recover"],
+						{
+							cwd: world.repo,
+							env: world.env,
+							stdout: "pipe",
+						},
+					).stdout,
+				)
+				.trim();
+			const [pinnedSha] = pinned.split(/\s+/);
+			expect(pinnedSha).toBe(wtTip);
 		} finally {
 			world.clean();
 		}

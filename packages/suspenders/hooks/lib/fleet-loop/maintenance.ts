@@ -206,8 +206,9 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		// lane_gc.repo_root, reaped only when the claim is TERMINAL at the
 		// authority and the tip is merged-or-pushed. Authority unreachable =
 		// scan-only (connectivity-gated, the MultiKueue runGC law). Hubs
-		// without lane_gc are a no-op. `.fleet/hub-orphan-gc-paused`-style
-		// pausing rides the lane_gc config absence (unset = opted out).
+		// without lane_gc are a no-op (opted out). `.fleet/hub-orphan-gc
+		// -paused` in the authority repo pauses the fire entirely (N1,
+		// W2661 — rogue-reap W827 parity).
 		name: "hub-orphan-gc",
 		everySeconds: 1800,
 		nice: 10,

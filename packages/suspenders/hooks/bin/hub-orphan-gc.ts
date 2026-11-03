@@ -15,8 +15,12 @@
 // Dry-run is the default (monitor doctrine: alerts first); --act reaps.
 // The fleet-loop maintenance registry fires it with --act every 30 min.
 // Quiet-hours hubs are skipped (W483: never act into a dark window).
-// Exit 1 when a dry-run finds reapable rows or serves (a human should
-// notice), else 0; 2 on argv misuse.
+// `.fleet/hub-orphan-gc-paused` in the authority repo (N1, W2661 —
+// rogue-reap W827 parity) skips the fire entirely: dry-run exit 1 so a
+// monitor still notices the pause. Exit 1 when a dry-run finds reapable
+// rows or serves (a human should notice), else 0; 2 on argv misuse.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import {
 	type HubGcTarget,
@@ -34,6 +38,13 @@ export interface HubGcProfile {
 	deploy?: { ssh?: string; connect_timeout?: number };
 	lane_gc?: { repo_root?: string };
 	quiet_hours?: string;
+}
+
+/** N1 (W2661): the operator kill switch, rogue-reap W827 parity — the
+ * file's presence in the authority repo skips every hub fire (checked
+ * before loadStack, so a paused GC touches nothing). */
+export function gcPaused(repo: string): boolean {
+	return existsSync(join(repo, ".fleet", "hub-orphan-gc-paused"));
 }
 
 /** Map a stack hub profile to a GC target; null when it carries no
@@ -130,6 +141,15 @@ async function main(argv: string[]): Promise<number> {
 	const json = outcome.parsed.flag("--json") === "true";
 	const only = outcome.parsed.flag("--hub");
 	const repo = outcome.parsed.flag("--repo") ?? process.cwd();
+	// N1 (W2661): operator kill switch, rogue-reap W827 parity — the file's
+	// presence skips every hub fire; dry-run still exits 1 so a monitor sees
+	// the pause instead of a silent green.
+	if (gcPaused(repo)) {
+		console.error(
+			"hub-orphan-gc: PAUSED — .fleet/hub-orphan-gc-paused present, no hubs fired",
+		);
+		return act ? 0 : 1;
+	}
 	const stack = loadStack();
 	const exec = realGcExec(120_000);
 	// authority face: the manager-side governor store. openStore throw or a
@@ -170,8 +190,16 @@ async function main(argv: string[]): Promise<number> {
 				r.reaped || r.survivors || r.killed
 					? ` reaped=${r.reaped} survivors=${r.survivors} killed=${r.killed}`
 					: "";
+			// N3 (W2661): hub-connectivity loss and authority loss are
+			// different failures — the listing never ran vs claims unreadable.
+			// Never label a failed listing "AUTHORITY UNREACHABLE".
+			const status = r.listingFailed
+				? " · HUB UNREACHABLE (no listing — nothing scanned)"
+				: r.authorityReachable
+					? ""
+					: " · AUTHORITY UNREACHABLE (scan-only)";
 			console.log(
-				`${r.hub}: ${r.rows.length} row(s)${tail}${r.authorityReachable ? "" : " · AUTHORITY UNREACHABLE (scan-only)"}${r.dryRun ? " · dry-run" : ""}`,
+				`${r.hub}: ${r.rows.length} row(s)${tail}${status}${r.dryRun ? " · dry-run" : ""}`,
 			);
 		}
 	}
@@ -191,6 +219,7 @@ async function main(argv: string[]): Promise<number> {
 						survivors: r.survivors,
 						killed: r.killed,
 						unreachable: !r.authorityReachable,
+						listingFailed: r.listingFailed,
 					})),
 				},
 				store ?? openStore(),

@@ -96,6 +96,10 @@ export interface HubGcReport {
 	dryRun: boolean;
 	/** authority store unreadable — scan-only, nothing classified reapable */
 	authorityReachable: boolean;
+	/** N3 (W2661): the listing leg itself failed (hub connectivity — ssh
+	 * refused, timeout). Distinct from authority loss: the hub was never
+	 * reached, so nothing was scanned, let alone classified. */
+	listingFailed: boolean;
 }
 
 export type HubGcExec = (
@@ -213,8 +217,11 @@ export function scopedServes(
 
 /** The act leg: pin the tip (refs/recover — reference-before-delete), then
  * remove the reaped worktrees, -d the merged branches, TERM the scoped
- * serves. Pids validated numeric (>1); paths/branches ride single
- * quoting — every value came from git's own listing, not free text. */
+ * serves. The pin resolves HEAD AT THE WORKTREE — at the clone root HEAD
+ * is main's tip, an unrelated object (B1, W2661); refs are shared across
+ * worktrees, so the pin is visible hub-side after the remove. Pids
+ * validated numeric (>1); paths/branches ride single quoting — every
+ * value came from git's own listing, not free text. */
 export function reapScript(
 	t: HubGcTarget,
 	rows: { worktree: string; branch: string; merged: boolean }[],
@@ -225,7 +232,7 @@ export function reapScript(
 	for (const r of rows) {
 		const safe = r.branch.replace(/[^A-Za-z0-9._-]/g, "-");
 		lines.push(
-			`git -C ${shQuote(t.repoRoot)} update-ref refs/recover/${safe}-${Math.floor(now / 1000)} HEAD`,
+			`git -C ${shQuote(r.worktree)} update-ref refs/recover/${safe}-${Math.floor(now / 1000)} HEAD`,
 			`git -C ${shQuote(t.repoRoot)} worktree remove ${shQuote(r.worktree)} || { git -C ${shQuote(t.repoRoot)} worktree prune; git -C ${shQuote(t.repoRoot)} worktree remove ${shQuote(r.worktree)}; }`,
 		);
 		if (r.merged)
@@ -314,10 +321,11 @@ export function gcHub(
 		killed: 0,
 		dryRun: !opts.act,
 		authorityReachable: true,
+		listingFailed: false,
 	};
 	const listing = opts.exec(target, listScript(target));
 	if (listing.code !== 0)
-		return { ...base, authorityReachable: false, rows: [] };
+		return { ...base, authorityReachable: false, listingFailed: true };
 	const { worktrees, ps } = parseHubGcListing(listing.out);
 	let reachable = true;
 	const guarded: ClaimStateFace = (item) => {
@@ -370,6 +378,7 @@ export function gcHub(
 			rows: finalRows,
 			serves: reachable ? serves : [],
 			authorityReachable: reachable,
+			listingFailed: false,
 		};
 	const reapRows = finalRows
 		.filter((r) => r.action === "reap")
@@ -398,6 +407,7 @@ export function gcHub(
 			survivors: reapRows.length,
 			killed: serves.length,
 			authorityReachable: true,
+			listingFailed: true,
 		};
 	const left = new Set(
 		parseHubGcListing(verify.out).worktrees.map((w) => w.worktree),

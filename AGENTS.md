@@ -322,9 +322,11 @@ gui/$(id -u)/<label>` revives):
     monitor, db-backup, harvest, quota-sweep, dispatch-watchdog, llm-
     keepwarm, coord-worker, auto-install, soak, rogue-reap W827, license-
     audit W828, metrics-alert W782.2.1, knowledge-sync W944, hub-orphan-gc
-    W2321.5 (hub-side lane-worktree + serve GC, authority-gated) —
-    reaps lane-leaked serve processes in stale .worktrees dirs + prunes
-    merged-and-clean worktrees; `.fleet/rogue-reap-paused` pauses) are
+    W2321.5 (hub-side lane-worktree + serve GC, authority-gated) — rogue-
+    reap reaps lane-leaked serve processes in stale .worktrees dirs and
+    prunes merged-and-clean worktrees, paused via
+    `.fleet/rogue-reap-paused`; hub-orphan-gc pauses separately via
+    `.fleet/hub-orphan-gc-paused` in the authority repo (N1, W2661)) are
     NOT launchd units —
     they are typed tasks fired by the ONE fleet-loop cycle, each task
     owning its cadence and fan-out (hooks/lib/fleet-loop/maintenance.ts;
