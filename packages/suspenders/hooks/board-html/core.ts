@@ -147,8 +147,10 @@ feeds.subscribe('dec', function(st){
   decLoaded = true;
 });
 // klh-decisions-mediator forwards the dec payload's projects list here —
-// noteProjects owns the #proj option list (W2550.1)
-window.addEventListener('dec-projects', function(e){
+// noteProjects owns the #proj option list (W2550.1). The typeof guard keeps
+// the chunk evaluable in windowless sandboxes (unit tests eval CORE bytes
+// via new Function with no window in scope).
+if (typeof window !== 'undefined') window.addEventListener('dec-projects', function(e){
   if (e && e.detail) noteProjects(e.detail);
 });
 // merge every good response's 'projects' list into the global filter
