@@ -45,7 +45,9 @@ test("status-nav jump brings the last column fully into view", {
 	await page.locator(".kcol").first().waitFor({ state: "visible" });
 	const jumps = page.locator("#kstatusnav button[data-kcol]");
 	const count = await jumps.count();
-	if (count < 2) test.skip(true, "board renders one column — nothing to jump");
+	// the seeded world always renders the status columns (hideEmpty columns
+	// with items stay) — fewer than 2 jumps means the nav never built
+	expect(count, "status-nav jump buttons rendered").toBeGreaterThanOrEqual(2);
 	// click the LAST jump (the rightmost column — the one clipping complained about)
 	await jumps.nth(count - 1).click();
 	await page.waitForTimeout(900); // smooth scroll settles
