@@ -97,7 +97,7 @@ test.describe("hub-side probe leg @unit", () => {
 		{ mode: 0o755 },
 	);
 	const rootPath = join(dir, "root.env");
-	writeFileSync(rootPath, "BUCKLE_ROOT_KEY=rootsecret" + NL, { mode: 0o600 });
+	writeFileSync(rootPath, `BUCKLE_ROOT_KEY=rootsecret${NL}`, { mode: 0o600 });
 
 	const hub = {
 		buckle_port: 14399,
@@ -139,7 +139,7 @@ test.describe("hub-side probe leg @unit", () => {
 		let seen = "";
 		const argvRunner: ServiceKeyRunner = (_h, script) => {
 			seen = script;
-			return "200" + NL;
+			return `200${NL}`;
 		};
 		probeHubMessages(argvRunner, hub, "test", {});
 		expect(seen).not.toContain("bksk_");

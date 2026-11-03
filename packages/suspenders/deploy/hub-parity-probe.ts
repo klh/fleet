@@ -55,7 +55,7 @@ const PROBE_LINES = [
 		"hub root key missing at $1" +
 		DQ +
 		" >&2; exit 3; }",
-	"M=$(curl --max-time 15 -sS -X POST " + BS,
+	`M=$(curl --max-time 15 -sS -X POST ${BS}`,
 	"  -H " +
 		DQ +
 		"Authorization: Bearer $K" +
@@ -72,7 +72,7 @@ const PROBE_LINES = [
 		SQ +
 		" " +
 		BS,
-	"  " + DQ + "http://127.0.0.1:$2/v1/admin/keys" + DQ + ")",
+	`  ${DQ}http://127.0.0.1:$2/v1/admin/keys${DQ})`,
 	"LK=$(printf %s " +
 		BSDQ +
 		"$M" +
@@ -92,7 +92,7 @@ const PROBE_LINES = [
 		DQ +
 		" >&2; exit 4; }",
 	"B=$(cat)",
-	"curl --max-time 30 -sS -o /dev/null -X POST " + BS,
+	`curl --max-time 30 -sS -o /dev/null -X POST ${BS}`,
 	"  -H " +
 		DQ +
 		"Authorization: Bearer $LK" +
