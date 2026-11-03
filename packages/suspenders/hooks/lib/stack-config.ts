@@ -137,6 +137,9 @@ export const StackAuthSchema = z
 	})
 	.loose();
 
+// W1303.4 schema-first: derived from StackAuthSchema — never hand-written.
+export type StackAuth = z.infer<typeof StackAuthSchema>;
+
 /** Deploy source: git ref pins + origin overrides (never host paths). */
 export const HubReposSchema = z
 	.object({
@@ -217,6 +220,18 @@ export const HubProfileSchema = z
 		/** W1217: the hub knowledge sink (aggregated claim store; declaring it
 		 *  enables the `knowledge` compose profile — sink + health probe). */
 		knowledge: z
+			.object({
+				port: z.number().optional(),
+				health_port: z.number().optional(),
+			})
+			.loose()
+			.optional(),
+		/** W2595 owner ruling: litellm behind every buckle. Declaring `litellm:`
+		 *  enables the `litellm` compose profile — the version-pinned engine
+		 *  container + its outside-process health sidecar. The litellm.yaml +
+		 *  copilot token cache are operator-maintained 0600 files beside the
+		 *  compose dir; keys ride the same upstream.env as the gate. */
+		litellm: z
 			.object({
 				port: z.number().optional(),
 				health_port: z.number().optional(),

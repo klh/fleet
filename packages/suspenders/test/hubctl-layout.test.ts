@@ -15,13 +15,16 @@ function render(
 	version?: string,
 	repos?: Record<string, string>,
 	beltModel?: { port: number; health_port: number; upstream: string },
+	litellm?: { port?: number; health_port?: number },
 ) {
 	const stack = join(dir, "stack.json");
 	writeFileSync(
 		stack,
 		JSON.stringify({
 			version,
-			hubs: { test: { host: "localhost", repos, belt_model: beltModel } },
+			hubs: {
+				test: { host: "localhost", repos, belt_model: beltModel, litellm },
+			},
 		}),
 	);
 	const result = Bun.spawnSync(
@@ -69,6 +72,41 @@ test("Belt model proxy is an optional outside-probed hub service", () => {
 	);
 });
 
+test("LiteLLM engine is an optional outside-probed hub service (W2595)", () => {
+	const engine = compose.services["litellm-hub"];
+	const health = compose.services["litellm-health"];
+	expect(engine.profiles).toEqual(["litellm"]);
+	expect(health.profiles).toEqual(["litellm"]);
+	// official image pinned by digest; version == the Mac engine's 1.103.0
+	expect(String(engine.image)).toContain(
+		"ghcr.io/berriai/litellm:v1.103.0@sha256:",
+	);
+	// host network + loopback bind in argv (side entrance law)
+	expect(engine.network_mode).toBe("host");
+	expect(engine.command.join(" ")).toContain("--host 127.0.0.1");
+	// token cache + config mount read-only; secrets ride env_file, not image
+	expect(engine.environment.GITHUB_COPILOT_TOKEN_DIR).toBe(
+		"/etc/litellm/copilot-tokens",
+	);
+	expect(String(JSON.stringify(engine.volumes))).toContain(":ro");
+	// outside-process health verdict: the sidecar probes /v1/models with the
+	// master key; compose health hits the SIDECAR
+	expect(health.network_mode).toBe("host");
+	expect(String(health.command)).toContain("/v1/models");
+	expect(String(health.command)).toContain("LITELLM_KEY");
+	expect(health.healthcheck.test.join(" ")).toContain("/healthz");
+	const absent = render("reviewed-sha");
+	expect(absent.text).not.toContain("COMPOSE_PROFILES=litellm");
+	const configured = render("reviewed-sha", undefined, undefined, {
+		port: 4130,
+		health_port: 4131,
+	});
+	expect(configured.code).toBe(0);
+	expect(configured.text).toContain("COMPOSE_PROFILES=litellm");
+	expect(configured.text).toContain("HUB_LITELLM_PORT=4130");
+	expect(configured.text).toContain("HUB_LITELLM_HEALTH_PORT=4131");
+});
+
 test("all hub services share one pinned monorepo with prepared dependencies", () => {
 	expect(
 		Object.keys(compose.services).filter((name) => name.endsWith("-repo")),
@@ -82,8 +120,10 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 	expect(compose.services["fleet-deps"].command).toContain("--frozen-lockfile");
 	// Changing the pinned source must recreate both preparation and runtime
 	// containers; dependency ordering alone does not restart an existing app.
+	// (litellm-hub is the official third-party image — it carries no
+	// FLEET_VERSION knob; W2595.)
 	for (const [name, service] of Object.entries(compose.services)) {
-		if (name !== "fleet-repo" && name !== "hub-init")
+		if (name !== "fleet-repo" && name !== "hub-init" && name !== "litellm-hub")
 			expect(
 				(service as { environment: Record<string, string> }).environment
 					.FLEET_VERSION,

@@ -7,7 +7,7 @@ import type { UpstreamRequest } from "../router.ts";
 import type { Deployment } from "../upstreams.ts";
 import { usageFromAnthropic } from "../usage.ts";
 import { normalizeUpstreamError } from "./errors.ts";
-import { stripRemovedSampling } from "./tools.ts";
+import { stripBodyFields, stripRemovedSampling } from "./tools.ts";
 import {
 	bearerHeaders,
 	type ChatAdapter,
@@ -28,11 +28,14 @@ export const ANTHROPIC: ChatAdapter = {
 		req: UpstreamRequest,
 		body: Record<string, unknown>,
 	): Promise<WireCall> {
-		const wire: Record<string, unknown> = stripRemovedSampling(
-			{
-				...body,
-				model: dep.model ?? body.model,
-			},
+		const wire: Record<string, unknown> = stripBodyFields(
+			stripRemovedSampling(
+				{
+					...body,
+					model: dep.model ?? body.model,
+				},
+				dep.adapter_config,
+			),
 			dep.adapter_config,
 		);
 		return {
