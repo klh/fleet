@@ -1,33 +1,562 @@
-import{d,r,e,x,n}from"./lit-9ab93f5debb235da.js";import{R,S}from"./lit-d0a4ab47142753b5.js";import{s,c,m,a,i,g,w,o,u}from"./lit-42c6a144d6343828.js";import{f,O,M,P,Z}from"./lit-9fc84bcd57e604e3.js";var ct=new Set,N=(t,l)=>{if(customElements.get(t))throw Error(`defineElement: <${t}> is already defined — ONE register point per workspace`);ct.add(t),customElements.define(t,l)};var W=1.5;function dt(t,l,h,p=180000){let b=Array.from({length:h},()=>null);for(let _ of t){let v=Math.floor((_[0]-l)/p);if(v>h-1)v=h-1;if(v<0)continue;let k=b[v];if(k==null)k={fresh:0,cached:0,out:0},b[v]=k;k.fresh+=_[1],k.cached+=_[2],k.out+=_[3]}return b}function ut(t,l,h=6,p=180000){let b=Math.max(1,Math.floor(l/h)),_=t;return{count:b,slotMs:p,start:_-b*p,end:_}}var mt={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function Q(t,l,h){if(!t.length)return mt;let{POSITIVE_INFINITY:p,NEGATIVE_INFINITY:b}=Number;for(let E of t){if(E[0]<p)p=E[0];if(E[0]>b)b=E[0]}let _=ut(b,l),v=h??Math.max(_.start,p),k=Math.ceil((b-v)/_.slotMs)+1,y=Math.max(1,Math.min(_.count,k));return{bins:dt(t,v,y),firstTs:p,windowStart:v,windowEnd:v+y*_.slotMs,count:y,slotMs:_.slotMs,startClipped:v>p,hasData:!0}}function L(t){let l=new Date(t),h=(p)=>String(p).padStart(2,"0");return`${h(l.getHours())}:${h(l.getMinutes())}`}function Y(t,l,h=86400000){let p=l/2;if(t===null||t===void 0)return{visible:!1,center:p,half:0,start:p,end:p,saturated:!1};if(!Number.isFinite(t)||t<=0)return{visible:!1,center:p,half:0,start:p,end:p,saturated:!1};let b=Math.min(l/2,t/h*(l/2));return{visible:!0,center:p,half:b,start:p-b,end:p+b,saturated:t>=h}}function A(t){if(!Number.isFinite(t)||t<=0)return"0m";let l=Math.round(t/60000);if(l<60)return`${l}m`;return`${Math.floor(l/60)}h ${String(l%60).padStart(2,"0")}m`}function D(t=86400000){return`${t/3600000}h`}function H(t,l,h,p){let b=Math.max(1,h-l),_=(t-l)/b*p;return Math.max(0,Math.min(p,_))}function B(t){let l=[];for(let p of t.attempt.segments){if(p.end<=p.start)continue;l.push({kind:p.kind,start:p.start,end:p.end})}let h=[];for(let p of t.milestones){if(p.ts<t.windowStart||p.ts>t.windowEnd)continue;h.push({kind:"milestone",start:p.ts,end:p.ts,commit:p.commit,stage:p.stage})}return{segs:l,milestones:h}}function tt(t,l,h,p,b){for(let _ of t.milestones){let v=H(_.start,h,p,b);if(Math.abs(l-v)<=6)return _}for(let _ of t.segs){let v=H(_.start,h,p,b),k=H(_.end,h,p,b);if(l>=v&&l<=Math.max(k,v+1))return _}return null}function K(t,l,h,p){if(t.kind==="milestone")return[`artifact · ${t.stage??""}`,h(t.start),`commit ${t.commit??""}`].join(`
-`);let b=[`${t.kind} · ${p(t.end-t.start)}`,h(t.start,t.end)];if(t.kind==="firstbyte")b.push("first attributed ledger request — not network latency");if(t.kind==="tool")b.push("request-row minutes — not tool-call duration");if(t.kind==="unknown")b.push("no fact covers this gap");return b.push(`attempt ${l.attempt.index} · ${l.attempt.sid}`),b.join(`
-`)}var j=13,U=14,z=5;function nt(t){let l=t.attempt.claimEnd??t.windowEnd,h=Math.min(l,t.windowEnd)-t.attempt.claimStart;return h>0?h:null}function V(t,l){return l===void 0?f(t):Z(t,l).join(`
-`)}function ht(t,l){let{segs:h,milestones:p}=B(t),b=[];for(let _ of h){let v=H(_.start,t.windowStart,t.windowEnd,l),k=Math.max(v+1,H(_.end,t.windowStart,t.windowEnd,l));b.push(x`<rect
-				class="at-${_.kind}"
-				x=${v.toFixed(1)}
-				y=${j}
-				width=${(k-v).toFixed(1)}
-				height=${U}
+import{d,r,e,x,t,n}from"./lit-9ab93f5debb235da.js";import{h,y,P,s,c,T,m,a,i,g,S,o,u}from"./lit-0a9982d0e15be9ce.js";import{f,I,A,M,L}from"./lit-bbcd2c46a367dbcd.js";var zt=new Set,U=(l,p)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);zt.add(l),customElements.define(l,p)};function pt(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function dt(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function ut(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function ht(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var K=o(u(s())),D=o(u(c())),Ct=i({value:s(),label:s(),badge:o(s()),reasoningEffort:o(T())}),Ht=i({tokens:D,wallMs:D,tokPerMin:D,cachePct:D}),Ot=i({mode:S(["spend","attempt"]),windowStartMs:D,windowEndMs:D,binMs:D,elapsedMs:D,scaleMs:D}),ft=i({id:s(),project:K,title:K,state:s(),ageS:D,contextLines:o(a(s())),parentRef:K,model:K,host:K,warn:K,metrics:o(Ht),activity:o(Ot),nested:o(T()),preferColor:K,executors:o(a(Ct)),executorPick:K,effortOptions:o(a(s())),effortPick:K,pendingAction:K});function mt(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function gt(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let p=Math.round(l/60000);if(p>=60)return`${Math.floor(p/60)}h${String(p%60).padStart(2,"0")}m`;return`${p}m`}function bt(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function vt(l){if(l==null)return"—";return`${Math.round(l)}%`}var kt=r`${d(`@charset "UTF-8";
+/* tone → color, self-contained: the page maps data-tone on .kcard/
+   .kcol only, so the card owns its own --state-color token map. */
+:host([data-tone=ready]) {
+  --state-color: var(--work-ready);
+}
+
+:host([data-tone=working]) {
+  --state-color: var(--work-working);
+}
+
+:host([data-tone=blocked]) {
+  --state-color: var(--work-blocked);
+}
+
+:host([data-tone=failed]) {
+  --state-color: var(--work-failed);
+}
+
+:host([data-tone=done]) {
+  --state-color: var(--work-done);
+}
+
+:host([data-tone=split]) {
+  --state-color: var(--work-split);
+}
+
+:host([data-tone=cancelled]) {
+  --state-color: var(--work-cancelled);
+}
+
+:host {
+  /* the host IS the card surface: configurable semantic perimeter
+     (—prefer) independent of --state-color; nested children dashed.
+     position:relative anchors the nested elbow (absolute, hung into
+     the indent gutter) to THIS card, not an unrelated ancestor. */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  border: 1px solid var(--prefer, var(--state-color, var(--klh-edge-soft)));
+  border-radius: 3px;
+  background: var(--klh-wash);
+  font: var(--klh-text-md, var(--klh-typo-size-m, 12px))/1.45 var(--klh-font-sans, var(--klh-typo-sans-stack));
+  color: var(--klh-ink);
+  min-width: 0;
+}
+
+:host([data-nested]) {
+  border-style: dashed;
+}
+
+:host([data-nested]) .elbow {
+  position: absolute;
+  left: -13px;
+  top: 13px;
+  color: var(--prefer, var(--klh-edge-strong));
+  font: var(--klh-typo-size-s, 11px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+}
+
+.wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 9px 0 0;
+}
+
+.pad {
+  padding: 0 12px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* #101242: the readable 12px band — 10px stays axis/units only */
+  font-size: var(--klh-typo-size-m, 12px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--state-color, var(--klh-dim));
+}
+
+.sq {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--state-color, var(--klh-dim));
+  align-self: center;
+}
+
+.stw {
+  font-weight: 600;
+}
+
+.age {
+  margin-left: auto;
+  color: var(--klh-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tid {
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--klh-ink);
+  /* #101242: prominent own-line mono ID — 20px readable at 380 too */
+  font: 600 var(--klh-typo-size-3xl, 20px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.tid:hover {
+  text-decoration: underline;
+}
+
+.title {
+  margin: 2px 0 0;
+  font-weight: 650;
+  font-size: var(--klh-typo-size-2xl, 16px);
+  line-height: 1.35;
+  /* long text truncates visually, full text stays accessible on hover */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.ctx {
+  margin: 3px 0 0;
+  color: var(--klh-dim);
+  font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--klh-edge-faint);
+  margin: 7px 0 0;
+}
+
+.cols {
+  display: flex;
+  gap: 0;
+  margin-top: 5px;
+  /* model/host values sit in the spec's 12–13px band (#100618) */
+  font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+}
+
+.col {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
+.col:first-child {
+  padding-left: 0;
+}
+
+.col:last-child {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.col b {
+  font-weight: 600;
+  color: var(--klh-ink-2);
+}
+
+.lab {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--klh-dim);
+}
+
+.warn {
+  margin: 7px 0 0;
+  border-left: 2px solid var(--work-failed, var(--klh-danger));
+  background: var(--klh-danger-wash);
+  padding: 4px 8px;
+  font-size: var(--klh-typo-size-m, 12px);
+  color: var(--klh-danger-ink);
+}
+
+.warn .wl {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  margin-right: 5px;
+}
+
+.warn .wt {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metrics {
+  display: flex;
+  margin-top: 8px;
+}
+
+.m {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 10px;
+  /* #103117: reference 09 card left-aligns every metric cell */
+  text-align: left;
+}
+
+.m:first-child {
+  padding-left: 0;
+}
+
+.m + .m {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.mv {
+  font: 600 var(--klh-typo-size-2xl, 16px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  font-variant-numeric: tabular-nums;
+  color: var(--klh-ink);
+}
+
+.ml {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--klh-typo-size-2xs, 10px);
+  letter-spacing: var(--klh-typo-track-label, 0.09em);
+  text-transform: uppercase;
+  color: var(--klh-dim);
+  white-space: nowrap;
+}
+
+.details {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--klh-dim);
+}
+
+/* the activity slot sits flush at the card bottom: the strip's own
+   1px duration rail + ~13px axis area ride the slot, no extra padding. */
+.activity {
+  display: block;
+  margin-top: 8px;
+  padding: 0;
+}
+
+footer {
+  /* neutral segmented rail, full-width flush bottom — zero margin so
+     the axis area of the slotted strip abuts it exactly (#100618) */
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  border-top: 1px solid var(--klh-edge-faint);
+  background: var(--klh-surface);
+  border-radius: 0 0 2px 2px;
+}
+
+footer:empty {
+  display: none;
+}
+
+.spacer {
+  /* the lone Prompt/Report sits rightmost; the rail's empty left
+     half stays bare surface with the segment dividers at the right */
+  flex: 1 1 auto;
+}
+
+.seg.tail {
+  /* bounded (not equal-share): the rightmost affordance keeps its
+     own width, divider at its left edge, rail bare before it */
+  flex: 0 1 auto;
+  padding-inline: 14px;
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.seg {
+  flex: 1 1 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--klh-ink-2);
+  font: var(--klh-typo-size-s, 11px) var(--klh-font-sans, var(--klh-typo-sans-stack));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg + .seg {
+  border-left: 1px solid var(--klh-edge-faint);
+}
+
+.seg:hover {
+  background: var(--klh-surface-hi);
+  color: var(--klh-ink);
+}
+
+.seg.retry {
+  color: var(--klh-danger-ink);
+}
+
+.seg.recover {
+  font-weight: 600;
+}
+
+.seg.prompt {
+  color: var(--klh-accent);
+}
+
+.seg select {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  background: var(--klh-field);
+  color: var(--klh-ink);
+  border: 1px solid var(--klh-edge-mid);
+  border-radius: 2px;
+  font: var(--klh-typo-size-xs, 10.5px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  padding: 0 4px;
+}
+
+footer button.seg:focus-visible,
+.tid:focus-visible,
+.seg select:focus-visible {
+  outline: 2px solid var(--klh-accent);
+  outline-offset: -2px;
+}`)}`;class J extends h{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,p,v,b){super(J.eventName);this.action=l,this.id=p,this.project=v,this.executor=b?.executor,this.effort=b?.effort}}class Q extends h{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,p,v){super(Q.eventName);this.id=l,this.project=p,this.executor=v?.executor,this.effort=v?.effort}}class tt extends h{static eventName="task-card-open-requested";id;project;constructor(l,p){super(tt.eventName);this.id=l,this.project=p}}var rt="—";class st extends n{static properties={card:{attribute:!1}};static styles=kt;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return pt(this.card.state)}open(){this.dispatchEvent(new tt(this.card.id,this.card.project??null))}act(l,p){this.dispatchEvent(new J(l,this.card.id,this.card.project??null,p))}draft(l){this.dispatchEvent(new Q(this.card.id,this.card.project??null,l))}statusWord(){return dt(this.card.state)}render(){let l=this.card,p=this.tone(),v=l.metrics??null,b=l.ageS==null?rt:P(l.ageS),k=l.ageS==null?"age unknown":`open ${y(l.ageS)}`,w=l.executors??[],_=l.executorPick??"",E=l.effortOptions??[],R=l.effortPick??"",C=l.pendingAction??"",O=(z,Z)=>C===z?`${Z}…`:Z,N=(z)=>C===z,B=(z)=>C===z?"true":"false";return e`
+			${l.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
+			<div class="wrap">
+				<div class="pad">
+				<div class="head">
+					<span class="sq" data-tone=${p}></span>
+					<span class="stw">${this.statusWord()}</span>
+					<span class="age" title=${k}>${b}</span>
+				</div>
+				<button class="tid" type="button" @click=${this.open}>
+					${l.id}
+				</button>
+				${l.title?e`<div class="title" title=${l.title}>${l.title}</div>`:t}
+				${(l.contextLines??[]).map((z)=>e`<div class="ctx" title=${z}>${z}</div>`)}
+				${l.parentRef?e`<div class="ctx" title=${`parent ${l.parentRef}`}
+							>↳ ${l.parentRef}</div
+						>`:t}
+				<hr class="rule" />
+				<div class="cols">
+					<div class="col">
+						<span class="lab">model</span>
+						<b title=${l.model??""}>${l.model??rt}</b>
+					</div>
+					<div class="col">
+						<span class="lab">host</span>
+						<b title=${l.host??""}>${l.host??rt}</b>
+					</div>
+				</div>
+				<hr class="rule" />
+				${l.warn?e`<div class="warn" role="note">
+							<span class="wl">${ut(l.warn)}</span>
+							<span class="wt" title=${l.warn}>${ht(l.warn)}</span>
+						</div>`:t}
+				<div class="metrics">
+					<div class="m">
+						<span class="mv">${mt(v?.tokens)}</span>
+						<span class="ml">tokens</span>
+					</div>
+					<div class="m">
+						<span class="mv">${gt(v?.wallMs)}</span>
+						<span class="ml">time</span>
+					</div>
+					<div class="m">
+						<span class="mv">${bt(v?.tokPerMin)}</span>
+						<span class="ml">tok/min</span>
+					</div>
+					<div class="m">
+						<span class="mv">${vt(v?.cachePct)}</span>
+						<span class="ml">cache</span>
+					</div>
+				</div>
+				<slot class="details" name="details"></slot>
+				</div>
+				<slot class="activity" name="activity"></slot>
+			</div>
+			<footer>
+				${p==="failed"?e`<button
+							class="seg retry"
+							type="button"
+							?disabled=${N("retry")}
+							aria-busy=${B("retry")}
+							@click=${()=>this.act("retry")}
+						>
+							${O("retry","Retry")}
+						</button>
+						<button
+							class="seg recover"
+							type="button"
+							?disabled=${N("recover")}
+							aria-busy=${B("recover")}
+							@click=${()=>this.act("recover")}
+						>
+							${O("recover","Recover → Ready")}
+						</button>
+						<button
+							class="seg prompt"
+							type="button"
+							@click=${()=>this.act("prompt")}
+						>
+							Prompt ↗
+						</button>`:t}
+				${p==="ready"&&w.length?e`<select
+							class="seg"
+							aria-label=${`executor for ${l.id}`}
+							@change=${(z)=>{this.draftExecutor=z.target.value,this.draft({executor:this.draftExecutor})}}
+						>
+							${w.map((z)=>e`<option
+									value=${z.value}
+									?selected=${z.value===(this.draftExecutor??_)}
+								>
+									${z.badge??""}${z.label}
+								</option>`)}
+						</select>
+						${E.length?e`<select
+									class="seg"
+									aria-label=${`reasoning effort for ${l.id}`}
+									@change=${(z)=>{this.draftEffort=z.target.value,this.draft({effort:this.draftEffort})}}
+								>
+									${E.map((z)=>e`<option
+											value=${z}
+											?selected=${z===(this.draftEffort??R)}
+										>
+											${z}
+										</option>`)}
+								</select>`:t}
+						<button
+							class="seg start"
+							type="button"
+							title="dispatch on the chosen executor"
+							?disabled=${N("start")}
+							aria-busy=${B("start")}
+							@click=${()=>this.act("start",{executor:this.draftExecutor??_,effort:this.draftEffort??R})}
+						>
+							${O("start","Start ▶")}
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`:t}
+				${p==="ready"&&!w.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${p==="working"&&!w.length?e`<button
+								class="seg release"
+								type="button"
+								title="release the claim — a live lane banks its capsule and exits"
+								?disabled=${N("release")}
+								aria-busy=${B("release")}
+								@click=${()=>this.act("release")}
+							>
+								${O("release","Release ⏏")}
+							</button>
+							<span class="spacer"></span>
+							${this.promptSeg()}`:t}
+				${p==="working"&&w.length?e`<select
+							class="seg"
+							aria-label=${`reassign executor for ${l.id}`}
+							@change=${(z)=>{this.draftExecutor=z.target.value,this.draft({executor:this.draftExecutor})}}
+						>
+							${w.map((z)=>e`<option
+									value=${z.value}
+									?selected=${z.value===(this.draftExecutor??_)}
+								>
+									${z.badge??""}${z.label}
+								</option>`)}
+						</select>
+						<button
+							class="seg reassign"
+							type="button"
+							title="release + re-dispatch on the chosen executor"
+							?disabled=${N("reassign")}
+							aria-busy=${B("reassign")}
+							@click=${()=>this.act("reassign",{executor:this.draftExecutor??_})}
+						>
+							${O("reassign","Reassign ↻")}
+						</button>
+						<button
+							class="seg release"
+							type="button"
+							title="release the claim — a live lane banks its capsule and exits"
+							?disabled=${N("release")}
+							aria-busy=${B("release")}
+							@click=${()=>this.act("release")}
+						>
+							${O("release","Release ⏏")}
+						</button>
+						<span class="spacer"></span>
+						${this.promptSeg()}`:t}
+				${p==="done"?e`<span class="spacer"></span>
+						<button
+							class="seg tail report"
+							type="button"
+							title="open this item's report view"
+							@click=${()=>this.act("report")}
+						>
+							Report ▸
+						</button>
+						${this.promptSeg()}`:t}
+				${p!=="failed"&&p!=="ready"&&p!=="working"&&p!=="done"?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+			</footer>
+		`}promptSeg(){return e`<button
+			class="seg tail prompt"
+			type="button"
+			@click=${()=>this.act("prompt")}
+		>
+			Prompt ↗
+		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var it=1.5;function It(l,p,v,b=180000){let k=Array.from({length:v},()=>null);for(let w of l){let _=Math.floor((w[0]-p)/b);if(_>v-1)_=v-1;if(_<0)continue;let E=k[_];if(E==null)E={fresh:0,cached:0,out:0},k[_]=E;E.fresh+=w[1],E.cached+=w[2],E.out+=w[3]}return k}function Pt(l,p,v=6,b=180000){let k=Math.max(1,Math.floor(p/v)),w=l;return{count:k,slotMs:b,start:w-k*b,end:w}}var Lt={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function xt(l,p,v){if(!l.length)return Lt;let{POSITIVE_INFINITY:b,NEGATIVE_INFINITY:k}=Number;for(let C of l){if(C[0]<b)b=C[0];if(C[0]>k)k=C[0]}let w=Pt(k,p),_=v??Math.max(w.start,b),E=Math.ceil((k-_)/w.slotMs)+1,R=Math.max(1,Math.min(w.count,E));return{bins:It(l,_,R),firstTs:b,windowStart:_,windowEnd:_+R*w.slotMs,count:R,slotMs:w.slotMs,startClipped:_>b,hasData:!0}}function Y(l){let p=new Date(l),v=(b)=>String(b).padStart(2,"0");return`${v(p.getHours())}:${v(p.getMinutes())}`}function at(l,p,v=86400000){let b=p/2;if(l===null||l===void 0)return{visible:!1,center:b,half:0,start:b,end:b,saturated:!1};if(!Number.isFinite(l)||l<=0)return{visible:!1,center:b,half:0,start:b,end:b,saturated:!1};let k=Math.min(p/2,l/v*(p/2));return{visible:!0,center:b,half:k,start:b-k,end:b+k,saturated:l>=v}}function q(l){if(!Number.isFinite(l)||l<=0)return"0m";let p=Math.round(l/60000);if(p<60)return`${p}m`;return`${Math.floor(p/60)}h ${String(p%60).padStart(2,"0")}m`}function et(l=86400000){return`${l/3600000}h`}function j(l,p,v,b){let k=Math.max(1,v-p),w=(l-p)/k*b;return Math.max(0,Math.min(b,w))}function G(l){let p=[];for(let b of l.attempt.segments){if(b.end<=b.start)continue;p.push({kind:b.kind,start:b.start,end:b.end})}let v=[];for(let b of l.milestones){if(b.ts<l.windowStart||b.ts>l.windowEnd)continue;v.push({kind:"milestone",start:b.ts,end:b.ts,commit:b.commit,stage:b.stage})}return{segs:p,milestones:v}}function yt(l,p,v,b,k){for(let w of l.milestones){let _=j(w.start,v,b,k);if(Math.abs(p-_)<=6)return w}for(let w of l.segs){let _=j(w.start,v,b,k),E=j(w.end,v,b,k);if(p>=_&&p<=Math.max(E,_+1))return w}return null}function X(l,p,v,b){if(l.kind==="milestone")return[`artifact · ${l.stage??""}`,v(l.start),`commit ${l.commit??""}`].join(`
+`);let k=[`${l.kind} · ${b(l.end-l.start)}`,v(l.start,l.end)];if(l.kind==="firstbyte")k.push("first attributed ledger request — not network latency");if(l.kind==="tool")k.push("request-row minutes — not tool-call duration");if(l.kind==="unknown")k.push("no fact covers this gap");return k.push(`attempt ${p.attempt.index} · ${p.attempt.sid}`),k.join(`
+`)}var ot=13,lt=14,F=5;function Tt(l){let p=l.attempt.claimEnd??l.windowEnd,v=Math.min(p,l.windowEnd)-l.attempt.claimStart;return v>0?v:null}function nt(l,p){return p===void 0?f(l):L(l,p).join(`
+`)}function Nt(l,p){let{segs:v,milestones:b}=G(l),k=[];for(let w of v){let _=j(w.start,l.windowStart,l.windowEnd,p),E=Math.max(_+1,j(w.end,l.windowStart,l.windowEnd,p));k.push(x`<rect
+				class="at-${w.kind}"
+				x=${_.toFixed(1)}
+				y=${ot}
+				width=${(E-_).toFixed(1)}
+				height=${lt}
 				rx="2"
-			/>`)}for(let _ of p){let v=H(_.start,t.windowStart,t.windowEnd,l),k=j+U/2;b.push(x`<path
+			/>`)}for(let w of b){let _=j(w.start,l.windowStart,l.windowEnd,p),E=ot+lt/2;k.push(x`<path
 				class="at-ms"
-				d="M ${v.toFixed(1)},${(k-z).toFixed(1)} l ${z},${z} l -${z},${z} l -${z},-${z} Z"
-			/>`)}return e`${b}`}var et=(t)=>({kind:t.kind,start:t.start});function it(t){return{hover:(p,b)=>{let _=p.currentTarget;if(!b||!_){t.hide();return}let v=_.getBoundingClientRect();if(v.width===0)return;let k=tt(B(b),p.clientX-v.left,b.windowStart,b.windowEnd,v.width);if(!k){t.hide();return}t.setTip(K(k,b,V,A),-1,et(k)),t.placeTip(p.clientX,p.clientY)},hide:()=>t.hide(),keydown:(p,b)=>{if(p.key==="Escape"){t.hide(),p.target.blur();return}if(p.key!=="ArrowLeft"&&p.key!=="ArrowRight")return;p.preventDefault();let _=t.slot(),{milestones:v,segs:k}=B(b),y=[...v,...k];if(!y.length)return;let E=p.key==="ArrowLeft"?-1:1,F=Math.max(0,Math.min(y.length-1,_+E)),q=y[F];if(!q)return;t.setTip(K(q,b,V,A),F,et(q));let J=p.currentTarget;if(J){let G=J.getBoundingClientRect(),lt=H(q.start,b.windowStart,b.windowEnd,G.width);t.placeTip(G.left+lt,G.top+8)}},slot:()=>t.slot()}}function st(t,l){return e`<div class="axis">
-		<span>${L(t.windowStart)}</span>
-		<span>${l} · ${t.binMs/60000}m/bin</span>
-		<span>${L(t.windowEnd)}</span>
-	</div>`}function rt(t,l,h){return e`<svg
+				d="M ${_.toFixed(1)},${(E-F).toFixed(1)} l ${F},${F} l -${F},${F} l -${F},-${F} Z"
+			/>`)}return e`${k}`}var wt=(l)=>({kind:l.kind,start:l.start});function _t(l){return{hover:(b,k)=>{let w=b.currentTarget;if(!k||!w){l.hide();return}let _=w.getBoundingClientRect();if(_.width===0)return;let E=yt(G(k),b.clientX-_.left,k.windowStart,k.windowEnd,_.width);if(!E){l.hide();return}l.setTip(X(E,k,nt,q),-1,wt(E)),l.placeTip(b.clientX,b.clientY)},hide:()=>l.hide(),keydown:(b,k)=>{if(b.key==="Escape"){l.hide(),b.target.blur();return}if(b.key!=="ArrowLeft"&&b.key!=="ArrowRight")return;b.preventDefault();let w=l.slot(),{milestones:_,segs:E}=G(k),R=[..._,...E];if(!R.length)return;let C=b.key==="ArrowLeft"?-1:1,O=Math.max(0,Math.min(R.length-1,w+C)),N=R[O];if(!N)return;l.setTip(X(N,k,nt,q),O,wt(N));let B=b.currentTarget;if(B){let z=B.getBoundingClientRect(),Z=j(N.start,k.windowStart,k.windowEnd,z.width);l.placeTip(z.left+Z,z.top+8)}},slot:()=>l.slot()}}function $t(l,p){return e`<div class="axis">
+		<span>${Y(l.windowStart)}</span>
+		<span>${p} · ${l.binMs/60000}m/bin</span>
+		<span>${Y(l.windowEnd)}</span>
+	</div>`}function St(l,p,v){return e`<svg
 		class="plot"
-		viewBox="0 0 ${l} 40"
+		viewBox="0 0 ${p} 40"
 		preserveAspectRatio="none"
 		role="img"
-		aria-label="Current attempt: fixed 90-minute window, ${t.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
+		aria-label="Current attempt: fixed 90-minute window, ${l.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
 		tabindex="0"
-		@pointermove=${(p)=>h.hover(p,t)}
-		@pointerleave=${()=>h.hide()}
-		@keydown=${(p)=>h.keydown(p,t)}
+		@pointermove=${(b)=>v.hover(b,l)}
+		@pointerleave=${()=>v.hide()}
+		@keydown=${(b)=>v.keydown(b,l)}
 	>
-		${ht(t,l)}
-	</svg>`}var ot=r`
+		${Nt(l,p)}
+	</svg>`}var Et=r`
 	.plot rect.at-queue {
 		fill: var(--klh-chart-axis, #898781);
 	}
@@ -56,7 +585,7 @@ import{d,r,e,x,n}from"./lit-9ab93f5debb235da.js";import{R,S}from"./lit-d0a4ab471
 		font: 400 11px/1.5 ui-monospace, SFMono-Regular, monospace;
 		color: var(--klh-chart-axis, #898781);
 	}
-`;var at=r`${d(`@charset "UTF-8";
+`;var Mt=r`${d(`@charset "UTF-8";
 :host {
   display: block;
   font: 11px/1.5 ui-sans-serif, system-ui;
@@ -144,8 +673,8 @@ import{d,r,e,x,n}from"./lit-9ab93f5debb235da.js";import{R,S}from"./lit-d0a4ab471
   font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
   white-space: pre-line;
   pointer-events: none;
-}`)}`;class X extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[at,ot];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let l=this._plotEl()?.clientWidth??0;if(l!==this._width)this._width=l,this.requestUpdate()});let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let t=this._plotEl();if(t&&this._ro)this._width=t.clientWidth,this._ro.observe(t)}updated(){let t=this._plotEl();if(t&&this._ro)this._ro.observe(t)}update(t){if(super.update(t),!t.has("points")&&!t.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:p,segs:b}=B(this.attempt),_=[...p,...b],v=this._tipRef,k=_.findIndex((y)=>y.kind===v.kind&&y.start===v.start);if(k<0){this._hideTip();return}this._tip=K(_[k],this.attempt,V,A),this._slot=k;return}let l=this._spec;if(!l.hasData||this._tipTs===null){if(!l.hasData)this._hideTip();return}let h=Math.floor((this._tipTs-(l.windowStart??0))/l.slotMs);if(h<0||h>=l.count){this._hideTip();return}this._slot=h,this._tip=this._tipText(l,h)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return Q(this.points,this._width||240)}_hover=(t)=>{let l=this._plotEl(),h=this._spec;if(!l||!h.hasData){this._hideTip();return}let p=l.getBoundingClientRect();if(p.width===0)return;let b=Math.max(0,Math.min(h.count-1,Math.floor((t.clientX-p.left)/p.width*h.count)));this._slot=b,this._tip=this._tipText(h,b),this._tipTs=(h.windowStart??0)+b*h.slotMs,this.requestUpdate(),this._placeTip(t.clientX,t.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(t)=>{let l=this._spec;if(t.key==="Escape"){this._hide();return}if(t.key!=="ArrowLeft"&&t.key!=="ArrowRight")return;t.preventDefault();let h=t.key==="ArrowLeft"?-1:1,p=Math.max(0,Math.min(l.count-1,this._slot+h));this._slot=p,this._tip=this._tipText(l,p),this._tipTs=(l.windowStart??0)+p*l.slotMs,this.requestUpdate();let b=this._plotEl();if(b){let _=b.getBoundingClientRect();this._placeTip(_.left+(p+0.5)/l.count*_.width,_.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(t,l){let h=t.bins[l],p=(t.windowStart??0)+l*t.slotMs,b=[f(p),`${O(p,M(p)!==P(p))} · ${t.slotMs/60000}-minute bin`];if(h)b.push(`Fresh input ${h.fresh.toLocaleString("en-US")}`),b.push(`Cached input ${h.cached.toLocaleString("en-US")}`),b.push(`Output ${h.out.toLocaleString("en-US")}`);else b.push("no requests in this bin");return b.join(`
-`)}_barsSvg(t){let h=(this._width||240)/t.count,p=0;for(let _ of t.bins)if(_)p=Math.max(p,_.fresh+_.cached);let b=[];if(p>0)for(let _=0;_<t.count;_++){let v=t.bins[_];if(!v)continue;let k=_*h+(h-W)/2;b.push(this._barRects(v,k,p))}if(!b.length)return e``;return x`<defs>
+}`)}`;class ct extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[Mt,Et];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let p=this._plotEl()?.clientWidth??0;if(p!==this._width)this._width=p,this.requestUpdate()});let l=this._plotEl();if(l&&this._ro)this._ro.observe(l)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let l=this._plotEl();if(l&&this._ro)this._width=l.clientWidth,this._ro.observe(l)}updated(){let l=this._plotEl();if(l&&this._ro)this._ro.observe(l)}update(l){if(super.update(l),!l.has("points")&&!l.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:b,segs:k}=G(this.attempt),w=[...b,...k],_=this._tipRef,E=w.findIndex((R)=>R.kind===_.kind&&R.start===_.start);if(E<0){this._hideTip();return}this._tip=X(w[E],this.attempt,nt,q),this._slot=E;return}let p=this._spec;if(!p.hasData||this._tipTs===null){if(!p.hasData)this._hideTip();return}let v=Math.floor((this._tipTs-(p.windowStart??0))/p.slotMs);if(v<0||v>=p.count){this._hideTip();return}this._slot=v,this._tip=this._tipText(p,v)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return xt(this.points,this._width||240)}_hover=(l)=>{let p=this._plotEl(),v=this._spec;if(!p||!v.hasData){this._hideTip();return}let b=p.getBoundingClientRect();if(b.width===0)return;let k=Math.max(0,Math.min(v.count-1,Math.floor((l.clientX-b.left)/b.width*v.count)));this._slot=k,this._tip=this._tipText(v,k),this._tipTs=(v.windowStart??0)+k*v.slotMs,this.requestUpdate(),this._placeTip(l.clientX,l.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(l)=>{let p=this._spec;if(l.key==="Escape"){this._hide();return}if(l.key!=="ArrowLeft"&&l.key!=="ArrowRight")return;l.preventDefault();let v=l.key==="ArrowLeft"?-1:1,b=Math.max(0,Math.min(p.count-1,this._slot+v));this._slot=b,this._tip=this._tipText(p,b),this._tipTs=(p.windowStart??0)+b*p.slotMs,this.requestUpdate();let k=this._plotEl();if(k){let w=k.getBoundingClientRect();this._placeTip(w.left+(b+0.5)/p.count*w.width,w.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(l,p){let v=l.bins[p],b=(l.windowStart??0)+p*l.slotMs,k=[f(b),`${I(b,A(b)!==M(b))} · ${l.slotMs/60000}-minute bin`];if(v)k.push(`Fresh input ${v.fresh.toLocaleString("en-US")}`),k.push(`Cached input ${v.cached.toLocaleString("en-US")}`),k.push(`Output ${v.out.toLocaleString("en-US")}`);else k.push("no requests in this bin");return k.join(`
+`)}_barsSvg(l){let v=(this._width||240)/l.count,b=0;for(let w of l.bins)if(w)b=Math.max(b,w.fresh+w.cached);let k=[];if(b>0)for(let w=0;w<l.count;w++){let _=l.bins[w];if(!_)continue;let E=w*v+(v-it)/2;k.push(this._barRects(_,E,b))}if(!k.length)return e``;return x`<defs>
 			<linearGradient id="klh-spec-fresh" x1="0" y1="1" x2="0" y2="0">
 				<stop offset="0" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="1" />
 				<stop offset="1" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="0.45" />
@@ -155,17 +684,17 @@ import{d,r,e,x,n}from"./lit-9ab93f5debb235da.js";import{R,S}from"./lit-d0a4ab471
 				<stop offset="1" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.4" />
 			</linearGradient>
 		</defs>
-		${b}`}_barRects(t,l,h){let b=[],_=0,v=[[t.fresh,"spark-fresh"],[t.cached,"spark-cached"]];for(let[k,y]of v){if(k<=0)continue;let E=Math.max(0.5,k/h*38);b.push(x`<rect
-					class=${y}
-					x=${l.toFixed(1)}
-					y=${Math.max(1,39-_-E).toFixed(1)}
-					width=${W}
-					height=${E.toFixed(1)}
-				/>`),_+=E}return e`${b}`}_hairlineHtml(){let t=this._width||240,l=Y(this._hairWallMs(),t);if(!l.visible)return null;return e`<div
-			class="hairline${l.saturated?" saturated":""}"
+		${k}`}_barRects(l,p,v){let k=[],w=0,_=[[l.fresh,"spark-fresh"],[l.cached,"spark-cached"]];for(let[E,R]of _){if(E<=0)continue;let C=Math.max(0.5,E/v*38);k.push(x`<rect
+					class=${R}
+					x=${p.toFixed(1)}
+					y=${Math.max(1,39-w-C).toFixed(1)}
+					width=${it}
+					height=${C.toFixed(1)}
+				/>`),w+=C}return e`${k}`}_hairlineHtml(){let l=this._width||240,p=at(this._hairWallMs(),l);if(!p.visible)return null;return e`<div
+			class="hairline${p.saturated?" saturated":""}"
 			role="img"
-			aria-label="elapsed ${A(this._hairWallMs()??0)} of ${D()} scale${l.saturated?" — saturated at full width":""}"
-			title="elapsed ${A(this._hairWallMs()??0)} of ${D()} scale${l.saturated?" — saturated at full width":""}"
+			aria-label="elapsed ${q(this._hairWallMs()??0)} of ${et()} scale${p.saturated?" — saturated at full width":""}"
+			title="elapsed ${q(this._hairWallMs()??0)} of ${et()} scale${p.saturated?" — saturated at full width":""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -173,44 +702,44 @@ import{d,r,e,x,n}from"./lit-9ab93f5debb235da.js";import{R,S}from"./lit-d0a4ab471
 		>
 			<span
 				class="span"
-				style="left:${l.start.toFixed(1)}px;width:${(l.end-l.start).toFixed(1)}px"
+				style="left:${p.start.toFixed(1)}px;width:${(p.end-p.start).toFixed(1)}px"
 			></span>
-		</div>`}_hairFocus=()=>{let t=this._width||240,l=Y(this._hairWallMs(),t);if(!l.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${A(this._hairWallMs()??0)} of ${D()} scale`+(l.saturated?" — saturated at full width":""),this.requestUpdate();let h=this._plotEl()?.getBoundingClientRect();if(h)this._placeTip(h.left+l.center/Math.max(1,t)*h.width,h.bottom+2)};_hairKey=(t)=>{if(t.key==="Escape")this._hideTip(),this.requestUpdate(),t.target.blur()};_axisHtml(t){let l=this._tzLabel();return e`<div class="axis">
-			<span>${t.hasData?L(t.windowStart??0):""}</span>
+		</div>`}_hairFocus=()=>{let l=this._width||240,p=at(this._hairWallMs(),l);if(!p.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${q(this._hairWallMs()??0)} of ${et()} scale`+(p.saturated?" — saturated at full width":""),this.requestUpdate();let v=this._plotEl()?.getBoundingClientRect();if(v)this._placeTip(v.left+p.center/Math.max(1,l)*v.width,v.bottom+2)};_hairKey=(l)=>{if(l.key==="Escape")this._hideTip(),this.requestUpdate(),l.target.blur()};_axisHtml(l){let p=this._tzLabel();return e`<div class="axis">
+			<span>${l.hasData?Y(l.windowStart??0):""}</span>
 			<span
-				>${t.hasData?`${l} · ${t.slotMs/60000}m/bin`:"no activity"}</span
+				>${l.hasData?`${p} · ${l.slotMs/60000}m/bin`:"no activity"}</span
 			>
-			<span>${t.hasData?L(t.windowEnd??0):""}</span>
-		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),l=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(l/60)).padStart(2,"0")}:${String(l%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,l){let h=()=>{let b=this.renderRoot.querySelector(".tip");if(!b)return;let _=Math.min(t+10,window.innerWidth-b.offsetWidth-8),v=l-b.offsetHeight-10;b.style.left=`${Math.max(8,_)}px`,b.style.top=`${v>=8?v:l+12}px`};if(this.renderRoot.querySelector(".tip")){h();return}this.updateComplete.then(h).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?nt(this.attempt):this.wallMs}get _stripHost(){return{setTip:(t,l,h)=>{this._tip=t,this._slot=l,this._tipRef=h??null,this.requestUpdate()},placeTip:(t,l)=>this._placeTip(t,l),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=it(this._stripHost);_renderAttempt(){let t=this.attempt,l=this._width||240;if(!t)return e`<div class="attempt-empty" role="img">
+			<span>${l.hasData?Y(l.windowEnd??0):""}</span>
+		</div>`}_tzLabel(){let l=-new Date().getTimezoneOffset(),p=Math.abs(l);return`UTC${l>=0?"+":"-"}${String(Math.floor(p/60)).padStart(2,"0")}:${String(p%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(l,p){let v=()=>{let k=this.renderRoot.querySelector(".tip");if(!k)return;let w=Math.min(l+10,window.innerWidth-k.offsetWidth-8),_=p-k.offsetHeight-10;k.style.left=`${Math.max(8,w)}px`,k.style.top=`${_>=8?_:p+12}px`};if(this.renderRoot.querySelector(".tip")){v();return}this.updateComplete.then(v).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?Tt(this.attempt):this.wallMs}get _stripHost(){return{setTip:(l,p,v)=>{this._tip=l,this._slot=p,this._tipRef=v??null,this.requestUpdate()},placeTip:(l,p)=>this._placeTip(l,p),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=_t(this._stripHost);_renderAttempt(){let l=this.attempt,p=this._width||240;if(!l)return e`<div class="attempt-empty" role="img">
 					no attempt in the fixed 90-minute window
 				</div>`;return e`
-			${rt(t,l,this._attemptHandlers)}
+			${St(l,p,this._attemptHandlers)}
 			${this._hairlineHtml()}
-			${st(t,this._tzLabel())}
+			${$t(l,this._tzLabel())}
 			${this._tip?this._tipHtml():null}
-		`}render(){if(this.mode==="attempt")return this._renderAttempt();let t=this._spec;return e`
+		`}render(){if(this.mode==="attempt")return this._renderAttempt();let l=this._spec;return e`
 			<svg
 				class="plot"
 				viewBox="0 0 ${this._width||240} 40"
 				preserveAspectRatio="none"
 				role="img"
-				aria-label="Fresh and cached input tokens in ${t.slotMs/60000}-minute bins across the measured track"
+				aria-label="Fresh and cached input tokens in ${l.slotMs/60000}-minute bins across the measured track"
 				tabindex="0"
 				@pointermove=${this._hover}
 				@pointerleave=${this._hide}
 				@keydown=${this._keyNav}
 			>
-				${this._barsSvg(t)}
+				${this._barsSvg(l)}
 			</svg>
 			${this._hairlineHtml()}
-			${this._axisHtml(t)}
+			${this._axisHtml(l)}
 			${this._tip?this._tipHtml():null}
-		`}}var T=o(u(s())),C=o(u(c())),ft=i({fresh:C,cached:C,out:C,wall_ms:C,model_groups:o(g(s(),m()))}),bt=i({state:s(),observed_at:C,source:T,progress:o(u(i({stage:w(["completed","reviewed","review-blocked","landed"]),ts:C})))}),_t=i({text:T}),gt=i({id:s(),project:T,title:T,state:s(),age_s:C,owner_sid:T,owner_label:T,origin:T,model:T,locality:T,parent_id:T,tag_color:T,failure_note:T,wait_kind:T,wait_reason:T,requires:T,blocked_by:o(a(s())),waiting_on:o(a(s())),spend:o(u(ft)),execution:o(u(bt)),tail:o(u(_t))});class I extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(t){let l=t.spend?.model_groups,h="",p=-1;if(l)for(let[b,_]of Object.entries(l)){let v=typeof _==="object"&&_!==null?Number(_.requests??0):0;if(Number.isFinite(v)&&v>p)h=b,p=v}return h||t.model||void 0}static hostOf(t){let l=t.owner_label?.trim();if(l&&l!==t.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(l))return l;return t.owner_sid??void 0}static metricsOf(t){let l=t.spend;if(!l)return;let h=l.fresh??void 0,p=l.cached??void 0,b=l.out??void 0,_=l.wall_ms??void 0,v=h===void 0&&p===void 0&&b===void 0?void 0:(h??0)+(p??0)+(b??0),k=_!==void 0&&_>0?_/60000:0,y=k>0&&b!==void 0?b/k:void 0,E=(h??0)+(p??0),F=E>0&&p!==void 0?p/E*100:void 0;return{tokens:v,wallMs:_,tokPerMin:y,cachePct:F}}static parentRefOf(t){return t.parent_id??void 0}contextLinesOf(t){let l=[],h=t.execution;if(h){let v=h.progress?.stage;l.push(v?`${h.state} · ${v}`:`${h.state} · no artifact evidence in snapshot`)}if(t.state==="WAITING"&&t.wait_reason)l.push(`${t.wait_kind??"external"} · ${t.wait_reason}`);let p=t.blocked_by??[];if(p.length)l.push(`waiting on ${p.join(", ")}`);let b=t.waiting_on??[];if(b.length)l.push(`split into ${b.join(", ")}`);if(l.length)return l;let _=t.tail?.text?.trim();return _?[_]:[]}modelOf(t){let l={id:t.id,project:t.project??void 0,title:t.title??void 0,state:t.state,ageS:t.age_s??void 0,contextLines:this.contextLinesOf(t),parentRef:I.parentRefOf(t),model:I.modelOf(t),host:I.hostOf(t),warn:t.failure_note??void 0,metrics:I.metricsOf(t),nested:this.hasAttribute("data-nested"),preferColor:t.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},h=R.safeParse(l);return h.success?h.data:null}render(){let t=gt.safeParse(this.t);if(!this.t||!t.success)return e`<div class="kcard-invalid dim" role="note">
+		`}}var H=o(u(s())),V=o(u(c())),Kt=i({fresh:V,cached:V,out:V,wall_ms:V,model_groups:o(g(s(),m()))}),Dt=i({state:s(),observed_at:V,source:H,progress:o(u(i({stage:S(["completed","reviewed","review-blocked","landed"]),ts:V})))}),Bt=i({text:H}),qt=i({id:s(),project:H,title:H,state:s(),age_s:V,owner_sid:H,owner_label:H,origin:H,model:H,locality:H,parent_id:H,tag_color:H,failure_note:H,wait_kind:H,wait_reason:H,requires:H,blocked_by:o(a(s())),waiting_on:o(a(s())),spend:o(u(Kt)),execution:o(u(Dt)),tail:o(u(Bt))});class W extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(l){let p=l.spend?.model_groups,v="",b=-1;if(p)for(let[k,w]of Object.entries(p)){let _=typeof w==="object"&&w!==null?Number(w.requests??0):0;if(Number.isFinite(_)&&_>b)v=k,b=_}return v||l.model||void 0}static hostOf(l){let p=l.owner_label?.trim();if(p&&p!==l.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(p))return p;return l.owner_sid??void 0}static metricsOf(l){let p=l.spend;if(!p)return;let v=p.fresh??void 0,b=p.cached??void 0,k=p.out??void 0,w=p.wall_ms??void 0,_=v===void 0&&b===void 0&&k===void 0?void 0:(v??0)+(b??0)+(k??0),E=w!==void 0&&w>0?w/60000:0,R=E>0&&k!==void 0?k/E:void 0,C=(v??0)+(b??0),O=C>0&&b!==void 0?b/C*100:void 0;return{tokens:_,wallMs:w,tokPerMin:R,cachePct:O}}static parentRefOf(l){return l.parent_id??void 0}contextLinesOf(l){let p=[],v=l.execution;if(v){let _=v.progress?.stage;p.push(_?`${v.state} · ${_}`:`${v.state} · no artifact evidence in snapshot`)}if(l.state==="WAITING"&&l.wait_reason)p.push(`${l.wait_kind??"external"} · ${l.wait_reason}`);let b=l.blocked_by??[];if(b.length)p.push(`waiting on ${b.join(", ")}`);let k=l.waiting_on??[];if(k.length)p.push(`split into ${k.join(", ")}`);if(p.length)return p;let w=l.tail?.text?.trim();return w?[w]:[]}modelOf(l){let p={id:l.id,project:l.project??void 0,title:l.title??void 0,state:l.state,ageS:l.age_s??void 0,contextLines:this.contextLinesOf(l),parentRef:W.parentRefOf(l),model:W.modelOf(l),host:W.hostOf(l),warn:l.failure_note??void 0,metrics:W.metricsOf(l),nested:this.hasAttribute("data-nested"),preferColor:l.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},v=ft.safeParse(p);return v.success?v.data:null}render(){let l=qt.safeParse(this.t);if(!this.t||!l.success)return e`<div class="kcard-invalid dim" role="note">
 				card payload invalid
-			</div>`;let l=t.data,h=this.modelOf(l);if(!h)return e``;let p=this.series||this.attempt?e`<klh-card-activity
+			</div>`;let p=l.data,v=this.modelOf(p);if(!v)return e``;let b=this.series||this.attempt?e`<klh-card-activity
 						slot="activity"
 						.points=${this.series??[]}
-						.wallMs=${I.metricsOf(l)?.wallMs??null}
+						.wallMs=${W.metricsOf(p)?.wallMs??null}
 						.attempt=${this.attempt}
 						.mode=${this.attemptView?"attempt":"spend"}
-					></klh-card-activity>`:null;return e`<klh-task-card .card=${h}>${p}</klh-task-card>`}createRenderRoot(){return this}}var vt=()=>{N("klh-task-card-host",I),N("klh-task-card",S),N("klh-card-activity",X)};vt();export{vt as registerBoardElements};
+					></klh-card-activity>`:null;return e`<klh-task-card .card=${v}>${b}</klh-task-card>`}createRenderRoot(){return this}}var jt=()=>{U("klh-task-card-host",W),U("klh-task-card",st),U("klh-card-activity",ct)};jt();export{jt as registerBoardElements};

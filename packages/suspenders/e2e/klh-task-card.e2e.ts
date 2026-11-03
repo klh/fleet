@@ -2,8 +2,10 @@
 // render-and-look on a REAL board page (scratch HOME, /vendor bundles
 // served by routes-data). The card markup rides a route-interception mount
 // (the board-status-badge pattern — no DOM-building APIs in spec source;
-// only .card property assignment happens in-page), because the wiring lane
-// W2267.4.2 owns board integration. Proves the component's own contract:
+// only .card property assignment happens in-page). The production shell
+// loads the ONE registration entry (klh-board-register.js), which defines
+// klh-task-card — the fixture mounts into that same registration, never a
+// standalone card bundle. Proves the component's own contract:
 // state fixtures render, unknown metrics stay "—", long text keeps its
 // full form accessible, footer actions are keyboard-reachable and carry
 // id/project/action on typed events, property updates preserve a focused
@@ -110,13 +112,12 @@ const fx = (i: number): TaskCardModel => {
 /** Serve the board page with a fixture host appended after the last vendor
  * script, then assign each card its model. The template's only </body> sits
  * INSIDE an inline <script> string, so a </body>-replace would inject into
- * script text — anchor on the tail mediator tag instead. The card bundle
- * rides the injection too (#101184): production boot does not load it until
- * W2267.4.2 wires the board, so the standalone fixture imports it itself. */
+ * script text — anchor on the tail register tag instead (the mediator tag
+ * is no longer last: register rides after it). klh-task-card comes from the
+ * production registration entry the board already loads — no standalone
+ * card bundle is injected (W2587). */
 const ANCHOR =
-	'<script type="module" src="/vendor/klh-board-mediator.js"></script>';
-const CARD_BUNDLE =
-	'<script type="module" src="/vendor/klh-task-card.js"></script>';
+	'<script type="module" src="/vendor/klh-board-register.js"></script>';
 
 async function mount(
 	page: Page,
@@ -138,7 +139,7 @@ async function mount(
 		const response = await route.fetch();
 		const html = (await response.text()).replace(
 			ANCHOR,
-			`${ANCHOR}${CARD_BUNDLE}${hostHtml}`,
+			`${ANCHOR}${hostHtml}`,
 		);
 		await route.fulfill({ response, body: html });
 	});

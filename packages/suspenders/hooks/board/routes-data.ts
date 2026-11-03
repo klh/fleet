@@ -151,7 +151,6 @@ export async function handleData(
 		if (
 			url.pathname.startsWith("/vendor/") &&
 			(vf === "klh-components.js" ||
-				vf === "klh-task-card.js" ||
 				vf === "klh-service-row.js" ||
 				vf === "klh-recovery.js" ||
 				vf === "klh-hub-admin.js" ||
