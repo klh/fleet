@@ -235,7 +235,11 @@ per-lane `--settings` file. No admin key = belt direct, surfaced.
 
 Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
 `~/.config/klh/stack.json` (hub = a profile: ports, binds, ssh/dir/docker,
-secret PATHS):
+secret PATHS). Each hub may declare `default_models: [<id>, …]` — the
+per-hub default model chain a bare `hub=<label>` lane with no model pin
+rides (attempt walks it; the tail rides `--fallback-model`). Serving
+reality only (models that hub actually serves) — never a wire-dialect
+gate; any client may ride any model (W2637).
 
 - `render <hub>` — the compose .env (no secrets)
 - `mint <hub>` — root key generated ON the hub (0600, idempotent)

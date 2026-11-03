@@ -364,6 +364,19 @@ export const execPick = (
 		const ex = tryLoadStack()?.executors;
 		return ex?.[binName]?.model ?? ex?.default?.model ?? null;
 	};
+	// W2637: the per-hub default model chain (machine conf
+	// hubs.<label>.default_models) — the MODEL default for a hub-pinned
+	// lane with no pin of its own. Ordered like any chain: the attempt
+	// index walks it, the tail rides --fallback-model. Null = no hub
+	// picked or the hub declares none (DEFAULT_LANE_MODEL stands).
+	const hubDefaultModels = (hubLabel: string | null): string[] => {
+		if (!hubLabel) return [];
+		const hubs = tryLoadStack()?.hubs ?? {};
+		const hit = Object.entries(hubs).find(
+			([label]) => label.toLowerCase() === hubLabel.toLowerCase(),
+		);
+		return hit ? (hit[1].default_models ?? []) : [];
+	};
 	const s = readBoardSettings().settings;
 	const enabled = s.enabled_executors;
 	const allowed = (name: string): boolean => !enabled || enabled.includes(name);
@@ -391,7 +404,17 @@ export const execPick = (
 		// always outranks it (owner intent, must= parity). The machine-conf
 		// executor row is the last default (amendment: it was unreachable
 		// dead config — laneModelOf collapsed null before insertion).
-		const model = slot.model ?? prefer.model ?? confModel(slot.bin);
+		// W2637: a hub-pinned slot with no pin of its own takes the HUB's
+		// default chain (per-hub serving reality) before the executor row.
+		const slotHub = slot.hub ?? prefer.hub;
+		const hubDefaults = hubDefaultModels(slotHub);
+		const hubIdx =
+			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
+		const model =
+			slot.model ??
+			prefer.model ??
+			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
+			confModel(slot.bin);
 		// W2636: which dotfile key actually produced `model`, for refusals.
 		const modelPin =
 			slot.model !== null
@@ -495,7 +518,17 @@ export const execPick = (
 		// W2570: the repo's model= pin fills a null slot model on the
 		// default ladder too (an executor row picks no model by design);
 		// the machine-conf row is the last default (amendment).
-		const pinned = model ?? prefer.model ?? confModel(bin);
+		// W2637: a hub-pinned default pick with no model of its own takes
+		// the HUB's default chain at the attempt index; the chain tail
+		// rides --fallback-model with the ladder's own tail.
+		const hubDefaults = hubDefaultModels(prefer.hub);
+		const hubIdx =
+			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
+		const pinned =
+			model ??
+			prefer.model ??
+			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
+			confModel(bin);
 		// W2636: an executor-row slot model pins nothing the user can edit;
 		// only a dotfile model= (or a directive token) carries provenance.
 		const modelPin =
@@ -507,11 +540,14 @@ export const execPick = (
 						target: prefer.model,
 					}
 				: null;
-		const fallbackModels = chain
-			.slice(idx + 1)
-			.filter((next) => next.bin === bin)
-			.map((next) => next.model)
-			.filter((m): m is string => !!m);
+		const fallbackModels = [
+			...chain
+				.slice(idx + 1)
+				.filter((next) => next.bin === bin)
+				.map((next) => next.model)
+				.filter((m): m is string => !!m),
+			...(hubIdx >= 0 ? hubDefaults.slice(hubIdx + 1) : []),
+		];
 		return {
 			agent: label(name),
 			model: pinned,
