@@ -360,13 +360,21 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   swarm :8902 / router :4000 / litellm :4100),
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
   env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
-- IKEA Copilot seat (W695.6): claude-* lane models are first-class buckle
-  upstreams — `https://api.githubcopilot.com` serves the Anthropic wire
-  (`/v1/messages`, Bearer `GITHUB_COPILOT_PAT`, header
-  `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
-  wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
-  → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
+- IKEA Copilot seat (W695.6, amended W2595 2026-11-03): claude-* lane models
+  are first-class buckle upstreams — `https://api.githubcopilot.com` serves
+  the Anthropic wire (`/v1/messages`, Bearer `GITHUB_COPILOT_PAT`, header
+  `copilot-integration-id` via `adapter_config.headers`; tools+SSE + tool_use
+  round trips PROVEN live 2026-11-03); group `claude-sonnet-5` →
+  `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
   `packages/buckle/upstreams.copilot.json` → merge into the machine
-  `upstreams.json`. The `:4102` ikea-shim is RETIRED (never activated);
-  litellm copilot rows stay off (its /v1/messages bridge hits the Responses
-  API Copilot rejects; its provider forces an interactive device flow)
+  `upstreams.json`. The `:4102` ikea-shim is RETIRED (never activated).
+  Owner ruling W2595: litellm rides behind EVERY buckle — copilot rows gain
+  `github_copilot/` litellm legs (proven on litellm 1.103.0: native
+  Anthropic `/v1/messages` passthrough; `drop_params` eats
+  thinking/reasoning_effort/effort/anthropic_beta/parallel_tool_calls that
+  the direct wire 400s; chat rows via `/v1/chat/completions`). PAT auth
+  pre-seeds the token cache (`GITHUB_COPILOT_TOKEN_DIR` with `access-token`
+  + `api-key.json` carrying `token`/`expires_at`/`endpoints.api`) — device
+  flow is fallback-only in 1.103.0, never forced. `mcp_servers` is NOT
+  dropped by `drop_params` (Copilot 400s it wanting a beta header) —
+  W2594 `strip_body_fields` stays as belt-and-braces at the buckle layer
