@@ -40,7 +40,7 @@ test.describe("@unit", () => {
 
 	test("listScript embeds the repo root and the marker probe", () => {
 		const s = listScript(target);
-		expect(s).toContain('git -C "/volume1/hub-nas/fleet" worktree list');
+		expect(s).toContain("git -C '/volume1/hub-nas/fleet' worktree list");
 		expect(s).toContain(".fleet/lane-context.json");
 		expect(s).toContain("===GC-WORKTREES");
 		expect(s).toContain("===GC-PS");
@@ -145,9 +145,9 @@ test.describe("@unit", () => {
 			1_000_000,
 		);
 		expect(s).toContain("update-ref refs/recover/suspenders-W1-1000");
-		expect(s).toContain('worktree remove "/wt/a"');
-		expect(s).toContain('branch -d "suspenders/W1"');
-		expect(s).not.toContain('branch -d "suspenders/W2"');
+		expect(s).toContain("worktree remove '/wt/a'");
+		expect(s).toContain("branch -d 'suspenders/W1'");
+		expect(s).not.toContain("branch -d 'suspenders/W2'");
 		expect(s).toContain("kill -TERM 50");
 		expect(s).not.toContain("kill -TERM 1");
 	});
@@ -206,7 +206,7 @@ test.describe("@unit", () => {
 		expect(r.survivors).toBe(0);
 		expect(r.rows.find((x) => x.item === "W124")?.action).toBe("protected");
 		expect(acts[0]).toContain("worktree remove");
-		expect(acts[0]).toContain('branch -d "suspenders/W123"');
+		expect(acts[0]).toContain("branch -d 'suspenders/W123'");
 	});
 
 	test("gcHub: throwing claimState degrades the whole fire to scan-only", () => {

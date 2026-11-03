@@ -22,6 +22,7 @@ import {
 	type HubGcTarget,
 	gcHub,
 	type HubGcWorktree,
+	shQuote,
 } from "../lib/fleet-loop/hub-orphan-gc.ts";
 import { sshOpts } from "../../deploy/hub-remote.ts";
 import { inQuietHours, loadStack } from "../lib/stack-config.ts";
@@ -92,19 +93,13 @@ export function ancestryProbe(
 ) => { merged: boolean; pushed: boolean } {
 	return (target, w) => {
 		if (w.branch === "DETACHED") return { merged: false, pushed: false };
+		const repo = shQuote(target.repoRoot);
+		const br = shQuote(w.branch);
 		const merged =
-			exec(
-				target,
-				`git -C ${JSON.stringify(target.repoRoot)} merge-base --is-ancestor ${JSON.stringify(w.branch)} main`,
-			).code === 0;
-		const tip = exec(
-			target,
-			`git -C ${JSON.stringify(target.repoRoot)} rev-parse ${JSON.stringify(w.branch)}`,
-		);
-		const remote = exec(
-			target,
-			`git -C ${JSON.stringify(target.repoRoot)} rev-parse origin/${JSON.stringify(w.branch)}`,
-		);
+			exec(target, `git -C ${repo} merge-base --is-ancestor ${br} main`)
+				.code === 0;
+		const tip = exec(target, `git -C ${repo} rev-parse ${br}`);
+		const remote = exec(target, `git -C ${repo} rev-parse origin/${br}`);
 		const pushed =
 			tip.code === 0 &&
 			remote.code === 0 &&

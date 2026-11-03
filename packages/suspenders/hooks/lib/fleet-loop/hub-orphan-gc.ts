@@ -108,7 +108,11 @@ export type HubGcExec = (
  * scan-only — connectivity-gated, the MultiKueue law). */
 export type ClaimStateFace = (item: string) => string | null;
 
-const shQuote = (s: string): string => JSON.stringify(s);
+/** POSIX single-quote quoting for sh -c / ssh argv scripts. Double quotes
+ * (JSON.stringify) leave $, backtick, and \ expansions live — and branch
+ * names may legally carry $ — so wrap in single quotes and end-quote any
+ * embedded single quote: a'b → 'a'\''b'. */
+export const shQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /** One listing leg ON the hub: git worktree list filtered to origin-marked
  * trees (the marker test + branch/clean probes run hub-side — no tree
