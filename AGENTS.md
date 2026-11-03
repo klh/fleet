@@ -244,9 +244,15 @@ Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
 `~/.config/klh/stack.json` (hub = a profile: ports, binds, ssh/dir/docker,
 secret PATHS). Each hub may declare `default_models: [<id>, …]` — the
 per-hub default model chain a bare `hub=<label>` lane with no model pin
-rides (attempt walks it; the tail rides `--fallback-model`). Serving
-reality only (models that hub actually serves) — never a wire-dialect
-gate; any client may ride any model (W2637).
+rides. W2677 (owner directive 2026-11-03): a bare `hub=` lane means KEV
+chooses the model for the work from that hub's LIVE `/v1/models`
+offerings (kev-chooses, per work type — the dispatch table renders
+`picked-by=kev-chooses: …`); `default_models` is the deterministic safety
+net kev falls back to on any kev/catalog miss (attempt walks it; the tail
+rides `--fallback-model`) — never the final answer. A dotfile model pin
+(`must=`/`prefer=<model>`) is owner intent: kev is never consulted.
+Serving reality only (models that hub actually serves) — never a
+wire-dialect gate; any client may ride any model (W2637).
 
 - `render <hub>` — the compose .env (no secrets)
 - `mint <hub>` — root key generated ON the hub (0600, idempotent)
