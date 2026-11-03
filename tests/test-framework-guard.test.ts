@@ -32,7 +32,12 @@ const SELF = "tests/test-framework-guard.test.ts";
 // belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
 // sha.
-const PIN = 636;
+// W1294.12 sweep-I (2026-10-29, landed via W2651) ports all 35 remaining
+// specs in speedy/local/telemetry/kernel/local-llm/blam — both lineages
+// ported disjoint corpora, so the W2666 merged tree measures 600 under
+// the guard's own git ls-files counting; re-pinned DOWN to that exact
+// count.
+const PIN = 600;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
