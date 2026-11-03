@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	addedWorkspaceDependencies,
+	changedPackageManifests,
 	missingImports,
 	missingImportsExplained,
 	pureTestDiff,
@@ -301,4 +302,31 @@ test("shareNodeModules links root AND package-local node_modules into a scratch"
 	expect(existsSync(join(scratch, "packages", "two", "node_modules"))).toBe(
 		false,
 	);
+});
+
+test("changedPackageManifests covers PRODUCTION packages, not just test packages (W2634)", () => {
+	// the W2633 shape: a suspenders PROD file + a suspenders test, where the
+	// prod file cross-imports buckle source that needs buckle's local links —
+	// test-only derivation missed packages/buckle entirely
+	expect(
+		changedPackageManifests([
+			"packages/suspenders/scripts/route-preflight.ts",
+			"packages/suspenders/test/preflight.e2e.ts",
+			"packages/buckle/src/policy.ts",
+		]),
+	).toEqual([
+		"packages/suspenders/package.json",
+		"packages/buckle/package.json",
+	]);
+	// outside packages/ (root files) and duplicates collapse
+	expect(
+		changedPackageManifests([
+			"README.md",
+			"packages/belt/src/a.ts",
+			"packages/belt/test/a.e2e.ts",
+			"packages/belt/src/b.ts",
+		]),
+	).toEqual(["packages/belt/package.json"]);
+	// empty diff, empty manifests
+	expect(changedPackageManifests([])).toEqual([]);
 });

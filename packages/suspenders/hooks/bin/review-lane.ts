@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	addedWorkspaceDependencies,
+	changedPackageManifests,
 	missingImportsExplained,
 	type Proof,
 	pureTestDiff,
@@ -456,13 +457,11 @@ async function coverageProof(branch: string): Promise<Proof> {
 		.split("\n")
 		.filter((f) => f && !TEST_FILE.test(f));
 	const mergeBase = gitRun(["merge-base", "main", branch]).out.trim();
-	const manifestPaths = [
-		...new Set(
-			testFiles
-				.filter((path) => /^packages\/[^/]+\//.test(path))
-				.map((path) => `${path.split("/").slice(0, 2).join("/")}/package.json`),
-		),
-	];
+	// every package the DIFF touches, prod files included: a changed prod
+	// file's cross-package relative import needs the sibling package's
+	// node_modules links in the scratch, or the proof dies environmental
+	// on content that is fine (the W2633 trail)
+	const manifestPaths = changedPackageManifests(diffTests);
 	const addedWorkspaceDeps = manifestPaths.flatMap((path) => {
 		const before = gitRun(["show", `${mergeBase}:${path}`]);
 		const after = gitRun(["show", `${branch}:${path}`]);
