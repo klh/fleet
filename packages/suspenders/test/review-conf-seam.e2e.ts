@@ -49,6 +49,27 @@ test("fleetLoopSettings: reviewer rows resolve from the block, absent = undefine
 	expect(s.laneTarget).toBe(20);
 });
 
+// ── seam 1c: the settings.json projection (W2642) ───────────────────────────
+test("stackFromSettings: review_round_cap survives the StackConfig projection", () => {
+	// the no-arg fleetLoopSettings() path reads the PROJECTED conf
+	// (loadStack → stackFromSettings), not the raw settings doc — the
+	// projection must carry the row or the scheduler's confCap stays
+	// undefined on every settings.json install (the W2470 sibling rows
+	// already ride this object; this pins the third).
+	const dir = tmpConf();
+	const file = join(dir, "settings.json");
+	writeFileSync(
+		file,
+		JSON.stringify({ version: "w2642", fleet_loop: { review_round_cap: 5 } }),
+	);
+	process.env.KLH_SETTINGS = file;
+	try {
+		expect(fleetLoopSettings().reviewRoundCap).toBe(5);
+	} finally {
+		delete process.env.KLH_SETTINGS;
+	}
+});
+
 // ── seam 1b: the round-cap precedence ───────────────────────────────────────
 test("reviewRoundCap: conf row wins (0 disables), env stays the fallback, junk → 3", () => {
 	// conf row wins over the env — including 0, the explicit disable
