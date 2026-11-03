@@ -8,6 +8,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLoopConfigWatch } from "../hooks/lib/fleet-loop/loop-config-watch.ts";
+import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
 	reviewRequestKey,
 	reviewSpawnEnv,
@@ -36,8 +37,29 @@ test("fleetLoopSettings: reviewer rows resolve from the block, absent = undefine
 	});
 	expect(s.reviewFallbackModels).toBe("glm-5.3-flash,glm-4.5-air,local-coder");
 	expect(s.reviewStepdownClasses).toBe("sql");
+	// W2470: the round-cap row resolves beside the reviewer rows
+	expect(
+		fleetLoopSettings({
+			hubs: {},
+			fleet_loop: { review_round_cap: 5 },
+		}).reviewRoundCap,
+	).toBe(5);
+	expect(fleetLoopSettings(null).reviewRoundCap).toBeUndefined();
 	// the four numbers ride unchanged beside the new rows
 	expect(s.laneTarget).toBe(20);
+});
+
+// ── seam 1b: the round-cap precedence ───────────────────────────────────────
+test("reviewRoundCap: conf row wins (0 disables), env stays the fallback, junk → 3", () => {
+	// conf row wins over the env — including 0, the explicit disable
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "9" }, 5)).toBe(5);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "9" }, 0)).toBe(0);
+	// absent conf row = the env fallback (the pre-W2470 behavior)
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "7" })).toBe(7);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "0" })).toBe(0);
+	// neither = the default
+	expect(reviewRoundCap({})).toBe(3);
+	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "junk" })).toBe(3);
 });
 
 // ── seam 2: the spawn-env layering ──────────────────────────────────────────
@@ -94,6 +116,12 @@ test("config edit → watcher hot-applies the reviewer rows within the poll inte
 		);
 		await pollFor(() => w.settings().reviewFallbackModels !== undefined);
 		expect(w.settings().reviewFallbackModels).toBe(ladder);
+		// W2470: the round-cap row hot-applies the same way
+		writeFileSync(
+			conf,
+			JSON.stringify({ fleet_loop: { review_round_cap: 5 } }),
+		);
+		await pollFor(() => w.settings().reviewRoundCap === 5);
 		// the hot-apply line names the row (unset renders `-`)
 		expect(
 			lines.some((l) => l.includes(`review_fallback_models=${ladder}`)),

@@ -71,6 +71,9 @@ test.describe("W501 supervised gateway env files @unit", () => {
 			"/sbin",
 		]);
 		for (const spec of loadManifest()) {
+			// W2470.2: confEnv services render env-less units — PATH rides the
+			// launcher baseline (hooks/bin/launchd-launcher.ts), proven there.
+			if (spec.confEnv === true) continue;
 			const unit = parsePlistXml(renderDarwin(spec, f.values));
 			const servicePath = (unit.EnvironmentVariables as Record<string, string>)
 				.PATH;
