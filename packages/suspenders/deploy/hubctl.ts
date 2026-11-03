@@ -45,7 +45,6 @@ import {
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	PROVIDER_ENV_FILENAME,
@@ -66,14 +65,20 @@ import {
 	ensurePreferHubLine,
 	gitToplevel,
 } from "../scripts/lib/prefer-hub-line.ts";
-import { hubMetricsEnv } from "./hub-metrics.ts";
+import { renderEnv } from "./hub-env-render.ts";
+import {
+	parityDiverges,
+	parityMatrix,
+	renderParityMatrix,
+} from "./hub-parity.ts";
+import { probeHubMessages } from "./hub-parity-probe.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
-import { hubSettingsText } from "./hub-settings-render.ts";
 import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
 } from "./hub-ref-preflight.ts";
 import { composeUpArgv, sshOpts } from "./hub-remote.ts";
+import { hubSettingsText } from "./hub-settings-render.ts";
 import { mergedHubUpstreams } from "./openrouter-free.ts";
 import {
 	buildRelease,
@@ -166,147 +171,6 @@ function requireHub(stack: StackConfig, name: string): HubProfile {
 		);
 	}
 	return hub;
-}
-
-/** A local hub must not publish over an existing .local service. The registry
- * is machine-owned, so this check follows the operator's actual front. */
-function assertLocalPortReservations(hub: HubProfile, name: string): void {
-	if (hub.deploy?.ssh) return;
-	const path = join(
-		process.env.HOME ?? homedir(),
-		".local/state/klh-local/registry.json",
-	);
-	if (!existsSync(path)) return;
-	const services = JSON.parse(readFileSync(path, "utf8")) as Array<{
-		name?: string;
-		port?: number;
-	}>;
-	if (!Array.isArray(services))
-		throw new Error(`${path} is not a service list`);
-	for (const [kind, port] of [
-		["buckle", hub.buckle_port],
-		["board", hub.board_port],
-		["store", hub.store_port],
-		["belt", hub.belt_port],
-	] as const) {
-		if (!port) continue;
-		const conflict = services.find((service) => Number(service.port) === port);
-		if (conflict)
-			throw new Error(
-				`${name} ${kind}_port ${port} conflicts with ${conflict.name ?? "a registered .local service"}; choose another port in stack.json`,
-			);
-	}
-}
-
-/** Render the compose .env from the profile — declared knobs only (the
- *  template's own defaults cover everything else; single source of truth). */
-function renderEnv(
-	hub: HubProfile,
-	name: string,
-	auth?: StackConfig["auth"],
-	version?: string,
-): string {
-	assertLocalPortReservations(hub, name);
-	// W1302.3: the origin/ref shape gate moved to deploy/hub-ref-preflight.ts
-	// (shared with the activation preflight — ONE shape gate, one error set)
-	const { origin, ref } = resolveHubOrigin(hub, version);
-	const lines = [`HUB_NAME=${name}`];
-	for (const [key, value] of Object.entries(hubMetricsEnv(hub)))
-		lines.push(`${key}=${value}`);
-	const kv = (key: string, v: unknown): void => {
-		if (v !== undefined) lines.push(`${key}=${String(v)}`);
-	};
-	kv("HUB_BUCKLE_PORT", hub.buckle_port);
-	kv("HUB_BUCKLE_BIND", hub.bind);
-	kv("HUB_FLEET_REF", ref);
-	kv("HUB_FLEET_REPO_URL", origin);
-	kv("HUB_FLEET_SRC", hub.repos?.src);
-	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
-	if (auth?.required !== undefined)
-		kv("HUB_BUCKLE_AUTH", auth.required ? "on" : "off");
-	// W372: the auth.oidc/auth.tokens blocks materialize as env — Entra-ready
-	// by config (values live ONLY in the machine stack.json; partial blocks
-	// fail closed at render, a hub never ships a half-declared posture).
-	if (auth?.tokens?.ttlHours !== undefined)
-		kv("HUB_BUCKLE_AUTH_TTL_HOURS", auth.tokens.ttlHours);
-	if (auth?.oidc) {
-		const o = auth.oidc;
-		if (!o.issuer || !o.audience)
-			throw new Error(
-				"auth.oidc requires issuer + audience (Entra values live in the machine stack.json, never in the repo)",
-			);
-		kv("HUB_BUCKLE_OIDC_ENFORCED", o.enforced === false ? "off" : "on");
-		kv("HUB_BUCKLE_OIDC_ISSUER", o.issuer);
-		kv("HUB_BUCKLE_OIDC_JWKS_URI", o.jwksUri);
-		kv("HUB_BUCKLE_OIDC_AUDIENCE", o.audience);
-		kv("HUB_BUCKLE_OIDC_REQUIRED_SCOPE", o.requiredScope);
-	}
-	kv("HUB_BOARD_PORT", hub.board_port);
-	kv("HUB_BOARD_BIND", hub.board_bind);
-	kv("HUB_ALLOWED_HOSTS", hub.allowed_hosts?.join(","));
-	// W362: peer edge labels — the start-topology as data; hosts/ports/keys
-	// resolve at runtime behind the labels (resolveHub chain / stack.json).
-	kv("HUB_PEERS", hub.peers?.join(","));
-	kv("HUB_SERVICES_JSON", hub.services_json);
-	kv("HUB_STORE_PORT", hub.store_port);
-	kv("HUB_BELT_BIND", hub.belt_bind);
-	kv("HUB_BELT_PORT", hub.belt_port);
-	// Compose profiles accumulate: each optional service appends its own, and
-	// one declaration never clobbers another (W1217).
-	const profiles: string[] = [];
-	if (hub.belt_model) {
-		const upstream = new URL(hub.belt_model.upstream);
-		if (
-			!["http:", "https:"].includes(upstream.protocol) ||
-			upstream.username ||
-			upstream.password
-		)
-			throw new Error(
-				"belt_model.upstream must be an HTTP URL without credentials",
-			);
-		profiles.push("belt-model");
-		kv("HUB_BELT_MODEL_PORT", hub.belt_model.port);
-		kv("HUB_BELT_MODEL_HEALTH_PORT", hub.belt_model.health_port);
-		kv("HUB_BELT_MODEL_UPSTREAM", upstream.href.replace(/\/$/, ""));
-	}
-	// W1217: the knowledge sink — declaring `knowledge:` enables the profile
-	// (knowledge-api container + its health probe sidecar); undeclared knobs
-	// fall through to the template defaults, solo posture stays unchanged.
-	if (hub.knowledge) {
-		profiles.push("knowledge");
-		kv("HUB_KNOWLEDGE_SINK_PORT", hub.knowledge.port);
-		kv("HUB_KNOWLEDGE_SINK_HEALTH_PORT", hub.knowledge.health_port);
-	}
-	if (profiles.length > 0) kv("COMPOSE_PROFILES", profiles.join(","));
-	// health sidecar ports (W422.10) — compose health hits the SIDECAR
-	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
-	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
-	kv("HUB_STORE_HEALTH_PORT", hub.store_health_port);
-	kv("HUB_BELT_HEALTH_PORT", hub.belt_health_port);
-	// W763 hub model store — face + health sidecar ports
-	kv("HUB_MODEL_STORE_PORT", hub.model_store_port);
-	kv("HUB_MODEL_STORE_HEALTH_PORT", hub.model_store_health_port);
-	// synthetic readiness (W467) — the completion leg's verdict port + model
-	kv("HUB_BUCKLE_READY_PORT", hub.buckle_ready_port);
-	kv("HUB_READY_MODEL", hub.ready_model);
-	// W688.7.1: enterprise entrypoint + private-network ladder egress hosts
-	kv("HUB_BUCKLE_ENTRY", hub.buckle_entry);
-	kv("HUB_HTTP_UPSTREAM_HOSTS", hub.http_upstream_hosts?.join(","));
-	// W688.3: overlay code-loader knobs (env plumbing only, config-over-code;
-	// unset = solo posture — the loader treats unset exactly as before)
-	kv("HUB_KLH_OVERLAY_DIR", hub.overlay?.dir);
-	kv("HUB_KLH_OVERLAY_SHA256", hub.overlay?.sha256);
-	kv("HUB_KLH_OVERLAY_ALLOW", hub.overlay?.allow);
-	// W854: mDNS advertisement — what _klh-hub._tcp advertises (the
-	// announcer falls through to the template defaults for undeclared knobs;
-	// advertised port defaults to HUB_BUCKLE_PORT in the template)
-	kv("HUB_MDNS_PORT", hub.mdns?.port);
-	kv("HUB_MDNS_ADDR", hub.mdns?.addr);
-	kv("HUB_MDNS_HOSTNAME", hub.mdns?.hostname);
-	kv("HUB_MDNS_INTERVAL_MS", hub.mdns?.interval_ms);
-	kv("HUB_MDNS_HEALTH_PORT", hub.mdns?.health_port);
-	kv("HUB_MDNS_SIDECAR_PORT", hub.mdns?.sidecar_port);
-	return `${lines.join("\n")}\n`;
 }
 
 /** Render is a diagnostic surface. A private Git origin may carry userinfo;
@@ -856,6 +720,13 @@ function status(hub: HubProfile): number {
 		["model-store-health", hub.model_store_health_port ?? 7793, "/healthz"],
 		// W854: the mdns-health sidecar's verdict port
 		["mdns-health", hub.mdns?.sidecar_port ?? 4115, "/healthz"],
+		// W2595: the litellm engine's outside-process verdict (probe sidecar
+		// with the master-key Bearer — 200 = serving + authorized)
+		...(hub.litellm
+			? ([
+					["litellm-health", hub.litellm.health_port ?? 4105, "/healthz"],
+				] as Array<[string, number, string]>)
+			: []),
 	];
 	for (const [svc, port, path] of probes) {
 		if (!port) continue;
@@ -1200,9 +1071,19 @@ function main(): void {
 			// process.exit()s on every path — never returns here
 			void traceTunnelVerb(hub, hubName, flags);
 			return;
+		case "parity": {
+			// W2595: same-body parity probe — one matrix run per hub; run it
+			// for every profile and compare (verdict sets must match)
+			const rows = parityMatrix(hub, hubName, (body) =>
+				probeHubMessages(runOnHub, hub, hubName, body),
+			);
+			console.log(renderParityMatrix(rows));
+			process.exit(parityDiverges(rows) ? 1 : 0);
+			return;
+		}
 		default:
 			console.log(
-				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key|trace-tunnel`,
+				`hubctl: unknown verb "${verb}" — render|mint|push|up|status|deploy|reload-upstreams|manifest|exec|mint-lane-key|mint-service-key|verify-key|trace-tunnel|parity`,
 			);
 			process.exit(2);
 	}

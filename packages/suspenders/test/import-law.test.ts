@@ -158,6 +158,38 @@ test("importLawVerdict — per-edge ratchet, fail-closed base, unparseable refus
 	).toBe(true);
 });
 
+test("importLawVerdict — deleted closing path is clean, absent base is empty set (W2422)", () => {
+	const repo = rmAfter(mkdtempIn());
+	const git = (...args: string[]) => gitIn(repo, ...args);
+	git("init");
+	git("config", "user.name", "Test");
+	git("config", "user.email", "t@e.invalid");
+	// base holds a reach-in file the closing diff DELETES (a W1294 port:
+	// a.test.ts moved to .e2e.ts) — the path misses at the closing sha
+	writeReach(repo, "packages/x/ported.test.ts", "../y/b.ts");
+	writeFileIn(repo, "packages/y/b.ts", "export const b = 1;\n");
+	git("add", "-A");
+	git("commit", "--allow-empty", "-m", "base with the soon-deleted port");
+	const base = git("rev-parse", "HEAD");
+	rmSync(join(repo, "packages", "x", "ported.test.ts"));
+	writeReach(repo, "packages/x/fresh.ts", "../y/b.ts");
+	git("add", "-A");
+	git("commit", "-m", "delete the port, add a fresh reach-in");
+	const sha = git("rev-parse", "HEAD");
+	const v = (paths: string[], baseRef: string | null) =>
+		importLawVerdict({ repo, paths, baseRef, sha, disabled: false });
+	// the DELETED path is clean: a nonexistent file adds no reach-in edges
+	expect(v(["packages/x/ported.test.ts"], base).ok).toBe(true);
+	// mixed: only the fresh reach-in (absent at base = empty inherited set)
+	// refuses — never the deleted sibling, never a parse complaint
+	const fresh = v(
+		["packages/x/ported.test.ts", "packages/x/fresh.ts"],
+		base,
+	);
+	expect(fresh.ok).toBe(false);
+	expect(fresh.newEdges).toEqual(["packages/x/fresh.ts: x/fresh.ts -> y (../y/b.ts)"]);
+});
+
 const mkdtempIn = () => mkdtempSync(join(tmpdir(), "w1302-import-law-"));
 const rmAfter = (dir: string) => {
 	toClean.push(dir);
