@@ -7,9 +7,11 @@
 // mock ever returns "carried" unconditionally — every carry outcome is
 // forced by fixture state.
 import { expect, test } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
+import { resetSettingsCache } from "@klh/settings";
 import {
 	readPostMergeStamp,
 	syncSettled,
@@ -18,6 +20,7 @@ import {
 import { decideRuntimeSync } from "../scripts/lib/runtime-sync.ts";
 import { carryGenerationPinned } from "../scripts/lib/post-merge-carry.ts";
 import { runPostMergeSync } from "../scripts/lib/post-merge-runner.ts";
+import { suspendersPrefix } from "../scripts/lib/post-merge-live.ts";
 import type { PostMergeRunnerDeps } from "../scripts/lib/post-merge-labels.ts";
 import type { CarryDeps } from "../scripts/lib/post-merge-carry.ts";
 import type { ActivationReceipt } from "../scripts/lib/service-drift.ts";
@@ -878,5 +881,51 @@ test("createRuntimeSync re-enters on same-head unsettled stamp", async () => {
 		if (hadMaintenance === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
 		else process.env.SUSPENDERS_MAINTENANCE = hadMaintenance;
 		world.clean();
+	}
+});
+
+// ---------- prefix knob designated home (W2674) ----------
+
+// The shared adapter's prefix (W2546.1) reads through its designated home
+// (KNOB_REGISTRY row SUSPENDERS_PREFIX → paths.suspenders_prefix), never a
+// direct env read: the settings row wins, the schema default's ~/ expands
+// against HOME, and the mapped env var stays the transition override.
+test("suspendersPrefix: settings row wins, ~/ default expands, env stays override", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w2674-prefix-"));
+	const file = join(dir, "settings.json");
+	const hadSettings = process.env.KLH_SETTINGS;
+	const hadPrefix = process.env.SUSPENDERS_PREFIX;
+	const hadHome = process.env.HOME;
+	const scratchHome = join(dir, "home");
+	process.env.KLH_SETTINGS = file;
+	delete process.env.SUSPENDERS_PREFIX;
+	try {
+		// no settings file: the schema default (~/.claude/hooks/suspenders)
+		// expands against HOME
+		process.env.HOME = scratchHome;
+		resetSettingsCache();
+		expect(suspendersPrefix()).toBe(
+			join(scratchHome, ".claude/hooks/suspenders"),
+		);
+		// settings row wins over the default
+		writeFileSync(
+			file,
+			JSON.stringify({ paths: { suspenders_prefix: "/opt/prefix" } }),
+		);
+		resetSettingsCache();
+		expect(suspendersPrefix()).toBe("/opt/prefix");
+		// the mapped env var stays the transition override (env-map row)
+		process.env.SUSPENDERS_PREFIX = "/env/prefix";
+		resetSettingsCache();
+		expect(suspendersPrefix()).toBe("/env/prefix");
+	} finally {
+		if (hadSettings === undefined) delete process.env.KLH_SETTINGS;
+		else process.env.KLH_SETTINGS = hadSettings;
+		if (hadPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = hadPrefix;
+		if (hadHome === undefined) delete process.env.HOME;
+		else process.env.HOME = hadHome;
+		resetSettingsCache();
+		rmSync(dir, { recursive: true, force: true });
 	}
 });

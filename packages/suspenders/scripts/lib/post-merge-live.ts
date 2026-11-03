@@ -19,6 +19,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { expandHome, setting } from "@klh/settings";
 import { PROBE_TIMEOUT_MS } from "./activation-readiness.ts";
 import {
 	carryGenerationPinned,
@@ -397,13 +398,19 @@ export function gatewayReadiness(
 			};
 }
 
+/** The installed suspenders prefix — the designated-home read (W2674):
+ *  paths.suspenders_prefix through @klh/settings, never a direct env read
+ *  (the env-map row keeps SUSPENDERS_PREFIX as the transition override;
+ *  the schema default's ~/ expands at read time). */
+export const suspendersPrefix = (): string =>
+	expandHome(setting("paths.suspenders_prefix"));
+
 export function buildPostMergeDeps(
 	repo: string,
 	statePath: string,
 	logPath: string,
 ): PostMergeRunnerDeps {
-	const prefix =
-		process.env.SUSPENDERS_PREFIX ?? `${homedir()}/.claude/hooks/suspenders`;
+	const prefix = suspendersPrefix();
 	const uid = typeof process.getuid === "function" ? process.getuid() : 0;
 	const domain = `gui/${uid}`;
 	const receiptPath = join(homedir(), ".config/klh/service-activation.json");
