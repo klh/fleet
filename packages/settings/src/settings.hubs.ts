@@ -116,6 +116,9 @@ export const HubSchema = z
 			.optional(),
 		ready_model: opt("Model the readiness leg asks"),
 		buckle_entry: opt("Buckle entrypoint override"),
+		default_models: strs(
+			"W2637 default model chain: what a bare hub= lane with no model pin rides, in order",
+		),
 		http_upstream_hosts: strs("Private hosts reachable over plain http"),
 		provider_intents: strs("Display-only provider placements"),
 		provider_requirements: strs("Central provider profiles this hub requires"),

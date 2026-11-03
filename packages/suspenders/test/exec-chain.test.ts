@@ -399,6 +399,91 @@ describe("W2570 amendment: machine-conf executors row is the model default", () 
 	});
 });
 
+describe("W2637 per-hub default model chain (hubs.<label>.default_models)", () => {
+	const KLH = "KLH_STACK";
+	let savedStack: string | undefined;
+	beforeAll(() => {
+		savedStack = process.env[KLH];
+	});
+	afterAll(() => {
+		if (savedStack === undefined) delete process.env[KLH];
+		else process.env[KLH] = savedStack;
+	});
+	const stackOf = (hubs: object): string => {
+		const path = join(HOME, "stack-w2637.json");
+		writeFileSync(path, JSON.stringify({ hubs }));
+		process.env[KLH] = path;
+		return path;
+	};
+
+	test("bare hub=: attempt 0 rides the chain head, the tail rides --fallback-model", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\n");
+		const p = execPick(0, REPO);
+		expect(p.hub).toBe("ikea");
+		expect(p.model).toBe("claude-sonnet-5");
+		expect(p.fallbackModels).toEqual(["glm-5.3-flash"]);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("attempt walks the chain; overrun parks on the last rung", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\n");
+		expect(execPick(1, REPO).model).toBe("glm-5.3-flash");
+		const parked = execPick(9, REPO);
+		expect(parked.model).toBe("glm-5.3-flash");
+		expect(parked.fallbackModels).toEqual([]);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("the chain is PER-HUB (ikea != desktop) and case-insensitive on the label", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5"] },
+			desktop: { host: "h2", default_models: ["zai-glm-5.3"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=desktop\n");
+		expect(execPick(0, REPO).model).toBe("zai-glm-5.3");
+		writeFileSync(join(REPO, ".prefer"), "hub=IKEA\n");
+		expect(execPick(0, REPO).model).toBe("claude-sonnet-5");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a hub slot token (must=ikea) fills its null model from the chain", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5", "glm-5.3-flash"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "must=ikea\n");
+		const p = execPick(0, REPO);
+		expect(p.model).toBe("claude-sonnet-5");
+		expect(p.hub).toBe("ikea");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("pins outrank the chain: .prefer model= and a directive own pin", () => {
+		stackOf({
+			ikea: { host: "h", default_models: ["claude-sonnet-5"] },
+		});
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\nmodel=glm-5.3\n");
+		expect(execPick(0, REPO).model).toBe("glm-5.3");
+		writeFileSync(join(REPO, ".prefer"), "hub=ikea\nmust=glm-5.3-flash\n");
+		expect(execPick(0, REPO).model).toBe("glm-5.3-flash");
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("hub without default_models, and no hub at all: model stays null", () => {
+		stackOf({ zai: { host: "h3" } });
+		writeFileSync(join(REPO, ".prefer"), "hub=zai\n");
+		expect(execPick(0, REPO).model).toBeNull();
+		writeFileSync(join(REPO, ".prefer"), "must=claude\n");
+		expect(execPick(0, REPO).model).toBeNull();
+		rmSync(join(REPO, ".prefer"));
+	});
+});
+
 describe("W1470 upward walk: a tree-root chain reaches the repos below it", () => {
 	const TREE = mkdtempSync(join(tmpdir(), "w1470-tree-"));
 	const MID = join(TREE, "group");
