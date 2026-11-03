@@ -49,15 +49,13 @@ export type DecisionRow = {
 
 /** The needs-you advice record (dec row or the /api/data needs map). */
 export type AdviceRow = DecisionRow & {
-	advice?:
-		| {
-				rec?: string;
-				model?: string;
-				rationale?: string;
-				risk?: string;
-				panel?: AdvicePanel | null;
-		  }
-		| null;
+	advice?: {
+		rec?: string;
+		model?: string;
+		rationale?: string;
+		risk?: string;
+		panel?: AdvicePanel | null;
+	} | null;
 	adviceError?: string | null;
 	advicePending?: string | boolean | null;
 };
@@ -269,8 +267,7 @@ export class KlhDecisions extends LitElement {
 
 	private byId(id: string): DecisionRow | null {
 		const ds = this.slice.dec.data?.decisions ?? [];
-		for (const d of ds)
-			if (d.id === id && this.inProject(d)) return d;
+		for (const d of ds) if (d.id === id && this.inProject(d)) return d;
 		return null;
 	}
 
@@ -343,10 +340,7 @@ export class KlhDecisions extends LitElement {
 	protected render() {
 		const all = this.openDecs();
 		const visible = all.filter((d) => this.decMatches(d));
-		const cls = [
-			this.collapsed ? "closed" : "",
-			all.length > 0 ? "has" : "",
-		]
+		const cls = [this.collapsed ? "closed" : "", all.length > 0 ? "has" : ""]
 			.filter(Boolean)
 			.join(" ");
 		return html`
@@ -465,28 +459,36 @@ export class KlhDecisions extends LitElement {
 				<span class="dwho"
 					>${d.asked_by_label || d.asked_by || "?"} · #${id}</span
 				>
-				${d.owner_actionable
-					? html`<span class="dstale pill block"
-							>${d.owner_reason === "target-dead"
-								? "target lane absent"
-								: "owner ruling"}</span
+				${
+					d.owner_actionable
+						? html`<span class="dstale pill block"
+							>${
+								d.owner_reason === "target-dead"
+									? "target lane absent"
+									: "owner ruling"
+							}</span
 						>`
-					: nothing}
-				${dup
-					? html`<span class="ddup pill"
+						: nothing
+				}
+				${
+					dup
+						? html`<span class="ddup pill"
 							>+${(d.dup_count ?? 1) - 1} like this</span
 						>`
-					: nothing}
-				${d.policy
-					? html`<span class="dpol pill block">policy</span>`
-					: nothing}
+						: nothing
+				}
+				${
+					d.policy ? html`<span class="dpol pill block">policy</span>` : nothing
+				}
 				<span class="dage dim">${this.decAge(d)}</span>
 			</div>
 			<div class="dq">${d.question || "(no question text)"}</div>
 			<div class="dblocks">${this.blocksText(d)}</div>
-			${d.policy
-				? html`<div class="dsrc dim">${policySrcOf(d.policy)}</div>`
-				: nothing}
+			${
+				d.policy
+					? html`<div class="dsrc dim">${policySrcOf(d.policy)}</div>`
+					: nothing
+			}
 			<div class="dopts">
 				${(d.options ?? []).map(
 					(o) => html`<div
@@ -511,9 +513,7 @@ export class KlhDecisions extends LitElement {
 					placeholder="your decision..."
 					.value=${rq.drafts[id] ?? ""}
 					@input=${(e: InputEvent) => {
-						this.requests.drafts[id] = (
-							e.target as HTMLInputElement
-						).value;
+						this.requests.drafts[id] = (e.target as HTMLInputElement).value;
 					}}
 					@keydown=${(e: KeyboardEvent) => {
 						if (e.key === "Enter") {
@@ -532,11 +532,7 @@ export class KlhDecisions extends LitElement {
 					?disabled=${rq.answering[id] || false}
 					@click=${() => this.send(id)}
 				>
-					${rq.sentOk[id]
-						? "Sent"
-						: ruling
-							? "Record ruling"
-							: "Send"}
+					${rq.sentOk[id] ? "Sent" : ruling ? "Record ruling" : "Send"}
 				</button>
 				<button
 					class="getrec"
@@ -553,9 +549,7 @@ export class KlhDecisions extends LitElement {
 					@click=${() =>
 						this.dispatchEvent(new DecisionCancelRequestedEvent(id))}
 				>
-					${d.owner_reason === "target-dead"
-						? "Dismiss if obsolete"
-						: "Cancel"}
+					${d.owner_reason === "target-dead" ? "Dismiss if obsolete" : "Cancel"}
 				</button>
 			</div>
 		</div>`;
@@ -585,11 +579,11 @@ export class KlhDecisions extends LitElement {
 			const secs = Math.round((Date.now() - (rq.advising[id] ?? 0)) / 1000);
 			return html`<div class="dadv">
 				<span class="dim"
-					>${advice?.advicePending === "queued"
-						? "recommendation queued"
-						: `getting recommendation... ${secs}s`}${rq.advRetry[id]
-						? " (retrying)"
-						: ""}</span
+					>${
+						advice?.advicePending === "queued"
+							? "recommendation queued"
+							: `getting recommendation... ${secs}s`
+					}${rq.advRetry[id] ? " (retrying)" : ""}</span
 				>
 			</div>`;
 		}
@@ -621,21 +615,20 @@ export class KlhDecisions extends LitElement {
 		if (!ac) return nothing;
 		return html`<div class="dadv">
 			<div class="rhead">
-				RECOMMENDATION${ac.model
-					? html` <span class="dim">${ac.model}</span>`
-					: nothing}
+				RECOMMENDATION${
+					ac.model ? html` <span class="dim">${ac.model}</span>` : nothing
+				}
 			</div>
 			<div class="rec">${ac.rec || ""}</div>
-			${ac.rationale
-				? html`<div class="why">${ac.rationale}</div>`
-				: nothing}
+			${ac.rationale ? html`<div class="why">${ac.rationale}</div>` : nothing}
 			${ac.risk ? html`<div class="risk">risk: ${ac.risk}</div>` : nothing}
 			${ac.panel ? this.renderPanel(ac.panel) : nothing}
-			${usableRec(ac.rec)
-				? html`<button class="use" type="button" @click=${() => this.use(id)}>
+			${
+				usableRec(ac.rec)
+					? html`<button class="use" type="button" @click=${() => this.use(id)}>
 						use
 					</button>`
-				: html`<span class="risk">No usable recommendation — retry</span>
+					: html`<span class="risk">No usable recommendation — retry</span>
 						<button
 							class="advretry"
 							type="button"
@@ -643,7 +636,8 @@ export class KlhDecisions extends LitElement {
 								this.dispatchEvent(new DecisionAdviseRequestedEvent(id))}
 						>
 							retry
-						</button>`}
+						</button>`
+			}
 		</div>`;
 	}
 
@@ -653,9 +647,11 @@ export class KlhDecisions extends LitElement {
 			<div class="pconsensus${panelClassOf(c)}">${c}</div>
 			${(p.legs ?? []).map(
 				(l) => html`<div class="pleg">${legLine(l)}</div>
-					${!l.ok && l.error
-						? html`<div class="plegerr dim">${l.error}</div>`
-						: nothing}`,
+					${
+						!l.ok && l.error
+							? html`<div class="plegerr dim">${l.error}</div>`
+							: nothing
+					}`,
 			)}
 		</div>`;
 	}
@@ -685,9 +681,7 @@ export class KlhDecisions extends LitElement {
 		const rows = this.histRows();
 		if (!s.loaded && !s.err) return "loading history...";
 		if (s.err)
-			return rows.length
-				? `${rows.length} archived · stale`
-				: "unavailable";
+			return rows.length ? `${rows.length} archived · stale` : "unavailable";
 		return rows.length ? `${rows.length} archived` : "(no archived decisions)";
 	}
 
@@ -695,9 +689,7 @@ export class KlhDecisions extends LitElement {
 		const ds = this.slice.hist.data?.decisions ?? [];
 		// the feed URL is project-scoped; the client filter is the second half
 		// of the old decisionInProject contract (foreign rows never render)
-		return ds.filter(
-			(d) => d.state && d.state !== "OPEN" && this.inProject(d),
-		);
+		return ds.filter((d) => d.state && d.state !== "OPEN" && this.inProject(d));
 	}
 
 	private renderHist(): (TemplateResult | typeof nothing)[] {
@@ -711,11 +703,13 @@ export class KlhDecisions extends LitElement {
 					<span class="hq"
 						>${String(d.question || "(no question text)").slice(0, 140)}</span
 					>
-					${d.answer_note
-						? html`<span class="hans"
+					${
+						d.answer_note
+							? html`<span class="hans"
 								>${String(d.answer_note).slice(0, 200)}</span
 							>`
-						: nothing}
+							: nothing
+					}
 				</span>
 				<span class="hage dim"
 					>${agoOf(msAgo(d.answered_ts || d.ack_ts || d.created_ts))}</span

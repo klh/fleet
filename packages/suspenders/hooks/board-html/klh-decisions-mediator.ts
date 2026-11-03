@@ -118,8 +118,14 @@ export class KlhDecisionsMediator extends LitElement {
 
 	constructor() {
 		super();
-		this.addEventListener(DecisionAnswerRequestedEvent.eventName, this.onAnswer);
-		this.addEventListener(DecisionAdviseRequestedEvent.eventName, this.onAdvise);
+		this.addEventListener(
+			DecisionAnswerRequestedEvent.eventName,
+			this.onAnswer,
+		);
+		this.addEventListener(
+			DecisionAdviseRequestedEvent.eventName,
+			this.onAdvise,
+		);
 		this.addEventListener(
 			DecisionCancelRequestedEvent.eventName,
 			this.onCancel,
@@ -285,9 +291,7 @@ export class KlhDecisionsMediator extends LitElement {
 
 	/** W667 advise lifecycle (the 1Hz tick drives it) — see advSettle. */
 	private lifecycle(decisions: DecisionRow[]): void {
-		const live = new Set(
-			decisions.filter((d) => !d.dup_of).map((d) => d.id),
-		);
+		const live = new Set(decisions.filter((d) => !d.dup_of).map((d) => d.id));
 		const keys = [
 			"advising",
 			"advErr",
@@ -493,7 +497,8 @@ export class KlhDecisionsMediator extends LitElement {
 			}
 		} catch (e) {
 			delete this.requests.answering[id];
-			this.requests.ansErr[id] = `${String((e as Error)?.message || e)} — press Send to retry`;
+			this.requests.ansErr[id] =
+				`${String((e as Error)?.message || e)} — press Send to retry`;
 		}
 		this.push();
 		this.store.kick("dec", true);
@@ -553,7 +558,8 @@ export class KlhDecisionsMediator extends LitElement {
 			}
 			this.store.kick("dec", true);
 		} catch (e) {
-			this.requests.ansErr[id] = `${String((e as Error)?.message || e)} — retry`;
+			this.requests.ansErr[id] =
+				`${String((e as Error)?.message || e)} — retry`;
 			this.push();
 		}
 	}

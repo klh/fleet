@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { FeedStore } from "../hooks/board-html/feed-store.ts";
-import { histUrlOf, projQueryOf } from "../hooks/board-html/klh-decisions-mediator.ts";
+import {
+	histUrlOf,
+	projQueryOf,
+} from "../hooks/board-html/klh-decisions-mediator.ts";
 import {
 	KlhDecisions,
 	type DecisionRow,
