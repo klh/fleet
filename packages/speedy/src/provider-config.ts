@@ -8,7 +8,7 @@
 // Consumers: hubctl secret delivery (W1124.8.2.1), belt runtime-heal,
 // buckle gateway bootstrap. Pure module — node:fs only, no
 // fleet-internal imports (the file ports verbatim into DEPS closures).
-import { readFileSync, statSync, type Stats } from "node:fs";
+import { readFileSync, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -212,4 +212,35 @@ export function resolveProvider(
 		env: p.env ?? null,
 		endpoints: p.endpoints ?? {},
 	};
+}
+
+/** The profile whose OUTPUT binding names `env` — the explicit env-binding
+ *  lookup a gateway key injection rides (env NAME, never a path
+ *  convention). W1124.8.4 consumer seam; first declaration wins (the
+ *  validator already refuses a second profile binding the same env). */
+export function profileForEnv(
+	env: string,
+	providers: Record<string, ProviderEntry>,
+): ResolvedProvider | null {
+	for (const [name, entry] of Object.entries(providers)) {
+		if (entry.env !== env) continue;
+		return resolveProvider(name, providers);
+	}
+	return null;
+}
+
+/** The first profile whose `endpoints[dialect]` equals `url` — endpoint
+ *  match, not name match: zai-coding (not zai-general) is whichever
+ *  profile actually declares the endpoint a generated row rides. Belt's
+ *  contract twin carries the same lookup (provider-profiles.ts). */
+export function profileForEndpoint(
+	dialect: keyof ProviderEndpoints,
+	url: string,
+	providers: Record<string, ProviderEntry>,
+): ResolvedProvider | null {
+	for (const [name, entry] of Object.entries(providers)) {
+		if (entry.endpoints?.[dialect] !== url) continue;
+		return resolveProvider(name, providers);
+	}
+	return null;
 }
