@@ -70,6 +70,9 @@ export function reviewPrompt(p: ReviewPromptInput): string {
 // W1289: 8000 still cut Flash reviews off mid-reasoning before the required
 // VERDICT line (W1286 receipt #70110). Leave room for the actual findings and
 // terminal verdict after its reasoning pass.
+// W2405: this is the FALLBACK, no longer the cap — the fleet_loop conf row
+// review_leg_max_tokens (spawn env SUSPENDERS_REVIEW_LEG_MAX_TOKENS, 0 =
+// omit the key entirely) overrides it; the owner directive removed the cap.
 export const REVIEW_LEG_MAX_TOKENS = 16000;
 export const REVIEW_LEG_TEMPERATURE = 0.2;
 
@@ -87,10 +90,16 @@ export async function requestReviewLeg(o: {
 	model: string;
 	key?: string;
 	prompt: string;
+	/** W2405: 0 = uncapped — no AbortSignal.timeout on the fetch. */
 	timeoutMs: number;
+	/** W2405: absent = REVIEW_LEG_MAX_TOKENS; 0 = OMIT the max_tokens key
+	 *  (the provider default applies — the truncation culprit receipts
+	 *  W2368/W2390/W2269.1.1 burned the budget before the VERDICT line). */
+	maxTokens?: number;
 	/** W1263: fires with the served wire model, before any empty-content throw */
 	onWireModel?: (model: string) => void;
 }): Promise<ReviewLegReply> {
+	const maxTokens = o.maxTokens ?? REVIEW_LEG_MAX_TOKENS;
 	const response = await fetch(o.url, {
 		method: "POST",
 		headers: {
@@ -100,10 +109,10 @@ export async function requestReviewLeg(o: {
 		body: JSON.stringify({
 			model: o.model,
 			messages: [{ role: "user", content: o.prompt }],
-			max_tokens: REVIEW_LEG_MAX_TOKENS,
+			...(maxTokens > 0 ? { max_tokens: maxTokens } : {}),
 			temperature: REVIEW_LEG_TEMPERATURE,
 		}),
-		signal: AbortSignal.timeout(o.timeoutMs),
+		...(o.timeoutMs > 0 ? { signal: AbortSignal.timeout(o.timeoutMs) } : {}),
 	});
 	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
 	const body = (await response.json()) as {

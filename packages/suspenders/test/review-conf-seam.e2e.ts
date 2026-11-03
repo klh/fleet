@@ -1,13 +1,18 @@
 // test/review-conf-seam.e2e.ts — W2351: the reviewer env rows are
 // conf-sourced. The machine conf's fleet_loop block carries the reviewer
 // ladder + stepdown classes durably; the env vars stay the override; the
-// loop's config watcher hot-applies edits (no launchd reload). One spec,
-// three seams: the resolver, the watcher, the scheduler spawn env.
-import { expect, test } from "@playwright/test";
+// loop's config watcher hot-applies edits (no launchd reload). W2405 adds
+// the leg cap rows (review_leg_timeout_ms / review_leg_max_tokens) through
+// every seam down to the request body itself. Seams: the resolver, the
+// watcher, the scheduler spawn env, the request body, the uncapped fetch.
+
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { serveStub } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { createLoopConfigWatch } from "../hooks/lib/fleet-loop/loop-config-watch.ts";
+import { requestReviewLeg } from "../hooks/lib/gates/review-prompt.ts";
 import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
 	reviewRequestKey,
@@ -83,6 +88,31 @@ test("reviewRoundCap: conf row wins (0 disables), env stays the fallback, junk �
 	expect(reviewRoundCap({ SUSPENDERS_REVIEW_ROUND_CAP: "junk" })).toBe(3);
 });
 
+// W2405: the leg cap rows — absent = defaults (900s / 16000), 0 = uncapped,
+// >0 = explicit. Both resolve beside the W2351 rows.
+test("fleetLoopSettings: review_leg cap rows resolve (W2405)", () => {
+	const d = fleetLoopSettings(null);
+	expect(d.reviewLegTimeoutMs).toBeUndefined();
+	expect(d.reviewLegMaxTokens).toBeUndefined();
+	// 0 = uncapped semantics ride through as explicit zeros
+	const z = fleetLoopSettings({
+		hubs: {},
+		fleet_loop: { review_leg_timeout_ms: 0, review_leg_max_tokens: 0 },
+	});
+	expect(z.reviewLegTimeoutMs).toBe(0);
+	expect(z.reviewLegMaxTokens).toBe(0);
+	// >0 = explicit value
+	const e = fleetLoopSettings({
+		hubs: {},
+		fleet_loop: {
+			review_leg_timeout_ms: 300_000,
+			review_leg_max_tokens: 65_536,
+		},
+	});
+	expect(e.reviewLegTimeoutMs).toBe(300_000);
+	expect(e.reviewLegMaxTokens).toBe(65_536);
+});
+
 // ── seam 2: the spawn-env layering ──────────────────────────────────────────
 test("reviewSpawnEnv: env rows win, conf fills unset, empty env row is a kill switch", () => {
 	const conf = {
@@ -116,6 +146,31 @@ test("reviewSpawnEnv: env rows win, conf fills unset, empty env row is a kill sw
 	expect(base).toEqual({});
 });
 
+// W2405: the leg caps ride the same spawn-env layering — conf fills unset,
+// env wins, 0 rides through as the string "0" (uncapped is a SET value).
+test("reviewSpawnEnv: leg cap rows fill unset env (W2405)", () => {
+	const conf = { reviewLegTimeoutMs: 0, reviewLegMaxTokens: 0 };
+	expect(reviewSpawnEnv({}, conf)).toEqual({
+		SUSPENDERS_REVIEW_LEG_TIMEOUT_MS: "0",
+		SUSPENDERS_REVIEW_LEG_MAX_TOKENS: "0",
+	});
+	// env rows win; the other conf row still fills
+	expect(
+		reviewSpawnEnv(
+			{ SUSPENDERS_REVIEW_LEG_MAX_TOKENS: "32000" },
+			{ reviewLegTimeoutMs: 600_000, reviewLegMaxTokens: 0 },
+		),
+	).toEqual({
+		SUSPENDERS_REVIEW_LEG_TIMEOUT_MS: "600000",
+		SUSPENDERS_REVIEW_LEG_MAX_TOKENS: "32000",
+	});
+	// no conf rows = no keys (review-lane falls to its code defaults)
+	expect(
+		reviewSpawnEnv({}, { reviewFallbackModels: "a" })
+			.SUSPENDERS_REVIEW_LEG_TIMEOUT_MS,
+	).toBeUndefined();
+});
+
 // ── seam 3: the watcher hot-apply ───────────────────────────────────────────
 test("config edit → watcher hot-applies the reviewer rows within the poll interval", async () => {
 	const conf = join(tmpConf(), "stack.json");
@@ -146,6 +201,27 @@ test("config edit → watcher hot-applies the reviewer rows within the poll inte
 		// the hot-apply line names the row (unset renders `-`)
 		expect(
 			lines.some((l) => l.includes(`review_fallback_models=${ladder}`)),
+		).toBe(true);
+		// W2405: a cap edit hot-applies and the line names the applied values
+		writeFileSync(
+			conf,
+			JSON.stringify({
+				fleet_loop: {
+					lane_target: 6,
+					review_fallback_models: ladder,
+					review_leg_timeout_ms: 0,
+					review_leg_max_tokens: 0,
+				},
+			}),
+		);
+		await pollFor(() => w.settings().reviewLegTimeoutMs === 0);
+		expect(w.settings().reviewLegMaxTokens).toBe(0);
+		expect(
+			lines.some(
+				(l) =>
+					l.includes("review_leg_timeout_ms=0") &&
+					l.includes("review_leg_max_tokens=0"),
+			),
 		).toBe(true);
 	} finally {
 		w.stop();
@@ -188,6 +264,74 @@ test("scheduleReview: no settings = env-only spawn (pre-W2351 shape)", () => {
 	const f = reviewFixture();
 	expect(scheduleReview(f.options)).toContain("requested through Buckle");
 	expect(f.envs[0]?.SUSPENDERS_REVIEW_FALLBACK_MODELS).toBeUndefined();
+});
+
+// W2405: conf cap rows ride the scheduler spawn env (env wins, conf fills).
+test("scheduleReview: conf leg caps ride the spawn env (W2405)", () => {
+	const f = reviewFixture();
+	expect(
+		scheduleReview({
+			...f.options,
+			settings: () => ({ reviewLegTimeoutMs: 0, reviewLegMaxTokens: 0 }),
+		}),
+	).toContain("requested through Buckle");
+	expect(f.envs[0]?.SUSPENDERS_REVIEW_LEG_TIMEOUT_MS).toBe("0");
+	expect(f.envs[0]?.SUSPENDERS_REVIEW_LEG_MAX_TOKENS).toBe("0");
+});
+
+// ── seam 5 (W2405): the request body — 0 omits the cap key ──────────────────
+// requestReviewLeg against a live stub pins the wire shape: absent maxTokens
+// = the 16000 fallback; 0 = the max_tokens key is OMITTED (provider default).
+
+const legStub = () =>
+	serveStub(() =>
+		Response.json({
+			model: "stub-model",
+			choices: [{ message: { content: "VERDICT: PASS" } }],
+			usage: { prompt_tokens: 1, completion_tokens: 1 },
+		}),
+	);
+
+test("requestReviewLeg: max_tokens 0 omits the key, absent = 16000 (W2405)", async () => {
+	const stub = legStub();
+	try {
+		const url = `${stub.url}/v1/chat/completions`;
+		// absent = the shipped fallback cap
+		await requestReviewLeg({ url, model: "m", prompt: "p", timeoutMs: 30_000 });
+		expect(stub.requests[0]?.body?.max_tokens).toBe(16_000);
+		// 0 = OMIT the key entirely (the provider default applies)
+		await requestReviewLeg({
+			url,
+			model: "m",
+			prompt: "p",
+			timeoutMs: 30_000,
+			maxTokens: 0,
+		});
+		expect(stub.requests[1]?.body).not.toHaveProperty("max_tokens");
+	} finally {
+		stub.close();
+	}
+});
+
+// ── seam 6 (W2405): timeoutMs 0 = uncapped fetch ────────────────────────────
+
+test("requestReviewLeg: timeoutMs 0 sends no AbortSignal, reply parses (W2405)", async () => {
+	const stub = legStub();
+	try {
+		const r = await requestReviewLeg({
+			url: `${stub.url}/v1/chat/completions`,
+			model: "m",
+			prompt: "p",
+			timeoutMs: 0,
+			maxTokens: 65_536,
+		});
+		expect(r.text).toBe("VERDICT: PASS");
+		expect(r.model).toBe("stub-model");
+		// >0 = explicit value on the wire (same call carried maxTokens)
+		expect(stub.requests[0]?.body?.max_tokens).toBe(65_536);
+	} finally {
+		stub.close();
+	}
 });
 
 // ---- the scheduler fixture (facts + completion record + spawn capture) -----

@@ -9,8 +9,8 @@ import { readFileSync, statSync } from "node:fs";
 import {
 	FLEET_LOOP_DEFAULTS,
 	FleetLoopConfigSchema,
-	fleetLoopSettings,
 	type FleetLoopSettings,
+	fleetLoopSettings,
 } from "../stack-config.ts";
 
 export interface LoopConfigWatch {
@@ -90,16 +90,19 @@ export function createLoopConfigWatch(opts: {
 		const before = current;
 		current = next;
 		// W2351: the reviewer rows ride the same hot-apply (unset renders `-`)
+		// W2405: the reviewer leg caps too (unset = defaults 900s/16000)
 		if (
 			before.laneTarget !== current.laneTarget ||
 			before.everyS !== current.everyS ||
 			before.dispatchTarget !== current.dispatchTarget ||
 			before.reviewFallbackModels !== current.reviewFallbackModels ||
 			before.reviewStepdownClasses !== current.reviewStepdownClasses ||
-			before.reviewRoundCap !== current.reviewRoundCap
+			before.reviewRoundCap !== current.reviewRoundCap ||
+			before.reviewLegTimeoutMs !== current.reviewLegTimeoutMs ||
+			before.reviewLegMaxTokens !== current.reviewLegMaxTokens
 		) {
 			log(
-				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"}`,
+				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"} review_leg_timeout_ms=${current.reviewLegTimeoutMs ?? 900_000} review_leg_max_tokens=${current.reviewLegMaxTokens ?? 16_000}`,
 			);
 		}
 	};
