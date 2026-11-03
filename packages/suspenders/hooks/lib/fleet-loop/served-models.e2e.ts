@@ -23,7 +23,11 @@ const catalog = (ids: string[]) => (_req: Request) =>
 	Response.json({ object: "list", data: ids.map((id) => ({ id })) });
 
 /** A pick shaped like execPick's return — only the fields the gates read. */
-const pickOf = (model: string | null, hub: string | null = null) => ({
+const pickOf = (
+	model: string | null,
+	hub: string | null = null,
+	modelPin?: { file: string; line: number; key: string; target: string },
+) => ({
 	name: "claude",
 	agent: "claude",
 	model,
@@ -34,6 +38,7 @@ const pickOf = (model: string | null, hub: string | null = null) => ({
 	chainLen: 1,
 	chainIdx: 0,
 	preference: { source: "default" as const, directive: null, line: null },
+	modelPin: modelPin ?? null,
 });
 
 test.afterAll(() => {
@@ -59,6 +64,61 @@ test("servedModelsVerdict: class match, prefix fold, refusal excerpt @unit", () 
 	const many = Array.from({ length: 12 }, (_, i) => `m-${i}`);
 	const cut = servedModelsVerdict("none", many);
 	if (!cut.ok) expect(cut.why).toContain("(+4 more)");
+});
+
+test("servedModelsVerdict: W2636 pin-backed miss is the distinct actionable refusal @unit", () => {
+	const served = ["claude-sonnet-5", "gpt-6-sol"];
+	const modelPin = servedModelsVerdict("glm-9", served, {
+		file: "/repo/.prefer",
+		line: 3,
+		key: "model",
+		target: "glm-9",
+	});
+	expect(modelPin.ok).toBe(false);
+	if (!modelPin.ok) {
+		expect(modelPin.why).toContain("/repo/.prefer:3");
+		expect(modelPin.why).toContain("model=glm-9");
+		expect(modelPin.why).toContain("gpt-6-sol");
+		expect(modelPin.why).toContain("edit /repo/.prefer line 3");
+	}
+	const directivePin = servedModelsVerdict("glm-9", served, {
+		file: "/repo/.prefer",
+		line: 1,
+		key: "must",
+		target: "copilot",
+	});
+	expect(directivePin.ok).toBe(false);
+	if (!directivePin.ok) {
+		expect(directivePin.why).toContain("must=copilot at /repo/.prefer:1");
+		expect(directivePin.why).toContain("graded model glm-9");
+	}
+	// no pin = the generic W2572 wording, unchanged
+	const bare = servedModelsVerdict("glm-9", served, null);
+	expect(bare.ok).toBe(false);
+	if (!bare.ok) expect(bare.why).not.toContain(".prefer");
+});
+
+test("servedModelsGate: the pin rides the end-to-end refusal naming the hub @unit", async () => {
+	const hub = serveStub(catalog(["gpt-6-sol"]));
+	try {
+		const refused = await servedModelsGate({
+			model: "glm-9",
+			hubPick: "ikea",
+			hubUrls: [],
+			env: { SUSPENDERS_BUCKLE_FRONT: hub.url },
+			resolve: async (l) =>
+				l === "ikea" ? { label: "ikea", url: hub.url, via: "test" } : null,
+			pin: { file: "/repo/.prefer", line: 2, key: "model", target: "glm-9" },
+		});
+		expect(refused.verdict).toBe("refused");
+		if (refused.verdict === "refused") {
+			expect(refused.why).toContain("hub ikea");
+			expect(refused.why).toContain("/repo/.prefer:2");
+			expect(refused.why).toContain("gpt-6-sol");
+		}
+	} finally {
+		hub.close();
+	}
 });
 
 test("servedModelsGate: belt-direct validates the spoke catalog (the W1.1 class) @unit", async () => {
@@ -259,6 +319,90 @@ test("admitModel: W2572 gate refuses pre-claim and MODEL_HEALTH=0 does not bypas
 		// admitModel's refused path closes the store itself (verbatim from
 		// lane-launch); the local binding tolerates a second close no-op —
 		// still guard it so a throw here never masks the test verdict.
+		try {
+			store?.close();
+		} catch {}
+	}
+});
+
+test("admitModel: W2636 a matching pin rides the refusal with the .prefer line @unit", async () => {
+	// scratch HOME = no settings.json → pools inert; the pin's target class
+	// matches the graded model, so provenance survives the admitModel guard.
+	let store: ReturnType<typeof openStore> | null = null;
+	try {
+		store = openStore();
+		const spoke = serveStub(catalog(["gpt-6-sol"]));
+		process.env.SUSPENDERS_BUCKLE_FRONT = spoke.url;
+		const routeAdmission = new RouteAdmission(
+			false,
+			async () => null,
+			() => null,
+		);
+		try {
+			const out = await admitModel({
+				store,
+				project: "test-proj",
+				sid: "w2636-test",
+				item: "W2636T",
+				pick: pickOf("glm-9", null, {
+					file: "/repo/.prefer",
+					line: 2,
+					key: "model",
+					target: "glm-9",
+				}),
+				bin: "/usr/local/bin/claude",
+				routePin: undefined,
+				posture: "steady",
+				quota: new Map(),
+				wireEndpoints: unknownEndpoints,
+				routeName: null,
+				routeAdmission,
+				governanceRefusals: [],
+				launchWaits: [],
+				hubPick: null,
+			});
+			expect(out.verdict).toBe("refused");
+			if (out.verdict === "refused") {
+				expect(out.reason).toContain("/repo/.prefer:2");
+				expect(out.reason).toContain("model=glm-9");
+				expect(out.reason).toContain("gpt-6-sol");
+			}
+			spoke.close();
+			// a pin whose class does NOT match the graded model (posture/
+			// placement moved it) keeps the generic wording — the pin is
+			// not what to edit.
+			const moved = serveStub(catalog(["gpt-6-sol"]));
+			process.env.SUSPENDERS_BUCKLE_FRONT = moved.url;
+			const stalePin = await admitModel({
+				store,
+				project: "test-proj",
+				sid: "w2636-test",
+				item: "W2636T2",
+				pick: pickOf("glm-9", null, {
+					file: "/repo/.prefer",
+					line: 2,
+					key: "model",
+					target: "claude-sonnet-5",
+				}),
+				bin: "/usr/local/bin/claude",
+				routePin: undefined,
+				posture: "steady",
+				quota: new Map(),
+				wireEndpoints: unknownEndpoints,
+				routeName: null,
+				routeAdmission,
+				governanceRefusals: [],
+				launchWaits: [],
+				hubPick: null,
+			});
+			expect(stalePin.verdict).toBe("refused");
+			if (stalePin.verdict === "refused")
+				expect(stalePin.reason).not.toContain("/repo/.prefer");
+			moved.close();
+		} finally {
+			delete process.env.SUSPENDERS_BUCKLE_FRONT;
+		}
+	} finally {
 		try {
 			store?.close();
 		} catch {}

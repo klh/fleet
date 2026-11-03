@@ -27,6 +27,8 @@ test("JSON .prefer never becomes executor garbage; malformed JSON cannot fall ba
 		hubUrls: [],
 		can: null,
 		model: null,
+		file: "",
+		modelLine: null,
 	});
 	writeFileSync(join(repo, ".prefer"), "{\nmust=claude\n}");
 	expect(() => preferOf(repo)).toThrow(
@@ -352,6 +354,72 @@ describe("W2570 model= pin: executor + model on one lane", () => {
 	});
 });
 
+describe("W2636 model pin provenance: the refusal names the .prefer line", () => {
+	test("model= pin carries file:line, key 'model', and the target", () => {
+		writeFileSync(
+			join(REPO, ".prefer"),
+			"hub=ikea\nmust=copilot\nmodel=gpt-6-sol\n",
+		);
+		const p = execPick(0, REPO);
+		expect(p.modelPin).toEqual({
+			file: join(REPO, ".prefer"),
+			line: 3,
+			key: "model",
+			target: "gpt-6-sol",
+		});
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("a directive token that IS the model names the directive's line", () => {
+		writeFileSync(join(REPO, ".prefer"), "# pin\nmust=glm-9-nonexistent\n");
+		const p = execPick(0, REPO);
+		expect(p.modelPin).toEqual({
+			file: join(REPO, ".prefer"),
+			line: 2,
+			key: "must",
+			target: "glm-9-nonexistent",
+		});
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("directive pin outranks a separate model= (same law as the model itself)", () => {
+		writeFileSync(join(REPO, ".prefer"), "must=glm-5.3-flash\nmodel=glm-5.3\n");
+		const p = execPick(0, REPO);
+		expect(p.modelPin?.key).toBe("must");
+		expect(p.modelPin?.line).toBe(1);
+		rmSync(join(REPO, ".prefer"));
+	});
+
+	test("the tree's model= provenance reaches the repo below it; nearest wins", () => {
+		const TREE = mkdtempSync(join(tmpdir(), "w2636-tree-"));
+		try {
+			writeFileSync(join(TREE, ".prefer"), "model=gpt-6-sol\n");
+			const WORK = join(TREE, "repo");
+			mkdirSync(WORK);
+			expect(execPick(0, WORK).modelPin).toEqual({
+				file: join(TREE, ".prefer"),
+				line: 1,
+				key: "model",
+				target: "gpt-6-sol",
+			});
+			writeFileSync(join(WORK, ".prefer"), "model=glm-5.3\n");
+			expect(execPick(0, WORK).modelPin).toEqual({
+				file: join(WORK, ".prefer"),
+				line: 1,
+				key: "model",
+				target: "glm-5.3",
+			});
+		} finally {
+			rmSync(TREE, { recursive: true, force: true });
+		}
+	});
+
+	test("no dotfile pin (conf default / unpinned executor) stays null", () => {
+		const p = pick(0, ["copilot", "claude"]);
+		expect(p.modelPin).toBeNull();
+	});
+});
+
 describe("W2570 amendment: machine-conf executors row is the model default", () => {
 	const KLH = "KLH_STACK";
 	let savedStack: string | undefined;
@@ -546,11 +614,19 @@ describe("W1470 upward walk: a tree-root chain reaches the repos below it", () =
 			hubUrls: [],
 			can: null,
 			model: null,
+			file: "",
+			modelLine: null,
 		});
 		const own = preferFileOf(TREE);
 		expect(own.hub).toBe("nas");
 		expect(own.directives).toEqual([
-			{ value: "glm-5.3-flash", kind: "must", line: 1, rank: 0 },
+			{
+				value: "glm-5.3-flash",
+				kind: "must",
+				line: 1,
+				rank: 0,
+				file: join(TREE, ".prefer"),
+			},
 		]);
 	});
 });

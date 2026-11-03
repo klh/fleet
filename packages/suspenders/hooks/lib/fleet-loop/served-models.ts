@@ -19,6 +19,16 @@ import { fetchHubCatalog } from "../hub/model-health.ts";
 import { adminKey, hubCredential } from "../lanes/lane-auth.ts";
 import { BUCKLE_SPOKE_PORT, loopbackUrl } from "../loopback.ts";
 
+/** W2636: the dotfile pin behind the composed model — what a refusal should
+ * tell the operator to edit (shape + semantics owned by exec-chain). */
+export interface ServedModelPin {
+	file: string;
+	line: number;
+	/** The .prefer key that produced the pin: "must" | "prefer" | "can" | "model". */
+	key: "must" | "prefer" | "can" | "model";
+	target: string;
+}
+
 /** One bounded catalog read per launch attempt (never a burst, W779). */
 export const SERVED_MODELS_TIMEOUT_MS = 3000;
 /** Refusal excerpts stay paste-able — the head of the list, not all of it. */
@@ -35,6 +45,7 @@ export type ServedModelsGate =
 export const servedModelsVerdict = (
 	model: string,
 	served: readonly string[],
+	pin?: ServedModelPin | null,
 ): { ok: true; servedBy: string } | { ok: false; why: string } => {
 	const hit = served.find((id) => wireModelMatch(model, id) === "match");
 	if (hit !== undefined) return { ok: true, servedBy: hit };
@@ -43,6 +54,20 @@ export const servedModelsVerdict = (
 		served.length > SERVED_MODELS_EXCERPT
 			? ` …(+${served.length - SERVED_MODELS_EXCERPT} more)`
 			: "";
+	// W2636: a pin-backed miss is the DISTINCT actionable refusal — name the
+	// exact dotfile line to edit, the pinned model, and the actual offerings.
+	// The pin names what was WRITTEN; the graded model may differ (repin,
+	// placement) — both shown so the edit fixes the real mismatch.
+	if (pin && pin.key !== "model")
+		return {
+			ok: false,
+			why: `pinned by .prefer ${pin.key}=${pin.target} at ${pin.file}:${String(pin.line)} but graded model ${model} matches no offering (served: ${shown || "(empty list)"}${more}) — edit ${pin.file} line ${String(pin.line)}: set ${pin.key}= to a served model, or drop the pin to ride the hub ladder`,
+		};
+	if (pin)
+		return {
+			ok: false,
+			why: `pinned model=${pin.target} at ${pin.file}:${String(pin.line)} matches no offering (served: ${shown || "(empty list)"}${more}) — edit ${pin.file} line ${String(pin.line)}: set model= to a served model, or drop the pin to ride the hub ladder`,
+		};
 	return {
 		ok: false,
 		why: `served: ${shown || "(empty list)"}${more}`,
@@ -60,6 +85,9 @@ export const servedModelsGate = async (o: {
 	env?: NodeJS.ProcessEnv;
 	timeoutMs?: number;
 	resolve?: (label: string, oneOff: string[]) => Promise<HubLocation | null>;
+	/** W2636: dotfile pin provenance — renders the distinct actionable
+	 *  refusal naming the .prefer file:line to edit. */
+	pin?: ServedModelPin | null;
 }): Promise<ServedModelsGate> => {
 	if (o.noBelt)
 		return {
@@ -90,7 +118,7 @@ export const servedModelsGate = async (o: {
 			verdict: "unknown",
 			note: `${destination} ${url} catalog unavailable — model ${o.model} unverified, launch proceeds`,
 		};
-	const v = servedModelsVerdict(o.model, served);
+	const v = servedModelsVerdict(o.model, served, o.pin);
 	if (v.ok) return { verdict: "pass", destination, url, servedBy: v.servedBy };
 	return {
 		verdict: "refused",

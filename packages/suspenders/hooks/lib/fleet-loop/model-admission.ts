@@ -17,6 +17,7 @@ import {
 } from "../../../scripts/lib/lane-wire.ts";
 import { activeRateLimitWalls } from "../../../scripts/lib/launch-backoff.ts";
 import { resolveLaneExecutor } from "../../../scripts/lib/launch-preflight.ts";
+import { wireModelMatch } from "../gates/wire-model-check.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
@@ -176,11 +177,19 @@ export async function admitModel(io: {
 	// is ground truth). Unknown never refuses (missing evidence never
 	// blocks); a mismatch REFUSES pre-claim with the excerpt.
 	const model = laneModelOf(pick);
+	// W2636: pin provenance rides the refusal only when the pin actually
+	// named the graded model class — a model moved by posture/placement/
+	// plaid repin keeps the generic W2572 wording (the pin is not what to
+	// edit; wireModelMatch is the one comparison law).
+	const pinOf = pick.modelPin ?? null;
+	const pin =
+		pinOf && wireModelMatch(pinOf.target, model) === "match" ? pinOf : null;
 	const served = await servedModelsGate({
 		model,
 		hubPick: io.hubPick ?? pick.hub ?? null,
 		hubUrls: pick.hubUrls,
 		noBelt: io.noBelt,
+		...(pin ? { pin } : {}),
 	});
 	if (served.verdict === "refused") {
 		governanceRefusals.push(item);
