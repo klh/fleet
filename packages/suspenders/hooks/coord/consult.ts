@@ -35,13 +35,13 @@ import { claimedWorkOf } from "../lib/lanes/lane-effort.ts";
 import { listLiveTargets, resolveTarget } from "./addressing.ts";
 import { queueDirectedReceipt } from "./bus.ts";
 import { consultVersion, ensureConsultTrust } from "./consult-trust.ts";
-import { runContrastive } from "./contrastive.ts";
 import {
 	fleetAnswerable,
 	recordKnowledgeVotes,
 	redeliverAfterFailedKnowledge,
 	settleAnswer,
 } from "./consult-v2-cli.ts";
+import { runContrastive } from "./contrastive.ts";
 import { verbContract, wantsJson } from "./json-out.ts";
 import {
 	arg,

@@ -4,7 +4,6 @@
 // govdb-knowledge.ts, the delta-trigger template in govdb-deltas.ts.
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { migrateReadIndexes } from "./govdb-indexes.ts";
 import {
 	CONFIDENCE_HISTORY_DDL,
 	CONFIDENCE_HISTORY_INDEX_DDL,
@@ -13,14 +12,15 @@ import {
 	migrateKnowledgeLayer,
 	migrateKnowledgeSplit,
 } from "../knowledge/govdb-knowledge.ts";
+import { migrateKnowledgeFacts } from "../knowledge/knowledge-facts.ts";
 import { migrateEventsShred } from "./events-shred.ts";
 import { createDeltasTriggers } from "./govdb-deltas.ts";
+import { migrateReadIndexes } from "./govdb-indexes.ts";
 import { columnNames, openWALDb, REG } from "./govdb-util.ts";
 import { migrateIdentitySplit } from "./identity-db.ts";
 import { migrateIdentityRegistry } from "./identity-registry.ts";
 import { migrateMachineState } from "./machine-state.ts";
 import { GOVDB_SCHEMA_VERSION } from "./schema-version.ts";
-import { migrateKnowledgeFacts } from "../knowledge/knowledge-facts.ts";
 
 export function openGovernorDb(): Database {
 	mkdirSync(REG(), { recursive: true });
