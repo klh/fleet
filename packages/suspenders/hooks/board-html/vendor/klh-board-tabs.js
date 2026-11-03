@@ -1,4 +1,20 @@
-import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class s extends n{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
+import { e, n, r, t } from "./lit-9ab93f5debb235da.js";
+var i = [
+	["decisions", "Decisions"],
+	["tasks", "Tasks"],
+	["lanes", "Lanes"],
+	["activity", "Activity"],
+	["report", "Report"],
+	["governor", "Governor"],
+	["setup", "Setup"],
+	["usage", "Usage"],
+];
+class s extends n {
+	static properties = {
+		current: { type: String, reflect: !0 },
+		extraTabs: { type: Array, attribute: !1 },
+	};
+	static styles = r`
 		:host {
 			display: block;
 		}
@@ -54,28 +70,48 @@ import{r,e,t,n}from"./lit-9ab93f5debb235da.js";var i=[["decisions","Decisions"],
 				padding: 7px 9px;
 			}
 		}
-	`;constructor(){super();this.current="decisions",this.extraTabs=[]}select(a){this.dispatchEvent(new CustomEvent("tab-select",{detail:a,bubbles:!0,composed:!0}))}render(){return e`
+	`;
+	constructor() {
+		super();
+		(this.current = "decisions"), (this.extraTabs = []);
+	}
+	select(a) {
+		this.dispatchEvent(
+			new CustomEvent("tab-select", { detail: a, bubbles: !0, composed: !0 }),
+		);
+	}
+	render() {
+		return e`
 			<nav aria-label="board sections">
-				${i.map(([a,o])=>e`
+				${i.map(
+					([a, o]) => e`
 						<button
 							type="button"
 							data-tab=${a}
-							aria-current=${this.current===a?"true":t}
-							@click=${()=>this.select(a)}
+							aria-current=${this.current === a ? "true" : t}
+							@click=${() => this.select(a)}
 						>
 							${o}
 						</button>
-					`)}
-				${this.extraTabs.map(([a,o])=>e`
+					`,
+				)}
+				${this.extraTabs.map(
+					([a, o]) => e`
 						<button
 							type="button"
 							class="ent"
 							data-tab=${a}
-							aria-current=${this.current===a?"true":t}
-							@click=${()=>this.select(a)}
+							aria-current=${this.current === a ? "true" : t}
+							@click=${() => this.select(a)}
 						>
 							${o}
 						</button>
-					`)}
+					`,
+				)}
 			</nav>
-		`}}if(!customElements.get("klh-board-tabs"))customElements.define("klh-board-tabs",s);export{i as BOARD_TABS};
+		`;
+	}
+}
+if (!customElements.get("klh-board-tabs"))
+	customElements.define("klh-board-tabs", s);
+export { i as BOARD_TABS };

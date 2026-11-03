@@ -14,8 +14,8 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
 import type { Board } from "../test/helpers/board-harness";
+import { expect, test } from "./fixtures";
 
 test.use({
 	cleanBoardOptions: { env: { SUSPENDERS_BUCKLE_DB: "" } },
@@ -102,15 +102,12 @@ const hostOf = (page: Page, id: string): Locator =>
 
 /** strip node identity: stamp + re-read proves the SAME element survived. */
 const stripStamp = (host: Locator, mark: string): Promise<boolean> =>
-	host.evaluate(
-		(el, m) => {
-			const strip = el.querySelector("klh-card-activity");
-			if (!strip) return false;
-			strip.setAttribute("data-idmark", m);
-			return true;
-		},
-		mark,
-	);
+	host.evaluate((el, m) => {
+		const strip = el.querySelector("klh-card-activity");
+		if (!strip) return false;
+		strip.setAttribute("data-idmark", m);
+		return true;
+	}, mark);
 const stripIsStampped = (host: Locator, mark: string): Promise<boolean> =>
 	host.evaluate(
 		(el, m) =>
@@ -137,13 +134,15 @@ test("real /api/tasks payload renders every assembled card valid", {
 	expect(withExec?.execution?.progress).toBeNull();
 	// #103176: the ONE registration entry actually serves + defines all
 	// three elements — a 404 here leaves every host :not(:defined)
-	const reg = await page.request.get(`${cleanBoard.BASE}/vendor/klh-board-register.js`);
+	const reg = await page.request.get(
+		`${cleanBoard.BASE}/vendor/klh-board-register.js`,
+	);
 	expect(reg.status()).toBe(200);
 	expect(reg.headers()["content-type"]).toContain("text/javascript");
 	await openLanes(page, cleanBoard);
-	await expect(
-		page.locator("klh-task-card-host").first(),
-	).toBeVisible({ timeout: 20_000 });
+	await expect(page.locator("klh-task-card-host").first()).toBeVisible({
+		timeout: 20_000,
+	});
 	const defined = await page.evaluate(() => ({
 		host: !!customElements.get("klh-task-card-host"),
 		card: !!customElements.get("klh-task-card"),
@@ -158,19 +157,17 @@ test("real /api/tasks payload renders every assembled card valid", {
 	);
 	// the three states really assembled (shadow card rendered per state)
 	for (const id of [ready, claimed, failed]) {
-		await expect(
-			hostOf(page, id).locator("klh-task-card .tid"),
-		).toContainText(id, { timeout: 20_000 });
+		await expect(hostOf(page, id).locator("klh-task-card .tid")).toContainText(
+			id,
+			{ timeout: 20_000 },
+		);
 	}
 	// the execution join paints as the claimed card's context line — the
 	// harness claim carries no lane registry, so the observed state is
 	// "unknown"/"inactive" with honest no-artifact wording
 	await expect(
 		hostOf(page, claimed).locator("klh-task-card .ctx"),
-	).toContainText(
-		/unknown|inactive|live-harness|paused/,
-		{ timeout: 20_000 },
-	);
+	).toContainText(/unknown|inactive|live-harness|paused/, { timeout: 20_000 });
 	// fail-loud boundary intact: a malformed payload renders the honest
 	// note instead of laundering a card
 	await hostOf(page, ready).evaluate((el) => {
@@ -214,9 +211,7 @@ test("ONE strip: spend bars (real ledger) → attempt segments → spend, node k
 	expect(await stripStamp(host, "i1")).toBe(true);
 	// → attempt mode: same strip element, real firstbyte+tool segments
 	await page.click("#attemptView");
-	await expect(
-		page.locator('#attemptView[aria-pressed="true"]'),
-	).toBeVisible();
+	await expect(page.locator('#attemptView[aria-pressed="true"]')).toBeVisible();
 	const segs = host.locator(
 		"klh-card-activity rect.at-firstbyte, klh-card-activity rect.at-tool",
 	);
@@ -229,9 +224,7 @@ test("ONE strip: spend bars (real ledger) → attempt segments → spend, node k
 		page.locator('#attemptView[aria-pressed="false"]'),
 	).toBeVisible();
 	await expect(bars.first()).toBeVisible({ timeout: 20_000 });
-	await expect(
-		host.locator("klh-card-activity rect.at-tool"),
-	).toHaveCount(0);
+	await expect(host.locator("klh-card-activity rect.at-tool")).toHaveCount(0);
 	// poll survival: feeds ticks land; the SAME strip + host nodes remain
 	await page.waitForTimeout(2600);
 	expect(await stripIsStampped(host, "i1")).toBe(true);

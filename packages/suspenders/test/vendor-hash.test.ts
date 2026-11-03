@@ -6,16 +6,16 @@
 // the flags have one source of truth; the repo's vendor/ dir is never
 // written by this test.
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
-	readdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { buildVendorArgv } from "../scripts/build-vendor.ts";
 
 const ROOT = join(import.meta.dir, "..");
