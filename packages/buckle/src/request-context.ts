@@ -29,6 +29,23 @@ export function trafficKindOf(req: Request): string {
 	return principalOf(req)?.kind === "root" ? "readiness" : "inference";
 }
 
+/** W2256: safe bounded audit token — a short non-secret identifier (group,
+ *  provider pin). Empty/oversized/absent collapses to null (unknown, never
+ *  a zero-length stand-in); never carries URLs or credentials. */
+export function safeAuditToken(v: string | null | undefined): string | null {
+	if (typeof v !== "string") return null;
+	const t = v.trim().slice(0, 128);
+	return t.length === 0 ? null : t;
+}
+
+/** W2256: safe bounded canonical request path for audit rows — query
+ *  strings stripped, traversal rejected, capped; the raw URL never rides. */
+export function safeAuditPath(v: string | null | undefined): string | null {
+	if (typeof v !== "string") return null;
+	const t = v.split("?")[0]?.trim().slice(0, 256) ?? "";
+	return t.length === 0 || t.includes("..") ? null : t;
+}
+
 export interface Ctx {
 	demand?: boolean;
 	served?: ServedIdentity;
@@ -78,6 +95,14 @@ export interface Ctx {
 	signal?: AbortSignal;
 	/** Canonicalized executor intent; diagnostic only, never a route hint. */
 	preference: string | null;
+	/** W2256 wire-deny provenance — set at the ingress seam BEFORE routing, so
+	 *  every audit row (denials included) carries them. request_path = the
+	 *  canonical path after lane/named-base unwrapping (safeAuditPath-bounded,
+	 *  never the raw URL); allow_cross = bridging in play at decide time;
+	 *  provider_pin = the named-base catalog pin (null = unpinned). */
+	auditPath: string | null;
+	auditAllowCross: boolean | null;
+	auditProviderPin: string | null;
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;

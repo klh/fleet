@@ -19,11 +19,22 @@ const gitOut = (repo: string, args: string[]): string | null => {
 	return p.status === 0 ? `${p.stdout ? p.stdout.toString() : ""}` : null;
 };
 
+/** true when ref resolves but path does not exist at it — a path DELETED
+ * in the closing diff (e.g. a .test.ts ported to .e2e.ts, W2422) misses
+ * at the closing sha. An unresolvable ref is NOT absence (real failure,
+ * the caller fails closed on it). */
+const pathAbsentAt = (repo: string, ref: string, path: string): boolean => {
+	if (gitOut(repo, ["cat-file", "-e", `${ref}^{commit}`]) === null)
+		return false;
+	return gitOut(repo, ["cat-file", "-e", `${ref}:${path}`]) === null;
+};
+
 /** reach-in edge keys of one blob's content, resolved against its
- * packages/<pkg>/ home; null when the blob is unreadable or unparseable —
- * the caller refuses on a null CLOSING blob (fail-closed) and treats a
- * null BASE blob as an empty inherited set (the edge cannot be proven
- * inherited). */
+ * packages/<pkg>/ home; [] when the path is absent at the ref (a deleted
+ * file adds no edges); null when an existing blob is unreadable or
+ * unparseable — the caller refuses on a null CLOSING blob (fail-closed)
+ * and treats a null BASE blob as an empty inherited set (the edge cannot
+ * be proven inherited). */
 const reachInsOf = (
 	repo: string,
 	ref: string,
@@ -32,7 +43,7 @@ const reachInsOf = (
 	file: string,
 ): string[] | null => {
 	const src = gitOut(repo, ["cat-file", "blob", `${ref}:${path}`]);
-	if (src === null) return null;
+	if (src === null) return pathAbsentAt(repo, ref, path) ? [] : null;
 	let edges: ImportEdge[];
 	try {
 		edges = edgesOfContent(
@@ -60,9 +71,11 @@ export interface ImportLawVerdict {
 
 /** the done-gate verdict: .ts files under packages/<pkg>/ in the closing
  * diff must not ADD relative reach-in edges against the ratchet base —
- * unparseable closing blobs refuse (fail-closed); an unreadable base blob
- * treats the base edge set as empty (the edge cannot be proven inherited).
- * Fails open only for paths outside packages/ and disabled knobs. */
+ * paths absent at the closing sha (deleted by the diff, W2422) are clean:
+ * a nonexistent file adds no edges; unparseable existing closing blobs
+ * refuse (fail-closed); an unreadable base blob treats the base edge set
+ * as empty (the edge cannot be proven inherited). Fails open only for
+ * paths outside packages/ and disabled knobs. */
 export const importLawVerdict = (o: {
 	repo: string;
 	paths: string[];
