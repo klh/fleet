@@ -23,7 +23,12 @@ import { join } from "node:path";
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
-const GRACE = { FLEET_UNTRACKED_GRACE_MS: "0" };
+const GRACE = {
+	FLEET_UNTRACKED_GRACE_MS: "0",
+	// W1303.5: these fixtures merge product-path changes (f.txt) — medium tier
+	// by design. The tier-gate deferral contract has its own test below.
+	SUSPENDERS_RISK_TIERS: "0",
+};
 
 const g = (repo: string, args: string[], cwd?: string) =>
 	Bun.spawnSync(["git", ...args], {
@@ -41,10 +46,14 @@ const testEnv = (repo: string) => ({
 	GOVERNOR_STORE_URL: "",
 });
 
-const run = (repo: string, args: string[]) => {
+const run = (
+	repo: string,
+	args: string[],
+	envOverride?: Record<string, string | undefined>,
+) => {
 	const p = Bun.spawnSync(["bun", ...args], {
 		cwd: repo,
-		env: testEnv(repo),
+		env: { ...testEnv(repo), ...(envOverride ?? {}) },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -61,6 +70,13 @@ const log = (repo: string): string => {
 		return "";
 	}
 };
+
+// W1303.5: the risk-tier gate ON — the default contract. ("1": any value
+// other than "0" keeps the gate armed; undefined would stringify.)
+const flushGated = (repo: string) =>
+	run(repo, [LOOP, "flush", "--repo", repo, "--glob", "suspenders/*"], {
+		SUSPENDERS_RISK_TIERS: "1",
+	});
 
 const base = async (): Promise<string> => {
 	const dir = join(
@@ -272,6 +288,24 @@ describe("fleet-loop flush mode (W641)", () => {
 		expect(g(repo, ["log", "--format=%s", "-1"]).stdout.toString()).toContain(
 			`Merge suspenders/${item}`,
 		);
+		rmSync(repo, { recursive: true, force: true });
+	});
+
+	test("W1303.5: medium-tier product change defers with a deduped NEED_DECISION (gate on)", async () => {
+		const repo = await base();
+		const item = mint(repo);
+		const head = await laneBranch(repo, item);
+		close(repo, item, head);
+		seedReview(repo, item);
+		const r = flushGated(repo);
+		expect(r.code).toBe(0);
+		expect(log(repo)).toContain(`RISK-DEFER suspenders/${item}`);
+		expect(log(repo)).not.toContain(`MERGED suspenders/${item}`);
+		expect(branchGone(repo, item)).toBe(false);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
+		// second cycle re-defers without duplicating the decision
+		flushGated(repo);
+		expect(events(repo, "NEED_DECISION")).toBe(1);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

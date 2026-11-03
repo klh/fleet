@@ -29,6 +29,10 @@ const SELF = "tests/test-framework-guard.test.ts";
 // 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657) —
 // the exact non-decant count measured by THIS guard's own git ls-files
 // counting at the closing sha.
+// W2478 rebase: the W2291.1 merge carried the risk-tier .test.ts→
+// .e2e.ts port onto this base — its −1 (658 tree at HEAD) nets the count
+// back DOWN to the pin: 657, unchanged (copilot-seat-rows.test.ts had
+// raised the tree +1 above the 657 pin between landings).
 const PIN = 657;
 
 function trackedTestFiles(): string[] {
