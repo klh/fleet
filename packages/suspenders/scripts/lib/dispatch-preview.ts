@@ -146,6 +146,12 @@ export const dryDispatchPreview = async (
 	const pick = route
 		? { ...chainPick, ...plaidPickOf(null, route, [route]) }
 		: chainPick;
+	// W2593: a kev-sentinel pick has no model yet — kev resolves it at
+	// launch admission (live path only); the preview shows the plan scope.
+	if (chainPick.kevPlan?.kind === "choose")
+		console.log(
+			`DRY kev sentinel active — scope ${chainPick.kevPlan.scope}${chainPick.kevPlan.hub ? ` hub ${chainPick.kevPlan.hub}` : ""}${chainPick.kevPlan.prefixes.length ? ` glob ${chainPick.kevPlan.prefixes.join(", ")}*` : ""}; model chosen at launch`,
+		);
 	// W422: the brief-verify harness + enforcement ride the executor
 	// adapter — the if copilot/else-claude ternary is registry data now.
 	const adapter = adapterFor(pick.bin);

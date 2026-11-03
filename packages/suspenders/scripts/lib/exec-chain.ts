@@ -39,6 +39,16 @@ import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 // chain is owner intent, W228 parity with the W620 cv reorder).
 import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
 import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
+// W2593: the kev model sentinel — `kev` as a model value means the local
+// kev (:8912) picks the real model; the pure grammar lives next door and
+// the async resolution rides launch admission (kev-model.ts).
+import {
+	type KevPlan,
+	kevChainView,
+	kevPlanOf,
+	kevSentinel,
+	stripKevDirectives,
+} from "./kev-sentinel.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 
 /** Dotfile (.prefer, dotfiles-win law): `must=` / `prefer=` / `can=`
@@ -355,6 +365,9 @@ export const execPick = (
 	preference: PreferDecision;
 	/** W2636: null = no dotfile pin behind the model (conf default/no pin). */
 	modelPin: ModelPinProvenance | null;
+	/** W2593: present when the kev sentinel fired — the launch admission
+	 * gate (kev-model.ts) resolves it into the real model. */
+	kevPlan?: KevPlan;
 } => {
 	const prefer = preferOf(repo);
 	// W2570 amendment: the machine-conf executor row is the MODEL default —
@@ -384,7 +397,67 @@ export const execPick = (
 		const h = hubOverride ?? prefer.hub;
 		return h ? `[${h.toUpperCase()}] ${executor}` : executor;
 	};
-	const { entries: chainEntries, can } = chainEntriesOf(prefer, cvOf, quota);
+	// W2593 kev model sentinel: model=kev (pin, directive token, or a conf
+	// executors row) means the local kev (:8912) picks the real model from
+	// the rule-allowed candidates — resolved at launch admission (async),
+	// never here. misconfig throws like any owner-error .prefer; noop keeps
+	// today's walk with the kev token stripped (it must never ride a model
+	// pin — the CLI would 400 on it).
+	const kevView = kevChainView(prefer);
+	const confEx = tryLoadStack()?.executors;
+	const confKev =
+		!!confEx &&
+		Object.values(confEx).some(
+			(r) => (r as { model?: string } | undefined)?.model === "kev",
+		);
+	const kevFired = kevSentinel({
+		modelPin: prefer.model,
+		directives: kevView.directives,
+		confModel: confKev ? "kev" : null,
+	});
+	const kevPlan = kevFired ? kevPlanOf(stripKevDirectives(kevView)) : null;
+	if (kevPlan?.kind === "misconfig")
+		throw new Error(`.prefer: kev sentinel — ${kevPlan.why}`);
+	if (kevPlan?.kind === "choose") {
+		return {
+			name: "kev",
+			agent: label("kev"),
+			model: null,
+			bin: "claude",
+			hub: prefer.hub,
+			hubUrls: prefer.hubUrls,
+			fallbackModels: [],
+			chainLen: 1,
+			chainIdx: 0,
+			preference: {
+				source: "dotfile",
+				directive: "default",
+				line: 0,
+				index: 0,
+				target: "kev",
+				can: "absent",
+			},
+			kevPlan,
+		};
+	}
+	// noop (or no sentinel): today's behavior — with the kev token removed
+	// from every model layer so nothing forwards the literal "kev" id.
+	const effPrefer =
+		kevPlan?.kind === "noop"
+			? {
+					...prefer,
+					directives: prefer.directives.filter((d) => d.value !== "kev"),
+					model: prefer.model === "kev" ? null : prefer.model,
+				}
+			: prefer;
+	const effConfModel =
+		kevPlan?.kind === "noop"
+			? (binName: string): string | null => {
+					const m = confModel(binName);
+					return m === "kev" ? null : m;
+				}
+			: confModel;
+	const { entries: chainEntries, can } = chainEntriesOf(effPrefer, cvOf, quota);
 	if (chainEntries.length > 0) {
 		const chain = chainEntries.map((d) => d.value);
 		const idx = Math.min(attempt, chain.length - 1);
@@ -406,15 +479,18 @@ export const execPick = (
 		// dead config — laneModelOf collapsed null before insertion).
 		// W2637: a hub-pinned slot with no pin of its own takes the HUB's
 		// default chain (per-hub serving reality) before the executor row.
+		// W2593 noop guard: the eff layers strip kev/glob tokens — never
+		// forwarded on the model pin (the CLI would 400 on it); the pick
+		// falls to the hub/conf layer.
 		const slotHub = slot.hub ?? prefer.hub;
 		const hubDefaults = hubDefaultModels(slotHub);
 		const hubIdx =
 			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
 		const model =
 			slot.model ??
-			prefer.model ??
+			effPrefer.model ??
 			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
-			confModel(slot.bin);
+			effConfModel(slot.bin);
 		// W2636: which dotfile key actually produced `model`, for refusals.
 		const modelPin =
 			slot.model !== null
@@ -424,12 +500,12 @@ export const execPick = (
 						key: chosen.kind,
 						target: e,
 					}
-				: prefer.model !== null && prefer.file
+				: effPrefer.model !== null && prefer.file
 					? {
 							file: prefer.file,
 							line: prefer.modelLine ?? 0,
 							key: "model" as const,
-							target: prefer.model,
+							target: effPrefer.model,
 						}
 					: null;
 		const qwhy = quota?.get(providerOf(model ?? e) ?? "");
@@ -521,23 +597,24 @@ export const execPick = (
 		// W2637: a hub-pinned default pick with no model of its own takes
 		// the HUB's default chain at the attempt index; the chain tail
 		// rides --fallback-model with the ladder's own tail.
+		// W2593: the eff layers strip kev tokens (noop) — never forwarded.
 		const hubDefaults = hubDefaultModels(prefer.hub);
 		const hubIdx =
 			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
 		const pinned =
 			model ??
-			prefer.model ??
+			effPrefer.model ??
 			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
-			confModel(bin);
+			effConfModel(bin);
 		// W2636: an executor-row slot model pins nothing the user can edit;
 		// only a dotfile model= (or a directive token) carries provenance.
 		const modelPin =
-			prefer.model !== null && prefer.file
+			effPrefer.model !== null && prefer.file
 				? {
 						file: prefer.file,
 						line: prefer.modelLine ?? 0,
 						key: "model" as const,
-						target: prefer.model,
+						target: effPrefer.model,
 					}
 				: null;
 		const fallbackModels = [
@@ -572,7 +649,7 @@ export const execPick = (
 	return {
 		name: "claude",
 		agent: "claude",
-		model: prefer.model ?? confModel("claude"),
+		model: effPrefer.model ?? effConfModel("claude"),
 		bin: "claude",
 		hub: prefer.hub,
 		hubUrls: prefer.hubUrls,
@@ -588,12 +665,12 @@ export const execPick = (
 			can,
 		},
 		modelPin:
-			prefer.model !== null && prefer.file
+			effPrefer.model !== null && prefer.file
 				? {
 						file: prefer.file,
 						line: prefer.modelLine ?? 0,
 						key: "model" as const,
-						target: prefer.model,
+						target: effPrefer.model,
 					}
 				: null,
 	};
