@@ -4,7 +4,7 @@
 // the same-bin tail rides --fallback-model, claude stays the appended last
 // resort, untranslatable feed values drop out. .prefer chains outrank
 // defaults, unchanged.
-import { expect, test } from "./pw";
+import { afterAll, beforeAll, expect, test } from "./pw";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -311,7 +311,7 @@ test.describe("W813 chain semantics: comma-lists, hub targets, position law, can
 	});
 });
 
-describe("W2570 model= pin: executor + model on one lane", () => {
+test.describe("W2570 model= pin: executor + model on one lane", () => {
 	test("model= pins the executor's model: copilot lane launches with the id", () => {
 		writeFileSync(join(REPO, ".prefer"), "must=copilot\nmodel=gpt-6-sol\n");
 		const p = execPick(0, REPO);
@@ -352,7 +352,7 @@ describe("W2570 model= pin: executor + model on one lane", () => {
 	});
 });
 
-describe("W2570 amendment: machine-conf executors row is the model default", () => {
+test.describe("W2570 amendment: machine-conf executors row is the model default", () => {
 	const KLH = "KLH_STACK";
 	let savedStack: string | undefined;
 	beforeAll(() => {
@@ -399,7 +399,7 @@ describe("W2570 amendment: machine-conf executors row is the model default", () 
 	});
 });
 
-describe("W1470 upward walk: a tree-root chain reaches the repos below it", () => {
+test.describe("W1470 upward walk: a tree-root chain reaches the repos below it", () => {
 	const TREE = mkdtempSync(join(tmpdir(), "w1470-tree-"));
 	const MID = join(TREE, "group");
 	const WORK = join(MID, "repo");
