@@ -22,9 +22,14 @@ export const DEFAULT_REVIEW_ROUND_CAP = 3;
 const LINEAGE_DEPTH = 8;
 const HISTORY_BOUND = 200;
 
-/** The configured cap: unset/blank/junk → 3; a non-negative integer
+/** The configured cap: the conf row (a number, 0 = disabled) wins; absent,
+ * the env fallback applies — unset/blank/junk → 3; a non-negative integer
  * overrides; 0 disables the cap. */
-export function reviewRoundCap(env: NodeJS.ProcessEnv): number {
+export function reviewRoundCap(
+	env: NodeJS.ProcessEnv,
+	confCap?: number,
+): number {
+	if (typeof confCap === "number") return confCap;
 	const raw = env.SUSPENDERS_REVIEW_ROUND_CAP?.trim();
 	return raw && /^\d+$/.test(raw) ? Number(raw) : DEFAULT_REVIEW_ROUND_CAP;
 }
@@ -90,8 +95,11 @@ export function reviewRoundCapRefusal(o: {
 	item: string;
 	author: string;
 	env: NodeJS.ProcessEnv;
+	/** W2470: the live conf row (settings().reviewRoundCap) — wins over
+	 *  the env fallback. */
+	confCap?: number;
 }): string | null {
-	const cap = reviewRoundCap(o.env);
+	const cap = reviewRoundCap(o.env, o.confCap);
 	if (cap === 0) return null;
 	let rounds = 0;
 	try {
@@ -132,7 +140,7 @@ function emitRoundCapDecision(
 		source: "review-scheduler",
 		scope: item,
 		to: author,
-		note: `${item}: ${rounds} review-and-fix rounds failed (cap ${cap}) — the reviewer stops here. Rethink the approach: supersede ${item} with a new plan, or raise SUSPENDERS_REVIEW_ROUND_CAP (0 disables) to buy another round.`,
+		note: `${item}: ${rounds} review-and-fix rounds failed (cap ${cap}) — the reviewer stops here. Rethink the approach: supersede ${item} with a new plan, or raise the fleet_loop.review_round_cap conf row (fallback: SUSPENDERS_REVIEW_ROUND_CAP, 0 disables) to buy another round.`,
 		extra: {
 			work: item,
 			review_round_cap: String(cap),

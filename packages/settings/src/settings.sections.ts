@@ -55,6 +55,15 @@ export const FleetLoopSchema = section(
 		review_stepdown_classes: opt(
 			"Context-poor reviewer model classes CSV (SUSPENDERS_REVIEW_STEPDOWN_CLASSES; the env var stays the override)",
 		),
+		review_round_cap: z
+			.number()
+			.int()
+			.min(0)
+			.max(100)
+			.optional()
+			.describe(
+				"Review-and-fix round cap before the reviewer stops (0 disables; SUSPENDERS_REVIEW_ROUND_CAP stays the fallback when absent)",
+			),
 		projects: z
 			.array(FleetLoopProjectSchema)
 			.max(64)
