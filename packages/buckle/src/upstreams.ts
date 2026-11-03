@@ -7,9 +7,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { validateDeploymentEgress } from "./adapters/egress.ts";
-import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
+import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 
 export type Dialect = "openai" | "anthropic";
 
@@ -140,6 +140,16 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 						`upstreams: group "${group}": ${e instanceof Error ? e.message : String(e)}`,
 					);
 				}
+				// W2598 N3: a non-string strip_body_fields entry strips nothing
+				// (buildCall skips it) — surface the operator typo at boot instead
+				// of a silently un-stripped body field on the wire.
+				const strip = dep.adapter_config?.strip_body_fields;
+				if (Array.isArray(strip))
+					for (const entry of strip)
+						if (typeof entry !== "string")
+							console.warn(
+								`upstreams: group "${group}": strip_body_fields entry ${JSON.stringify(entry)} is not a string — ignored (adapter-config typo?)`,
+							);
 				return dep;
 			}),
 		);
