@@ -1,4 +1,4 @@
-// e2e/klh-task-card.spec.ts — W2267.4.1: the standalone Lit task card,
+// e2e/klh-task-card.e2e.ts — W2267.4.1: the standalone Lit task card,
 // render-and-look on a REAL board page (scratch HOME, /vendor bundles
 // served by routes-data). The card markup rides a route-interception mount
 // (the board-status-badge pattern — no DOM-building APIs in spec source;
@@ -12,8 +12,8 @@
 // Screenshots land in /tmp/w2267-4-1-shots.
 import { mkdirSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
 import type { TaskCardModel } from "../hooks/board-html/klh-task-card-model.ts";
+import { expect, test } from "./fixtures";
 
 const SHOTS = "/tmp/w2267-4-1-shots";
 mkdirSync(SHOTS, { recursive: true });
@@ -315,7 +315,11 @@ test("footer actions are keyboard reachable and fire typed events", {
 					id: string;
 					project: string | null;
 				};
-				window.tcEvent({ action: ev.action, id: ev.id, project: ev.project });
+				(window as { tcEvent?: (e: unknown) => void }).tcEvent?.({
+					action: ev.action,
+					id: ev.id,
+					project: ev.project,
+				});
 			});
 	}, HOST_ID);
 	await card(1).locator(".seg.retry").focus();
@@ -339,7 +343,7 @@ test("footer actions are keyboard reachable and fire typed events", {
 			seen = true;
 		});
 		const el = host?.querySelector("klh-task-card");
-		el?.shadowRoot?.querySelector(".tid")?.click();
+		el?.shadowRoot?.querySelector<HTMLElement>(".tid")?.click();
 		return seen;
 	}, HOST_ID);
 	expect(opened).toBe(true);
@@ -400,7 +404,10 @@ test("select change never dispatches; drafts survive polls; Start executes", {
 			.getElementById(hostId)
 			?.addEventListener("task-card-action-requested", (e) => {
 				const ev = e as unknown as { action: string; executor?: string };
-				window.tcAction({ action: ev.action, executor: ev.executor });
+				(window as { tcAction?: (e: unknown) => void }).tcAction?.({
+					action: ev.action,
+					executor: ev.executor,
+				});
 			});
 	}, HOST_ID);
 	// READY: changing executor/effort is a DRAFT only — no start fires (#100441)

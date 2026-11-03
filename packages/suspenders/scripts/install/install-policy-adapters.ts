@@ -7,6 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { installCopilotInstructions } from "./install-copilot-instructions.ts";
 
 function readObject(path: string): Record<string, unknown> {
 	if (!existsSync(path)) return {};
@@ -110,6 +111,13 @@ export function installPolicyAdapters(
 		events.SessionStart = groups;
 		settings.hooks = events;
 		writeObject(copilotFile, settings, options.dryRun ?? false);
+		// W2563: the global instructions face — same copilot home, the LOADED
+		// path (copilot-instructions.md), never the dead instructions.md path.
+		installCopilotInstructions({
+			copilotHome: options.copilotHome,
+			home,
+			dryRun: options.dryRun ?? false,
+		});
 	}
 	writeObject(codexFile, codex, options.dryRun ?? false);
 }

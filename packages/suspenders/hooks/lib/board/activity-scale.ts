@@ -50,7 +50,7 @@ export function binPoints(
 		if (slot > count - 1) slot = count - 1; // newest rides the last bin
 		if (slot < 0) continue; // pre-window points drop — never pile into bin 0
 		let b = bins[slot];
-		if (b === null) {
+		if (b == null) {
 			b = { fresh: 0, cached: 0, out: 0 };
 			bins[slot] = b;
 		}

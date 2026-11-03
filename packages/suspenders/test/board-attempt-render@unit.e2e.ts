@@ -3,6 +3,7 @@
 // attempt-render.ts) and the ONE honest domain in activity-scale.ts.
 // Browser geometry + strip assembly ride e2e/board-card-activity.spec.ts.
 import { expect, test } from "@playwright/test";
+import type { AttemptTimeline } from "../hooks/lib/board/activity-contract.ts";
 import {
 	ACTIVITY_BIN_MS,
 	ACTIVITY_STEP_PX,
@@ -15,7 +16,6 @@ import {
 	attemptX,
 	hitTest,
 } from "../hooks/lib/board/attempt-render.ts";
-import type { AttemptTimeline } from "../hooks/lib/board/activity-contract.ts";
 
 const T0 = 1_700_000_000_000;
 const W = 380;
@@ -106,7 +106,9 @@ test.describe("@unit", () => {
 		const mid = hitTest(rows, W / 2, a.windowStart, a.windowEnd, W);
 		expect(mid?.kind).toBe("tool");
 		// milestone at T0+25min → x≈316.7; diamond claims ±MS_HALF+1 px
-		const msX = attemptX(a.milestones[0].ts, a.windowStart, a.windowEnd, W);
+		const ms = a.milestones[0];
+		if (!ms) throw new Error("fixture has no milestone");
+		const msX = attemptX(ms.ts, a.windowStart, a.windowEnd, W);
 		const hit = hitTest(rows, msX, a.windowStart, a.windowEnd, W);
 		expect(hit?.kind).toBe("milestone");
 		expect(hit?.commit).toBe("abc1234");
@@ -135,9 +137,10 @@ test.describe("@unit", () => {
 	test("attemptTip milestone names artifact + commit + stage", () => {
 		const a = fixture();
 		const rows = attemptRows(a);
-		const ms = rows.milestones[0];
+		const msRow = rows.milestones[0];
+		if (!msRow) throw new Error("fixture has no milestone row");
 		const tip = attemptTip(
-			ms,
+			msRow,
 			a,
 			(t) => String(t),
 			() => "",

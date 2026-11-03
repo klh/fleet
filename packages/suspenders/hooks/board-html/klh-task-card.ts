@@ -35,11 +35,11 @@ import {
 const UNK = "—";
 
 export class KlhTaskCard extends LitElement {
-	static properties = { card: { attribute: false } };
+	static override properties = { card: { attribute: false } };
 
 	declare card: TaskCardModel;
 
-	static styles = TASK_CARD_STYLES;
+	static override styles = TASK_CARD_STYLES;
 
 	constructor() {
 		super();
@@ -95,7 +95,7 @@ export class KlhTaskCard extends LitElement {
 		return taskStatusWord(this.card.state);
 	}
 
-	protected render() {
+	protected override render() {
 		const c = this.card;
 		const tone = this.tone();
 		const m = c.metrics ?? null;
@@ -383,7 +383,7 @@ export class KlhTaskCard extends LitElement {
 		</button>`;
 	}
 
-	protected willUpdate(): void {
+	protected override willUpdate(): void {
 		// status square + perimeter stay independent: tone rides the host
 		// attribute (page CSS maps data-tone → --state-color), --prefer is
 		// set by the owner and never touched here.

@@ -56,6 +56,13 @@ export function readMergeHold(repo: string): MergeHoldView {
 			why: `unreadable: ${e instanceof Error ? e.message : String(e)}`,
 		};
 	}
+	return parseHoldBody(raw);
+}
+
+/** W2561: the provenance validation as a pure body parser — shared with the
+ * per-item merge defer (`.fleet/merge-defer/<branch>.json`), one source for
+ * the owner/reason/expiresAt(≤7d) contract shape, never two. */
+export function parseHoldBody(raw: string): MergeHoldView {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);

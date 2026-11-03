@@ -52,7 +52,7 @@ import { CARD_ACTIVITY_STYLES } from "./klh-card-activity-css.ts";
 /** The ONE activity strip (definition only — registration rides the
  * workspace entry klh-board-register.ts, root pointer #103173). */
 export class KlhCardActivity extends LitElement {
-	static properties = {
+	static override properties = {
 		points: { attribute: false },
 		wallMs: { attribute: false },
 		attempt: { attribute: false },
@@ -81,7 +81,7 @@ export class KlhCardActivity extends LitElement {
 	 *  numeric slot (the window re-derives every poll; W2267.4.2.1.1). */
 	declare _tipTs: number | null;
 
-	static styles = [CARD_ACTIVITY_STYLES, attemptStripStyles];
+	static override styles = [CARD_ACTIVITY_STYLES, attemptStripStyles];
 
 	constructor() {
 		super();
@@ -99,7 +99,7 @@ export class KlhCardActivity extends LitElement {
 	// the measured track (W1203): recompute on width change.
 	private _ro: ResizeObserver | null = null;
 
-	connectedCallback(): void {
+	override connectedCallback(): void {
 		super.connectedCallback();
 		if (typeof ResizeObserver !== "undefined") {
 			this._ro = new ResizeObserver(() => {
@@ -117,13 +117,13 @@ export class KlhCardActivity extends LitElement {
 		if (el && this._ro) this._ro.observe(el);
 	}
 
-	disconnectedCallback(): void {
+	override disconnectedCallback(): void {
 		this._ro?.disconnect();
 		this._ro = null;
 		super.disconnectedCallback();
 	}
 
-	protected firstUpdated(): void {
+	protected override firstUpdated(): void {
 		const el = this._plotEl();
 		if (el && this._ro) {
 			this._width = el.clientWidth;
@@ -134,7 +134,7 @@ export class KlhCardActivity extends LitElement {
 	// W2267.4.2.1 repair (behavior proof 4): mode switches swap the plot
 	// element — the RO must observe the NEW node or geometry freezes at
 	// the old element. Re-observing is idempotent for a same node.
-	protected updated(): void {
+	protected override updated(): void {
 		const el = this._plotEl();
 		if (el && this._ro) this._ro.observe(el);
 	}
@@ -147,7 +147,7 @@ export class KlhCardActivity extends LitElement {
 	// fresh position (rows may be inserted before it). Dismisses when the
 	// source is gone: spend data empty, attempt payload empty, or the
 	// referenced attempt row no longer present.
-	protected update(changed: Map<string, unknown>): void {
+	protected override update(changed: Map<string, unknown>): void {
 		super.update(changed);
 		if (!changed.has("points") && !changed.has("attempt")) return;
 		if (this.mode === "attempt") {
@@ -514,7 +514,7 @@ export class KlhCardActivity extends LitElement {
 		`;
 	}
 
-	protected render() {
+	protected override render() {
 		if (this.mode === "attempt") return this._renderAttempt();
 		const spec = this._spec;
 		return html`

@@ -239,7 +239,7 @@ test("RO resumes: reconnect + width change re-observes the new plot", {
 		.poll(() => countIn(host, "rect.at-tool"))
 		.toBeGreaterThanOrEqual(1);
 	// detach + reattach the host — a MOVED host never gets firstUpdated again
-	const vb = (): Promise<string | null> =>
+	const vb = (): Promise<string | null | undefined> =>
 		host.evaluate((el) =>
 			el.shadowRoot?.querySelector("svg.plot")?.getAttribute("viewBox"),
 		);

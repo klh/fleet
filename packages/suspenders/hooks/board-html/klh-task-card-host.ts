@@ -104,7 +104,7 @@ export interface TaskCardHostInput {
 }
 
 export class KlhTaskCardHost extends LitElement {
-	static properties = {
+	static override properties = {
 		t: { attribute: false },
 		executors: { attribute: false },
 		executorPick: { attribute: false },
@@ -137,7 +137,7 @@ export class KlhTaskCardHost extends LitElement {
 	// Light DOM bridge: createRenderRoot returns this, so :host never
 	// matches — the page's .kcard rules own the wrapper box (W2267.4.2.2:
 	// the card inside needs a full-width block host to fill the column).
-	static styles = css``;
+	static override styles = css``;
 
 	constructor() {
 		super();
@@ -270,7 +270,7 @@ export class KlhTaskCardHost extends LitElement {
 		return r.success ? r.data : null;
 	}
 
-	protected render() {
+	protected override render() {
 		const parsed = KanbanTaskSchema.safeParse(this.t);
 		if (!this.t || !parsed.success) {
 			// honest state (fail-loud boundary): no card renders from an
@@ -298,7 +298,7 @@ export class KlhTaskCardHost extends LitElement {
 
 	/** Light DOM: page CSS (.kcard layout law) keeps applying; the card's
 	 * own styles are shadow-scoped inside <klh-task-card>. */
-	protected createRenderRoot(): HTMLElement {
+	protected override createRenderRoot(): HTMLElement {
 		return this;
 	}
 }

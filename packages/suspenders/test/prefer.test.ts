@@ -52,7 +52,7 @@ describe("parsePreferFile", () => {
 		expect(
 			parsePreferFile(
 				"/x/.prefer",
-				"can=claude\nhub=example\nhub-url=https://example.invalid",
+				"can=claude\nhub=example\nhub-url=https://example.invalid\nmodel=glm-5.3",
 			).errors,
 		).toEqual([]);
 	});

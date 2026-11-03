@@ -199,9 +199,26 @@ fixtureTest(
 					can: { value: "last", line: 8 },
 					hub: "example",
 					hubUrls: ["https://one.invalid", "https://two.invalid"],
+					model: null,
 				},
 			},
 		});
+		expect(PostureLayerSchema.safeParse(layer).success).toBe(true);
+	},
+);
+
+fixtureTest(
+	"W2570: an unquoted model= rides the executor plane (posture layer)",
+	{ tag: "@unit" },
+	({ tree }) => {
+		const source = tree.write(
+			tree.repo,
+			["must=copilot", "model=gpt-6-sol"].join("\n"),
+		);
+		const layer = readPostureLayers(tree.worktree).find(
+			(value) => value.source === source,
+		);
+		expect(layer?.legacy?.executor?.model).toBe("gpt-6-sol");
 		expect(PostureLayerSchema.safeParse(layer).success).toBe(true);
 	},
 );
