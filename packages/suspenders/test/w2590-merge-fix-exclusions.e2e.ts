@@ -125,7 +125,10 @@ test.describe("@unit W2590 merge-fix exclusions", () => {
 	});
 
 	test("fallback fixes the admitted source; excluded vendor bytes identical", () => {
-		test.skip(!biomeBin(), "cached biome binary unavailable (fail-open)");
+		// qlty ships the biome cache on every fleet machine (biomeBin probes
+		// ~/.qlty/cache); a genuinely missing binary resolves null and the
+		// helper skips the fallback — pinned by the reader test's null cases
+		expect(biomeBin()).not.toBeNull();
 		const { repo, srcRel, vendorRel } = mergedFixture();
 		const vendorBefore = readFileSync(join(repo, vendorRel));
 		const r = qltyFixMergedFiles({
