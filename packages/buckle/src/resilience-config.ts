@@ -55,9 +55,19 @@ export const ResilienceConfigSchema = z
 		/** Outer clamp on any provider-pool queue wait — a short bounded
 		 *  queue, never the multi-minute hold a pool policy may declare. */
 		max_queue_wait_ms: z.number().int().min(0).max(60_000).default(5000),
+		/** How long a blocked caller rides an in-flight knock/probe verdict
+		 *  gate before the ride lapses (a placeholder-gate rider then falls
+		 *  through to bounded pool admission — the first knock's latency is
+		 *  not a cold verdict). */
+		admission_ride_ms: z.number().int().min(1).max(60_000).default(1500),
 		/** AIMD multiplicative decrease of a pool's in-flight window on a
 		 *  rate-shaped refusal (additive increase stays the recovery path). */
-		rate_concurrency_decrease_percent: z.number().int().min(0).max(90).default(50),
+		rate_concurrency_decrease_percent: z
+			.number()
+			.int()
+			.min(0)
+			.max(90)
+			.default(50),
 		/** Floor of that window. */
 		min_concurrency: z.number().int().min(1).max(1024).default(1),
 		/** Lane vs interactive traffic classes (by the key's mint NAME). */

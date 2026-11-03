@@ -22,8 +22,14 @@ import type { Deployment } from "./upstreams.ts";
 
 export type ColdState = "none" | "cold" | "probe-free" | "probe-busy";
 
-/** An in-flight knock/probe verdict its RTT burst can ride. */
-interface VerdictGate {
+/** An in-flight knock/probe verdict its RTT burst can ride. `kind` is
+ *  stamped at gate creation and fixes the lapse semantics: a PLACEHOLDER
+ *  gate has no cold verdict behind it (the first knock is merely slow — a
+ *  lapsed ride may fall through to admission), a PROBE gate half-opens a
+ *  real recorded cold mark (single-flight: everyone else stays cold until
+ *  the probe answers). */
+export interface VerdictGate {
+	kind: "placeholder" | "probe";
 	verdict: Promise<"success" | "refused" | "released">;
 	settle: (v: "success" | "refused" | "released") => void;
 }
@@ -66,12 +72,12 @@ export class ColdMarks {
 	private readonly cells = new Map<string, ColdCell>();
 
 	/** An in-flight knock/probe verdict its RTT burst can ride. */
-	static openGate(): VerdictGate {
+	static openGate(kind: "placeholder" | "probe"): VerdictGate {
 		let settle!: (v: "success" | "refused" | "released") => void;
 		const verdict = new Promise<"success" | "refused" | "released">((r) => {
 			settle = r;
 		});
-		return { verdict, settle };
+		return { kind, verdict, settle };
 	}
 
 	/** Ride an in-flight verdict for at most `ms` (a real, cleared timer —
@@ -180,7 +186,7 @@ export class ColdMarks {
 				probeAt: null,
 				groups: new Set<string>(),
 				placeholder: true,
-				gate: ColdMarks.openGate(),
+				gate: ColdMarks.openGate("placeholder"),
 			});
 			return true;
 		}
@@ -198,14 +204,14 @@ export class ColdMarks {
 				probeAt: null,
 				groups: cell.groups,
 				placeholder: true,
-				gate: ColdMarks.openGate(),
+				gate: ColdMarks.openGate("placeholder"),
 			});
 			return true;
 		}
 		// half-open: exactly one rider claims the single-flight probe
 		if (cell.probeAt === null) {
 			cell.probeAt = this.now();
-			cell.gate = ColdMarks.openGate();
+			cell.gate = ColdMarks.openGate("probe");
 			return true;
 		}
 		return false;
