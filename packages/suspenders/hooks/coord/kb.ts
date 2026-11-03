@@ -27,6 +27,8 @@ const kbContract = verbContract({
 			human: z.number().int(),
 			kb: z.number().int(),
 			declined: z.number().int(),
+			refused: z.number().int(),
+			contrastive: z.number().int(),
 		})
 		.nullable(),
 	outcomes: z
@@ -118,6 +120,15 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			.all(project) as { ms: number }[];
 		const median = lat.length ? lat[Math.floor(lat.length / 2)].ms : 0;
 		const s = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
+		// W927 (re-land W2184): contrastive consults count as their own pool —
+		// expert_sid = 'contrastive' rows are machine-composed, not human.
+		const contrastive = (
+			db
+				.query(
+					"SELECT COUNT(*) AS n FROM consults WHERE project = ? AND expert_sid = 'contrastive'",
+				)
+				.get(project) as { n: number }
+		).n;
 		const outcomes = db
 			.query(
 				"SELECT f.outcome, COUNT(*) AS n FROM consult_feedback f JOIN consults c ON c.id = f.consult_id WHERE c.project = ? GROUP BY f.outcome",
@@ -139,6 +150,8 @@ export async function cmdKb(rest: string[]): Promise<void> {
 					human: s("ANSWERED"),
 					kb: s("KB"),
 					declined: s("DECLINED"),
+					refused: s("REFUSED"),
+					contrastive,
 				},
 				outcomes: {
 					resolved: outcome("resolved"),
@@ -152,7 +165,7 @@ export async function cmdKb(rest: string[]): Promise<void> {
 			return;
 		}
 		console.log(
-			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined`,
+			`kb: ${tot} solutions · ${hits} repeat questions auto-answered · consults: ${s("OPEN")} open, ${s("ANSWERED")} human, ${s("KB")} via kb, ${s("DECLINED")} declined, ${s("REFUSED")} refused, ${contrastive} contrastive`,
 		);
 		console.log(
 			`outcomes: ${outcome("resolved")} resolved, ${outcome("failed")} failed, ${outcome("unused")} unused (verification, not message volume)`,
