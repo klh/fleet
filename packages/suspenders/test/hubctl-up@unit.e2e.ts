@@ -5,7 +5,7 @@
 // against the stack.yaml pin, and proceeds only with --force (warned). Local
 // fixture: fake docker logs every call, the hub has no ssh target so the .env
 // lives on disk where the tests rewrite it per case.
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -101,7 +101,7 @@ function seedEnv(ref?: string): void {
 	);
 }
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 test("up refuses the W422.6 poison: a pre-pin .env with no HUB_FLEET_REF", () => {
 	resetCalls();
