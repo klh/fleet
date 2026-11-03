@@ -107,6 +107,9 @@ export interface UpstreamRequest {
 	sel?: RouteSelection;
 	tier?: string;
 	hintRaw?: string;
+	/** W2617 traffic class from the authenticated mint name (absent =
+	 *  interactive-grade treatment — never punitive on unknown callers). */
+	trafficClass?: "lane" | "interactive";
 }
 export interface RouterMetrics {
 	fallback(tier: string): void;

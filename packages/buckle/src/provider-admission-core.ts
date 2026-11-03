@@ -1,10 +1,10 @@
 import PQueue from "p-queue";
-import { SseSniffer } from "./sse.ts";
 import {
 	assertProviderConcurrencyErrorCodes,
 	type ProviderPressure,
 	providerPressureOf,
 } from "./provider-pressure.ts";
+import { SseSniffer } from "./sse.ts";
 
 export {
 	assertProviderConcurrencyErrorCodes,
@@ -383,11 +383,29 @@ export class ProviderAdmissionCore {
 
 	/** maxWaitMs caps this wait by the caller's remaining attempt budget —
 	 * the queue wait never extends a request deadline (still bounded by the
-	 * configured queueWaitMs). Granted leases are unaffected by either. */
-	acquire(caller?: AbortSignal, maxWaitMs?: number): Promise<ProviderLease> {
+	 * configured queueWaitMs). Granted leases are unaffected by either.
+	 * W2617: priority 1 (interactive) outranks 0 (lane) inside the queue —
+	 * the shared account's scarce start slots go to interactive sessions
+	 * first when upstream rate pressure (Z.ai 1302) has lanes backlogged. */
+	acquire(
+		caller?: AbortSignal,
+		maxWaitMs?: number,
+		priority: 0 | 1 = 1,
+	): Promise<ProviderLease> {
 		if (caller?.aborted) return Promise.reject(caller.reason);
 		if (this.outstanding >= this.policy.maxOutstanding)
 			return Promise.reject(new ProviderAdmissionFull("Provider queue full"));
+		// W2617 lane shed: while the pool backs off from rate pressure, lane
+		// traffic is refused NOW with the honest pause remainder (it fails
+		// over or retries); interactive callers keep the recovering window —
+		// the interactive session is the traffic the reservation protects.
+		if (priority === 0 && this.notBeforeMs > Date.now())
+			return Promise.reject(
+				new ProviderAdmissionFull(
+					"Provider pool shedding lane traffic under rate pressure",
+					this.notBeforeMs - Date.now(),
+				),
+			);
 		const waitMs =
 			maxWaitMs === undefined
 				? this.policy.queueWaitMs
@@ -487,7 +505,9 @@ export class ProviderAdmissionCore {
 					});
 					await held;
 				},
-				{ signal },
+				// W2617: p-queue's native priority — higher dequeues first at
+				// equal concurrency; same-priority keeps FIFO.
+				{ signal, priority },
 			)
 			.catch(deny)
 			.finally(() => {
