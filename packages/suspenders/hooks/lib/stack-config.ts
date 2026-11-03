@@ -524,6 +524,7 @@ function stackFromSettings(): StackConfig | null {
 			config_poll_s,
 			review_fallback_models,
 			review_stepdown_classes,
+			review_round_cap,
 		},
 		hubs,
 	});
