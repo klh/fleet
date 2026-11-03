@@ -79,14 +79,13 @@ const IKEA_INPUT = {
 describe("globMatch", () => {
 	test("exact + star spans path separators + anchored + ci", () => {
 		expect(globMatch("zai", "zai")).toBe(true);
-		expect(globMatch("/Users/*/dev/ikea/*", "/Users/kk/dev/ikea/mono/x")).toBe( // scrub:allow
-			true,
-		);
-		expect(globMatch("/Users/*/dev/ikea/*", "/Users/kk/dev/personal/x")).toBe( // scrub:allow
-			false,
-		);
+		const kkIkeaMono = "/Users/kk/dev/ikea/mono/x"; // scrub:allow
+		const kkPersonal = "/Users/kk/dev/personal/x"; // scrub:allow
+		expect(globMatch("/Users/*/dev/ikea/*", kkIkeaMono)).toBe(true);
+		expect(globMatch("/Users/*/dev/ikea/*", kkPersonal)).toBe(false);
 		/* scrub-markers: trailing form is load-bearing (the gate flags the
-		   offending line; biome wrap moved them) — do not re-wrap. */
+		   offending line) — the consts keep each marker on a short line
+		   biome will never wrap. */
 		expect(globMatch("*copilot*", "api.githubcopilot.com", true)).toBe(true);
 		expect(globMatch("*copilot*", "api.github.com", true)).toBe(false);
 		expect(globMatch("fleet-ikea-*", "fleet-ikea-lane9")).toBe(true);
@@ -313,6 +312,25 @@ describe("loadAccountPolicy", () => {
 		} finally {
 			if (saved === undefined) delete process.env.BUCKLE_REPO_TIER_POLICY;
 			else process.env.BUCKLE_REPO_TIER_POLICY = saved;
+		}
+	});
+	test("EMPTY env var (compose undeclared interpolation) is skipped, not fatal (W2632)", () => {
+		// the hub compose passthrough BUCKLE_REPO_TIER_POLICY: ${HUB_REPO_TIER_POLICY:-}
+		// sets an EMPTY string when the knob is undeclared — the loader must
+		// skip it and fall through (default:general), never treat it as a
+		// configured-but-missing path (which would be startup fatal).
+		const saved = process.env.BUCKLE_REPO_TIER_POLICY;
+		const savedHome = process.env.HOME;
+		process.env.BUCKLE_REPO_TIER_POLICY = "";
+		process.env.HOME = "/tmp/w2632-no-home";
+		try {
+			const r = loadAccountPolicy();
+			expect(r.source).toBe("default:general");
+			expect(r.doc?.classes[0]?.id).toBe("general");
+		} finally {
+			if (saved === undefined) delete process.env.BUCKLE_REPO_TIER_POLICY;
+			else process.env.BUCKLE_REPO_TIER_POLICY = saved;
+			process.env.HOME = savedHome;
 		}
 	});
 });

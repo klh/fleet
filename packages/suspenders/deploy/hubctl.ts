@@ -463,6 +463,44 @@ function pushGatewayPolicy(hub: HubProfile, dir: string): void {
 	}
 }
 
+/** W2632: stage the repo→tier account policy (W1265.1) beside the compose.
+ *  hubs.<label>.secrets.repo_tier_policy is a PATH on the hub naming the
+ *  operator-maintained 0600 repo-tier-policy.yaml; push copies it (shell cat
+ *  ON the owning device — bytes never leave it) to <dir>/repo-tier-policy.yaml
+ *  (0600), the compose bind source. Undeclared = an empty placeholder: the
+ *  mount always points at a file, the .env knob is absent so buckle never
+ *  reads it (default:general posture — inert). A declared-but-missing source
+ *  fails push loudly (fail closed, the W1123 posture at deploy time). */
+function pushRepoTierPolicy(hub: HubProfile, dir: string): void {
+	const source = hub.secrets?.repo_tier_policy;
+	const dest = `${dir}/repo-tier-policy.yaml`;
+	const destQ = JSON.stringify(dest);
+	if (source) {
+		if (!hub.deploy?.ssh && !existsSync(source))
+			throw new Error(
+				`secrets.repo_tier_policy ${source} configured but missing — refusing to push with the boundary staged from nowhere`,
+			);
+		// `cat src > dst` truncates dst before cat reads when they are the
+		// same file — the operator's policy would eat itself. Same inode =
+		// already staged, nothing to copy.
+		if (source === dest) {
+			runOnHub(hub, `chmod 600 ${destQ}`);
+			console.log(`+ ${dest} (already staged — source is the deploy file)`);
+			return;
+		}
+		runOnHub(
+			hub,
+			`umask 077; cat ${JSON.stringify(source)} > ${destQ}; chmod 600 ${destQ}`,
+		);
+		console.log(`+ ${dest} (staged from ${source})`);
+		return;
+	}
+	runOnHub(hub, `umask 077; printf '' > ${destQ}; chmod 600 ${destQ}`);
+	console.log(
+		`+ ${dest} (empty placeholder — secrets.repo_tier_policy undeclared)`,
+	);
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -542,6 +580,9 @@ function pushConfig(
 	}
 	pushGatewayPolicy(hub, dir);
 	pushUpstreamEnv(hub, dir);
+	// W2632: the staged repo→tier account policy (empty placeholder when the
+	// knob is undeclared — the compose bind source must always be a file)
+	pushRepoTierPolicy(hub, dir);
 	// W1124.8.2.1: central provider profiles → the 0600 provider.env
 	pushProviderEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)

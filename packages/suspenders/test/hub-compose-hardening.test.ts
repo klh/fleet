@@ -168,3 +168,16 @@ test("buckle-hub carries the KLH_OVERLAY_* env passthrough", () => {
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
 	expect(env.KLH_OVERLAY_ALLOW).toBe("${HUB_KLH_OVERLAY_ALLOW:-}");
 });
+
+// W2632: the repo→tier account policy knob (W1265.1) — env passthrough with
+// an empty inert default, plus the read-only staged mount the fixed container
+// path points at (hubctl push keeps a FILE there always: operator copy when
+// the knob is declared, empty placeholder otherwise — never a directory).
+test("buckle-hub carries BUCKLE_REPO_TIER_POLICY passthrough + staged mount", () => {
+	const env = svcs["buckle-hub"]?.environment ?? {};
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: asserts the literal compose placeholder
+	expect(env.BUCKLE_REPO_TIER_POLICY).toBe("${HUB_REPO_TIER_POLICY:-}");
+	expect(svcs["buckle-hub"]?.volumes).toContain(
+		"./repo-tier-policy.yaml:/etc/klh/repo-tier-policy.yaml:ro",
+	);
+});

@@ -74,6 +74,9 @@ const Secrets = z
 			.record(z.string(), z.string())
 			.optional()
 			.describe("Upstream key env NAME → 0600 file PATH"),
+		repo_tier_policy: opt(
+			"PATH of the 0600 repo-tier-policy.yaml on the hub (BUCKLE_REPO_TIER_POLICY)",
+		),
 	})
 	.strict()
 	.describe("Secret PATHS on the owning device — values never live here");

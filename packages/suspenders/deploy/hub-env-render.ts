@@ -66,6 +66,14 @@ export function renderEnv(
 	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
+	// W2632: the hub's repo→tier account policy (W1265.1) — a secrets PATH on
+	// the hub names the operator-maintained 0600 repo-tier-policy.yaml; hubctl
+	// push stages it beside the compose (mounted read-only at the fixed
+	// container path below). Undeclared = the .env line is absent = empty
+	// interpolation = unset env inside (buckle's chain skips empty candidates
+	// and falls to its W1265.2 default:general posture — inert stays true).
+	if (hub.secrets?.repo_tier_policy)
+		kv("HUB_REPO_TIER_POLICY", "/etc/klh/repo-tier-policy.yaml");
 	if (auth?.required !== undefined)
 		kv("HUB_BUCKLE_AUTH", auth.required ? "on" : "off");
 	// W372: the auth.oidc/auth.tokens blocks materialize as env — Entra-ready
