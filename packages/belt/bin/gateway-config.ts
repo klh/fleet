@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
+import { copilotSeatRows } from "./copilot-seat-rows.ts";
 import {
 	groupBasesFromModelList,
 	probeDeploymentHealth,
@@ -144,6 +145,21 @@ if (existsSync(chatGptModelsPath)) {
 		throw new Error(`${chatGptModelsPath} must have mode 0600`);
 	const config = JSON.parse(readFileSync(chatGptModelsPath, "utf8")) as unknown;
 	entries.push(...chatGptSubscriptionRows(config));
+}
+
+// W2595: the GitHub Copilot seat (github_copilot provider, litellm 1.103.0)
+// — operator-selected models through the same 0600 opt-in pattern; the
+// authenticator's token cache is seeded from the 0600 copilot.key chain by
+// litellm-target's env (device flow is fallback-only, never fires here).
+const copilotModelsPath = `${HOME}/.claude/local-llm/copilot-models.json`;
+if (existsSync(copilotModelsPath)) {
+	const mode = statSync(copilotModelsPath).mode & 0o777;
+	if (mode !== 0o600)
+		throw new Error(`${copilotModelsPath} must have mode 0600`);
+	const seatModels = JSON.parse(
+		readFileSync(copilotModelsPath, "utf8"),
+	) as unknown;
+	entries.push(...copilotSeatRows(seatModels));
 }
 
 // (openai-dialect draft above is superseded by fullYaml — kept variables

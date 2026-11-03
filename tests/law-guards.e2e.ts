@@ -148,12 +148,14 @@ const NEAR_CAP_PINNED = {
 	// pins DROP here — W1238.1/W1238.6.3 decomposed all four below the
 	// 1200 stop rule. The rest re-pin to the actual merged-tree counts
 	// (work.ts rides the W2294 lineage: W2186 CAS extraction + W822.1
-	// done-broadcast call; debt: decompose).
+	// done-broadcast call; debt: decompose). W2402 merge: the ledger.ts
+	// pin DROPS — W2256's ledger-schema.ts extraction (riding W2379)
+	// carried it below the 1200 band on the merged tree.
 	"packages/belt/bin/router-shim.ts": 1315, // W1238.6.1 decomposition (W2261 re-pin) + W2182 re-land of W960.1 usage reporting + W2258 origin-qualified error details (W2417 merge re-pin to the measured count; debt: decompose)
-	"packages/buckle/src/ledger.ts": 1375, // W2260 StreamReceipt move shrank 1389 → 1375 at the W2403 merge; W2417 merge re-pinned the same measured count
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
 	"packages/suspenders/hooks/bin/work.ts": 1268, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2409 folds W2385's 1272 pin; W2441 (W2410), W2445, W2452 (parked/W2440) and W2446 (W2435, via W2415) merges all re-measured 1268 (split-newline convention) on their merged trees (debt: decompose)
-	"packages/suspenders/deploy/hubctl.ts": 1212, // W2261 merge re-pin to measured count; W2299 reconciled with parked/W2259's identical count; W2392/W2446 (W2435, via W2415) measured the same 1212 (debt: decompose)
+	// W2595: hubctl.ts left the band (1212→1072) — renderEnv + port
+	// reservations extracted to deploy/hub-env-render.ts; pin dropped per law.
 };
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {

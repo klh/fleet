@@ -29,7 +29,7 @@ metrics render `—` (unknown ≠ measured 0, §5). Item ids double as
 `#task=<id>&proj=<project>` deep-links (W890/W1131 §9). Do not hand-roll
 the table — the reporter computes the pads; prose tick lines are a
 regression.
-(The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913.)
+(The installed face `bun ~/.claude/hooks/suspenders/bin/fleet-report.ts` is a verbatim shim over the verb — W913. `coord fleet` renders the SAME library as its human face, `--project <path|name>` selects the graph, W1242.)
 
 ## Protocol
 

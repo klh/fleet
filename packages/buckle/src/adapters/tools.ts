@@ -406,6 +406,30 @@ export function stripRemovedSampling(
 	return out;
 }
 
+/** W2594: per-row wire-body deny list. The hub's Copilot claude rows are
+ *  DIRECT api.githubcopilot.com legs and Copilot 400s these anthropic-dialect
+ *  body fields (isolation probe 2026-11-03): thinking (ANY form incl.
+ *  disabled), anthropic_beta (body field; the header form is fine),
+ *  parallel_tool_calls, mcp_servers, reasoning_effort, effort. Lanes cannot
+ *  stop emitting them (dispatch injects the effort envs unconditionally), so
+ *  the strip is upstream-side: rows list the fields they reject in
+ *  adapter_config.strip_body_fields and buildCall deletes those top-level
+ *  keys from the forwarded body. Absent or empty list = byte-identical
+ *  verbatim forward — every other row is untouched. Scope: the anthropic
+ *  adapter (the failing dialect); openai-compat stripping is a follow-up. */
+export function stripBodyFields(
+	body: AnyRec,
+	adapter_config?: Record<string, unknown>,
+): AnyRec {
+	const list = adapter_config?.strip_body_fields;
+	if (!Array.isArray(list) || list.length === 0) return body;
+	const out = { ...body };
+	for (const key of list) {
+		if (typeof key === "string") delete out[key];
+	}
+	return out;
+}
+
 const OPENAI_DEGRADE = new Set([
 	"frequency_penalty",
 	"presence_penalty",

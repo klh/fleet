@@ -17,7 +17,14 @@
 // root cause); native Prometheus metrics also require prometheus_client.
 // Missing → log + alert status. Never auto-installed in-process.
 
-import { openSync, readFileSync, statSync } from "node:fs";
+import {
+	mkdirSync,
+	openSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import {
 	loadProviderProfiles,
 	type ProviderEntry,
@@ -81,6 +88,42 @@ export const DEFAULT_PATHS: LitellmPaths = {
 	masterKeyFile: `${HOME}/.claude/local-llm/litellm.key`,
 	stackConfig: process.env.KLH_STACK ?? `${HOME}/.config/klh/stack.json`,
 	log: `${HOME}/.claude/local-llm/litellm-gateway.log`,
+};
+
+/** W2595: seed the github_copilot provider's token cache from the 0600
+ *  copilot.key chain. litellm 1.103.0's authenticator reads
+ *  GITHUB_COPILOT_TOKEN_DIR/access-token + api-key.json FIRST — the seeded
+ *  PAT serves every request and the interactive device flow (fallback only)
+ *  never fires. Written 0600 into the runtime home, never printed. */
+export function seedCopilotTokenDir(
+	keys: { COPILOT_API_KEY?: string },
+	dir: string,
+	write: (path: string, body: string) => void,
+): string | null {
+	const key = keys.COPILOT_API_KEY?.trim();
+	if (!key) return null;
+	// far-future expiry: the PAT is long-lived; litellm refreshes via
+	// copilot_internal/v2/token only when expires_at passes
+	write(`${dir}/access-token`, `${key}\n`);
+	write(
+		`${dir}/api-key.json`,
+		`${JSON.stringify(
+			{
+				token: key,
+				expires_at: Math.floor(Date.now() / 1000) + 86_400 * 365,
+				endpoints: { api: "https://api.githubcopilot.com" },
+			},
+			null,
+			2,
+		)}\n`,
+	);
+	return dir;
+}
+
+/** 0600 write with parent mkdir — the token-cache seeding channel. */
+const writePrivate = (path: string, body: string): void => {
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, body, { mode: 0o600 });
 };
 
 export interface LitellmKeys {
@@ -281,12 +324,27 @@ export function litellmTarget(deps: LitellmTargetDeps = {}): Target {
 				prismaPreflight(paths.python) ?? prometheusPreflight(paths.python)),
 		spawn: (): Child => {
 			const keys = loadKeys(paths, env, read, stat);
+			// W2595: seed the github_copilot provider's token cache (PAT from
+			// the same 0600 chain; device flow never fires with a seeded cache)
+			// and point the engine at it. Only when a copilot key resolves —
+			// without one the provider stays out of the generated catalog and
+			// the env stays unset (litellm's own default path applies never).
+			const tokenDir = join(
+				dirname(paths.log),
+				"litellm-github-copilot-tokens",
+			);
+			const seeded = seedCopilotTokenDir(keys, tokenDir, writePrivate);
 			const fd = openSync(paths.log, "a");
 			return Bun.spawn(deps.argv ?? litellmArgv(paths, port), {
 				stdin: "ignore",
 				stdout: fd,
 				stderr: fd,
-				env: { ...cloudTransportEnv(env), ...keys, ...LITELLM_DOCS_OFF_ENV },
+				env: {
+					...cloudTransportEnv(env),
+					...keys,
+					...LITELLM_DOCS_OFF_ENV,
+					...(seeded ? { GITHUB_COPILOT_TOKEN_DIR: seeded } : {}),
+				},
 			});
 		},
 	};
