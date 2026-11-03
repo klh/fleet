@@ -64,6 +64,15 @@ export const FleetLoopSchema = section(
 			.describe(
 				"Review-and-fix round cap before the reviewer stops (0 disables; SUSPENDERS_REVIEW_ROUND_CAP stays the fallback when absent)",
 			),
+		launchd_env: z
+			.record(
+				z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+				z.record(z.string().regex(/^[A-Z_][A-Z0-9_]*$/), z.string().max(8192)),
+			)
+			.default({})
+			.describe(
+				"W2470.2: per-service EnvironmentVariables the launchd launcher reads at run time (units become env-less shells; values live here)",
+			),
 		projects: z
 			.array(FleetLoopProjectSchema)
 			.max(64)
