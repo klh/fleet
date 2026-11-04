@@ -484,19 +484,6 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
-		// W2194: the hub model-health sweep — every configured hub + the local
-		// spoke probes each catalog group through ITS OWN buckle front (~10min,
-		// hubs parallel, groups staggered), banking model.health.<core> facts
-		// the dispatch + review-scheduler pin layers re-pin from when a pinned
-		// group is DOWN. Exit 1 = down groups present (the heartbeat notices).
-		// SUSPENDERS_MODEL_HEALTH=0 disables the sweep.
-		name: "model-health-sweep",
-		everySeconds: MODEL_HEALTH_SWEEP_S,
-		nice: 10,
-		timeoutMs: 240_000,
-		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
-	},
-	{
 		// W2321.4: the lost-hub requeue sweep — first-loss-anchored grace (15
 		// min default, the MultiKueue workerLostTimeout analog), then BUDGETED
 		// requeue of the hub's CLAIMED items → READY through the ONE release
@@ -510,6 +497,19 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		nice: 10,
 		timeoutMs: 120_000,
 		argv: (root) => [join(root, "hooks/bin/lost-hub.ts"), "--act"],
+	},
+	{
+		// W2194: the hub model-health sweep — every configured hub + the local
+		// spoke probes each catalog group through ITS OWN buckle front (~10min,
+		// hubs parallel, groups staggered), banking model.health.<core> facts
+		// the dispatch + review-scheduler pin layers re-pin from when a pinned
+		// group is DOWN. Exit 1 = down groups present (the heartbeat notices).
+		// SUSPENDERS_MODEL_HEALTH=0 disables the sweep.
+		name: "model-health-sweep",
+		everySeconds: MODEL_HEALTH_SWEEP_S,
+		nice: 10,
+		timeoutMs: 240_000,
+		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
 ];
 
