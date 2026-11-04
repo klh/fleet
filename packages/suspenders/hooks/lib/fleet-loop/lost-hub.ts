@@ -43,6 +43,15 @@ export function hubLostGraceMs(raw?: string): number {
 	return Math.max(n, HUB_LOST_GRACE_FLOOR_MS);
 }
 
+/** One resolution point for the bin's --grace-ms and the env knob (B2,
+ * W2510 review): the override wins when present, else the knob, else the
+ * 15-min default — and EVERY path rides the sanitizer, never a bare
+ * Number() (NaN classified as zero grace → first-probe requeue; "0"
+ * bypassing the 60s floor). */
+export function resolveLostHubGraceMs(override?: string): number {
+	return hubLostGraceMs(override || process.env.SUSPENDERS_HUB_LOST_GRACE_MS);
+}
+
 export const lostHubPaused = (repo: string): boolean =>
 	existsSync(join(repo, ".fleet", LOST_HUB_PAUSE));
 
@@ -64,20 +73,22 @@ export function readEpisode(
 	project: string,
 	hub: string,
 ): LostHubEpisode {
-	try {
-		const row = store
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(episodeKey(project, hub)) as { value: string } | null;
-		if (!row) return {};
-		const v = JSON.parse(row.value) as Partial<LostHubEpisode>;
-		const out: LostHubEpisode = {};
-		if (typeof v.firstLostAt === "number") out.firstLostAt = v.firstLostAt;
-		if (typeof v.lastLostAt === "number") out.lastLostAt = v.lastLostAt;
-		if (v.requeued === true) out.requeued = true;
-		return out;
-	} catch {
-		return {};
-	}
+	// N2 (W2510 review): a corrupt facts row THROWS instead of collapsing to
+	// {} — an empty episode silently re-anchors the grace clock at now,
+	// granting a lost hub a fresh grace window every pass (claims stranded
+	// forever, the failure this policy exists to prevent). The caller skips
+	// classification and surfaces the corruption; only a MISSING row is a
+	// legitimate empty episode.
+	const row = store
+		.query("SELECT value FROM facts WHERE key = ?")
+		.get(episodeKey(project, hub)) as { value: string } | null;
+	if (!row) return {};
+	const v = JSON.parse(row.value) as Partial<LostHubEpisode>;
+	const out: LostHubEpisode = {};
+	if (typeof v.firstLostAt === "number") out.firstLostAt = v.firstLostAt;
+	if (typeof v.lastLostAt === "number") out.lastLostAt = v.lastLostAt;
+	if (v.requeued === true) out.requeued = true;
+	return out;
 }
 
 export function writeEpisode(

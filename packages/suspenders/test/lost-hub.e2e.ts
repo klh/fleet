@@ -22,9 +22,12 @@ import {
 	hubClaims,
 	hubForLaneHost,
 	hubLostGraceMs,
+	resolveLostHubGraceMs,
 	sshHostPart,
 	type LostHubEpisode,
+	readEpisode,
 	requeueHubClaims,
+	writeEpisode,
 } from "../hooks/lib/fleet-loop/lost-hub.ts";
 import type { GovernorStore } from "../hooks/lib/govdb/govdb.ts";
 
@@ -138,6 +141,28 @@ test.describe("@unit", () => {
 			expect(hubLostGraceMs("junk")).toBe(15 * 60_000);
 			expect(hubLostGraceMs("10")).toBe(60_000);
 			expect(hubLostGraceMs("120000")).toBe(120_000);
+		});
+		test("B2: --grace-ms junk/0 never yields zero grace (CLI bypass fix)", () => {
+			// the W2510 review bug: the bin computed Number(override) raw, so
+			// "junk" → NaN classified with zero grace (first dark probe
+			// requeued a hub's CLAIMED items) and "0" bypassed the 60s floor.
+			// resolveLostHubGraceMs is the ONE resolution point now — every
+			// path rides the sanitizer.
+			const had = process.env.SUSPENDERS_HUB_LOST_GRACE_MS;
+			delete process.env.SUSPENDERS_HUB_LOST_GRACE_MS;
+			try {
+				expect(resolveLostHubGraceMs("junk")).toBe(15 * 60_000);
+				expect(resolveLostHubGraceMs("0")).toBe(15 * 60_000);
+				expect(resolveLostHubGraceMs("5000")).toBe(60_000); // floor
+				expect(resolveLostHubGraceMs("120000")).toBe(120_000);
+				expect(resolveLostHubGraceMs()).toBe(15 * 60_000); // no override
+				process.env.SUSPENDERS_HUB_LOST_GRACE_MS = "9000000";
+				expect(resolveLostHubGraceMs()).toBe(9_000_000); // env knob rides
+				expect(resolveLostHubGraceMs("60000")).toBe(60_000); // override wins
+			} finally {
+				if (had === undefined) delete process.env.SUSPENDERS_HUB_LOST_GRACE_MS;
+				else process.env.SUSPENDERS_HUB_LOST_GRACE_MS = had;
+			}
 		});
 	});
 
@@ -389,11 +414,8 @@ test.describe("@unit", () => {
 	});
 
 	test.describe("episode persistence round-trip", () => {
-		test("writeEpisode/readEpisode survive and default empty", async () => {
+		test("writeEpisode/readEpisode survive and default empty", () => {
 			const store = fixture();
-			const { readEpisode, writeEpisode } = await import(
-				"../hooks/lib/fleet-loop/lost-hub.ts"
-			);
 			expect(readEpisode(store, "p", "nas")).toEqual({});
 			const ep: LostHubEpisode = {
 				firstLostAt: T0,
@@ -402,6 +424,23 @@ test.describe("@unit", () => {
 			};
 			writeEpisode(store, "p", "nas", ep);
 			expect(readEpisode(store, "p", "nas")).toEqual(ep);
+		});
+		test("N2: a corrupt facts row THROWS — never silently resets the grace anchor", () => {
+			// the W2510 review bug: the bare catch collapsed a corrupt row to
+			// {} — an empty episode re-anchors the grace clock at now(), so a
+			// lost hub re-earns a fresh grace window every pass and its
+			// claims strand forever. The bin catches, surfaces
+			// episode-corrupt, and skips classification for the hub.
+			const store = fixture();
+			store.run(
+				"INSERT INTO facts (key,value,source,version,ts) VALUES (?,?,?,?,?)",
+				"hublost.episode.p.nas",
+				"{not json",
+				"fleet-loop",
+				1,
+				Date.now(),
+			);
+			expect(() => readEpisode(store, "p", "nas")).toThrow();
 		});
 	});
 });

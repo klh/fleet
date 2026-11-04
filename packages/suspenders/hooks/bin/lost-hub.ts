@@ -25,11 +25,13 @@ import {
 	hubClaims,
 	lostHubPaused,
 	readEpisode,
+	resolveLostHubGraceMs,
 	requeueHubClaims,
 	sshHostPart,
 	toLostHubTarget,
 	healthProbeScript,
 	writeEpisode,
+	type LostHubEpisode,
 } from "../lib/fleet-loop/lost-hub.ts";
 import { loadStack, inQuietHours } from "../lib/stack-config.ts";
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
@@ -66,7 +68,10 @@ async function main(argv: string[]): Promise<number> {
 	const store = openStore();
 	const repo = process.env.SUSPENDERS_REPO ?? join(import.meta.dir, "../../..");
 	const project = projectIdentity(repo);
-	const graceMs = graceOverride ? Number(graceOverride) : undefined;
+	// B2 (W2510 review): the override rides the library sanitizer — a bare
+	// Number() turns NaN into zero-grace requeue and lets "0" bypass the
+	// 60s floor, releasing a hub's CLAIMED items on the FIRST dark probe.
+	const graceMs = resolveLostHubGraceMs(graceOverride);
 	const exec = realHubExec(15_000);
 	const reports: Record<string, unknown>[] = [];
 	let anyLost = false;
@@ -96,7 +101,21 @@ async function main(argv: string[]): Promise<number> {
 		// transport refusal IS the disconnect observation (MultiKueue
 		// connectionState): a dark hub host accrues loss toward the grace
 		const reachable = seen === "reachable" && run.out.trim() === "200";
-		const prev = readEpisode(store, project, name);
+		let prev: LostHubEpisode;
+		try {
+			prev = readEpisode(store, project, name);
+		} catch (e) {
+			// N2 (W2510 review): a corrupt facts row must NOT fabricate an
+			// empty episode (that re-anchors the grace clock every pass);
+			// surface it and skip classification for this hub entirely.
+			reports.push({
+				hub: name,
+				verdict: "episode-corrupt",
+				detail: String(e).slice(0, 200),
+			});
+			anyLost = true; // a human should notice, same contract as a lost hub
+			continue;
+		}
 		const verdict = classifyLostHub(
 			prev,
 			{ hub: name, reachable, now: Date.now() },
@@ -104,6 +123,33 @@ async function main(argv: string[]): Promise<number> {
 		);
 		writeEpisode(store, project, name, verdict.episode);
 		if (verdict.action !== "ok") anyLost = true;
+		// N1 (W2510 review): the notify-once-per-episode contract — classify
+		// flags the FIRST loss observation of an episode (grace start), the
+		// FIRST grace lapse, and the recovery transition; consume it here or
+		// the field is dead plumbing.
+		if (verdict.notify) {
+			const detail =
+				verdict.action === "ok"
+					? `recovered — episode closed after ${prev.firstLostAt !== undefined ? Math.round((Date.now() - prev.firstLostAt) / 1000) : 0}s`
+					: verdict.action === "grace"
+						? `first loss observed — grace ${Math.round(graceMs / 1000)}s anchor set; claims hold until it lapses`
+						: "grace lapsed — requeue pass begins (budgeted)";
+			broadcastNote(
+				`[lost-hub] ${name} ${verdict.action === "ok" ? "RECOVERED" : "LOST"} — ${detail}`,
+				"lost-hub-sweep",
+			);
+			emitLoopEvent("plane.lost-hub", name, {
+				project,
+				hub: name,
+				kind: "lost-hub",
+				transition:
+					verdict.action === "ok"
+						? "recovered"
+						: verdict.action === "grace"
+							? "first-loss"
+							: "grace-lapsed",
+			});
+		}
 		let outcomes: unknown[] = [];
 		if (verdict.action === "requeue") {
 			const claims = hubClaims(store, project, repo, name, hubs);
@@ -120,6 +166,12 @@ async function main(argv: string[]): Promise<number> {
 							reason: note,
 						});
 					},
+				});
+				// N1: the requeue transition fired — stamp the episode so the
+				// notify contract is once per EPISODE, not once per 5-min pass
+				writeEpisode(store, project, name, {
+					...verdict.episode,
+					requeued: true,
 				});
 				const released = (outcomes as { action: string }[]).filter(
 					(o) => o.action === "released",
