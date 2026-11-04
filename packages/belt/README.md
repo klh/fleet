@@ -6,7 +6,7 @@
 > **Platform: Apple-silicon macOS.** belt runs MLX, which has no CUDA/ROCm path — the swarm needs an M-series Mac. Other machines and fleets can still consume it over the network: the endpoints are plain HTTP on :8901+.
 
 **The local LLM fleet for your agent fleet.** A swarm of MLX specialists on
-localhost — code, extract, reason, rerank — behind a deterministic keyword
+localhost — code, extract, reason, rerank — behind a policy-driven
 router, with a benchmark rig that logs measurements to
 `~/.claude-insights/benchmarks.jsonl`.
 Wear with [suspenders](https://github.com/klh/fleet/tree/main/packages/suspenders).
@@ -25,7 +25,7 @@ import it; change a model in the registry and both follow.
 | ---- | ------------------------ | ------------------------------------------------------------------------ | ------ | --------- | --------- |
 | 8901 | ⚡ code                  | Qwen3-Coder-30B-A3B-Instruct-4bit                                        | 18 GB  | resident  | rapid-mlx |
 | 8902 | 🏠 extract               | Qwen3-4B-Instruct-2507-4bit                                              | 2.5 GB | resident  | rapid-mlx |
-| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-OptiQ-4bit                                               | 20 GB  | resident  | rapid-mlx |
+| 8903 | 🧠 reason                | Qwen3.5-35B-A3B-OptiQ-4bit                                               | 22 GB  | resident  | rapid-mlx |
 | 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
 | 8907 | 🧲 embed                 | Qwen3-Embedding-0.6B-4bit-DWQ                                            | ~2 GB  | resident  | rapid-mlx |
 | 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
@@ -151,8 +151,8 @@ to own retries for all clients. Direct LiteLLM clients retain one retry by
 default. Provider SDK retries stay at 0. `gateway.litellm_fallbacks` defaults
 to true; set it to false only after verifying equivalent front-owned fallback
 routes. This omits inner engine ladders while retaining the outer policy.
-Change machine-level `routing-policy.yaml` and regenerate the
-gateway config during an approved maintenance window.
+Change machine-level `routing-policy.json` and regenerate the
+gateway config.
 
 - short tasks → `:8902`, code → `:8901`, deep reasoning → `:8903`,
   Danish/multilingual → `:8906` (on-demand), rerank → `:8913`

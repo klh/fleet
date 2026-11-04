@@ -3,7 +3,7 @@
 ## Private native LiteLLM metrics
 
 For a hub serving a LiteLLM transport, declare `metrics.litellm` in the
-machine stack profile with `url`, `key_env` and `source_id`. The credential
+machine hub profile with `url`, `key_env` and `source_id`. The credential
 name must already exist in `secrets.upstream_keys`; its on-device key file
 must hold the engine's metrics authority, not a provider API key. The
 existing private `upstream.env` supplies it to Buckle. No secret value is
@@ -25,13 +25,13 @@ Local file credentials keep the existing 0600/owner checks; local spokes
 can declare the same identity with `BUCKLE_LITELLM_METRICS_SOURCE_ID`.
 
 One parameterized compose (`hub-compose.yaml`) + the runtime-config shape
-(`stack.example.json`). The topology law: **start topology, not hardcoded
+([settings schema](../../settings/settings.schema.json)). The topology law: **start topology, not hardcoded
 one-offs** — a local user runs several hubs, hubs declare peers (sub-hubs),
 everything is data in runtime config.
 
 ## Deploy a hub
 
-One command, any hub (W363) — the hub's section in the machine stack.json is
+One command, any hub (W363) — the hub's section in the machine settings.json is
 the whole brief; the installer materializes it (mint → push → up, probe-gated
 status):
 
@@ -40,46 +40,28 @@ status):
     bash install.sh --hub <name> --dry-run  # renders the hub .env only
 
 Docker Desktop (this Mac): the desktop hub's deploy.dir is a local path and
-no ssh target is declared, so mint/push/up run locally. NAS ($NAS_HOST —
-same template, compose-managed via `--hub`; retires the W310 Docker Desktop
-one-off and the W318-era docker-run rows):
+no ssh target is declared, so mint/push/up run locally. NAS uses the same
+template through `--hub`:
 
-    # the machine config (~/.config/klh/stack.json) declares the hub: ports,
+    # the machine config (~/.config/klh/settings.json) declares the hub: ports,
     # binds, repo trees, deploy transport (ssh/dir/docker), secret PATHS.
     # hubctl materializes everything from it — nothing hand-typed:
     #   bun deploy/hubctl.ts mint <hub>     # secrets ON the hub (0600, idempotent)
     #   bun deploy/hubctl.ts push <hub>     # compose template + rendered .env
     #   bun deploy/hubctl.ts up <hub>       # docker compose up -d
     #   bun deploy/hubctl.ts status <hub>   # per-service health probes
-    # one-time cutover from manual rows: hubctl push + mint, then stop/rm the
-    # docker-run containers, seed the named volumes from the old host-bind
-    # state (buckle.db, belt-home incl. belt.env, hub-home, the federation
-    # signing key → hub-secrets), hubctl up, hubctl status.
-    # Verified: boot log "root-keyed", /status 200, mint-test via
-    # /v1/admin/keys (statuses only — key material never echoed).
 
-Ports per hub live in `~/.config/klh/stack.json` (mode 600) — the
-placeholders here show the shape only. `~/.claude/local-llm/hubs.json` holds
-the label → candidate-URL registry `resolveHub` walks (candidates give the
-fault tolerance: several URLs per hub label, first healthy wins).
+Ports per hub live in `~/.config/klh/settings.json` (mode 600) — the
+settings schema defines the shape. `hubs.<label>.candidates` supplies the
+URL list that `resolveHub` walks; the first healthy candidate wins.
 
 ## Central provider keys
 
-Upstream API keys are declared once, in the machine `stack.json`
-`providers:` block — a profile row is `{provider, key, env?, endpoints?}`:
-`key` is the central inline value (machine file only), `env` is the
-declared runtime binding it is served under, never an ambient read.
-Legacy declarations (`key_file`, `key_name`, `base_url`) are rejected.
-One-time migration gathers the old sources (the `~/.claude/local-llm/*.env`
-provider vars and the process environment), writes each profile's `key`
-inline, and touches nothing else:
-
-    bun scripts/migrate-provider-keys.ts            # dry-run plan, masked
-    bun scripts/migrate-provider-keys.ts --apply    # 0600 backup + atomic write
-
-Disagreeing sources for one profile are ambiguous: the apply refuses until
-an explicit `--map profile=<file:VAR|ENV_NAME>` pins the source. The run is
-idempotent — profiles already carrying `key` are skipped.
+The current provider resolver reads upstream API key profiles from
+`~/.config/klh/stack.json` (0600), under `providers`. A profile row is
+`{provider, key, env?, endpoints?}`: `key` is the central inline value
+(machine file only), and `env` is the declared runtime binding it serves.
+Hub topology and other settings are read from `~/.config/klh/settings.json`.
 
 ## OpenRouter free routes on a hub
 
@@ -96,7 +78,7 @@ the snapshot. The full catalog includes paid, audio, and image models, so its
 total is not a free chat route count. A failed or empty catalog fetch preserves
 the previous file.
 
-The hub's machine-level `stack.json` points
+The hub's machine-level `settings.json` points
 `hubs.<name>.upstreams.openrouter_free_catalog_file` at that snapshot,
 sets `buckle_prefs.allow_cloud: true`, and declares its existing
 `secrets.upstream_keys.LITELLM_KEY` as the **path on that hub** to the local
@@ -143,11 +125,11 @@ of the zai remote must itself stay on a Coding Plan base — the generated
 rows carry the operator's base verbatim.
 
 On a local Docker hub, declare these machine-level fields in its
-`stack.json` profile:
+`settings.json` profile:
 
 ```yaml
 http_upstream_hosts: [host.docker.internal]
-buckle_prefs: {allow_cloud: true}
+buckle_prefs: { allow_cloud: true }
 secrets:
   upstream_keys:
     Z_AI_API_KEY: /private/path/zai.key
@@ -222,7 +204,7 @@ POSTs a 1-token chat completion through the hub's own front every 10 minutes
 and serves the verdict on its own port (`/healthz`,
 `/status` — same wire contract as the *-health sidecars):
 
-- the model is machine-level config: `ready_model:` in the hub's stack.json
+- the model is machine-level config: `ready_model:` in the hub's settings.json
   section (`HUB_READY_MODEL`, template default `general`) — it must name a
   model the hub's routing ladder actually serves;
 - the request rides the same break-glass root credential as the gate
@@ -260,7 +242,7 @@ hub's label): the `mdns-announce` service runs the pure-TS announcer
 `buckle-health` proves the gate healthy. This is what hub-locate's dns-sd
 discovery leg (`resolveHub` step 4) browses — until W854 the browse came
 back EMPTY and `<label>.local` resolved only via per-machine loopback
-mappings. Knobs live in the hub's stack.json `mdns:` block (`port`, `addr`,
+mappings. Knobs live in the hub's settings.json `mdns:` block (`port`, `addr`,
 `hostname`, `interval_ms`, `health_port`, `sidecar_port`; undeclared =
 template defaults; the advertised port defaults to `buckle_port`). The
 announcer serves its real state on `:4114/healthz`; the OUTSIDE-PROCESS
@@ -278,7 +260,7 @@ the compose `fleet-repo` sidecar clones `$HUB_FLEET_REPO_URL` at
 both from the stack's `version:` — a hub deploy without a pinned version
 (a branch name, `main`) is refused, per-package refs/origins are rejected,
 and the archived `klh/{buckle,suspenders,belt}` origins cannot deploy the
-monorepo. One version string pins the whole hub (stack.json law).
+monorepo. One version string pins the whole hub (settings.json law).
 
 Cutting that version is a verb (W1303.6), not a hand edit — from
 `packages/suspenders`:
@@ -324,7 +306,7 @@ evidence (`SQLITE_PATCH_EVIDENCE` env).
 The private `*-remote` overlays (buckle-remote, belt-remote,
 suspenders-remote) are config-over-code: the public bases run, the overlay
 profiles set auth.required, tokens.ttlHours, oidc.enforced (W191 lives in
-the base), admin.gui. Entra ID tenant/app values live only in stack.json.
+the base), admin.gui. Entra ID tenant/app values live only in settings.json.
 W372: the deploy path consumes the whole auth block — hubctl render
 materializes auth.oidc/auth.tokens into the .env (fail-closed on a partial
 oidc block) and the buckle gate builds its JWT validator from the
@@ -342,10 +324,10 @@ public repo changes to flip.
 
 Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS
 this hub reaches directly — the start-topology graph is data, never
-hardcoded (hubctl reads it; `deploy/stack.example.json` shows the shape).
+hardcoded (hubctl reads it; the [settings schema](../../settings/settings.schema.json) defines the shape).
 First edge (W322): the nas hub declares `desktop`. The belt-remote hub
 profile mirrors its hub's edges as `federation.peers` — labels only, the
-host/port/key values stay behind the labels in stack.json.
+host/port/key values stay behind the labels in settings.json.
 
 Propagation (W362): a hub pulls each declared peer's
 `/federation/policy-manifest` on an interval (`hooks/bin/federation-peers.ts`;
@@ -356,7 +338,7 @@ changed; per-peer last-known state lives under the federation home
 (`federation-peer-<label>.json`). A peer that is down degrades one cycle
 (last-known kept), never blocks the hub. Peer auth = a spoke-scoped key
 minted on the PEER hub (`buckle:spoke:READ_`), resolved per label by the
-same chain as the URL (env override / hubs.json registry).
+the same configured hub-label resolution chain as the URL.
 
 ## Browsing a remote hub board
 
@@ -397,13 +379,16 @@ transport instead: a managed ssh tunnel. The read key rides the ssh
 channel; the connector fetches `http://127.0.0.1:<listen_port>/` on this
 device — the one non-https form its URL law admits.
 
-    # ~/.config/klh/stack.json (mode 600, placeholders here)
-    hubs:
-      nas:
-        trace_tunnel:
-          listen_port: 14101   # on THIS device, 1024–65535
-          # target_port: 4101  # default = buckle_port
-          read_key: /path/on/this/device/nas-trace-read.key  # 0600
+    {
+      "hubs": {
+        "nas": {
+          "trace_tunnel": {
+            "listen_port": 14101,
+            "read_key": "/path/on/this/device/nas-trace-read.key"
+          }
+        }
+      }
+    }
 
     bun deploy/hubctl.ts trace-tunnel nas up      # ssh -N -L, 0600 state, wait for forward
     bun deploy/hubctl.ts trace-tunnel nas status  # banked verdict (exit 1 = down)

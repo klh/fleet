@@ -32,7 +32,7 @@ claude-code`; one parent-dir add discovers every skill (never cp'd into one
    CLI's dir). Root placement makes the same catalog discoverable via
    `npx skills add <owner/repo>` — the W772 distribution path.
 4. **Hub deploys** — `bun deploy/hubctl.ts deploy <hub>` (mint → push → up →
-   status); config lives only in machine-level `~/.config/klh/stack.yaml`.
+   status); config lives only in machine-level `~/.config/klh/settings.json`.
 5. **Verify** — `bun scripts/install.ts --json --dry-run` (the install plan),
    `bun $PREFIX/bin/monitor.ts` (control-plane health), `work lanes --json`
    (lane liveness).

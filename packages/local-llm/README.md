@@ -15,20 +15,19 @@ runtime modules sit at the root (no `src/`, no `bin/`) because install.sh
 copies them individually into a flat directory and they import each other
 relatively (`./registry.ts`, `./spawner.ts`).
 
-| File                  | Role                                                          |
-| --------------------- | ------------------------------------------------------------- |
-| `swarm.ts`            | RETIRED W284 — belt/bin/swarm.ts (`supervise`) is the ONE supervisor; installs heal the home from belt/bin |
-| `registry.ts`         | RE-EXPORT of belt/bin/registry.ts (the one model inventory)   |
-| `spawner.ts`          | RE-EXPORT of belt/bin/spawner.ts (the one lifecycle)          |
-| `litellm-target.ts`   | RE-EXPORT of belt/bin/litellm-target.ts (the one :4100 target) |
-| `memory-policy.ts`    | real module — belt/bin/memory-policy.ts is a shim to this     |
-| `belt.env`            | installer stub — env for clients pointing at the belt (:4100) |
-| `routing-policy.yaml` | default ladder template — the committed default               |
-| `lane-load-bench.ts`  | W452 bench (re-integrated W782.2.1): residency probe + cold/warm TTFT + p95 at the registry's admission concurrency, deterministic quality grading |
+| File                 | Role                                                                                                                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `swarm.ts`           | RETIRED W284 — belt/bin/swarm.ts (`supervise`) is the ONE supervisor; installs heal the home from belt/bin                                                                                          |
+| `registry.ts`        | RE-EXPORT of belt/bin/registry.ts (the one model inventory)                                                                                                                                         |
+| `spawner.ts`         | RE-EXPORT of belt/bin/spawner.ts (the one lifecycle)                                                                                                                                                |
+| `litellm-target.ts`  | RE-EXPORT of belt/bin/litellm-target.ts (the one :4100 target)                                                                                                                                      |
+| `memory-policy.ts`   | real module — belt/bin/memory-policy.ts is a shim to this                                                                                                                                           |
+| `belt.env`           | installer stub for runtime gateway and upstream settings                                                                                                                                            |
+| `lane-load-bench.ts` | W452 bench (re-integrated W782.2.1): residency probe + cold/warm TTFT + p95 at the registry's admission concurrency, deterministic quality grading                                                  |
 | `models.catalog.ts`  | W754.1 — the ONE model-acquisition catalog: repo/revision/license/runtime bindings pinned to belt's serving registry; the machine `models.catalog.json` adds private entries and wins id collisions |
-| `health.ts`          | process-liveness response helper (outside-process sidecars own service health) |
-| `observation.ts`     | the outside-process observation contract (evidence identity + expiry, written to `~/.claude-insights/belt-supervisor.json`) |
-| `kill-listeners.ts`  | stops server listeners on a port only (health-check clients survive recovery) |
+| `health.ts`          | process-liveness response helper (outside-process sidecars own service health)                                                                                                                      |
+| `observation.ts`     | the outside-process observation contract (evidence identity + expiry, written to `~/.claude-insights/belt-supervisor.json`)                                                                         |
+| `kill-listeners.ts`  | stops server listeners on a port only (health-check clients survive recovery)                                                                                                                       |
 
 The `:4000` router is served by `packages/belt/bin/router-shim.ts`
 (anthropic wire → openai-protocol specialists); install.sh seeds the
@@ -36,18 +35,18 @@ runtime home from belt/bin (W465).
 
 ## Port map
 
-| Port    | Specialist                                       |
-| ------- | ------------------------------------------------ |
-| `:8901` | coder                                            |
-| `:8902` | extract                                          |
-| `:8903` | reason                                           |
-| `:8906` | general / Danish (on-demand)                     |
-| `:8907` | embed (rapid-mlx `/v1/embeddings`; 8904/8905 retired) |
+| Port    | Specialist                                                         |
+| ------- | ------------------------------------------------------------------ |
+| `:8901` | coder                                                              |
+| `:8902` | extract                                                            |
+| `:8903` | reason                                                             |
+| `:8906` | general / Danish (on-demand)                                       |
+| `:8907` | embed (rapid-mlx `/v1/embeddings`; 8904/8905 retired)              |
 | `:8912` | kev — external classifier (`com.belt.kev`, observed, not launched) |
-| `:8913` | rerank                                           |
-| `:4000` | belt router-shim (anthropic seam over the swarm) |
-| `:4100` | LiteLLM engine, owned by the belt supervisor |
-| `:4101` | Buckle authenticated front door, separate service |
+| `:8913` | rerank                                                             |
+| `:4000` | belt router-shim (anthropic seam over the swarm)                   |
+| `:4100` | LiteLLM cloud gateway, supervised separately from the MLX swarm    |
+| `:4101` | Buckle authenticated front door, separate service                  |
 
 ## Runtime home
 
@@ -62,9 +61,10 @@ config stubs (`belt.env`).
 The kit RUNS from `~/.claude/local-llm/`, never from this repo.
 `packages/suspenders/install.sh` heals the home's belt closure there
 (missing AND diverged files — the belt kit is the source); config stubs
-are seeded only when absent. Machine config lives ONLY in
+are seeded only when absent. Swarm-specific machine config lives in
 that home (mode 600): filled `belt.env`, operator-edited
-`routing-policy.yaml`, `prefs.json`. Repos carry placeholders only.
+`routing-policy.json`, `prefs.json`. The committed routing default is
+`packages/buckle/routing-policy.json`; repos carry placeholders only.
 
 Operate:
 
@@ -113,24 +113,16 @@ backend was absent because the minimal legacy swarm did not supervise it.
 
 ## IKEA Copilot seat (W695.6 — replaces ikea-shim W226)
 
-No shim, no `:4102`. Buckle serves the claude-* lane models straight from the
-Copilot seat (Anthropic-wire `/v1/messages` on api.githubcopilot.com, Bearer
-`GITHUB_COPILOT_PAT` from the 0600 `copilot.key` chain). Overlay template:
+Buckle exposes Copilot models through the configured `claude-*` groups.
+The seat supports Anthropic `/v1/messages`, tool calls and SSE. The cloud
+transport can route those groups through LiteLLM's `github_copilot/` legs
+using the PAT-seeded token cache. The overlay template is
 `packages/buckle/upstreams.copilot.json`.
 
 ## Config stubs
 
 - `belt.env` — placeholder; `ANTHROPIC_AUTH_TOKEN` is filled at activation
   on the device and the filled copy is NEVER committed.
-- `routing-policy.yaml` — the default ladder template (glm-5.3-flash →
-  local-swarm → gpt-5.2 → claude-sonnet-5, never flashx). Belt emits it as
-  litellm router_settings; buckle resolves the runtime copy by default.
-  Operators edit `~/.claude/local-llm/routing-policy.yaml`, never code.
-
-## Provenance
-
-Extracted from `packages/suspenders/hooks/local-llm/` (W422.4, 2026-10-05)
-— flat layout preserved, history followed the `git mv`. W465 (2026-10-06)
-consolidated the model inventory: belt/bin/registry.ts is the single source,
-this package re-exports it, and the board reads the registry through
-`hooks/lib/service-inventory.ts` (belt-owned), not this copy.
+- `packages/buckle/routing-policy.json` — the committed routing default.
+  Operators edit `~/.claude/local-llm/routing-policy.json`; Belt emits the
+  cloud gateway settings from that policy.

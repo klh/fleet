@@ -24,13 +24,12 @@ know this immediately — this skill is the pointer.
 | **speedy**     | Top-level installer/config layer. `install.sh` chains in the other four, installs CLI tools, skills, hooks, launchd agents.           | the git checkout you installed from                                                 |
 | **suspenders** | Control plane: governor.db work graph (SQLite/WAL), coord bus, fleet board (:7799), hook gates, fleet-loop (dispatch + merge-ladder). | `~/.claude/hooks/suspenders` (installed copy — **not** the dev checkout, see below) |
 | **buckle**     | LLM gateway/router: picks an upstream (local swarm vs remote/z.ai), applies the routing ladder + budgets.                             | `~/.claude/buckle`                                                                  |
-| **belt**       | The LLM fleet itself: MLX specialist swarm on localhost (`:8901+`) plus remote/z.ai lanes belt's `remotes.ts` router reaches.         | `~/.claude/local-llm` (registry, swarm.ts, routing-policy.yaml)                     |
+| **belt**       | The LLM fleet itself: MLX specialist swarm on localhost (`:8901+`) plus remote/z.ai lanes belt's `remotes.ts` router reaches.         | `~/.claude/local-llm` (registry, swarm.ts, routing-policy.json)                     |
 | **klh/local**  | LAN fabric: user-level Caddy serving `*.local` names (`suspenders.local`, `belt.local`) over the LAN.                                 | `~/.local/bin/klh-local`                                                            |
 
-Call chain for an LLM request: **surface (Claude/Copilot/VS Code) → belt
-(fleet router) → buckle (gateway) → local swarm or remote/z.ai**. suspenders
-sits alongside as the control plane (work graph + board + coord), not in the
-inference path.
+Call chain for a governed LLM request: **client → Buckle gateway →
+Belt local router or LiteLLM cloud transport → model**. Suspenders sits
+alongside as the control plane for work, coordination and the board.
 
 ## Install vs. checkout — the split that causes "but I just fixed that!"
 

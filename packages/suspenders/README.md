@@ -178,8 +178,8 @@ routes in `hooks/board/routes-*.ts`.
   (never `innerHTML`), 1500-line hard limit, qlty quality gates.
 - Config over code: machine facts ride `~/.claude/local-llm/*.json`
   (never committed); repos carry placeholders only. Upstream provider keys
-  are central in the machine `stack.json` `providers:` block (0600) —
-  `bun scripts/migrate-provider-keys.ts` is the explicit one-time migration
-  from the old `*.env`/env-var sources (dry-run default, refuses ambiguity).
+  are read by the central resolver from the machine
+  `~/.config/klh/stack.json` `providers` block (0600); hub topology
+  lives in `~/.config/klh/settings.json`.
 
 License: see [LICENSE](LICENSE).

@@ -46,8 +46,8 @@ reasons per row there.
 - **Upstream 429**: Retry-After ≤ `BELT_RETRY_WAIT_CAP_MS` (2 s) is waited out
   on the same specialist; longer → fallback; all hops 429 → router answers 429
   with the longest Retry-After.
-- **Direct tiers**: `routing-policy.yaml` `direct:` lists hot local aliases that
-  skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS
+- **Direct tiers**: `bin/registry.ts` emits `routing-direct.json` for hot
+  local aliases that skip the LiteLLM hop (`resolveTarget()`; `direct-tiers.json` for non-TS
   clients). TS clients adopt it one-call: `directChat()` (`bin/direct-client.ts`,
   W280) resolves through the emitted artifact first (what the live engine was
   built from), sends the registry model id (a raw alias 404s — W274 probe),
@@ -56,16 +56,16 @@ reasons per row there.
 
 ## Role classes + reasoning effort (W648)
 
-`routing-policy.yaml` gains declarative class rows (oh-my-codex §1 lift):
-`classes:` maps frontier/standard/spark to ordered group ladders — groups are
-the existing belt alias namespace (litellm model_name / buckle group /
-direct-tier key), so buckle/litellm keep resolving group → provider. `roles:`
-overrides a role's class; any role/lane named `*-low` drops to spark with NO
-registry edit. `reasoning:` is a model-independent axis (role row > class row
-> default, low..xhigh). Z.AI honors `reasoning_effort` (`allowed_openai_params`
-on Z.AI rows); MLX effort uses the router budget policy. `gateway-config.ts`
-emits the resolved map to `~/.claude/local-llm/class-tiers.json` for non-TS
-consumers. The W512 task pin selects the class; the ladder resolves the model.
+`routing-policy.json` has class rows: `classes` maps frontier, standard
+and spark to ordered group ladders. Those groups use the existing Belt alias
+namespace, which Buckle and LiteLLM resolve to providers. `roles` can
+override a class; a role or lane named `*-low` selects spark. `reasoning`
+sets effort independently, with role taking precedence over class and class
+over default (low through xhigh). Z.AI accepts `reasoning_effort` through
+`allowed_openai_params`; MLX uses the router budget policy.
+`gateway-config.ts` emits the resolved map to
+`~/.claude/local-llm/class-tiers.json` for other clients. The task pin
+selects the class; the ladder resolves the model.
 
 ## Model registration (W271)
 
@@ -75,8 +75,8 @@ generated, hash-stable (same registry → byte-identical output):
 
 ```sh
 bun bin/registry-emit.ts litellm   # LiteLLM model_list (:4100 engine)
-bun bin/registry-emit.ts direct    # routing-policy `direct:` tiers
-bun bin/registry-emit.ts buckle    # buckle upstreams.yaml groups (merge via BUCKLE_UPSTREAMS)
+bun bin/registry-emit.ts direct    # routing-direct.json direct tiers
+bun bin/registry-emit.ts buckle    # buckle upstreams.json groups (merge via BUCKLE_UPSTREAMS)
 bun bin/registry-emit.ts json      # registry document
 bun bin/registry-emit.ts tier      # tier manifest (tier + warm_ports — swarm + keepwarm read it; W507)
 bun bin/registry-emit.ts all --out DIR
@@ -93,7 +93,7 @@ serves its registry, spokes pull) is designed, not yet wired.
 Cloud TTS/STT rows live in `bin/registry.ts` (`AUDIO_SERVICES`, also served
 as the `audio:` section of `/registry.json`) — NOT in the chat ladder:
 `chatEntries()` and the LiteLLM/direct/buckle emitters never see them, and
-the ladder stays operator-owned (routing-policy.yaml). The helper is
+the ladder stays operator-owned (routing-policy.json). The helper is
 `bin/audio.ts`; the router exposes the OpenAI-wire surface:
 
 ```sh

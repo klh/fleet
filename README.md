@@ -41,8 +41,7 @@ bun packages/suspenders/hooks/bin/fleet-board.ts   # http://localhost:7799
 ```
 
 Mac-first (launchd surfaces need macOS; hubs need Docker). Machine-local
-config lives in `~/.config/klh/stack.json` (0600) — the installer's
-`migrateConf` step cuts it over from legacy `stack.yaml` once. Steps 3–4
+config lives in `~/.config/klh/settings.json` (0600). Steps 3–4
 need nothing else; models and launchd agents are optional add-ons
 (`--skip-models`, `--no-llm`, `--with-launchd`).
 
@@ -146,15 +145,15 @@ Boundaries and rollout design:
 
 ## The stack
 
-| Package                                | Responsibility                     | What lives there                                                                                                                                                                                                                                          |
-| :------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[suspenders](packages/suspenders/)** | Coordinate the agents              | SQLite work graph, claims and leases, coordination bus, decisions, knowledge, hook gates, dispatch, merge ladder, fleet board, hub tooling                                                                                                                |
-| **[buckle](packages/buckle/)**         | Govern model access                | Two client wire dialects (OpenAI, Anthropic) over a LiteLLM-internal engine and a 100+ provider catalog carried as data rows, native dialect translation, routing ladders with retries and cooldowns, scoped `bksk_` keys, usage ledger, governance seams |
-| **[belt](packages/belt/)**             | Operate the model fleet            | Specialist registry, MLX lifecycle and routing, remote discovery, dashboard, evaluation and benchmark tools                                                                                                                                               |
-| **[speedy](packages/speedy/)**         | Equip the developer environment    | CLI speed tools, curated skills, personas, commands, agents, hooks, settings, statusline, install.sh and harness configuration                                                                                                                            |
-| **[local](packages/local/)**           | Give services a local front        | Caddy registration, Bonjour/mDNS names, loopback defaults, authenticated LAN exposure, service registry and bar dashboard                                                                                                                                 |
-| **[local-llm](packages/local-llm/)**   | Ship the shared inference kit      | Flat runtime kit and config templates (env, routing ladder, memory policy); the model inventory, supervisor and Anthropic-wire router are belt-owned re-exports                                                                                           |
-| **[blam](packages/blam/)**             | Study and reproduce agent failures | CRASH taxonomy, sanitized incident dataset, deterministic LLM-optional benchmark scenarios, labeling tools, and the shared prompt-condense engine                                                                                                         |
+| Package                                | Responsibility                     | What lives there                                                                                                                                                                                                                                  |
+| :------------------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[suspenders](packages/suspenders/)** | Coordinate the agents              | SQLite work graph, claims and leases, coordination bus, decisions, knowledge, hook gates, dispatch, merge ladder, fleet board, hub tooling                                                                                                        |
+| **[buckle](packages/buckle/)**         | Govern model access                | OpenAI and Anthropic client wires, local routes and a separate LiteLLM cloud transport, with a 100+ provider catalog, native dialect translation, routing ladders with retries and cooldowns, scoped `bksk_` keys, usage ledger, governance seams |
+| **[belt](packages/belt/)**             | Operate the model fleet            | Specialist registry, MLX lifecycle and routing, remote discovery, dashboard, evaluation and benchmark tools                                                                                                                                       |
+| **[speedy](packages/speedy/)**         | Equip the developer environment    | CLI speed tools, curated skills, personas, commands, agents, hooks, settings, statusline, install.sh and harness configuration                                                                                                                    |
+| **[local](packages/local/)**           | Give services a local front        | Caddy registration, Bonjour/mDNS names, loopback defaults, authenticated LAN exposure, service registry and bar dashboard                                                                                                                         |
+| **[local-llm](packages/local-llm/)**   | Ship the shared inference kit      | Flat runtime kit and config templates (env, routing ladder, memory policy); the model inventory, supervisor and Anthropic-wire router are belt-owned re-exports                                                                                   |
+| **[blam](packages/blam/)**             | Study and reproduce agent failures | CRASH taxonomy, sanitized incident dataset, deterministic LLM-optional benchmark scenarios, labeling tools, and the shared prompt-condense engine                                                                                                 |
 
 The boundaries matter: **suspenders assigns and tracks work; buckle controls
 LLM requests; belt operates the model fleet; speedy configures the agent
@@ -222,7 +221,7 @@ delegates to BLAM's engine, and model enhancement has an endpoint fallback.
 
 ```mermaid
 flowchart LR
-  CFG[("Machine configuration<br/>stack.json · one version pin")]
+  CFG[("Machine configuration<br/>settings.json · one version pin")]
   CTL["hubctl<br/>render · mint · push · up · status · deploy"]
   HUB["Hub services<br/>gateway · board · store · model dashboard"]
   PROBE["Independent health sidecars<br/>network probes · confirming re-probe"]
@@ -236,14 +235,14 @@ flowchart LR
 ```
 
 Hub profiles supply ports, binds, transports and secret paths. The version
-pin in `stack.json` selects the same git ref every hub pulls, and hub
+pin in `settings.json` selects the same git ref every hub pulls, and hub
 containers mount git-pulled volumes, never host paths. Health comes from a
 separate probe process with consecutive-miss handling and an active
 confirmation before declaring a target down. The compose template mounts this
 checkout's `packages/` trees; `hubctl deploy <hub>` runs the whole chain
 (mint, push, up, status). More:
 [hub deployment](packages/suspenders/deploy/README.md),
-[example configuration](packages/suspenders/deploy/stack.example.json).
+[settings schema](packages/settings/settings.schema.json).
 
 ## Get started
 
@@ -285,7 +284,7 @@ bash packages/suspenders/install.sh --dry-run
 `--prune`, `--step`, `--json`, `--yes` and `--hub <name>`, with
 `SUSPENDERS_PREFIX` and `SUSPENDERS_SHIM_BIN` overrides. The default plan
 attempts model downloads; `--skip-models` and `--no-llm` skip those.
-`--hub <name>` runs the one-shot hub deploy against the machine `stack.json`.
+`--hub <name>` runs the one-shot hub deploy against the machine `settings.json`.
 
 For a fleet-wide install across packages, speedy ships the umbrella installer
 (`packages/speedy/bin/install-fleet.ts`), which defaults to this repository.
@@ -337,14 +336,15 @@ PATH shims expose the command surfaces; every verb has `--help`.
 Real hosts and credentials live outside the repository; committed config
 supplies examples and defaults.
 
-| Location                                  | Purpose                                                     |
-| :---------------------------------------- | :---------------------------------------------------------- |
-| `~/.config/klh/stack.json`                | Hub profiles, deployment settings, the stack version pin and the central `providers:` key block |
-| `~/.claude/local-llm/belt.env`            | Runtime provider settings and buckle admin credential       |
-| `~/.claude/local-llm/hubs.json`           | Hub labels and candidate URLs                               |
-| `~/.claude/local-llm/routing-policy.json` | Operator-owned routing ladder                               |
-| `~/.claude/local-llm/upstreams.json`      | Runtime upstream group overrides                            |
-| `~/.claude/local-llm/buckle-spoke.env`    | Spoke bootstrap credential                                  |
+| Location                                    | Purpose                                                           |
+| :------------------------------------------ | :---------------------------------------------------------------- |
+| `~/.config/klh/settings.json`               | Hub profiles and candidate URLs, deployment settings, version pin |
+| `~/.config/klh/stack.json`                  | Central provider credentials used by the provider resolver        |
+| `~/.claude/local-llm/belt.env`              | Runtime provider settings and buckle admin credential             |
+| `~/.claude/local-llm/routing-policy.json`   | Operator-owned routing ladder                                     |
+| `~/.claude/local-llm/upstreams.json`        | Runtime upstream group overrides                                  |
+| `~/.claude/local-llm/repo-tier-policy.yaml` | Buckle account-to-tier policy, when configured                    |
+| `~/.claude/local-llm/buckle-spoke.env`      | Spoke bootstrap credential                                        |
 
 Keep secret-bearing files mode **0600**. Root keys are generated on the target
 device; admin and lane keys are minted through the gateway API, audited and
@@ -352,7 +352,7 @@ revocable. Example ports in package docs are not universal settings.
 
 ## Engineering principles
 
-- **One stack version.** The version pin in `stack.json` selects the same ref
+- **One stack version.** The version pin in `settings.json` selects the same ref
   across deployed services; hubctl renders it as the ref every hub pulls.
 - **One work ledger.** Tasks and claims belong in the work graph; docs explain
   architecture and decisions. Project identity follows the Git common

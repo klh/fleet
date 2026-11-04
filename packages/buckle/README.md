@@ -3,47 +3,33 @@
 > Part of the klh fleet monorepo — the system overview (packages, flow
 > diagrams, laws, ops) lives at the fleet root: [README.md](../../README.md).
 
-LLM gateway: multi-provider serving + governance in one Bun/TypeScript
-process. Two client wire dialects (OpenAI, Anthropic) in front of the
-LiteLLM-internal engine (W219.1) and the 100+ provider catalog
-(W150) — the serving layer of the
+LLM gateway: multi-provider serving and governance in a Bun/TypeScript
+process. Buckle accepts OpenAI and Anthropic client wires, routes local
+models directly, and uses a separate LiteLLM cloud transport. Its provider
+catalog carries 100+ provider definitions — the serving layer of the
 [klh agent stack](https://github.com/klh/fleet/tree/main/packages/suspenders) — belt routes,
 buckle serves.
 
 ```mermaid
 flowchart LR
-    subgraph clients[Developer surfaces]
-        CC[Claude Code]
-        CX[Codex]
-        VS[VS Code / chat UIs]
-    end
-    BT["belt<br/>(fleet router)"]
-    BK["buckle<br/>:4101"]
-    subgraph upstreams["upstream pool (data rows)"]
-        SW["local swarm<br/>MLX / vLLM"]
-        ZAI["z.ai / remote"]
-        ANTH["anthropic<br/>(env-gated)"]
-    end
-    CC --> BT
-    CX --> BT
-    VS --> BT
-    BT -- "openai / anthropic" --> BK
-    BK --> SW
-    BK --> ZAI
-    BK -.->|ANTHROPIC_API_KEY set| ANTH
+    CLIENTS["Agent and app clients"] --> BK["Buckle :4101<br/>scoped keys · policy · routing"]
+    BK --> BELT["Belt :4000<br/>local specialists"]
+    BK --> LITELLM["LiteLLM :4100<br/>cloud transport"]
+    LITELLM --> PROVIDERS["Configured cloud providers"]
 ```
 
 ## What it does
 
 - **Two client wires, many providers** — OpenAI `/v1/chat/completions`
   and Anthropic `/v1/messages` are the client-facing dialects; behind
-  them the LiteLLM-internal engine routes to 100+ providers as data rows
-  (`upstreams.yaml` + the W150 catalog), not two hardwired backends.
+  them local deployments and the separate LiteLLM cloud transport expose
+  100+ provider definitions as data rows
+  (`upstreams.json` + the W150 catalog), not two hardwired backends.
   The native dialect-translation tier (W426) lets any request reach any
   deployment through the tool/stream transforms (`src/bridge.ts`):
   anthropic client ↔ openai upstream, both directions, JSON + streaming.
   Pass-through-first: same-dialect hops rank first, cross hops follow.
-- **Upstreams are data, not code** — `upstreams.yaml` group rows
+- **Upstreams are data, not code** — `upstreams.json` group rows
   (`url`, `dialect`, `adapter`, `api_key_env`), the same move LiteLLM's
   own long tail made (`openai_like/providers.json`). The provider catalog
   (W150) carries 100+ providers as rows; unknown providers ride the
@@ -51,17 +37,16 @@ flowchart LR
 - **Cloud rows ship dormant** — committed rows are env-gated: a deployment
   with `api_key_env: ANTHROPIC_API_KEY` activates only when that variable
   exists at runtime. Keys never live in committed files: the central home
-  is the machine `stack.json` `providers:` block (0600), filled once by
-  `suspenders scripts/migrate-provider-keys.ts` (dry-run default, refuses
-  ambiguity).
-- **Ladder routing** — ordered fallback walk per `routing-policy.yaml`,
+  is the machine `~/.config/klh/stack.json` `providers` block (0600),
+  read by the current central provider resolver.
+- **Ladder routing** — ordered fallback walk per `routing-policy.json`,
   retry with retry-after honoring, cooldown ejection after repeated
   failures, hour-bucket usage ledger.
 - **Governance seams** — budgets, per-key/team ceilings, entitlement
   checks and federation hooks hang off the router core (see the suspenders
   design docs).
 - **Repo-policy gate (W7)** — hub-connected sessions check the repo in
-  view against `repo-policy.yaml` data rows (`{id, repoClass, detect,
+  view against `repo-policy.json` data rows (`{id, repoClass, detect,
 check, missingQuestion, policySource}`): silent when satisfied, one
   actionable missing-question per found gap. `POST /repo-policy/check`
   or `bun bin/repo-policy.ts <repo-root> [--resolve-facts]`. Internal
@@ -70,11 +55,8 @@ check, missingQuestion, policySource}`): silent when satisfied, one
 
 ## Status
 
-Live on `127.0.0.1:4101` — the `resolvePort` startup guard refuses :4100
-from any source (`src/server.ts`), that port stays the belt/litellm tier.
-The scripted :4100 cut-over was superseded 2026-10-07 (W413) before it
-ran: `docs/cut-over-runbook.md` is retained as the historical record,
-outcome in the suspenders cut-over record it links.
+Buckle serves the authenticated front on `127.0.0.1:4101` by default.
+The `resolvePort` startup guard reserves `:4100` for the cloud gateway.
 
 ## Run
 
@@ -84,8 +66,8 @@ bun run src/server.ts        # binds the configured port (loopback default)
 bun test                     # adapter, ladder and citizenship suites
 ```
 
-`upstreams.yaml` documents the row format inline. Override at runtime with
-`BUCKLE_UPSTREAMS=/path/to/extra.yaml` (merged by group name; never
+`upstreams.json` documents the row format inline. Override at runtime with
+`BUCKLE_UPSTREAMS=/path/to/extra.json` (merged by group name; never
 committed).
 
 Egress law (startup-fatal, `src/adapters/egress.ts`): upstream `url`s are

@@ -3,12 +3,12 @@
 The deep operations detail behind the root AGENTS.md Operations index:
 hub deploys, board API, buckle key endpoints, the launchd label map, the
 port map, machine-level config paths, and the IKEA Copilot seat. Load at
-need — lanes never need all of this per session. Single-source rule: this
-file is the only place this material lives; AGENTS.md points here.
+need — lanes never need all of this per session. The root AGENTS.md gives
+the compact operating law; this page gives commands and paths.
 
 ## Hubs — `bun deploy/hubctl.ts <verb> <hub>`
 
-Config-over-code deploys from `~/.config/klh/stack.yaml` (hub = a profile:
+Config-over-code deploys from `~/.config/klh/settings.json` (hub = a profile:
 ports, binds, ssh/dir/docker, secret PATHS):
 
 - `render <hub>` — the compose .env (no secrets)
@@ -22,13 +22,13 @@ ports, binds, ssh/dir/docker, secret PATHS):
 
 ## Board — `bun packages/suspenders/hooks/bin/fleet-board.ts` (:7799)
 
-- `POST /api/prompt/settings` — the prompt.condense/enhance/debug/log
-  toggles (GET reads); `POST /api/orchestrate/preview
-  {"project": "<repo path>", "goal": "..."}` — what WILL be dispatched
-  (condense + enhance run for real; previewId held; nothing written)
-- writes need `x-klh-write-token: $(cat
-  ~/.cache/claude-governor/write-token)`; W264 host guard: only `*.local`
-  + loopback Hosts pass
+- `POST /api/prompt/settings` controls prompt condense, enhance, debug
+  and log toggles; GET reads them.
+- `POST /api/orchestrate/preview` accepts a project path and goal; it
+  prepares a dispatch preview without writing work.
+- Write requests require `x-klh-write-token`, sourced from
+  `~/.cache/claude-governor/write-token`. The host guard accepts loopback
+  and `*.local` Hosts.
 
 ## Buckle gate (LLM auth — keys are the front door)
 
@@ -64,9 +64,9 @@ ports, binds, ssh/dir/docker, secret PATHS):
 - `com.suspenders.buckle-spoke` — buckle gateway :4101 (Mac spoke)
 - `com.suspenders.board` — fleet board :7799
 - `com.suspenders.fleet-pulse` — W822 periodic digest (StartInterval =
-  notify.yaml pulse.interval_s, default 14400): `notify.ts pulse` composes
+  notify.json pulse.interval_s, default 14400): `notify.ts pulse` composes
   lanes/READY/DONE/watchdog/decisions/commits into one notification via the
-  notify.yaml 'pulse' class; every install registers it post-install
+  notify.json 'pulse' class; every install registers it post-install
 - `com.klh-local.caddy` — the Caddy .local front
 - same namespace, no ports: knowledge-worker
 - LEGACY, never load: `com.klh.local-llm` / `com.klh.llm-keepwarm` /
@@ -95,31 +95,32 @@ ports, binds, ssh/dir/docker, secret PATHS):
 - NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
   non-interactive PATH); compose v5.6.0 per-user plugin
 
-## Machine-level config (the SOLE conf — repos carry placeholders only)
+## Machine-level configuration (repos carry placeholders only)
 
-- `~/.config/klh/stack.yaml` (mode 600): hub profiles + `version:` — the
-  one string that pins buckle+suspenders+belt
+- `~/.config/klh/settings.json` (mode 600): hub profiles, candidate URLs
+  and `version` — the one string that pins buckle+suspenders+belt
+- `~/.claude/local-llm/repo-tier-policy.yaml` (when configured): Buckle's
+  account-to-tier policy at ingress
+- `~/.config/klh/stack.json` (mode 600): central provider credentials
+  consumed by `loadProviderConfig`
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
-  `hubs.json` (label → candidate URLs resolveHub walks),
   `routing-policy.json` (operator-owned ladder — edit THIS, never code;
   W2677 note: a lane pinned `hub=<label>` with no model pin has KEV pick
   its model from the hub's live `/v1/models` offerings per work type —
   the hub's `default_models` chain is the fallback safety net, so the
   ladder's static rung no longer fixes that lane's model),
-  `upstreams.yaml` (group overrides — per-model upstream ladders over
+  `upstreams.json` (group overrides — per-model upstream ladders over
   swarm :8902 / router :4000 / litellm :4100), `buckle-spoke.env` /
   `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke env also holds
   `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
-- IKEA Copilot seat (W695.6): claude-* lane models are first-class buckle
-  upstreams — `https://api.githubcopilot.com` serves the Anthropic wire
-  (`/v1/messages`, Bearer `GITHUB_COPILOT_PAT`, header
-  `copilot-integration-id` via `adapter_config.headers`; tools+SSE on this
-  wire unverified 2026-10-12, quota wall same day); group `claude-sonnet-5`
-  → `model: claude-sonnet-5.5` (dots-to-dashes alias is data). Template:
-  `packages/buckle/upstreams.copilot.yaml` → merge into the machine
-  `upstreams.yaml`. The `:4102` ikea-shim is RETIRED (never activated);
-  litellm copilot rows stay off (its /v1/messages bridge hits the Responses
-  API Copilot rejects; its provider forces an interactive device flow)
+- Copilot models are Buckle upstream groups. The seat serves Anthropic
+  `/v1/messages` with Bearer `GITHUB_COPILOT_PAT` and the
+  `copilot-integration-id` header; tool-use and SSE round trips are verified.
+  Configure the groups from `packages/buckle/upstreams.copilot.json` in the
+  machine `upstreams.json`. The cloud transport is LiteLLM; its
+  `github_copilot/` legs support Anthropic passthrough and PAT-seeded auth.
+  Keep Buckle's `strip_body_fields` for `mcp_servers`, which LiteLLM's
+  `drop_params` does not remove.
 
 ## Install
 

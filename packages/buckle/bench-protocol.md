@@ -56,6 +56,6 @@ pins the protocol so runs stay comparable.
 - **Repeats** (`--repeats k`, majority per task) fix model noise only —
   never question-sampling noise. Latency p50 per arm is recorded.
 - Machine report (one JSON line) on stdout, human table on stderr,
-  per-task JSONL via `--out`. Verdicts feed routing-policy.yaml, belt
+  per-task JSONL via `--out`. Verdicts feed routing-policy.json, belt
   prefs, and dispatch model pins — operator-owned files; the harness
   never writes them.

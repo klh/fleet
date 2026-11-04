@@ -72,5 +72,5 @@ never rewritten, and anthropic caps breakpoints at 4). openai-compat rows
 never receive markers: ZAI context caching is prefix-implicit (litellm drops
 anthropic fields in the body rebuild) and copilot is unknown. Bridged hops
 strip markers in the body rebuild (adapters/tools.ts).
-`aids.cache-align.default: "off"` in routing-policy.yaml is the operator
+`aids.cache-align.default: "off"` in routing-policy.json is the operator
 kill switch.

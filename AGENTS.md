@@ -10,20 +10,18 @@ GitHub push — W422.9/W422.1).
 
 ## Laws (project-wide, every package)
 
-- **One version**: `version:` in `~/.config/klh/stack.json` pins buckle +
+- **One version**: `version:` in `~/.config/klh/settings.json` pins buckle +
   suspenders + belt; hubctl renders it as the git ref every hub pulls.
-- **Config-over-code**: fleet config is JSON (W1253 Amendment A) —
-  JSON.parse is the ONE parser for every fleet config read (no yaml pkg, no
-  Bun.YAML on config paths; the yaml npm dependency is gone). Real hosts,
-  keys, OIDC values live ONLY in machine-level runtime config
-  (`~/.config/klh/stack.json`, `~/.claude/local-llm/*.env`, mode 600,
-  atomic 0600 writes via the kernel helper) — repos carry placeholders
-  only. Deploy contracts that are NOT fleet config keep their yaml FILES
-  (compose, litellm, the launchd services manifest) — but nothing in fleet
-  code parses yaml config bytes. Readers keep both file NAMES during the
-  transition (.json law name first, legacy .yaml second — honored only
-  while its content is already JSON); the install `migrateConf` step cuts
-  machine conf over once (yaml → .json 0600, original kept as .yaml.bak).
+- **Config-over-code**: the per-install Fleet settings and routing policies
+  are JSON. Real hosts, keys and OIDC values live in machine-level runtime
+  config (`~/.config/klh/settings.json`, provider credentials in
+  `~/.config/klh/stack.json`, and `~/.claude/local-llm/*.env`, mode 600,
+  atomic 0600 writes via the kernel helper); repos carry placeholders only.
+  Edit `settings.json` through `coord settings`; `coord settings validate`
+  checks the complete document. The central provider resolver still reads
+  credential profiles from `stack.json`. Buckle's account-tier policy is
+  currently parsed from `~/.claude/local-llm/repo-tier-policy.yaml`.
+  Compose, LiteLLM and launchd deployment contracts also retain YAML files.
 - **Knob declaration ratchet (W2470)**: every `SUSPENDERS_*` env knob a
   fleet process reads maps to exactly ONE designated home — a
   `KNOB_REGISTRY` row in `packages/settings/src/settings.knob-registry.ts`
@@ -241,7 +239,7 @@ composed (caveman-condensed), per-lane `bksk_` key minted from
 per-lane `--settings` file. No admin key = belt direct, surfaced.
 
 Hubs (`bun deploy/hubctl.ts <verb> <hub>`) — config-over-code deploys from
-`~/.config/klh/stack.json` (hub = a profile: ports, binds, ssh/dir/docker,
+`~/.config/klh/settings.json` (hub = a profile: ports, binds, ssh/dir/docker,
 secret PATHS). Each hub may declare `default_models: [<id>, …]` — the
 per-hub default model chain a bare `hub=<label>` lane with no model pin
 rides. W2677 (owner directive 2026-11-03): a bare `hub=` lane means KEV
@@ -287,7 +285,7 @@ Knowledge sink (the fleet's queryable memory — W1217 sink · W1218 faces ·
 W1221 harness wiring):
 
 - hub service: `hooks/bin/knowledge-api.ts` (compose `knowledge-sink`,
-  default :7802, health sidecar :7803) — enabled per-hub via the stack.json
+  default :7802, health sidecar :7803) — enabled per-hub via the settings.json
   profile `knowledge: {port, health_port}`; serves the hub governor.db
   knowledge replica
 - faces (all on the sink origin, placeholder `<hub>` = the machine conf's
@@ -367,13 +365,11 @@ gui/$(id -u)/<label>` revives):
 - NAS = `kk@nas.threads.dk`; docker at `/usr/local/bin/docker` (NOT on
   non-interactive PATH); compose v5.6.0 per-user plugin
 
-Machine-level config (the SOLE conf — repos carry placeholders only):
+Machine-level configuration (repos carry placeholders only):
 
-- `~/.config/klh/stack.json` (mode 600): hub profiles + `version:` — the
-  one string that pins buckle+suspenders+belt (legacy `stack.yaml` is
-  honored read-only until the install migrateConf step runs)
+- `~/.config/klh/settings.json` (mode 600): hub profiles, candidate URLs
+  and `version` — the one string that pins buckle+suspenders+belt
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
-  `hubs.json` (label → candidate URLs resolveHub walks),
   `routing-policy.json` (operator-owned ladder — edit THIS, never code),
   `upstreams.json` (group overrides — per-model upstream ladders over
   swarm :8902 / router :4000 / litellm :4100),
@@ -393,7 +389,7 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   thinking/reasoning_effort/effort/anthropic_beta/parallel_tool_calls that
   the direct wire 400s; chat rows via `/v1/chat/completions`). PAT auth
   pre-seeds the token cache (`GITHUB_COPILOT_TOKEN_DIR` with `access-token`
-  + `api-key.json` carrying `token`/`expires_at`/`endpoints.api`) — device
-  flow is fallback-only in 1.103.0, never forced. `mcp_servers` is NOT
-  dropped by `drop_params` (Copilot 400s it wanting a beta header) —
-  W2594 `strip_body_fields` stays as belt-and-braces at the buckle layer
+  and `api-key.json` carrying `token`/`expires_at`/`endpoints.api`) —
+  device flow is fallback-only in 1.103.0, never forced. `mcp_servers` is
+  NOT dropped by `drop_params` (Copilot 400s it wanting a beta header) —
+  W2594 `strip_body_fields` stays at the buckle layer.

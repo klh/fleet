@@ -10,7 +10,7 @@ where a mistake is outward-facing.
 ## DELTA CONTRACT
 
 1. **hubctl verbs only** (render / mint / push / up / status / deploy) —
-   config-over-code from `~/.config/klh/stack.json`; no ad-hoc ssh surgery.
+   config-over-code from `~/.config/klh/settings.json`; no ad-hoc ssh surgery.
 2. **Health is outside-process**: compose health hits the probe SIDECAR,
    never the served process. A server cannot paint itself healthy.
 3. **Secrets are minted on the target** (0600, idempotent, never printed);
