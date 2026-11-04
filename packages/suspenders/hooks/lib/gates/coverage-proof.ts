@@ -12,6 +12,23 @@ import { dirname, join, posix } from "node:path";
 export const TEST_FILE =
 	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
 
+/** Repo-relative package.json manifests for every packages/<pkg>/ path in a
+ *  changed-path list — production files INCLUDED, not just tests. The proof
+ *  scratch shares node_modules per manifest; deriving from test paths alone
+ *  left a prod file's cross-package import (suspenders script → buckle
+ *  source → @klh/telemetry) unresolved in the scratch, erroring reviews
+ *  whose content was fine (the W2633 trail). changed = `git diff
+ *  --name-only main...branch` output. */
+export const changedPackageManifests = (
+	changed: readonly string[],
+): string[] => [
+	...new Set(
+		changed
+			.filter((path) => /^packages\/[^/]+\//.test(path))
+			.map((path) => `${path.split("/").slice(0, 2).join("/")}/package.json`),
+	),
+];
+
 export type Proof = {
 	status: "proved" | "no-coverage" | "skipped" | "error" | "unknown";
 	detail: string;
@@ -177,7 +194,9 @@ export const missingImportsExplained = (
  *  lacks; without them provable tests importing one die as Cannot-find-
  *  module and the review errors as environmental (the W2198 trail).
  *  manifestPaths are repo-relative <pkg>/package.json paths naming the
- *  packages whose tests run in the scratch. */
+ *  packages whose files changed in the diff — tests AND production: a
+ *  changed prod file's cross-package import needs the sibling package's
+ *  local links too (W2633 trail). See changedPackageManifests(). */
 export function shareNodeModules(
 	repo: string,
 	scratch: string,
