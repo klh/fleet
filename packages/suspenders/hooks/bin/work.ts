@@ -24,14 +24,13 @@ import {
 } from "../lib/cred-scope.ts";
 import { emitDoneBroadcast } from "../lib/done-broadcast.ts";
 import { detectClient } from "../lib/executors/detect.ts";
-import { rejudgeDangling } from "../lib/fleet-loop/dangling-rejudge.ts";
+import { runRejudgeVerb } from "../lib/fleet-loop/dangling-rejudge.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
 import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
 import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
-import { runBackfillVerb } from "../lib/work/hub-evidence.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
 import {
 	doneSpendStamp,
@@ -75,6 +74,8 @@ import {
 import { budgetFlagClear } from "../lib/usage/budget-flag.ts";
 import { dieFor, idList, type Parsed, runCli } from "../lib/verb-kit.ts";
 import { curateCompletionKnowledge } from "../lib/work/completion-curation.ts";
+import { runBackfillVerb } from "../lib/work/hub-evidence.ts";
+import { releaseReclaimedClaim } from "../lib/work/reclaim-verb.ts";
 import {
 	applyAllocations,
 	assignTask,
@@ -90,9 +91,9 @@ import {
 	persistCompletion,
 	prepareCompletion,
 } from "../lib/work/work-completion-record.ts";
-import { runFailVerb } from "../lib/work/work-fail.ts";
 import { editPayload, editSteer, editWorkItem } from "../lib/work/work-edit.ts";
 import { EFFORTS } from "../lib/work/work-effort.ts";
+import { runFailVerb } from "../lib/work/work-fail.ts";
 import { evidencePatternsOf } from "../lib/work/work-fence.ts";
 import {
 	amber,
@@ -125,7 +126,6 @@ import { GLYPH, renderRow, renderTimestamps } from "../lib/work/work-render.ts";
 import { runStats } from "../lib/work/work-report.ts";
 import { attachCloseReport, regenReport } from "../lib/work/work-report-cli.ts";
 import { runReportVerb } from "../lib/work/work-report-verb.ts";
-import { releaseReclaimedClaim } from "../lib/work/reclaim-verb.ts";
 import { retryFailedItem } from "../lib/work/work-retry.ts";
 import { validateTags } from "../lib/work/work-tags.ts";
 import {
@@ -854,19 +854,13 @@ const dispatchVerb = async (
 		emit("work.superseded", id, { note: `superseded by ${byId}` });
 		console.log(`${dim("■")} ${id} superseded by ${byId}`);
 	} else if (name === "rejudge") {
-		// W1762: one classifier-driven pass over open dangling-path repairs —
-		// rejects supersede with the classifier sha as reason; survivors and
-		// their code.dangling-path edges stay untouched.
+		// W2189: one classifier-driven pass over open dangling-path repairs —
+		// rejects supersede (legacy items) or bank per-edge reject events
+		// (the aggregate item); survivors and their edges stay untouched.
 		if (pos[0] !== "dangling") die("usage: rejudge dangling [--dry-run]");
-		const result = rejudgeDangling(db(), projectRootOf(PROJECT), {
+		runRejudgeVerb(db(), projectRootOf(PROJECT), die, {
 			dryRun: flag("--dry-run") !== null,
 		});
-		if ("error" in result) die(`rejudge: ${result.error}`);
-		for (const { id, reason } of result.superseded)
-			console.log(`${dim("■")} ${id} superseded — ${reason}`);
-		console.log(
-			`REJUDGE classifier ${result.classifier.slice(0, 12)}: ${result.superseded.length} superseded, ${result.kept} kept, ${result.unevidenced} unevidenced`,
-		);
 	} else if (name === "block") {
 		const id = pos[0];
 		const on = flag("--on");
