@@ -60,10 +60,12 @@ test.describe("@unit", () => {
 			expect(ALL_SCOPES).toContain("buckle:knowledge:QUERY_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:READ_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:WRITE_");
-			expect(hasScope(["buckle:dataplane:WRITE_"], "buckle:dataplane:READ_"))
-				.toBe(true);
-			expect(hasScope(["buckle:dataplane:READ_"], "buckle:dataplane:WRITE_"))
-				.toBe(false);
+			expect(
+				hasScope(["buckle:dataplane:WRITE_"], "buckle:dataplane:READ_"),
+			).toBe(true);
+			expect(
+				hasScope(["buckle:dataplane:READ_"], "buckle:dataplane:WRITE_"),
+			).toBe(false);
 		});
 	});
 
