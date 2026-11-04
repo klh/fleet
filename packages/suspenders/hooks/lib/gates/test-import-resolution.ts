@@ -319,10 +319,19 @@ export function checkTestImports(root: string, files: string[]): ScanResult {
 }
 
 /** Tracked test-family files (repo-relative) — git ls-files so scratch and
- *  .worktrees cannot red the guard. */
+ *  .worktrees cannot red the guard. *.e2e.ts rides along (W1294): the
+ *  ported corpus lives there, and a canary that skips it is no canary. */
 export function collectTestFiles(root: string): string[] {
 	const out = Bun.spawnSync(
-		["git", "ls-files", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.bench.ts"],
+		[
+			"git",
+			"ls-files",
+			"*.test.ts",
+			"*.test.tsx",
+			"*.spec.ts",
+			"*.bench.ts",
+			"*.e2e.ts",
+		],
 		{ cwd: root },
 	);
 	if (out.exitCode !== 0) throw new Error(`git ls-files failed: ${out.stderr}`);
