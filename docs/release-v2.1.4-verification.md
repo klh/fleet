@@ -40,3 +40,13 @@ parity verb; live copilot re-points stay frozen pending this proof).
   ikea hub now boots the staged policy, and the minted (non-root) lane
   key reaches copilot-backed claude rows **200** — the W2596 follow-up is
   discharged.
+
+## Lineage (W2702 merge, 2026-11-04)
+
+The W2596 branch's original receipt (dc174b58) landed the same file on main
+via W2684's amended copy (215c983f), which added check (e) and closed the
+account-policy gap as discharged. W2702 merged `parked/W2596` into the main
+lineage as 7e5593af: the add/add conflict resolved to main's strictly-newer
+copy — nothing unique in the W2596 side was lost (verified by diff), and
+`git merge-tree origin/main HEAD` reports zero conflicts, so the ladder
+lands this branch in place of the original W2596 ref.
