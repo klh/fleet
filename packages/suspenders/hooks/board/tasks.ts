@@ -334,7 +334,10 @@ export function workSpendSeries(): Map<string, ItemSpendPoint[]> {
 		m.set(key, points);
 	}
 	for (const [key, pts] of fine) {
-		m.set(key, [...(m.get(key) ?? []), ...pts].sort((a, b) => a.t - b.t));
+		m.set(
+			key,
+			[...(m.get(key) ?? []), ...pts].sort((a, b) => a.t - b.t),
+		);
 	}
 	_wSeries = { at: Date.now(), m };
 	return m;

@@ -213,9 +213,9 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 		narrowSpec.bins.filter((b) => b !== null).length,
 	);
 	for (const w of narrow.barWidths)
-		expect(Math.abs(w - Math.max(0.5, Math.min(5, narrowStep)))).toBeLessThanOrEqual(
-			0.2,
-		); // bars never stretch
+		expect(
+			Math.abs(w - Math.max(0.5, Math.min(5, narrowStep))),
+		).toBeLessThanOrEqual(0.2); // bars never stretch
 	// the card tiles edge-to-edge too, whatever its track did at 320px
 	const cardNarrow = await measureStrip(page, `.kcard[data-kid="${wId}"]`);
 	const cnSpec = spectralBins(

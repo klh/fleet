@@ -213,8 +213,10 @@ test.describe("@unit", () => {
 	// same interval is shown (viewport preserved, resolution honest).
 	test("coarse minute history caps the rung at 60s — viewport preserved", () => {
 		const B = Math.floor(T0 / 60_000) * 60_000;
-		const coarse: [number, number, number, number, number][] =
-			Array.from({ length: 180 }, (_, i) => [B + i * 60_000, 10, 5, 1, 60_000]);
+		const coarse: [number, number, number, number, number][] = Array.from(
+			{ length: 180 },
+			(_, i) => [B + i * 60_000, 10, 5, 1, 60_000],
+		);
 		const s = spectralBins(coarse, 360);
 		expect(s.slotMs).toBe(60_000); // never finer than the data's grain
 		expect(s.count).toBe(180); // 3h viewport ÷ 60s
@@ -249,10 +251,12 @@ test.describe("@unit", () => {
 		const legacyHorizon = Math.floor(px / ACTIVITY_STEP_PX) * ACTIVITY_BIN_MS;
 		const last = T0 + 10 * 60_000;
 		const dense = spectralBins(
-			Array.from(
-				{ length: 400 },
-				(_, i) => [last - i * 30_000, 1, 1, 1],
-			) as [number, number, number, number][],
+			Array.from({ length: 400 }, (_, i) => [last - i * 30_000, 1, 1, 1]) as [
+				number,
+				number,
+				number,
+				number,
+			][],
 			px,
 		);
 		expect(dense.windowEnd - dense.windowStart).toBeGreaterThanOrEqual(

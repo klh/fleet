@@ -523,14 +523,14 @@ export class KlhCardActivity extends LitElement {
 				</div>`;
 		}
 		return html`
-			${attemptPlot(a, w, this._attemptHandlers, this._barsSvg(
-				attemptSpectralBins(
-					this.points,
-					a.windowStart,
-					a.windowEnd,
-					w,
+			${attemptPlot(
+				a,
+				w,
+				this._attemptHandlers,
+				this._barsSvg(
+					attemptSpectralBins(this.points, a.windowStart, a.windowEnd, w),
 				),
-			))}
+			)}
 			${this._hairlineHtml()}
 			${attemptAxis(a, this._tzLabel())}
 			${this._tip ? this._tipHtml() : null}

@@ -34,16 +34,8 @@ export const ACTIVITY_MIN_SLOT_PX = 1;
  * chosen when the fresh per-request resolution actually covers the window.
  */
 export const ACTIVITY_BIN_LADDER_MS = [
-	15_000,
-	30_000,
-	60_000,
-	120_000,
-	180_000,
-	300_000,
-	600_000,
-	900_000,
-	1_800_000,
-	3_600_000,
+	15_000, 30_000, 60_000, 120_000, 180_000, 300_000, 600_000, 900_000,
+	1_800_000, 3_600_000,
 ] as const;
 /**
  * The shared duration scale: elapsed wall time that maps to the FULL card
