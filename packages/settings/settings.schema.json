@@ -588,6 +588,12 @@
 								"additionalProperties": {
 									"type": "string"
 								}
+							},
+							"repo_tier_policy": {
+								"description": "PATH of the 0600 repo-tier-policy.yaml on the hub (BUCKLE_REPO_TIER_POLICY)",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 4096
 							}
 						},
 						"additionalProperties": false,

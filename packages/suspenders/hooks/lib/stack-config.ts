@@ -358,6 +358,10 @@ export const HubProfileSchema = z
 				buckle_service_key: z.string().optional(),
 				buckle_service_key_env: z.string().optional(),
 				upstream_keys: z.record(z.string(), z.string()).optional(),
+				/** W2632: the 0600 repo-tier-policy.yaml on the hub — declaring
+				 *  it wires BUCKLE_REPO_TIER_POLICY into the buckle-hub env
+				 *  (undeclared = the W1265.2 default:general posture). */
+				repo_tier_policy: z.string().optional(),
 			})
 			.loose()
 			.optional(),

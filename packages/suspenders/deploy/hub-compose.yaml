@@ -217,6 +217,14 @@ services:
       BUCKLE_OBSERVATIONS_PATH: /state/buckle/observations.ndjson
       BUCKLE_POLICY: /etc/klh/routing-policy.hub.json
       BUCKLE_UPSTREAMS: /etc/klh/upstreams.hub.json
+      # W2632: the hub's account-policy file (repo→tier boundary, W1265.1).
+      # stack.json hubs.<label>.secrets.repo_tier_policy (a PATH on the hub)
+      # makes hubctl push stage the operator's 0600 policy beside the compose
+      # (mounted read-only at the fixed container path). The .env knob is
+      # rendered ONLY when declared; absent = empty interpolation = unset env
+      # inside the container (buckle's chain skips empty candidates → the
+      # W1265.2 default:general posture; inert stays true).
+      BUCKLE_REPO_TIER_POLICY: ${HUB_REPO_TIER_POLICY:-}
       # W983: the hub's owner prefs (allow_cloud / cost_speed), rendered by
       # hubctl from stack.json `buckle_prefs:` — the switches the routing
       # decision gates every cloud hop behind. Always present (undeclared =
@@ -258,6 +266,11 @@ services:
       - ./routing-policy.hub.json:/etc/klh/routing-policy.hub.json:ro
       # W983: the 0600 owner-prefs file hubctl push renders from stack.json
       - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
+      # W2632: the staged repo→tier account policy — hubctl push ALWAYS
+      # keeps a file here (operator's 0600 copy when the knob is declared,
+      # an empty placeholder otherwise), so the bind source is never a
+      # directory. Read-only; only read when BUCKLE_REPO_TIER_POLICY is set.
+      - ./repo-tier-policy.yaml:/etc/klh/repo-tier-policy.yaml:ro
       - buckle-state:/state/buckle
       - hub-secrets:/state/secrets
 
