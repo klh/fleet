@@ -20,10 +20,7 @@ type Svc = Record<string, unknown> & {
 };
 
 const compose = parse(
-	readFileSync(
-		join(import.meta.dir, "../deploy/hub-compose.yaml"),
-		"utf8",
-	),
+	readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
 	{ merge: true, maxAliasCount: 500 },
 ) as { services: Record<string, Svc> };
 
@@ -37,10 +34,11 @@ test.describe("@unit W2329 — dataplane hub profile", () => {
 			JSON.stringify({ version: "v-fixture-w2329", hubs: { nas: hub } }),
 			{ mode: 0o600 },
 		);
-		const p = runCli(join(import.meta.dir, "../deploy/hubctl.ts"), [
-			"render",
-			"nas",
-		], { env: { KLH_STACK: stack } });
+		const p = runCli(
+			join(import.meta.dir, "../deploy/hubctl.ts"),
+			["render", "nas"],
+			{ env: { KLH_STACK: stack } },
+		);
 		expect(p.err, p.err).toBe("");
 		expect(p.code).toBe(0);
 		return p.out;
@@ -94,9 +92,9 @@ test.describe("@unit W2329 — dataplane hub profile", () => {
 				/KEY|TOKEN|SECRET/,
 			);
 		// W264: the host allowlist rides the shared guard, not a new auth path.
-		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(
-			"${HUB_ALLOWED_HOSTS:-suspenders.local}",
-		);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: compose contract
+		const hostsContract = "${HUB_ALLOWED_HOSTS:-suspenders.local}";
+		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(hostsContract);
 	});
 
 	test("health rides the outside-process probe sidecar (owner law)", () => {
