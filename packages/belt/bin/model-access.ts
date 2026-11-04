@@ -1,5 +1,6 @@
 // Browser-safe account inventory. A CLI sign-in and a direct API key are
 // different routes; neither is inferred from the other's health probe.
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 // W1124.8.4: the Copilot seat PAT resolves from the inherited env or the
 // CENTRAL provider profile bound to GITHUB_COPILOT_PAT — the implicit
