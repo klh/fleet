@@ -141,7 +141,7 @@ import {
 import { darkHubNow, policyForRepo, tryLoadStack } from "../stack-config.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
 import { fenceBriefLine } from "../work/work-transition.ts";
-import { admitModel } from "./model-admission.ts";
+import { admitModel, kevModelBriefLines } from "./model-admission.ts";
 
 /** The entrypoint-bound closures + run-config the launch machine consumes.
  *  Mutable cycle collectors (refusal/wait/seed arrays) are shared references
@@ -568,6 +568,7 @@ export const dispatchLane = async (
 		if (admitted.verdict !== "proceed") return null;
 		pick = admitted.pick;
 		bin = admitted.bin;
+		const kevPick = admitted.kevPick ?? null;
 		// W1813: the origin agent suffix is the SPAWNED adapter id — the same
 		// identity launchToken registers (W1731); never a hardcoded claude.
 		const take = run(
@@ -741,7 +742,10 @@ export const dispatchLane = async (
 			wt,
 			capsule,
 			pick,
-			resumeBrief: resumeBriefLine(resumeDecision),
+			// W2677: kev's live-offerings pick rides the brief (why THIS model).
+			resumeBrief: kevPick
+				? [...resumeBriefLine(resumeDecision), ...kevModelBriefLines(kevPick)]
+				: resumeBriefLine(resumeDecision),
 			...(takeEpoch
 				? { extraBrief: [fenceBriefLine(item, Number(takeEpoch))] }
 				: {}),

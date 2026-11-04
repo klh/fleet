@@ -87,6 +87,10 @@ export interface PreferDecision {
 	index: number;
 	target: string;
 	can: "absent" | "active" | "unavailable";
+	/** W2677: audit provenance when the model was DERIVED for the lane
+	 *  (kev-chooses over live hub offerings) — display/audit only, never a
+	 *  routing input (parity with PreferDecision's own contract). */
+	audit?: string;
 }
 
 export const posturePreference = (

@@ -101,7 +101,11 @@ ports, binds, ssh/dir/docker, secret PATHS):
   one string that pins buckle+suspenders+belt
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
   `hubs.json` (label → candidate URLs resolveHub walks),
-  `routing-policy.yaml` (operator-owned ladder — edit THIS, never code),
+  `routing-policy.json` (operator-owned ladder — edit THIS, never code;
+  W2677 note: a lane pinned `hub=<label>` with no model pin has KEV pick
+  its model from the hub's live `/v1/models` offerings per work type —
+  the hub's `default_models` chain is the fallback safety net, so the
+  ladder's static rung no longer fixes that lane's model),
   `upstreams.yaml` (group overrides — per-model upstream ladders over
   swarm :8902 / router :4000 / litellm :4100), `buckle-spoke.env` /
   `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke env also holds

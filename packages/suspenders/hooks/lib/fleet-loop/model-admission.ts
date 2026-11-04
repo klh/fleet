@@ -9,7 +9,10 @@
 // WAIT = the launch retries next cycle; REFUSED = nothing claimed or minted.
 
 import type { RouteAdmission } from "../../../scripts/lib/dispatch-admission.ts";
-import { laneModelOf } from "../../../scripts/lib/dispatch-executor-note.ts";
+import {
+	DEFAULT_LANE_MODEL,
+	laneModelOf,
+} from "../../../scripts/lib/dispatch-executor-note.ts";
 import type { execPick } from "../../../scripts/lib/exec-chain.ts";
 import {
 	type GroupEndpoints,
@@ -19,9 +22,20 @@ import { activeRateLimitWalls } from "../../../scripts/lib/launch-backoff.ts";
 import { resolveLaneExecutor } from "../../../scripts/lib/launch-preflight.ts";
 import { wireModelMatch } from "../gates/wire-model-check.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
+import type { HubLocation } from "../hub/hub-locate.ts";
 import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
 import { kevPlacement } from "./kev-placement.ts";
+import {
+	kevModelBriefLines,
+	kevModelNote,
+	kevModelPick,
+	type KevModelPick,
+} from "./kev-model-pick.ts";
+
+// W2677: lane-launch imports the brief renderer through this module (one
+// import line there — 1200-line stop rule); it composes from the same pick.
+export { kevModelBriefLines };
 import {
 	poolOccupancy,
 	recordPlacementReason,
@@ -34,7 +48,14 @@ import { servedModelsGate } from "./served-models.ts";
 type LanePick = ReturnType<typeof execPick>;
 
 export type ModelAdmission =
-	| { verdict: "proceed"; pick: LanePick; bin: string | null }
+	| {
+			verdict: "proceed";
+			pick: LanePick;
+			bin: string | null;
+			/** W2677: the kev-chooses decision for a bare hub= lane — the caller
+			 *  rides it into the brief disclosure; absent = kev not consulted. */
+			kevPick?: KevModelPick;
+	  }
 	| { verdict: "wait"; reason: string }
 	| { verdict: "refused"; reason: string };
 
@@ -60,6 +81,10 @@ export async function admitModel(io: {
 	 *  lane-launch hubPick chain) — served-models validation target. */
 	hubPick?: string | null;
 	noBelt?: boolean;
+	/** W2677: hub resolver for kev's live-offerings pick — injected for
+	 *  tests only (servedModelsGate precedent); production walks the real
+	 *  resolveHub chain. */
+	kevResolve?: (label: string, oneOff: string[]) => Promise<HubLocation | null>;
 }): Promise<ModelAdmission> {
 	const {
 		store,
@@ -128,6 +153,51 @@ export async function admitModel(io: {
 			launchWaits.push(item);
 			console.log(`WAIT ${item} — ${slot.reason}`);
 			return { verdict: "wait", reason: slot.reason };
+		}
+	}
+
+	// W2677 kev-chooses: a bare .prefer hub=<label> lane (no dotfile model
+	// pin anywhere — modelPin null; owner directive 2026-11-03) has kev pick
+	// the model from that hub's LIVE /v1/models offerings, per work type.
+	// Runs before every other gate: it may MOVE the model (wire/route/
+	// served-models then grade what will actually ride). Deterministic
+	// fallback keeps the static pick (default_models chain — the safety
+	// net); a down catalog/kev never blocks the launch (W1712/W576 parity).
+	let kevPick: KevModelPick | null = null;
+	const hubPick = io.hubPick ?? pick.hub ?? null;
+	if (hubPick && !pick.modelPin && posture !== "plaid" && !io.noBelt) {
+		// work-type context from the graph — kev picks PER WORK, not per lane
+		const row = store
+			.query("SELECT title, tags FROM work_items WHERE project=? AND id=?")
+			.get(project, item) as {
+			title: string | null;
+			tags: string | null;
+		} | null;
+		kevPick = await kevModelPick({
+			hubPick,
+			hubUrls: pick.hubUrls,
+			model: laneModelOf(pick) === DEFAULT_LANE_MODEL ? null : pick.model,
+			state: row
+				? `item ${item}: ${row.title ?? ""} [${row.tags ?? ""}]`
+				: `item ${item} (fleet lane)`,
+			env: process.env,
+			...(io.kevResolve ? { resolve: io.kevResolve } : {}),
+		});
+		if (kevPick?.model) {
+			if (kevPick.model !== pick.model)
+				console.log(
+					`NOTE — kev-chooses ${item}: ${pick.model ?? "(static default)"} → ${kevPick.model} (${kevPick.reason})`,
+				);
+			else console.log(kevModelNote(item, kevPick));
+			pick = {
+				...pick,
+				model: kevPick.model,
+				fallbackModels: pick.fallbackModels.filter((m) => m !== kevPick?.model),
+				preference: {
+					...pick.preference,
+					audit: `kev-chooses: ${kevPick.model} (${kevPick.via}) — ${kevPick.reason}`,
+				},
+			};
 		}
 	}
 
@@ -202,5 +272,10 @@ export async function admitModel(io: {
 			`NOTE — served: ${model} on ${served.destination} (${served.servedBy})`,
 		);
 	} else console.log(`NOTE — ${served.note}`);
-	return { verdict: "proceed", pick, bin };
+	return {
+		verdict: "proceed",
+		pick,
+		bin,
+		...(kevPick ? { kevPick } : {}),
+	};
 }

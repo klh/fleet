@@ -9,7 +9,10 @@ export const DEFAULT_LANE_MODEL = "glm-5.3-flash";
 export const laneModelOf = (pick: { model?: string | null }): string =>
 	pick.model ?? DEFAULT_LANE_MODEL;
 
-type PreferenceView = Pick<PreferDecision, "source" | "directive" | "line">;
+type PreferenceView = Pick<
+	PreferDecision,
+	"source" | "directive" | "line" | "audit"
+>;
 
 export type ChosenPick = {
 	bin: string;
@@ -60,6 +63,9 @@ const pickedByOf = (
 ): string => {
 	if (route) return `plaid route ${route}`;
 	if (preference.source === "posture") return "plaid posture";
+	// W2677: a derived model (kev over live hub offerings) names its chooser;
+	// the static chain line stays the fallback story
+	if (preference.audit) return preference.audit;
 	if (preference.source === "dotfile")
 		return `.prefer ${preference.directive} line ${String(preference.line)}`;
 	return "default ladder";
