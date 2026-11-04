@@ -93,9 +93,9 @@ test.describe("@unit W2329 — dataplane hub profile", () => {
 				/KEY|TOKEN|SECRET/,
 			);
 		// W264: the host allowlist rides the shared guard, not a new auth path.
-		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(
-			"${HUB_ALLOWED_HOSTS:-suspenders.local}",
-		);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: compose contract
+		const hostsContract = "${HUB_ALLOWED_HOSTS:-suspenders.local}";
+		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(hostsContract);
 	});
 
 	test("health rides the outside-process probe sidecar (owner law)", () => {
