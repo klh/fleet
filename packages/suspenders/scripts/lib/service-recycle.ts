@@ -32,10 +32,15 @@ export interface RecycleRequest {
 	/** Identity proof a holder must match before a signal (default /bun/i —
 	 *  the manifest children are bun processes). */
 	expectedChild?: RegExp;
+	/** W1195: a tier-dependent child (specialists load per the emitted tier
+	 *  manifest) may legitimately have NO listener at entry — the port is
+	 *  dark until first demanded. When true, a port with zero listeners
+	 *  recycles trivially instead of failing the window. */
+	okIfUnheld?: boolean;
 }
 
 export type RecycleResult =
-	| { ok: true; pid: number; oldPids: number[] }
+	| { ok: true; pid: number | null; oldPids: number[] }
 	| { ok: false; reason: string; oldPids: number[] };
 
 export const RECYCLE_DEADLINE_MS = 30_000;
@@ -119,6 +124,11 @@ export async function recycleChildListener(
 		return comm !== null && expected.test(comm);
 	};
 	const oldPids = hooks.listenerPids(req.port);
+	// W1195: tier-dependent children may be dark at entry (never loaded, or
+	// unloaded after a tier switch) — nothing to recycle is a recycle.
+	if (req.okIfUnheld === true && oldPids.length === 0) {
+		return { ok: true, pid: null, oldPids: [] };
+	}
 	const terminated: number[] = [];
 	for (const pid of oldPids) {
 		if (claimable(pid) && hooks.signal(pid, "SIGTERM")) terminated.push(pid);
