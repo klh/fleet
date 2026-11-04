@@ -19,7 +19,9 @@ import { html, LitElement, svg, type TemplateResult } from "lit";
 import type { AttemptTimeline } from "../lib/board/activity-contract.ts";
 import {
 	ACTIVITY_BAR_PX,
+	attemptSpectralBins,
 	durationSpan,
+	fmtBinWidth,
 	fmtDurationExact,
 	fmtHHmm,
 	fmtScaleLabel,
@@ -61,7 +63,10 @@ export class KlhCardActivity extends LitElement {
 		_tip: { state: true },
 		_slot: { state: true },
 	};
-	declare points: [number, number, number, number][];
+	/** [t, fresh, cached, out] or [t, fresh, cached, out, binMs] — the
+	 *  optional 5th element is the point's own grain (W2591): the display
+	 *  rung never goes finer than the coarsest grain visible in-window. */
+	declare points: [number, number, number, number, number?][];
 	declare wallMs: number | null;
 	/** AttemptTimeline (the wiring leaf validates through the contract). */
 	declare attempt: AttemptTimeline | null;
@@ -262,17 +267,19 @@ export class KlhCardActivity extends LitElement {
 
 	/** exact tooltip text for one bin — ONE compact human stamp line
 	 *  (owner-approved 2026-11-02: the dual UTC/local pair repeated three
-	 *  times per hover was noise), exact counts below it. */
+	 *  times per hover was noise), exact counts below it. W2591: the bin
+	 *  width is adaptive — label the ACTUAL interval (30s / 45s / minutes),
+	 *  never a hardcoded 3-minute grid. */
 	private _tipText(spec: SpectralBins, slot: number): string {
 		const b = spec.bins[slot];
 		const t0 = (spec.windowStart ?? 0) + slot * spec.slotMs;
 		// #103191/#103233 exact owner pattern: line 1 `2 Nov 2026 · 21:51
-		// UTC+01:00`, line 2 `20:51 UTC · 3-minute bin` — the UTC twin
+		// UTC+01:00`, line 2 `20:51 UTC · 30-second bin` — the UTC twin
 		// carries its date ONLY when it differs from the line-1 local date
 		// (utcShort rule); no interval repeat, no seconds.
 		const lines = [
 			humanZoneWord(t0),
-			`${utcShort(t0, localDate(t0) !== utcDate(t0))} · ${spec.slotMs / 60000}-minute bin`,
+			`${utcShort(t0, localDate(t0) !== utcDate(t0))} · ${fmtBinWidth(spec.slotMs)} bin`,
 		];
 		if (b) {
 			lines.push(`Fresh input ${b.fresh.toLocaleString("en-US")}`);
@@ -285,10 +292,13 @@ export class KlhCardActivity extends LitElement {
 	}
 
 	/** REAL bins only: stacked fresh-over-cached rects, max-normalized
-	 *  within the visible window. */
+	 *  within the visible window. W2591: at fine adaptive rungs the bar
+	 *  fills its slot (≥0.5px) — thin 1.5px strokes where slots are wide,
+	 *  slot-width strokes where ~1px cells demand it. */
 	private _barsSvg(spec: SpectralBins): TemplateResult {
 		const w = this._width || 240;
 		const step = w / spec.count;
+		const barPx = Math.max(0.5, Math.min(ACTIVITY_BAR_PX, step));
 		let maxV = 0;
 		for (const b of spec.bins) if (b) maxV = Math.max(maxV, b.fresh + b.cached);
 		const bars: TemplateResult[] = [];
@@ -296,8 +306,8 @@ export class KlhCardActivity extends LitElement {
 			for (let i = 0; i < spec.count; i++) {
 				const b = spec.bins[i];
 				if (!b) continue;
-				const x = i * step + (step - ACTIVITY_BAR_PX) / 2;
-				bars.push(this._barRects(b, x, maxV));
+				const x = i * step + (step - barPx) / 2;
+				bars.push(this._barRects(b, x, maxV, barPx));
 			}
 		if (!bars.length) return html``;
 		// W2267.4.2.2 (#103177): svg`` template — html`` here would mint
@@ -327,6 +337,7 @@ export class KlhCardActivity extends LitElement {
 		b: { fresh: number; cached: number },
 		x: number,
 		maxV: number,
+		barPx = ACTIVITY_BAR_PX,
 	): TemplateResult {
 		const h = 40;
 		const parts: TemplateResult[] = [];
@@ -343,7 +354,7 @@ export class KlhCardActivity extends LitElement {
 					class=${cls}
 					x=${x.toFixed(1)}
 					y=${Math.max(1, h - 1 - used - bh).toFixed(1)}
-					width=${ACTIVITY_BAR_PX}
+					width=${barPx.toFixed(1)}
 					height=${bh.toFixed(1)}
 				/>`,
 			);
@@ -421,7 +432,9 @@ export class KlhCardActivity extends LitElement {
 			<span>${spec.hasData ? fmtHHmm(spec.windowStart ?? 0) : ""}</span>
 			<span
 				>${
-					spec.hasData ? `${tz} · ${spec.slotMs / 60000}m/bin` : "no activity"
+					spec.hasData
+						? `${tz} · ${fmtBinWidth(spec.slotMs)} bins`
+						: "no activity"
 				}</span
 			>
 			<span>${spec.hasData ? fmtHHmm(spec.windowEnd ?? 0) : ""}</span>
@@ -496,7 +509,10 @@ export class KlhCardActivity extends LitElement {
 
 	private _attemptHandlers = attemptStripHandlers(this._stripHost);
 
-	/** attempt-mode render: same plot band + hairline + axis assembly. */
+	/** attempt-mode render: same plot band + hairline + axis assembly.
+	 *  W2701 (owner #108724): the REAL spend spikes stay — the attempt marks
+	 *  ride as a translucent band over the SAME spectral field, so the fine
+	 *  token signal is never substituted by broad state blocks. */
 	private _renderAttempt(): TemplateResult {
 		const a = this.attempt;
 		const w = this._width || 240;
@@ -507,7 +523,14 @@ export class KlhCardActivity extends LitElement {
 				</div>`;
 		}
 		return html`
-			${attemptPlot(a, w, this._attemptHandlers)}
+			${attemptPlot(a, w, this._attemptHandlers, this._barsSvg(
+				attemptSpectralBins(
+					this.points,
+					a.windowStart,
+					a.windowEnd,
+					w,
+				),
+			))}
 			${this._hairlineHtml()}
 			${attemptAxis(a, this._tzLabel())}
 			${this._tip ? this._tipHtml() : null}
@@ -523,7 +546,7 @@ export class KlhCardActivity extends LitElement {
 				viewBox="0 0 ${this._width || 240} 40"
 				preserveAspectRatio="none"
 				role="img"
-				aria-label="Fresh and cached input tokens in ${spec.slotMs / 60000}-minute bins across the measured track"
+				aria-label="Fresh and cached input tokens in ${fmtBinWidth(spec.slotMs)} bins across the measured track"
 				tabindex="0"
 				@pointermove=${this._hover}
 				@pointerleave=${this._hide}

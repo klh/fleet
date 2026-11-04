@@ -1,44 +1,48 @@
-import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,y,z,s,p}from"./lit-b9e6dc75d3d0960d.js";import{m,Z}from"./lit-fa2d59eb76085ea2.js";import{l}from"./lit-19130002dd3c1d75.js";import{k,U,C,O,F}from"./lit-d109c83208056758.js";var zt=new Set,Y=(c,d)=>{if(customElements.get(c))throw Error(`defineElement: <${c}> is already defined — ONE register point per workspace`);zt.add(c),customElements.define(c,d)};var rt=1.5;function Rt(c,d,g,f=180000){let v=Array.from({length:g},()=>null);for(let x of c){let w=Math.floor((x[0]-d)/f);if(w>g-1)w=g-1;if(w<0)continue;let T=v[w];if(T==null)T={fresh:0,cached:0,out:0},v[w]=T;T.fresh+=x[1],T.cached+=x[2],T.out+=x[3]}return v}function Ct(c,d,g=6,f=180000){let v=Math.max(1,Math.floor(d/g)),x=c;return{count:v,slotMs:f,start:x-v*f,end:x}}var Ht={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function pt(c,d,g){if(!c.length)return Ht;let{POSITIVE_INFINITY:f,NEGATIVE_INFINITY:v}=Number;for(let M of c){if(M[0]<f)f=M[0];if(M[0]>v)v=M[0]}let x=Ct(v,d),w=g??Math.max(x.start,f),T=Math.ceil((v-w)/x.slotMs)+1,S=Math.max(1,Math.min(x.count,T));return{bins:Rt(c,w,S),firstTs:f,windowStart:w,windowEnd:w+S*x.slotMs,count:S,slotMs:x.slotMs,startClipped:w>f,hasData:!0}}function W(c){let d=new Date(c),g=(f)=>String(f).padStart(2,"0");return`${g(d.getHours())}:${g(d.getMinutes())}`}function st(c,d,g=86400000){let f=d/2;if(c===null||c===void 0)return{visible:!1,center:f,half:0,start:f,end:f,saturated:!1};if(!Number.isFinite(c)||c<=0)return{visible:!1,center:f,half:0,start:f,end:f,saturated:!1};let v=Math.min(d/2,c/g*(d/2));return{visible:!0,center:f,half:v,start:f-v,end:f+v,saturated:c>=g}}function K(c){if(!Number.isFinite(c)||c<=0)return"0m";let d=Math.round(c/60000);if(d<60)return`${d}m`;return`${Math.floor(d/60)}h ${String(d%60).padStart(2,"0")}m`}function J(c=86400000){return`${c/3600000}h`}function D(c,d,g,f){let v=Math.max(1,g-d),x=(c-d)/v*f;return Math.max(0,Math.min(f,x))}function V(c){let d=[];for(let f of c.attempt.segments){if(f.end<=f.start)continue;d.push({kind:f.kind,start:f.start,end:f.end})}let g=[];for(let f of c.milestones){if(f.ts<c.windowStart||f.ts>c.windowEnd)continue;g.push({kind:"milestone",start:f.ts,end:f.ts,commit:f.commit,stage:f.stage})}return{segs:d,milestones:g}}function dt(c,d,g,f,v){for(let x of c.milestones){let w=D(x.start,g,f,v);if(Math.abs(d-w)<=6)return x}for(let x of c.segs){let w=D(x.start,g,f,v),T=D(x.end,g,f,v);if(d>=w&&d<=Math.max(T,w+1))return x}return null}function G(c,d,g,f){if(c.kind==="milestone")return[`artifact · ${c.stage??""}`,g(c.start),`commit ${c.commit??""}`].join(`
-`);let v=[`${c.kind} · ${f(c.end-c.start)}`,g(c.start,c.end)];if(c.kind==="firstbyte")v.push("first attributed ledger request — not network latency");if(c.kind==="tool")v.push("request-row minutes — not tool-call duration");if(c.kind==="unknown")v.push("no fact covers this gap");return v.push(`attempt ${d.attempt.index} · ${d.attempt.sid}`),v.join(`
-`)}var it=13,at=14,B=5;function ht(c){let d=c.attempt.claimEnd??c.windowEnd,g=Math.min(d,c.windowEnd)-c.attempt.claimStart;return g>0?g:null}function Q(c,d){return d===void 0?k(c):F(c,d).join(`
-`)}function Ot(c,d){let{segs:g,milestones:f}=V(c),v=[];for(let x of g){let w=D(x.start,c.windowStart,c.windowEnd,d),T=Math.max(w+1,D(x.end,c.windowStart,c.windowEnd,d));v.push(E`<rect
-				class="at-${x.kind}"
+import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,x,A,s,p}from"./lit-93dbc87cade91682.js";import{m,Z}from"./lit-0840573c4dba1f10.js";import{c}from"./lit-05d02c13d2fb5953.js";import{k,U,C,O,F}from"./lit-d109c83208056758.js";var Pt=new Set,Y=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);Pt.add(l),customElements.define(l,d)};var st=1.5;var J=[15000,30000,60000,120000,180000,300000,600000,900000,1800000,3600000];function ut(l,d,f,g=180000){let v=Array.from({length:f},()=>null);for(let y of l){let w=Math.floor((y[0]-d)/g);if(w>f-1)w=f-1;if(w<0)continue;let T=v[w];if(T==null)T={fresh:0,cached:0,out:0},v[w]=T;T.fresh+=y[1],T.cached+=y[2],T.out+=y[3]}return v}function ht(l){return Math.max(1,Math.floor(l/6))*180000}function Lt(l,d,f=J){let g=ht(l);for(let v of f){if(v<d)continue;if(Math.ceil(g/v)*1<=l)return v}return f[f.length-1]}var ft={bins:[],firstTs:null,windowStart:null,windowEnd:null,count:0,slotMs:180000,startClipped:!1,hasData:!1};function mt(l,d,f){if(!l.length)return ft;let{POSITIVE_INFINITY:g,NEGATIVE_INFINITY:v}=Number;for(let _ of l){if(_[0]<g)g=_[0];if(_[0]>v)v=_[0]}let y=1,w=ht(d),T=Math.max(v-w,g);for(let _ of l){if(_[0]<T)continue;if(_[4]!==void 0&&_[4]>y)y=_[4]}let M=Lt(d,y),z=Math.max(1,Math.ceil(w/M)),S=f??Math.max(v-z*M,g),I=Math.ceil((v-S)/M)+1,H=Math.max(1,Math.min(z,I));return{bins:ut(l,S,H,M),firstTs:g,windowStart:S,windowEnd:S+H*M,count:H,slotMs:M,startClipped:S>g,hasData:!0}}function bt(l,d,f,g){let v=l.filter((S)=>S[0]>=d&&S[0]<=f);if(!v.length)return ft;let y=Math.max(1,f-d),w=1;for(let S of v)if(S[4]!==void 0&&S[4]>w)w=S[4];let T=J[J.length-1];for(let S of J){if(S<w)continue;if(Math.ceil(y/S)*1<=g){T=S;break}}let M=Math.max(1,Math.ceil(y/T)),z=Number.POSITIVE_INFINITY;for(let S of v)if(S[0]<z)z=S[0];return{bins:ut(v,d,M,T),firstTs:z,windowStart:d,windowEnd:d+M*T,count:M,slotMs:T,startClipped:!1,hasData:!0}}function W(l){let d=new Date(l),f=(g)=>String(g).padStart(2,"0");return`${f(d.getHours())}:${f(d.getMinutes())}`}function Q(l){if(l<60000)return`${Math.round(l/1000)}-second`;if(l<3600000)return`${Math.round(l/60000)}-minute`;return`${Math.round(l/3600000)}-hour`}function at(l,d,f=86400000){let g=d/2;if(l===null||l===void 0)return{visible:!1,center:g,half:0,start:g,end:g,saturated:!1};if(!Number.isFinite(l)||l<=0)return{visible:!1,center:g,half:0,start:g,end:g,saturated:!1};let v=Math.min(d/2,l/f*(d/2));return{visible:!0,center:g,half:v,start:g-v,end:g+v,saturated:l>=f}}function B(l){if(!Number.isFinite(l)||l<=0)return"0m";let d=Math.round(l/60000);if(d<60)return`${d}m`;return`${Math.floor(d/60)}h ${String(d%60).padStart(2,"0")}m`}function tt(l=86400000){return`${l/3600000}h`}function D(l,d,f,g){let v=Math.max(1,f-d),y=(l-d)/v*g;return Math.max(0,Math.min(g,y))}function V(l){let d=[];for(let g of l.attempt.segments){if(g.end<=g.start)continue;d.push({kind:g.kind,start:g.start,end:g.end})}let f=[];for(let g of l.milestones){if(g.ts<l.windowStart||g.ts>l.windowEnd)continue;f.push({kind:"milestone",start:g.ts,end:g.ts,commit:g.commit,stage:g.stage})}return{segs:d,milestones:f}}function gt(l,d,f,g,v){for(let y of l.milestones){let w=D(y.start,f,g,v);if(Math.abs(d-w)<=6)return y}for(let y of l.segs){let w=D(y.start,f,g,v),T=D(y.end,f,g,v);if(d>=w&&d<=Math.max(T,w+1))return y}return null}function G(l,d,f,g){if(l.kind==="milestone")return[`artifact · ${l.stage??""}`,f(l.start),`commit ${l.commit??""}`].join(`
+`);let v=[`${l.kind} · ${g(l.end-l.start)}`,f(l.start,l.end)];if(l.kind==="firstbyte")v.push("first attributed ledger request — not network latency");if(l.kind==="tool")v.push("request-row minutes — not tool-call duration");if(l.kind==="unknown")v.push("no fact covers this gap");return v.push(`attempt ${d.attempt.index} · ${d.attempt.sid}`),v.join(`
+`)}var ot=13,lt=14,K=5;function xt(l){let d=l.attempt.claimEnd??l.windowEnd,f=Math.min(d,l.windowEnd)-l.attempt.claimStart;return f>0?f:null}function et(l,d){return d===void 0?k(l):F(l,d).join(`
+`)}function Nt(l,d){let{segs:f,milestones:g}=V(l),v=[];for(let y of f){let w=D(y.start,l.windowStart,l.windowEnd,d),T=Math.max(w+1,D(y.end,l.windowStart,l.windowEnd,d));v.push(E`<rect
+				class="at-${y.kind}"
 				x=${w.toFixed(1)}
-				y=${it}
+				y=${ot}
 				width=${(T-w).toFixed(1)}
-				height=${at}
+				height=${lt}
 				rx="2"
-			/>`)}for(let x of f){let w=D(x.start,c.windowStart,c.windowEnd,d),T=it+at/2;v.push(E`<path
+			/>`)}for(let y of g){let w=D(y.start,l.windowStart,l.windowEnd,d),T=ot+lt/2;v.push(E`<path
 				class="at-ms"
-				d="M ${w.toFixed(1)},${(T-B).toFixed(1)} l ${B},${B} l -${B},${B} l -${B},-${B} Z"
-			/>`)}return e`${v}`}var ut=(c)=>({kind:c.kind,start:c.start});function ft(c){return{hover:(f,v)=>{let x=f.currentTarget;if(!v||!x){c.hide();return}let w=x.getBoundingClientRect();if(w.width===0)return;let T=dt(V(v),f.clientX-w.left,v.windowStart,v.windowEnd,w.width);if(!T){c.hide();return}c.setTip(G(T,v,Q,K),-1,ut(T)),c.placeTip(f.clientX,f.clientY)},hide:()=>c.hide(),keydown:(f,v)=>{if(f.key==="Escape"){c.hide(),f.target.blur();return}if(f.key!=="ArrowLeft"&&f.key!=="ArrowRight")return;f.preventDefault();let x=c.slot(),{milestones:w,segs:T}=V(v),S=[...w,...T];if(!S.length)return;let M=f.key==="ArrowLeft"?-1:1,R=Math.max(0,Math.min(S.length-1,x+M)),H=S[R];if(!H)return;c.setTip(G(H,v,Q,K),R,ut(H));let N=f.currentTarget;if(N){let _=N.getBoundingClientRect(),X=D(H.start,v.windowStart,v.windowEnd,_.width);c.placeTip(_.left+X,_.top+8)}},slot:()=>c.slot()}}function mt(c,d){return e`<div class="axis">
-		<span>${W(c.windowStart)}</span>
-		<span>${d} · ${c.binMs/60000}m/bin</span>
-		<span>${W(c.windowEnd)}</span>
-	</div>`}function gt(c,d,g){return e`<svg
+				d="M ${w.toFixed(1)},${(T-K).toFixed(1)} l ${K},${K} l -${K},${K} l -${K},-${K} Z"
+			/>`)}return e`${v}`}var vt=(l)=>({kind:l.kind,start:l.start});function kt(l){return{hover:(g,v)=>{let y=g.currentTarget;if(!v||!y){l.hide();return}let w=y.getBoundingClientRect();if(w.width===0)return;let T=gt(V(v),g.clientX-w.left,v.windowStart,v.windowEnd,w.width);if(!T){l.hide();return}l.setTip(G(T,v,et,B),-1,vt(T)),l.placeTip(g.clientX,g.clientY)},hide:()=>l.hide(),keydown:(g,v)=>{if(g.key==="Escape"){l.hide(),g.target.blur();return}if(g.key!=="ArrowLeft"&&g.key!=="ArrowRight")return;g.preventDefault();let y=l.slot(),{milestones:w,segs:T}=V(v),M=[...w,...T];if(!M.length)return;let z=g.key==="ArrowLeft"?-1:1,S=Math.max(0,Math.min(M.length-1,y+z)),I=M[S];if(!I)return;l.setTip(G(I,v,et,B),S,vt(I));let H=g.currentTarget;if(H){let _=H.getBoundingClientRect(),X=D(I.start,v.windowStart,v.windowEnd,_.width);l.placeTip(_.left+X,_.top+8)}},slot:()=>l.slot()}}function yt(l,d){return e`<div class="axis">
+		<span>${W(l.windowStart)}</span>
+		<span>${d} · ${l.binMs/60000}m/bin</span>
+		<span>${W(l.windowEnd)}</span>
+	</div>`}function wt(l,d,f,g){return e`<svg
 		class="plot"
 		viewBox="0 0 ${d} 40"
 		preserveAspectRatio="none"
 		role="img"
-		aria-label="Current attempt: fixed 90-minute window, ${c.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
+		aria-label="Current attempt: fixed 90-minute window, ${l.binMs/60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones${g?" over real token activity":""}"
 		tabindex="0"
-		@pointermove=${(f)=>g.hover(f,c)}
-		@pointerleave=${()=>g.hide()}
-		@keydown=${(f)=>g.keydown(f,c)}
+		@pointermove=${(v)=>f.hover(v,l)}
+		@pointerleave=${()=>f.hide()}
+		@keydown=${(v)=>f.keydown(v,l)}
 	>
-		${Ot(c,d)}
-	</svg>`}var bt=r`
+		${g}${Nt(l,d)}
+	</svg>`}var _t=r`
 	.plot rect.at-queue {
 		fill: var(--klh-chart-axis, #898781);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-firstbyte {
 		fill: var(--klh-accent, #d8900f);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-tool {
 		fill: var(--klh-ok, #5c7a35);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-pause {
 		fill: var(--klh-warn, #b8860b);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-unknown {
 		fill: var(--klh-edge, rgba(128, 128, 128, 0.35));
@@ -56,7 +60,7 @@ import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,y,z,s,p}fr
 		font: 400 11px/1.5 ui-monospace, SFMono-Regular, monospace;
 		color: var(--klh-chart-axis, #898781);
 	}
-`;var vt=r`${h(`@charset "UTF-8";
+`;var Tt=r`${h(`@charset "UTF-8";
 :host {
   display: block;
   font: 11px/1.5 ui-sans-serif, system-ui;
@@ -141,8 +145,8 @@ import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,y,z,s,p}fr
   font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
   white-space: pre-line;
   pointer-events: none;
-}`)}`;class ot extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[vt,bt];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let d=this._plotEl()?.clientWidth??0;if(d!==this._width)this._width=d,this.requestUpdate()});let c=this._plotEl();if(c&&this._ro)this._ro.observe(c)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let c=this._plotEl();if(c&&this._ro)this._width=c.clientWidth,this._ro.observe(c)}updated(){let c=this._plotEl();if(c&&this._ro)this._ro.observe(c)}update(c){if(super.update(c),!c.has("points")&&!c.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:f,segs:v}=V(this.attempt),x=[...f,...v],w=this._tipRef,T=x.findIndex((S)=>S.kind===w.kind&&S.start===w.start);if(T<0){this._hideTip();return}this._tip=G(x[T],this.attempt,Q,K),this._slot=T;return}let d=this._spec;if(!d.hasData||this._tipTs===null){if(!d.hasData)this._hideTip();return}let g=Math.floor((this._tipTs-(d.windowStart??0))/d.slotMs);if(g<0||g>=d.count){this._hideTip();return}this._slot=g,this._tip=this._tipText(d,g)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return pt(this.points,this._width||240)}_hover=(c)=>{let d=this._plotEl(),g=this._spec;if(!d||!g.hasData){this._hideTip();return}let f=d.getBoundingClientRect();if(f.width===0)return;let v=Math.max(0,Math.min(g.count-1,Math.floor((c.clientX-f.left)/f.width*g.count)));this._slot=v,this._tip=this._tipText(g,v),this._tipTs=(g.windowStart??0)+v*g.slotMs,this.requestUpdate(),this._placeTip(c.clientX,c.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(c)=>{let d=this._spec;if(c.key==="Escape"){this._hide();return}if(c.key!=="ArrowLeft"&&c.key!=="ArrowRight")return;c.preventDefault();let g=c.key==="ArrowLeft"?-1:1,f=Math.max(0,Math.min(d.count-1,this._slot+g));this._slot=f,this._tip=this._tipText(d,f),this._tipTs=(d.windowStart??0)+f*d.slotMs,this.requestUpdate();let v=this._plotEl();if(v){let x=v.getBoundingClientRect();this._placeTip(x.left+(f+0.5)/d.count*x.width,x.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(c,d){let g=c.bins[d],f=(c.windowStart??0)+d*c.slotMs,v=[k(f),`${U(f,C(f)!==O(f))} · ${c.slotMs/60000}-minute bin`];if(g)v.push(`Fresh input ${g.fresh.toLocaleString("en-US")}`),v.push(`Cached input ${g.cached.toLocaleString("en-US")}`),v.push(`Output ${g.out.toLocaleString("en-US")}`);else v.push("no requests in this bin");return v.join(`
-`)}_barsSvg(c){let g=(this._width||240)/c.count,f=0;for(let x of c.bins)if(x)f=Math.max(f,x.fresh+x.cached);let v=[];if(f>0)for(let x=0;x<c.count;x++){let w=c.bins[x];if(!w)continue;let T=x*g+(g-rt)/2;v.push(this._barRects(w,T,f))}if(!v.length)return e``;return E`<defs>
+}`)}`;class ct extends n{static properties={points:{attribute:!1},wallMs:{attribute:!1},attempt:{attribute:!1},mode:{attribute:!1},_width:{state:!0},_tip:{state:!0},_slot:{state:!0}};static styles=[Tt,_t];constructor(){super();this.points=[],this.wallMs=null,this.attempt=null,this.mode="spend",this._width=0,this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_ro=null;connectedCallback(){if(super.connectedCallback(),typeof ResizeObserver<"u")this._ro=new ResizeObserver(()=>{let d=this._plotEl()?.clientWidth??0;if(d!==this._width)this._width=d,this.requestUpdate()});let l=this._plotEl();if(l&&this._ro)this._ro.observe(l)}disconnectedCallback(){this._ro?.disconnect(),this._ro=null,super.disconnectedCallback()}firstUpdated(){let l=this._plotEl();if(l&&this._ro)this._width=l.clientWidth,this._ro.observe(l)}updated(){let l=this._plotEl();if(l&&this._ro)this._ro.observe(l)}update(l){if(super.update(l),!l.has("points")&&!l.has("attempt"))return;if(this.mode==="attempt"){if(!this.attempt||!this._tipRef){this._hideTip();return}let{milestones:g,segs:v}=V(this.attempt),y=[...g,...v],w=this._tipRef,T=y.findIndex((M)=>M.kind===w.kind&&M.start===w.start);if(T<0){this._hideTip();return}this._tip=G(y[T],this.attempt,et,B),this._slot=T;return}let d=this._spec;if(!d.hasData||this._tipTs===null){if(!d.hasData)this._hideTip();return}let f=Math.floor((this._tipTs-(d.windowStart??0))/d.slotMs);if(f<0||f>=d.count){this._hideTip();return}this._slot=f,this._tip=this._tipText(d,f)}_plotEl(){return this.renderRoot.querySelector("svg.plot")}get _spec(){return mt(this.points,this._width||240)}_hover=(l)=>{let d=this._plotEl(),f=this._spec;if(!d||!f.hasData){this._hideTip();return}let g=d.getBoundingClientRect();if(g.width===0)return;let v=Math.max(0,Math.min(f.count-1,Math.floor((l.clientX-g.left)/g.width*f.count)));this._slot=v,this._tip=this._tipText(f,v),this._tipTs=(f.windowStart??0)+v*f.slotMs,this.requestUpdate(),this._placeTip(l.clientX,l.clientY)};_hide=()=>{this._hideTip(),this.requestUpdate()};_keyNav=(l)=>{let d=this._spec;if(l.key==="Escape"){this._hide();return}if(l.key!=="ArrowLeft"&&l.key!=="ArrowRight")return;l.preventDefault();let f=l.key==="ArrowLeft"?-1:1,g=Math.max(0,Math.min(d.count-1,this._slot+f));this._slot=g,this._tip=this._tipText(d,g),this._tipTs=(d.windowStart??0)+g*d.slotMs,this.requestUpdate();let v=this._plotEl();if(v){let y=v.getBoundingClientRect();this._placeTip(y.left+(g+0.5)/d.count*y.width,y.top+8)}};_hideTip(){this._tip=null,this._slot=-1,this._tipRef=null,this._tipTs=null}_tipText(l,d){let f=l.bins[d],g=(l.windowStart??0)+d*l.slotMs,v=[k(g),`${U(g,C(g)!==O(g))} · ${Q(l.slotMs)} bin`];if(f)v.push(`Fresh input ${f.fresh.toLocaleString("en-US")}`),v.push(`Cached input ${f.cached.toLocaleString("en-US")}`),v.push(`Output ${f.out.toLocaleString("en-US")}`);else v.push("no requests in this bin");return v.join(`
+`)}_barsSvg(l){let f=(this._width||240)/l.count,g=Math.max(0.5,Math.min(st,f)),v=0;for(let w of l.bins)if(w)v=Math.max(v,w.fresh+w.cached);let y=[];if(v>0)for(let w=0;w<l.count;w++){let T=l.bins[w];if(!T)continue;let M=w*f+(f-g)/2;y.push(this._barRects(T,M,v,g))}if(!y.length)return e``;return E`<defs>
 			<linearGradient id="klh-spec-fresh" x1="0" y1="1" x2="0" y2="0">
 				<stop offset="0" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="1" />
 				<stop offset="1" stop-color="var(--klh-chart-fresh, #8cbbad)" stop-opacity="0.45" />
@@ -152,17 +156,17 @@ import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,y,z,s,p}fr
 				<stop offset="1" stop-color="var(--klh-chart-cached, #5c7a35)" stop-opacity="0.4" />
 			</linearGradient>
 		</defs>
-		${v}`}_barRects(c,d,g){let v=[],x=0,w=[[c.fresh,"spark-fresh"],[c.cached,"spark-cached"]];for(let[T,S]of w){if(T<=0)continue;let M=Math.max(0.5,T/g*38);v.push(E`<rect
-					class=${S}
+		${y}`}_barRects(l,d,f,g=st){let y=[],w=0,T=[[l.fresh,"spark-fresh"],[l.cached,"spark-cached"]];for(let[M,z]of T){if(M<=0)continue;let S=Math.max(0.5,M/f*38);y.push(E`<rect
+					class=${z}
 					x=${d.toFixed(1)}
-					y=${Math.max(1,39-x-M).toFixed(1)}
-					width=${rt}
-					height=${M.toFixed(1)}
-				/>`),x+=M}return e`${v}`}_hairlineHtml(){let c=this._width||240,d=st(this._hairWallMs(),c);if(!d.visible)return null;return e`<div
+					y=${Math.max(1,39-w-S).toFixed(1)}
+					width=${g.toFixed(1)}
+					height=${S.toFixed(1)}
+				/>`),w+=S}return e`${y}`}_hairlineHtml(){let l=this._width||240,d=at(this._hairWallMs(),l);if(!d.visible)return null;return e`<div
 			class="hairline${d.saturated?" saturated":""}"
 			role="img"
-			aria-label="elapsed ${K(this._hairWallMs()??0)} of ${J()} scale${d.saturated?" — saturated at full width":""}"
-			title="elapsed ${K(this._hairWallMs()??0)} of ${J()} scale${d.saturated?" — saturated at full width":""}"
+			aria-label="elapsed ${B(this._hairWallMs()??0)} of ${tt()} scale${d.saturated?" — saturated at full width":""}"
+			title="elapsed ${B(this._hairWallMs()??0)} of ${tt()} scale${d.saturated?" — saturated at full width":""}"
 			tabindex="0"
 			@focus=${this._hairFocus}
 			@blur=${this._hide}
@@ -172,37 +176,37 @@ import{h,r,e,E,t,n}from"./lit-b59bf30faa0b21f8.js";import{o,u,P,b,a,i,y,z,s,p}fr
 				class="span"
 				style="left:${d.start.toFixed(1)}px;width:${(d.end-d.start).toFixed(1)}px"
 			></span>
-		</div>`}_hairFocus=()=>{let c=this._width||240,d=st(this._hairWallMs(),c);if(!d.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${K(this._hairWallMs()??0)} of ${J()} scale`+(d.saturated?" — saturated at full width":""),this.requestUpdate();let g=this._plotEl()?.getBoundingClientRect();if(g)this._placeTip(g.left+d.center/Math.max(1,c)*g.width,g.bottom+2)};_hairKey=(c)=>{if(c.key==="Escape")this._hideTip(),this.requestUpdate(),c.target.blur()};_axisHtml(c){let d=this._tzLabel();return e`<div class="axis">
-			<span>${c.hasData?W(c.windowStart??0):""}</span>
+		</div>`}_hairFocus=()=>{let l=this._width||240,d=at(this._hairWallMs(),l);if(!d.visible)return;this._slot=-1,this._tipRef=null,this._tipTs=null,this._tip=`elapsed ${B(this._hairWallMs()??0)} of ${tt()} scale`+(d.saturated?" — saturated at full width":""),this.requestUpdate();let f=this._plotEl()?.getBoundingClientRect();if(f)this._placeTip(f.left+d.center/Math.max(1,l)*f.width,f.bottom+2)};_hairKey=(l)=>{if(l.key==="Escape")this._hideTip(),this.requestUpdate(),l.target.blur()};_axisHtml(l){let d=this._tzLabel();return e`<div class="axis">
+			<span>${l.hasData?W(l.windowStart??0):""}</span>
 			<span
-				>${c.hasData?`${d} · ${c.slotMs/60000}m/bin`:"no activity"}</span
+				>${l.hasData?`${d} · ${Q(l.slotMs)} bins`:"no activity"}</span
 			>
-			<span>${c.hasData?W(c.windowEnd??0):""}</span>
-		</div>`}_tzLabel(){let c=-new Date().getTimezoneOffset(),d=Math.abs(c);return`UTC${c>=0?"+":"-"}${String(Math.floor(d/60)).padStart(2,"0")}:${String(d%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(c,d){let g=()=>{let v=this.renderRoot.querySelector(".tip");if(!v)return;let x=Math.min(c+10,window.innerWidth-v.offsetWidth-8),w=d-v.offsetHeight-10;v.style.left=`${Math.max(8,x)}px`,v.style.top=`${w>=8?w:d+12}px`};if(this.renderRoot.querySelector(".tip")){g();return}this.updateComplete.then(g).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?ht(this.attempt):this.wallMs}get _stripHost(){return{setTip:(c,d,g)=>{this._tip=c,this._slot=d,this._tipRef=g??null,this.requestUpdate()},placeTip:(c,d)=>this._placeTip(c,d),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=ft(this._stripHost);_renderAttempt(){let c=this.attempt,d=this._width||240;if(!c)return e`<div class="attempt-empty" role="img">
+			<span>${l.hasData?W(l.windowEnd??0):""}</span>
+		</div>`}_tzLabel(){let l=-new Date().getTimezoneOffset(),d=Math.abs(l);return`UTC${l>=0?"+":"-"}${String(Math.floor(d/60)).padStart(2,"0")}:${String(d%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(l,d){let f=()=>{let v=this.renderRoot.querySelector(".tip");if(!v)return;let y=Math.min(l+10,window.innerWidth-v.offsetWidth-8),w=d-v.offsetHeight-10;v.style.left=`${Math.max(8,y)}px`,v.style.top=`${w>=8?w:d+12}px`};if(this.renderRoot.querySelector(".tip")){f();return}this.updateComplete.then(f).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?xt(this.attempt):this.wallMs}get _stripHost(){return{setTip:(l,d,f)=>{this._tip=l,this._slot=d,this._tipRef=f??null,this.requestUpdate()},placeTip:(l,d)=>this._placeTip(l,d),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=kt(this._stripHost);_renderAttempt(){let l=this.attempt,d=this._width||240;if(!l)return e`<div class="attempt-empty" role="img">
 					no attempt in the fixed 90-minute window
 				</div>`;return e`
-			${gt(c,d,this._attemptHandlers)}
+			${wt(l,d,this._attemptHandlers,this._barsSvg(bt(this.points,l.windowStart,l.windowEnd,d)))}
 			${this._hairlineHtml()}
-			${mt(c,this._tzLabel())}
+			${yt(l,this._tzLabel())}
 			${this._tip?this._tipHtml():null}
-		`}render(){if(this.mode==="attempt")return this._renderAttempt();let c=this._spec;return e`
+		`}render(){if(this.mode==="attempt")return this._renderAttempt();let l=this._spec;return e`
 			<svg
 				class="plot"
 				viewBox="0 0 ${this._width||240} 40"
 				preserveAspectRatio="none"
 				role="img"
-				aria-label="Fresh and cached input tokens in ${c.slotMs/60000}-minute bins across the measured track"
+				aria-label="Fresh and cached input tokens in ${Q(l.slotMs)} bins across the measured track"
 				tabindex="0"
 				@pointermove=${this._hover}
 				@pointerleave=${this._hide}
 				@keydown=${this._keyNav}
 			>
-				${this._barsSvg(c)}
+				${this._barsSvg(l)}
 			</svg>
 			${this._hairlineHtml()}
-			${this._axisHtml(c)}
+			${this._axisHtml(l)}
 			${this._tip?this._tipHtml():null}
-		`}}var kt=r`${h(`@charset "UTF-8";
+		`}}var $t=r`${h(`@charset "UTF-8";
 /* tone → color, self-contained: the page maps data-tone on .kcard/
    .kcol only, so the card owns its own --state-color token map. */
 :host([data-tone=ready]) {
@@ -549,54 +553,54 @@ footer button.seg:focus-visible,
 .seg select:focus-visible {
   outline: 2px solid var(--klh-accent);
   outline-offset: -2px;
-}`)}`;class tt extends l{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(c,d,g,f){super(tt.eventName);this.action=c,this.id=d,this.project=g,this.executor=f?.executor,this.effort=f?.effort}}class et extends l{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(c,d,g){super(et.eventName);this.id=c,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class nt extends l{static eventName="task-card-open-requested";id;project;constructor(c,d){super(nt.eventName);this.id=c,this.project=d}}function xt(c){if(c==="CLAIMED"||c==="RUNNING")return"working";if(c==="WAITING"||c==="BLOCKED"||c==="PAUSED")return"blocked";if(c==="SHATTERED")return"split";if(c==="FAILED")return"failed";if(c==="DONE")return"done";if(c==="CANCELLED")return"cancelled";return"ready"}function yt(c){if(c==="SHATTERED")return"split";return c.toLowerCase()}function wt(c){return/^\s*BLOCKED\b/i.test(c)?"blocked":"warning"}function Tt(c){return c.replace(/^\s*BLOCKED\b[\s:]+/i,"")||c}var I=s(p(o())),L=s(p(u())),Pt=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(P())}),Lt=i({tokens:L,wallMs:L,tokPerMin:L,cachePct:L}),Nt=i({mode:z(["spend","attempt"]),windowStartMs:L,windowEndMs:L,binMs:L,elapsedMs:L,scaleMs:L}),_t=i({id:o(),project:I,title:I,state:o(),ageS:L,contextLines:s(a(o())),parentRef:I,model:I,host:I,warn:I,metrics:s(Lt),activity:s(Nt),nested:s(P()),preferColor:I,executors:s(a(Pt)),executorPick:I,effortOptions:s(a(o())),effortPick:I,pendingAction:I});function $t(c){if(c==null)return"—";if(c>=1e6)return`${(c/1e6).toFixed(1)}M`;if(c>=1000)return`${Math.round(c/1000)}k`;return String(Math.round(c))}function St(c){if(c==null)return"—";if(c<60000)return`${Math.round(c/1000)}s`;let d=Math.round(c/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function Et(c){if(c==null)return"—";if(c>=1e6)return`${(c/1e6).toFixed(1)}M`;if(c>=1000)return`${(c/1000).toFixed(1)}k`;return String(Math.round(c))}function Mt(c){if(c==null)return"—";return`${Math.round(c)}%`}var lt="—";class ct extends n{static properties={card:{attribute:!1}};static styles=kt;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return xt(this.card.state)}open(){this.dispatchEvent(new nt(this.card.id,this.card.project??null))}act(c,d){this.dispatchEvent(new tt(c,this.card.id,this.card.project??null,d))}draft(c){this.dispatchEvent(new et(this.card.id,this.card.project??null,c))}statusWord(){return yt(this.card.state)}render(){let c=this.card,d=this.tone(),g=c.metrics??null,f=c.ageS==null?lt:Z(c.ageS),v=c.ageS==null?"age unknown":`open ${m(c.ageS)}`,x=c.executors??[],w=c.executorPick??"",T=c.effortOptions??[],S=c.effortPick??"",M=c.pendingAction??"",R=(_,X)=>M===_?`${X}…`:X,H=(_)=>M===_,N=(_)=>M===_?"true":"false";return e`
-			${c.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
+}`)}`;class nt extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,f,g){super(nt.eventName);this.action=l,this.id=d,this.project=f,this.executor=g?.executor,this.effort=g?.effort}}class rt extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,f){super(rt.eventName);this.id=l,this.project=d,this.executor=f?.executor,this.effort=f?.effort}}class it extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(it.eventName);this.id=l,this.project=d}}function St(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function Et(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Mt(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function At(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var L=s(p(o())),N=s(p(u())),Dt=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(P())}),Kt=i({tokens:N,wallMs:N,tokPerMin:N,cachePct:N}),qt=i({mode:A(["spend","attempt"]),windowStartMs:N,windowEndMs:N,binMs:N,elapsedMs:N,scaleMs:N}),zt=i({id:o(),project:L,title:L,state:o(),ageS:N,contextLines:s(a(o())),parentRef:L,model:L,host:L,warn:L,metrics:s(Kt),activity:s(qt),nested:s(P()),preferColor:L,executors:s(a(Dt)),executorPick:L,effortOptions:s(a(o())),effortPick:L,pendingAction:L});function Rt(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Ct(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function It(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function Ht(l){if(l==null)return"—";return`${Math.round(l)}%`}var pt="—";class dt extends n{static properties={card:{attribute:!1}};static styles=$t;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return St(this.card.state)}open(){this.dispatchEvent(new it(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new nt(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new rt(this.card.id,this.card.project??null,l))}statusWord(){return Et(this.card.state)}render(){let l=this.card,d=this.tone(),f=l.metrics??null,g=l.ageS==null?pt:Z(l.ageS),v=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,y=l.executors??[],w=l.executorPick??"",T=l.effortOptions??[],M=l.effortPick??"",z=l.pendingAction??"",S=(_,X)=>z===_?`${X}…`:X,I=(_)=>z===_,H=(_)=>z===_?"true":"false";return e`
+			${l.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
 				<div class="pad">
 				<div class="head">
 					<span class="sq" data-tone=${d}></span>
 					<span class="stw">${this.statusWord()}</span>
-					<span class="age" title=${v}>${f}</span>
+					<span class="age" title=${v}>${g}</span>
 				</div>
 				<button class="tid" type="button" @click=${this.open}>
-					${c.id}
+					${l.id}
 				</button>
-				${c.title?e`<div class="title" title=${c.title}>${c.title}</div>`:t}
-				${(c.contextLines??[]).map((_)=>e`<div class="ctx" title=${_}>${_}</div>`)}
-				${c.parentRef?e`<div class="ctx" title=${`parent ${c.parentRef}`}
-							>↳ ${c.parentRef}</div
+				${l.title?e`<div class="title" title=${l.title}>${l.title}</div>`:t}
+				${(l.contextLines??[]).map((_)=>e`<div class="ctx" title=${_}>${_}</div>`)}
+				${l.parentRef?e`<div class="ctx" title=${`parent ${l.parentRef}`}
+							>↳ ${l.parentRef}</div
 						>`:t}
 				<hr class="rule" />
 				<div class="cols">
 					<div class="col">
 						<span class="lab">model</span>
-						<b title=${c.model??""}>${c.model??lt}</b>
+						<b title=${l.model??""}>${l.model??pt}</b>
 					</div>
 					<div class="col">
 						<span class="lab">host</span>
-						<b title=${c.host??""}>${c.host??lt}</b>
+						<b title=${l.host??""}>${l.host??pt}</b>
 					</div>
 				</div>
 				<hr class="rule" />
-				${c.warn?e`<div class="warn" role="note">
-							<span class="wl">${wt(c.warn)}</span>
-							<span class="wt" title=${c.warn}>${Tt(c.warn)}</span>
+				${l.warn?e`<div class="warn" role="note">
+							<span class="wl">${Mt(l.warn)}</span>
+							<span class="wt" title=${l.warn}>${At(l.warn)}</span>
 						</div>`:t}
 				<div class="metrics">
 					<div class="m">
-						<span class="mv">${$t(g?.tokens)}</span>
+						<span class="mv">${Rt(f?.tokens)}</span>
 						<span class="ml">tokens</span>
 					</div>
 					<div class="m">
-						<span class="mv">${St(g?.wallMs)}</span>
+						<span class="mv">${Ct(f?.wallMs)}</span>
 						<span class="ml">time</span>
 					</div>
 					<div class="m">
-						<span class="mv">${Et(g?.tokPerMin)}</span>
+						<span class="mv">${It(f?.tokPerMin)}</span>
 						<span class="ml">tok/min</span>
 					</div>
 					<div class="m">
-						<span class="mv">${Mt(g?.cachePct)}</span>
+						<span class="mv">${Ht(f?.cachePct)}</span>
 						<span class="ml">cache</span>
 					</div>
 				</div>
@@ -608,20 +612,20 @@ footer button.seg:focus-visible,
 				${d==="failed"?e`<button
 							class="seg retry"
 							type="button"
-							?disabled=${H("retry")}
-							aria-busy=${N("retry")}
+							?disabled=${I("retry")}
+							aria-busy=${H("retry")}
 							@click=${()=>this.act("retry")}
 						>
-							${R("retry","Retry")}
+							${S("retry","Retry")}
 						</button>
 						<button
 							class="seg recover"
 							type="button"
-							?disabled=${H("recover")}
-							aria-busy=${N("recover")}
+							?disabled=${I("recover")}
+							aria-busy=${H("recover")}
 							@click=${()=>this.act("recover")}
 						>
-							${R("recover","Recover → Ready")}
+							${S("recover","Recover → Ready")}
 						</button>
 						<button
 							class="seg prompt"
@@ -630,12 +634,12 @@ footer button.seg:focus-visible,
 						>
 							Prompt ↗
 						</button>`:t}
-				${d==="ready"&&x.length?e`<select
+				${d==="ready"&&y.length?e`<select
 							class="seg"
-							aria-label=${`executor for ${c.id}`}
+							aria-label=${`executor for ${l.id}`}
 							@change=${(_)=>{this.draftExecutor=_.target.value,this.draft({executor:this.draftExecutor})}}
 						>
-							${x.map((_)=>e`<option
+							${y.map((_)=>e`<option
 									value=${_.value}
 									?selected=${_.value===(this.draftExecutor??w)}
 								>
@@ -644,12 +648,12 @@ footer button.seg:focus-visible,
 						</select>
 						${T.length?e`<select
 									class="seg"
-									aria-label=${`reasoning effort for ${c.id}`}
+									aria-label=${`reasoning effort for ${l.id}`}
 									@change=${(_)=>{this.draftEffort=_.target.value,this.draft({effort:this.draftEffort})}}
 								>
 									${T.map((_)=>e`<option
 											value=${_}
-											?selected=${_===(this.draftEffort??S)}
+											?selected=${_===(this.draftEffort??M)}
 										>
 											${_}
 										</option>`)}
@@ -658,33 +662,33 @@ footer button.seg:focus-visible,
 							class="seg start"
 							type="button"
 							title="dispatch on the chosen executor"
-							?disabled=${H("start")}
-							aria-busy=${N("start")}
-							@click=${()=>this.act("start",{executor:this.draftExecutor??w,effort:this.draftEffort??S})}
+							?disabled=${I("start")}
+							aria-busy=${H("start")}
+							@click=${()=>this.act("start",{executor:this.draftExecutor??w,effort:this.draftEffort??M})}
 						>
-							${R("start","Start ▶")}
+							${S("start","Start ▶")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
-				${d==="ready"&&!x.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
-				${d==="working"&&!x.length?e`<button
+				${d==="ready"&&!y.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${d==="working"&&!y.length?e`<button
 								class="seg release"
 								type="button"
 								title="release the claim — a live lane banks its capsule and exits"
-								?disabled=${H("release")}
-								aria-busy=${N("release")}
+								?disabled=${I("release")}
+								aria-busy=${H("release")}
 								@click=${()=>this.act("release")}
 							>
-								${R("release","Release ⏏")}
+								${S("release","Release ⏏")}
 							</button>
 							<span class="spacer"></span>
 							${this.promptSeg()}`:t}
-				${d==="working"&&x.length?e`<select
+				${d==="working"&&y.length?e`<select
 							class="seg"
-							aria-label=${`reassign executor for ${c.id}`}
+							aria-label=${`reassign executor for ${l.id}`}
 							@change=${(_)=>{this.draftExecutor=_.target.value,this.draft({executor:this.draftExecutor})}}
 						>
-							${x.map((_)=>e`<option
+							${y.map((_)=>e`<option
 									value=${_.value}
 									?selected=${_.value===(this.draftExecutor??w)}
 								>
@@ -695,21 +699,21 @@ footer button.seg:focus-visible,
 							class="seg reassign"
 							type="button"
 							title="release + re-dispatch on the chosen executor"
-							?disabled=${H("reassign")}
-							aria-busy=${N("reassign")}
+							?disabled=${I("reassign")}
+							aria-busy=${H("reassign")}
 							@click=${()=>this.act("reassign",{executor:this.draftExecutor??w})}
 						>
-							${R("reassign","Reassign ↻")}
+							${S("reassign","Reassign ↻")}
 						</button>
 						<button
 							class="seg release"
 							type="button"
 							title="release the claim — a live lane banks its capsule and exits"
-							?disabled=${H("release")}
-							aria-busy=${N("release")}
+							?disabled=${I("release")}
+							aria-busy=${H("release")}
 							@click=${()=>this.act("release")}
 						>
-							${R("release","Release ⏏")}
+							${S("release","Release ⏏")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
@@ -731,12 +735,12 @@ footer button.seg:focus-visible,
 			@click=${()=>this.act("prompt")}
 		>
 			Prompt ↗
-		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var A=s(p(o())),j=s(p(u())),Kt=i({fresh:j,cached:j,out:j,wall_ms:j,model_groups:s(y(o(),b()))}),Dt=i({state:o(),observed_at:j,source:A,progress:s(p(i({stage:z(["completed","reviewed","review-blocked","landed"]),ts:j})))}),Bt=i({text:A}),qt=i({id:o(),project:A,title:A,state:o(),age_s:j,owner_sid:A,owner_label:A,origin:A,model:A,locality:A,parent_id:A,tag_color:A,failure_note:A,wait_kind:A,wait_reason:A,requires:A,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(p(Kt)),execution:s(p(Dt)),tail:s(p(Bt))});class q extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(c){let d=c.spend?.model_groups,g="",f=-1;if(d)for(let[v,x]of Object.entries(d)){let w=typeof x==="object"&&x!==null?Number(x.requests??0):0;if(Number.isFinite(w)&&w>f)g=v,f=w}return g||c.model||void 0}static hostOf(c){let d=c.owner_label?.trim();if(d&&d!==c.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(d))return d;return c.owner_sid??void 0}static metricsOf(c){let d=c.spend;if(!d)return;let g=d.fresh??void 0,f=d.cached??void 0,v=d.out??void 0,x=d.wall_ms??void 0,w=g===void 0&&f===void 0&&v===void 0?void 0:(g??0)+(f??0)+(v??0),T=x!==void 0&&x>0?x/60000:0,S=T>0&&v!==void 0?v/T:void 0,M=(g??0)+(f??0),R=M>0&&f!==void 0?f/M*100:void 0;return{tokens:w,wallMs:x,tokPerMin:S,cachePct:R}}static parentRefOf(c){return c.parent_id??void 0}contextLinesOf(c){let d=[],g=c.execution;if(g){let w=g.progress?.stage;d.push(w?`${g.state} · ${w}`:`${g.state} · no artifact evidence in snapshot`)}if(c.state==="WAITING"&&c.wait_reason)d.push(`${c.wait_kind??"external"} · ${c.wait_reason}`);let f=c.blocked_by??[];if(f.length)d.push(`waiting on ${f.join(", ")}`);let v=c.waiting_on??[];if(v.length)d.push(`split into ${v.join(", ")}`);let x=c.tail?.text?.trim();if(x&&!d.includes(x))d.push(x);return d}modelOf(c){let d={id:c.id,project:c.project??void 0,title:c.title??void 0,state:c.state,ageS:c.age_s??void 0,contextLines:this.contextLinesOf(c),parentRef:q.parentRefOf(c),model:q.modelOf(c),host:q.hostOf(c),warn:c.failure_note??void 0,metrics:q.metricsOf(c),nested:this.hasAttribute("data-nested"),preferColor:c.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},g=_t.safeParse(d);return g.success?g.data:null}render(){let c=qt.safeParse(this.t);if(!this.t||!c.success)return e`<div class="kcard-invalid dim" role="note">
+		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var R=s(p(o())),j=s(p(u())),Ft=i({fresh:j,cached:j,out:j,wall_ms:j,model_groups:s(x(o(),b()))}),jt=i({state:o(),observed_at:j,source:R,progress:s(p(i({stage:A(["completed","reviewed","review-blocked","landed"]),ts:j})))}),Wt=i({text:R}),Vt=i({id:o(),project:R,title:R,state:o(),age_s:j,owner_sid:R,owner_label:R,origin:R,model:R,locality:R,parent_id:R,tag_color:R,failure_note:R,wait_kind:R,wait_reason:R,requires:R,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(p(Ft)),execution:s(p(jt)),tail:s(p(Wt))});class q extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(l){let d=l.spend?.model_groups,f="",g=-1;if(d)for(let[v,y]of Object.entries(d)){let w=typeof y==="object"&&y!==null?Number(y.requests??0):0;if(Number.isFinite(w)&&w>g)f=v,g=w}return f||l.model||void 0}static hostOf(l){let d=l.owner_label?.trim();if(d&&d!==l.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(d))return d;return l.owner_sid??void 0}static metricsOf(l){let d=l.spend;if(!d)return;let f=d.fresh??void 0,g=d.cached??void 0,v=d.out??void 0,y=d.wall_ms??void 0,w=f===void 0&&g===void 0&&v===void 0?void 0:(f??0)+(g??0)+(v??0),T=y!==void 0&&y>0?y/60000:0,M=T>0&&v!==void 0?v/T:void 0,z=(f??0)+(g??0),S=z>0&&g!==void 0?g/z*100:void 0;return{tokens:w,wallMs:y,tokPerMin:M,cachePct:S}}static parentRefOf(l){return l.parent_id??void 0}contextLinesOf(l){let d=[],f=l.execution;if(f){let w=f.progress?.stage;d.push(w?`${f.state} · ${w}`:`${f.state} · no artifact evidence in snapshot`)}if(l.state==="WAITING"&&l.wait_reason)d.push(`${l.wait_kind??"external"} · ${l.wait_reason}`);let g=l.blocked_by??[];if(g.length)d.push(`waiting on ${g.join(", ")}`);let v=l.waiting_on??[];if(v.length)d.push(`split into ${v.join(", ")}`);let y=l.tail?.text?.trim();if(y&&!d.includes(y))d.push(y);return d}modelOf(l){let d={id:l.id,project:l.project??void 0,title:l.title??void 0,state:l.state,ageS:l.age_s??void 0,contextLines:this.contextLinesOf(l),parentRef:q.parentRefOf(l),model:q.modelOf(l),host:q.hostOf(l),warn:l.failure_note??void 0,metrics:q.metricsOf(l),nested:this.hasAttribute("data-nested"),preferColor:l.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},f=zt.safeParse(d);return f.success?f.data:null}render(){let l=Vt.safeParse(this.t);if(!this.t||!l.success)return e`<div class="kcard-invalid dim" role="note">
 				card payload invalid
-			</div>`;let d=c.data,g=this.modelOf(d);if(!g)return e``;let f=this.series||this.attempt?e`<klh-card-activity
+			</div>`;let d=l.data,f=this.modelOf(d);if(!f)return e``;let g=this.series||this.attempt?e`<klh-card-activity
 						slot="activity"
 						.points=${this.series??[]}
 						.wallMs=${q.metricsOf(d)?.wallMs??null}
 						.attempt=${this.attempt}
 						.mode=${this.attemptView?"attempt":"spend"}
-					></klh-card-activity>`:null;return e`<klh-task-card .card=${g}>${f}</klh-task-card>`}createRenderRoot(){return this}}var jt=()=>{Y("klh-task-card-host",q),Y("klh-task-card",ct),Y("klh-card-activity",ot)};jt();export{jt as registerBoardElements};
+					></klh-card-activity>`:null;return e`<klh-task-card .card=${f}>${g}</klh-task-card>`}createRenderRoot(){return this}}var Yt=()=>{Y("klh-task-card-host",q),Y("klh-task-card",dt),Y("klh-card-activity",ct)};Yt();export{Yt as registerBoardElements};
