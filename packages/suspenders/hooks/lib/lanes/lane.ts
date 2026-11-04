@@ -20,7 +20,7 @@ import { attachSubscribe } from "./subscribe-attach.ts";
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
 // a tiny overlay module (hooks/lib/executors/<agent>.ts) registered in
-// hooks/lib/executors/registry.ts; a new agent = one adapter file + one
+// hooks/lib/executors/executor-registry.ts; a new agent = one adapter file + one
 // registry row. lane.ts itself imports no adapter: callers resolve one via
 // the registry and hand its composed tail to spawnClaude's cliArgs.
 /** Everything a per-agent spawn tail may consume (claude uses all of it;
@@ -338,7 +338,7 @@ export const spawnClaude = (o: {
 	env: Record<string, string>;
 	allowedTools?: string;
 	/** The composed spawn tail — callers take it from the executor adapter
-	 *  (hooks/lib/executors/registry.ts, W422); omitted = the claude recipe. */
+	 *  (hooks/lib/executors/executor-registry.ts, W422); omitted = the claude recipe. */
 	cliArgs?: string[];
 	agent?: string;
 	fleetDir?: string;

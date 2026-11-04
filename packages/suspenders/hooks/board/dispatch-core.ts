@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import { selectLaneCarrier } from "../../scripts/lib/launch-preflight.ts";
-import { isSpawnableExecutor } from "../lib/executors/registry.ts";
+import { isSpawnableExecutor } from "../lib/executors/executor-registry.ts";
 import { projectIdentity, projectRootOf } from "../lib/govdb/govdb.ts";
 import { laneSid } from "../lib/lanes/laneslug.ts";
 import { beltCheck, rowLocality } from "./belt.ts";
