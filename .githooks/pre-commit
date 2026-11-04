@@ -16,7 +16,3 @@ P="${SUSPENDERS_PREFIX:-$HOME/.claude/hooks/suspenders}"
 if [ -f "$P/hooks/bin/scrub-gate.ts" ]; then
 	bun "$P/hooks/bin/scrub-gate.ts" hook commit || exit $?
 fi
-if [ "$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" = "main" ]; then
-	[ -f "$ROOT/.githooks/reference-transaction" ] || exit 1
-	bun "$ROOT/.githooks/reference-transaction" --grant || exit $?
-fi

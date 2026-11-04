@@ -5,13 +5,10 @@
 import {
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
 	checkReviewReceipt,
 	recordLanding,
@@ -26,7 +23,6 @@ import {
 	gitInProgress,
 	itemClaimOf,
 } from "../lanes/ladder-lease.ts";
-import { have } from "../run.ts";
 import type { FleetLoopSettings } from "../stack-config.ts";
 import { flagIntegratedCode } from "../work/decomposition.ts";
 import {
@@ -49,6 +45,14 @@ import {
 } from "./merge-defer.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
+// W2681: the W869 merge-time autofix moved to merge-qlty.ts and now runs
+// inside the guarded merge (pre-publish) — re-exported here for the
+// established import face (test/w869-quality-timing.test.ts).
+export {
+	biomeBin,
+	biomeScratchConfig,
+	qltyFixMergedFiles,
+} from "./merge-qlty.ts";
 import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import type { LoopDeps } from "./runtime.ts";
 
@@ -363,6 +367,15 @@ export function createMergeLadder(
 			}),
 		);
 		const before = sh(["git", "rev-parse", "--short", "HEAD"]);
+		// W2270: the publication grant is minted inside guardedMerge after the
+		// final verifyReview PASS; without a store the grant cannot mint and
+		// the reference-transaction hook fails the publish closed.
+		let grantStore: ReturnType<typeof openStore> | undefined;
+		try {
+			grantStore = openStore();
+		} catch {
+			grantStore = undefined;
+		}
 		const mv = guardedMerge({
 			repo: REPO,
 			callerRepo: CALLER_REPO,
@@ -370,31 +383,35 @@ export function createMergeLadder(
 			ladder: LADDER,
 			timeoutMs: LADDER_TIMEOUT_MS,
 			verifyReview,
+			publishGrant: grantStore
+				? {
+						store: grantStore,
+						project: projectIdentity(REPO),
+						item: claim.item,
+					}
+				: undefined,
+			// W2681: the W869 merge-time autofix runs INSIDE the guarded merge
+			// (pre-publish, pre-review) — W2270 publish grants admit exactly
+			// one reviewed fast-forward, so a separate post-merge fix commit
+			// on main is structurally impossible.
+			qltyFix: { branch: b },
 		});
+		grantStore?.close();
 		let receipt: MergeReceipt;
 		if (mv.code === 0) {
-			let after = sh(["git", "rev-parse", "--short", "HEAD"]);
+			const after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
-			// W1476: the merge commit itself — the qlty fix-up below may move
-			// `after`, but a review-incident case keys on what the lane landed
+			// W1476: the published head IS the landing — W2681 moved any qlty
+			// autofix inside the guarded publish, so nothing moves `after`.
 			const landed = after;
 			clearStuck(STUCK, b);
-			// W869 merge-time quality floor: auto-fix the branch's deferred cosmetic
-			// lint here on the shared checkout — a completion never runs outside
-			// worktrees, so merge time is the one honest moment (fail-open).
-			const fix = qltyFixMergedFiles({
-				repo: REPO,
-				branch: b,
-				files: sh(["git", "diff", "--name-only", `${before}..${after}`])
-					.split("\n")
-					.filter(Boolean),
-			});
-			if (fix.fixed) log(`QLTY-FIXED ${b} → ${fix.head}`);
-			if (fix.left)
+			// W869 merge-time quality floor: the autofix ran INSIDE the
+			// guarded merge (W2681) — its result rides the publish receipt.
+			if (mv.qltyFix?.fixed) log(`QLTY-FIXED ${b} → ${mv.qltyFix.head}`);
+			if (mv.qltyFix?.left)
 				log(
-					`QLTY-FIX-LEFT ${b}: ${fix.left} unfixable issue(s) — logged, never blocks`,
+					`QLTY-FIX-LEFT ${b}: ${mv.qltyFix.left} unfixable issue(s) — logged, never blocks`,
 				);
-			if (fix.head) after = fix.head;
 			// W1228 landing invalidation: the merged diff flags matching
 			// knowledge/facts stale-for-review and promotes the item's
 			// finding.* facts — fail-open, never blocks a merge.
@@ -628,127 +645,4 @@ export function createMergeLadder(
 		);
 	}
 	return { mergeOne, mergeFail, mergeRunnerAlive, healCrashedMerge };
-}
-
-// ---- W869: merge-time quality floor ----------------------------------------
-/** Run qlty check --fix over the merged branch's code files, then commit any
- * applied fixes on main so the shared checkout never carries the lane's
- * deferred cosmetic lint (a completion never runs outside worktrees).
- * Fail-open: no qlty on PATH, no surviving code files, or a broken run never
- * blocks the merge; unfixable issues are counted and logged, never fatal.
- * Returns the new head sha when a fix commit landed, else null. */
-export function qltyFixMergedFiles(opts: {
-	repo: string;
-	branch: string;
-	files: string[];
-}): { fixed: boolean; head: string | null; left: number } {
-	const code = opts.files
-		.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f))
-		.filter((f) => existsSync(join(opts.repo, f)));
-	if (!code.length || !have("qlty"))
-		return { fixed: false, head: null, left: 0 };
-	const dec = new TextDecoder();
-	const spawn = (cmd: string[]) =>
-		Bun.spawnSync(cmd, {
-			cwd: opts.repo,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-	const check = spawn([
-		"qlty",
-		"check",
-		"--fix",
-		"--no-upgrade-check",
-		"--no-progress",
-		...code,
-	]);
-	const out = `${check.stdout ? dec.decode(check.stdout) : ""}${check.stderr ? dec.decode(check.stderr) : ""}`;
-	const left = Number(/ISSUES:\s*(\d+)/.exec(out)?.[1] ?? 0);
-	// qlty 0.649 reports biome lint fixes without applying them — the write
-	// pass goes through the cached biome binary, with the promoted rule set
-	// (recommended + noNonNullAssertion) injected via a scratch config.
-	if (left > 0) {
-		const biome = biomeBin();
-		if (biome) {
-			const cfgDir = biomeScratchConfig();
-			spawn([
-				biome,
-				"check",
-				"--write",
-				"--unsafe",
-				...(cfgDir ? ["--config-path", cfgDir] : []),
-				"--no-errors-on-unmatched",
-				...code,
-			]);
-		}
-	}
-	const st = spawn(["git", "status", "--porcelain", "--", ...code]);
-	const dirty = st.stdout
-		.toString()
-		.split("\n")
-		.filter((l) => l.trim())
-		.map((l) => l.slice(3).trim());
-	if (!dirty.length) return { fixed: false, head: null, left };
-	spawn(["git", "add", "--", ...dirty]);
-	const c = spawn([
-		"git",
-		"commit",
-		"-m",
-		`${opts.branch}: merge-time qlty autofix (W869)`,
-	]);
-	if ((c.exitCode ?? 1) !== 0) return { fixed: false, head: null, left };
-	return {
-		fixed: true,
-		head: spawn(["git", "rev-parse", "--short", "HEAD"])
-			.stdout.toString()
-			.trim(),
-		left,
-	};
-}
-
-/** The qlty-cached biome binary — the only writer that applies biome lint
- * fixes (qlty check --fix reports them without applying, 0.649).
- * SUSPENDERS_BIOME_BIN overrides; null = skip the fix pass (fail-open). */
-export function biomeBin(): string | null {
-	const envBin = process.env.SUSPENDERS_BIOME_BIN;
-	if (envBin) return existsSync(envBin) ? envBin : null;
-	try {
-		const root = join(process.env.HOME ?? "", ".qlty/cache/tools/biome");
-		const versions = readdirSync(root)
-			.filter((d) => /^[0-9]/.test(d))
-			.sort()
-			.reverse();
-		for (const v of versions) {
-			const bin = join(root, v, "node_modules/@biomejs/biome/bin/biome");
-			if (existsSync(bin)) return bin;
-		}
-	} catch {}
-	return null;
-}
-
-/** Scratch biome config dir (os tmpdir) carrying the promoted rule set —
- * recommended lints plus noNonNullAssertion, which biome's defaults leave
- * off but the qlty plugin enables. Written once, outside any repo. */
-export function biomeScratchConfig(): string | null {
-	try {
-		const dir = join(tmpdir(), "klh-w869-biome");
-		mkdirSync(dir, { recursive: true });
-		const cfg = join(dir, "biome.json");
-		if (!existsSync(cfg))
-			writeFileSync(
-				cfg,
-				JSON.stringify({
-					linter: {
-						enabled: true,
-						rules: {
-							recommended: true,
-							style: { noNonNullAssertion: "error" },
-						},
-					},
-				}),
-			);
-		return dir;
-	} catch {
-		return null;
-	}
 }

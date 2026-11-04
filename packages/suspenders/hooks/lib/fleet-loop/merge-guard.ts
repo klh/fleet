@@ -1,13 +1,5 @@
 import { setting } from "@klh/settings";
-import {
-	chmodSync,
-	existsSync,
-	unlinkSync,
-	mkdirSync,
-	realpathSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
 	addedDiffLines,
@@ -17,8 +9,16 @@ import {
 } from "../gates/scrub.ts";
 import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
+import { qltyFixMergedFiles } from "./merge-qlty.ts";
+import { mintPublishGrant } from "./publish-grant.ts";
+import { qltyExcluded, qltyExcludePatterns } from "./qlty-exclusions.ts";
 
-type Result = { code: number; tail: string };
+type Result = {
+	code: number;
+	tail: string;
+	// W2681: the pre-publish autofix outcome (present only when qltyFix ran)
+	qltyFix?: { fixed: boolean; head: string | null; left: number };
+};
 type Options = {
 	repo: string;
 	callerRepo: string;
@@ -26,6 +26,23 @@ type Options = {
 	ladder?: string;
 	timeoutMs: number;
 	verifyReview?: (candidate?: string) => { ok: boolean; why: string };
+	// W2270: when present, a one-use publish_grants row is minted in the
+	// coordination store after the final exact-commit PASS review — the ONLY
+	// credential the reference-transaction hook honors for a fast-forward of
+	// refs/heads/main.
+	publishGrant?: {
+		store: import("../govdb/govdb-store.ts").GovernorStore;
+		project: string;
+		item: string;
+	};
+	// W2681: the W869 merge-time autofix, relocated pre-publish. When set,
+	// qltyFixMergedFiles runs in the scratch worktree right after the ladder
+	// merge (over the merged candidate's own diff vs the base) — the fix
+	// commit becomes part of the single candidate that is then
+	// postflight-validated, final-reviewed, granted and published. A
+	// post-merge fix commit directly on main is impossible under W2270
+	// one-use publish grants; the result rides `qltyFix` on the Result.
+	qltyFix?: { branch: string };
 };
 const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -87,9 +104,20 @@ function validateTree(repo: string, before: string, tree: string): Result {
 		.split("\n")
 		.map((line) => line.split("\t"))
 		.filter((row) => row.length === 3 && row[2]);
+	// W2680: generated assets the repo itself declares outside lint scope
+	// (qlty exclude_patterns — vendor dirs, min.* bundles) are byte-managed
+	// by their own parity guards (vendor-hash), not by line arithmetic. A
+	// canonical rebuild that un-reformats drifted bytes shrinks them by
+	// thousands; the shrink heuristic must not read that as hand deletion.
+	// Fail-closed: an absent/malformed config (null) exempts NOTHING.
+	const exclusions = qltyExcludePatterns(repo);
+	const generated = (path: string): boolean =>
+		exclusions !== null && qltyExcluded(exclusions, path);
 	const shrunk = rows.filter(
-		([added, removed]) =>
-			Number(removed) >= 200 && Number(removed) >= Number(added) * 10,
+		([added, removed, path]) =>
+			Number(removed) >= 200 &&
+			Number(removed) >= Number(added) * 10 &&
+			!generated(path),
 	);
 	const movedIntoAdded = movedLinesIntoAddedFiles(
 		repo,
@@ -100,7 +128,9 @@ function validateTree(repo: string, before: string, tree: string): Result {
 	for (const [added, removed, path] of rows) {
 		const addCount = Number(added);
 		const loss = Number(removed) - (movedIntoAdded.get(path) ?? 0);
-		if (loss >= 200 && loss >= addCount * 10) {
+		// W2680: same generated-asset boundary as above — a qlty-excluded
+		// path's shrink is byte-managed (vendor parity), never hand deletion.
+		if (loss >= 200 && loss >= addCount * 10 && !generated(path)) {
 			if (!TEST_FILE.test(path))
 				return fail(
 					`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,
@@ -375,7 +405,7 @@ function mergeCandidate(options: Options): Result {
 		const after = command(scratch, ["git", "rev-parse", "HEAD"]);
 		if (after.code !== 0)
 			return fail("merge guard: cannot resolve ladder result");
-		const sha = after.out.trim();
+		let sha = after.out.trim();
 		if (
 			command(repo, ["git", "merge-base", "--is-ancestor", head, sha]).code !==
 				0 ||
@@ -394,6 +424,32 @@ function mergeCandidate(options: Options): Result {
 		]);
 		if (status.code !== 0 || status.out)
 			return fail("merge guard: ladder left uncommitted integration changes");
+		// W2681: the W869 merge-time autofix, relocated pre-publish — the fix
+		// lands as a commit on the scratch candidate BEFORE postflight, final
+		// review and the grant mint, so the published fast-forward carries it
+		// and no post-merge direct-main commit exists. Fail-open: qlty absent
+		// or a broken run never blocks the merge.
+		let fix: { fixed: boolean; head: string | null; left: number } | undefined;
+		if (options.qltyFix) {
+			fix = qltyFixMergedFiles({
+				repo: scratch,
+				branch: options.qltyFix.branch,
+				files: command(scratch, [
+					"git",
+					"diff",
+					"--name-only",
+					`${head}...${sha}`,
+				])
+					.out.split("\n")
+					.filter(Boolean),
+			});
+			if (fix.fixed) {
+				const fixed = command(scratch, ["git", "rev-parse", "HEAD"]);
+				if (fixed.code !== 0)
+					return fail("merge guard: cannot resolve autofixed candidate");
+				sha = fixed.out.trim();
+			}
+		}
 		const postflight = validateTree(repo, head, sha);
 		if (postflight.code !== 0) return postflight;
 		if (command(repo, ["git", "rev-parse", "HEAD"]).out.trim() !== head)
@@ -403,45 +459,32 @@ function mergeCandidate(options: Options): Result {
 		const finalReview = options.verifyReview?.(sha);
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
-		// W2255.2: the publish grant is a one-use attestation minted HERE, only
-		// after the final canonical verifyReview PASS, and bound to old/new —
-		// never a caller-supplied env pair, which any local process could forge.
-		// W2293: `--git-path` can return a cwd-relative path; the fs calls below
-		// resolve against process.cwd(), not `repo` — anchor to the absolute git
-		// dir (in a linked worktree `.git` is a file, and ENOTDIR kills the mint).
-		const attest = command(
-			repo,
-			["git", "rev-parse", "--absolute-git-dir"],
-			timeoutMs,
-		);
-		if (attest.code !== 0)
-			return fail("merge guard: cannot resolve attestation path");
-		const attestationPath = join(
-			attest.out.trim(),
-			"fleet-main-publish-attestation.json",
-		);
-		const temp = `${attestationPath}.${crypto.randomUUID()}`;
-		writeFileSync(
-			temp,
-			JSON.stringify({ old: head, new: sha, at: Date.now() }),
-			{ mode: 0o600, flag: "wx" },
-		);
-		chmodSync(temp, 0o600);
-		renameSync(temp, attestationPath);
+		// W2270: mint the one-use publication grant only now — after the final
+		// canonical verifyReview PASS, bound to this exact old→new pair. The
+		// reference-transaction hook independently re-verifies the receipt
+		// before consuming it, so minting is necessary but never sufficient.
+		if (options.publishGrant) {
+			try {
+				mintPublishGrant(options.publishGrant.store, {
+					project: options.publishGrant.project,
+					item: options.publishGrant.item,
+					branch,
+					old: head,
+					new: sha,
+				});
+			} catch (error) {
+				return fail(
+					`merge guard: cannot mint publication grant: ${String(error).slice(0, 300)}`,
+				);
+			}
+		}
 		const publish = command(
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
-			{
-				...process.env,
-				FLEET_GUARDED_MAIN_OLD: head,
-				FLEET_GUARDED_MAIN_NEW: sha,
-			},
 		);
-		if (publish.code !== 0 && existsSync(attestationPath))
-			unlinkSync(attestationPath);
 		return publish.code === 0
-			? { code: 0, tail: "" }
+			? { code: 0, tail: "", ...(fix ? { qltyFix: fix } : {}) }
 			: fail(`merge guard: publication refused: ${publish.err.slice(-1600)}`);
 	} catch (error) {
 		return fail(
