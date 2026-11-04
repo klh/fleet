@@ -33,8 +33,14 @@ const SELF = "tests/test-framework-guard.test.ts";
 // count measured by THIS guard's own git ls-files counting at the closing
 // sha.
 // W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the 636
-// base — its −1 re-pins DOWN to the exact merged-tree count.
-const PIN = 635;
+// base — its −1 re-pins DOWN to the exact merged-tree count (635).
+// W1294.4 sweep-B (59 suspenders/test knowledge+decant+board+roll+sink+
+// work-tags family specs, merged via W2481/W2650) re-pins DOWN on its own
+// lineage to 578; the W2735 merge landing BOTH port waves re-pins to the
+// combined measured count (635 − 58 renamed = 577) — the exact non-decant
+// count measured by THIS guard's own git ls-files counting at the closing
+// sha.
+const PIN = 577;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
