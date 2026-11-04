@@ -109,6 +109,11 @@ test("migrate round-trips stack.json + hubs.json under the same label", () => {
 		);
 		// env knob migrated into the doc; stack.json kept as .bak
 		expect(doc.fleet_loop.maintenance).toBe(false);
+		// W2753: the legacy pool block survives STACK_COPY + validateDoc
+		// (the strict section knows provider_pools since W2753)
+		expect(doc.fleet_loop.provider_pools).toEqual({
+			zai: { models: ["glm-5.3"], concurrency: 2, interactive_reserve: 1 },
+		});
 		expect(existsSync(`${fx.stack}.bak`)).toBe(true);
 	} finally {
 		w.clean();

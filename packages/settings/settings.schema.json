@@ -747,18 +747,18 @@
 					"maximum": 100
 				},
 				"review_leg_timeout_ms": {
+					"default": 900000,
 					"description": "Review leg timeout (0 = uncapped; W2405)",
 					"type": "integer",
 					"minimum": 0,
-					"maximum": 3600000,
-					"default": 900000
+					"maximum": 3600000
 				},
 				"review_leg_max_tokens": {
+					"default": 16000,
 					"description": "Review leg max_tokens (0 = omit the key, provider default; W2405)",
 					"type": "integer",
 					"minimum": 0,
-					"maximum": 1000000,
-					"default": 16000
+					"maximum": 1000000
 				},
 				"projects": {
 					"default": [],
@@ -810,6 +810,52 @@
 							}
 						},
 						"required": ["path"],
+						"additionalProperties": false
+					}
+				},
+				"provider_pools": {
+					"description": "Per-provider lane capacity + interactive reserve (W2263; the suspenders FleetLoopConfigSchema carries the same shape)",
+					"type": "object",
+					"propertyNames": {
+						"type": "string",
+						"pattern": "^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+					},
+					"additionalProperties": {
+						"type": "object",
+						"properties": {
+							"models": {
+								"minItems": 1,
+								"type": "array",
+								"items": {
+									"type": "string",
+									"pattern": "^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+								},
+								"description": "Model aliases riding this pool (any hub)"
+							},
+							"concurrency": {
+								"type": "integer",
+								"exclusiveMinimum": 0,
+								"maximum": 9007199254740991,
+								"description": "Max concurrent lanes across the pool"
+							},
+							"interactive_reserve": {
+								"description": "Headroom reserved for interactive/review traffic",
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 9007199254740991
+							},
+							"quota_pool_id": {
+								"description": "Shared reservation ledger key (alias collapse)",
+								"type": "string",
+								"pattern": "^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+							},
+							"capability": {
+								"description": "Capability tag: placement may only re-pin inside it",
+								"type": "string",
+								"pattern": "^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+							}
+						},
+						"required": ["models", "concurrency"],
 						"additionalProperties": false
 					}
 				}

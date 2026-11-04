@@ -518,15 +518,10 @@ function stackFromSettings(): StackConfig | null {
 		if (prof.host === undefined) prof.host = "";
 		hubs[label] = prof as HubProfile;
 	}
-	const {
-		lane_target,
-		dispatch_target,
-		every_s,
-		config_poll_s,
-		review_fallback_models,
-		review_stepdown_classes,
-		review_round_cap,
-	} = s.fleet_loop;
+	// W2753: the parsed section passes through WHOLE — the destructured
+	// rebuild here silently dropped review_leg_timeout_ms / review_leg_max_tokens
+	// (canonical rows the schema accepts), provider_pools (W2263), projects,
+	// maintenance and merge_stuck_hours from the projection.
 	const parsed = StackConfigSchema.safeParse({
 		version: s.version,
 		updates: s.updates,
@@ -536,15 +531,7 @@ function stackFromSettings(): StackConfig | null {
 		executors: s.executors,
 		policies: s.policies,
 		cache_unsupported_models: s.cache_unsupported_models,
-		fleet_loop: {
-			lane_target,
-			dispatch_target,
-			every_s,
-			config_poll_s,
-			review_fallback_models,
-			review_stepdown_classes,
-			review_round_cap,
-		},
+		fleet_loop: { ...s.fleet_loop },
 		hubs,
 	});
 	return parsed.success ? parsed.data : null;

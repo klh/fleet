@@ -23,7 +23,9 @@ import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 import {
 	FLEET_LOOP_DEFAULTS,
 	fleetLoopSettings,
+	loadStack,
 } from "../hooks/lib/stack-config.ts";
+import { ProviderPoolsSchema } from "../hooks/lib/fleet-loop/provider-pools.schema.ts";
 
 const tmpConf = (): string => mkdtempSync(join(tmpdir(), "w2351-stack-"));
 
@@ -70,6 +72,37 @@ test("stackFromSettings: review_round_cap survives the StackConfig projection", 
 	process.env.KLH_SETTINGS = file;
 	try {
 		expect(fleetLoopSettings().reviewRoundCap).toBe(5);
+	} finally {
+		delete process.env.KLH_SETTINGS;
+	}
+});
+
+// ── seam 1d: provider_pools rides the projection (W2753) ────────────────────
+// The W2263 pool block must survive BOTH the settings strict section AND
+// the StackConfig projection — pre-W2753 the section rejected the key
+// (resolveSettings fell to LKG/defaults) and the projection's destructured
+// rebuild dropped it from the StackConfig shape.
+test("stackFromSettings: provider_pools survives the projection, strict section accepts it (W2753)", () => {
+	const dir = tmpConf();
+	const file = join(dir, "settings.json");
+	const pools = {
+		zai: {
+			models: ["glm-5.3", "glm-5.3-flash"],
+			concurrency: 2,
+			interactive_reserve: 1,
+		},
+	};
+	writeFileSync(
+		file,
+		JSON.stringify({ version: "w2753", fleet_loop: { provider_pools: pools } }),
+	);
+	process.env.KLH_SETTINGS = file;
+	try {
+		const fl = loadStack().fleet_loop;
+		expect(fl?.provider_pools).toEqual(pools);
+		expect(ProviderPoolsSchema.safeParse(fl?.provider_pools).success).toBe(
+			true,
+		);
 	} finally {
 		delete process.env.KLH_SETTINGS;
 	}

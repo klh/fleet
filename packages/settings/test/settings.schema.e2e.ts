@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { envRestore, envSnapshot, scratchSettingsHome } from "./helpers.ts";
 import {
+	ProviderPoolsSchema,
 	renderHubSettings,
 	resetSettingsCache,
 	resolveSettings,
@@ -42,6 +43,35 @@ test("fork A-G keys pre-registered with their agreed defaults", () => {
 		expect(s.buckle.retry_after_cap_s).toBe(60);
 		expect(s.buckle.quota_wall_codes).toEqual(["1113"]);
 		expect(s.buckle.concurrency_error_codes).toEqual(["1302", "1305"]);
+	} finally {
+		w.clean();
+		envRestore(snap);
+	}
+});
+
+test("fleet_loop.provider_pools rides the strict section (W2753)", () => {
+	const w = scratchSettingsHome();
+	const snap = envSnapshot();
+	try {
+		process.env.KLH_SETTINGS = w.file;
+		const pools = {
+			zai: {
+				models: ["glm-5.3", "glm-5.3-flash"],
+				concurrency: 2,
+				interactive_reserve: 1,
+			},
+		};
+		w.setFile({ fleet_loop: { provider_pools: pools } });
+		// service mode = loud failure on drift — pre-W2753 the unknown
+		// strict-section key threw and bricked the whole settings load
+		const s = resolveSettings({ mode: "service" }).settings;
+		expect(s.fleet_loop.provider_pools).toEqual(pools);
+		// the pool shape keeps its own teeth: reserve must leave a slot
+		expect(
+			ProviderPoolsSchema.safeParse({
+				bad: { models: ["m"], concurrency: 1, interactive_reserve: 1 },
+			}).success,
+		).toBe(false);
 	} finally {
 		w.clean();
 		envRestore(snap);

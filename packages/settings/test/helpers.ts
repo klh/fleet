@@ -153,6 +153,11 @@ export function writeMigrateFixtures(w: SettingsHome): {
 	const envPath = join(w.confDir, "belt.fixture.env");
 	const stack = {
 		version: "3.3.3",
+		fleet_loop: {
+			provider_pools: {
+				zai: { models: ["glm-5.3"], concurrency: 2, interactive_reserve: 1 },
+			},
+		},
 		hubs: {
 			nas: {
 				host: "kk@nas.example",

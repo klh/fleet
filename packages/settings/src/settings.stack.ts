@@ -63,6 +63,51 @@ export const RepoPolicySchema = z
 	})
 	.strict();
 
+const IDENT =
+	/^(?!__proto__$|constructor$|prototype$)[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+
+/** One W2263 provider pool — identity is the shared credential (ported
+ *  from suspenders provider-pools.schema.ts; W2753 single source). */
+export const ProviderPoolSchema = z
+	.strictObject({
+		models: z
+			.array(z.string().regex(IDENT))
+			.min(1)
+			.describe("Model aliases riding this pool (any hub)"),
+		concurrency: z
+			.number()
+			.int()
+			.positive()
+			.describe("Max concurrent lanes across the pool"),
+		interactive_reserve: z
+			.number()
+			.int()
+			.nonnegative()
+			.optional()
+			.describe("Headroom reserved for interactive/review traffic"),
+		quota_pool_id: z
+			.string()
+			.regex(IDENT)
+			.optional()
+			.describe("Shared reservation ledger key (alias collapse)"),
+		capability: z
+			.string()
+			.regex(IDENT)
+			.optional()
+			.describe("Capability tag: placement may only re-pin inside it"),
+	})
+	.refine((p) => p.concurrency > (p.interactive_reserve ?? 0), {
+		message: "interactive_reserve must leave at least 1 lane slot",
+		path: ["interactive_reserve"],
+	});
+
+export const ProviderPoolsSchema = z
+	.record(z.string().regex(IDENT), ProviderPoolSchema)
+	.describe("Provider pools: shared-credential lane capacity (W2263)");
+
+export type ProviderPool = z.infer<typeof ProviderPoolSchema>;
+export type ProviderPools = Record<string, ProviderPool>;
+
 export const StackSections = {
 	version: opt("THE stack version: one string pins buckle+suspenders+belt"),
 	updates: UpdatesSchema,

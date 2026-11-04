@@ -16,6 +16,7 @@ import {
 	section,
 	str,
 } from "./settings.leaf.ts";
+import { ProviderPoolsSchema } from "./settings.stack.ts";
 
 /** One registered repo the hub's fleet-loop supervises (fork E, W2242). */
 export const FleetLoopProjectSchema = z
@@ -81,6 +82,9 @@ export const FleetLoopSchema = section(
 			.max(64)
 			.default([])
 			.describe("Registered repos (empty = the --repo arg only)"),
+		provider_pools: ProviderPoolsSchema.optional().describe(
+			"Per-provider lane capacity + interactive reserve (W2263; the suspenders FleetLoopConfigSchema carries the same shape)",
+		),
 	},
 	"The hub supervisor loop: lane caps, cadence, registered repos",
 );

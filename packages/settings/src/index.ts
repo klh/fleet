@@ -49,4 +49,10 @@ export {
 	settingsIssues,
 } from "./settings.schema.ts";
 export { runSettingsCli, type CliIo } from "./settings.cli.ts";
+export {
+	type ProviderPool,
+	type ProviderPools,
+	ProviderPoolSchema,
+	ProviderPoolsSchema,
+} from "./settings.stack.ts";
 export { deepMerge, getPath, setPath, unsetPath } from "./settings.tree.ts";
