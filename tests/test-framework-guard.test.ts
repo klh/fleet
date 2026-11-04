@@ -29,12 +29,17 @@ const SELF = "tests/test-framework-guard.test.ts";
 // 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
 // W1294.9.4 sweep-G slice-4 (22 claude+hub family files, merged via W2655)
 // re-pins DOWN (658 → 636) — main had drifted +1 over the 657 pin (W2595
-// belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
+// belt copilot-seat-rows.test.ts); W2224 (merge of parked/W2173.5.1
+// full-corpus port) re-pins DOWN (636 → 237) — suspenders/test's base
+// corpus is fully ported; W2647 (re-merge onto main with W2595's belt
+// copilot-seat-rows.test.ts ported to a tagged e2e spec in the same
+// landing) re-pins DOWN (237 → 236) — the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
-// sha.
-// W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the 636
-// base — its −1 re-pins DOWN to the exact merged-tree count.
-const PIN = 635;
+// sha; W2663's fresh-main leg (ac088302: W2609/W2431 + W2630 route-
+// preflight) measures 235 and re-pins DOWN again.
+// W2733 merge: main's interim W2649 risk-tier port (pin 635) is subsumed
+// by parked/W2709's full-corpus port — the merged index measures 235.
+const PIN = 235;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
