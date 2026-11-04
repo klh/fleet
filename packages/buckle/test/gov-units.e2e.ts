@@ -1,9 +1,8 @@
 // test/gov-units.test.ts — W141 governance unit tests: scope inheritance,
 // key issue/verify/revoke lifecycle with hash-at-rest, the deltas path in
 // the local ledger, and budget windows with honest flush accounting.
-
-import { Database } from "bun:sqlite";
 import { expect, test } from "@playwright/test";
+import { Database } from "bun:sqlite";
 import {
 	Budgets,
 	effectiveLimit,
@@ -11,7 +10,7 @@ import {
 	windowRemainderS,
 } from "../src/gov/budgets.ts";
 import { createJwtValidator } from "../src/gov/jwt.ts";
-import { hashKey, KeyStore } from "../src/gov/keys.ts";
+import { KeyStore, hashKey } from "../src/gov/keys.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 import {
 	ALL_SCOPES,
@@ -61,12 +60,10 @@ test.describe("@unit", () => {
 			expect(ALL_SCOPES).toContain("buckle:knowledge:QUERY_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:READ_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:WRITE_");
-			expect(
-				hasScope(["buckle:dataplane:WRITE_"], "buckle:dataplane:READ_"),
-			).toBe(true);
-			expect(
-				hasScope(["buckle:dataplane:READ_"], "buckle:dataplane:WRITE_"),
-			).toBe(false);
+			expect(hasScope(["buckle:dataplane:WRITE_"], "buckle:dataplane:READ_"))
+				.toBe(true);
+			expect(hasScope(["buckle:dataplane:READ_"], "buckle:dataplane:WRITE_"))
+				.toBe(false);
 		});
 	});
 

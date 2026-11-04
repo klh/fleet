@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { HubProfile, StackAuth } from "../hooks/lib/stack-config.ts";
 import { hubMetricsEnv } from "./hub-metrics.ts";
+import { pushProfileEnv } from "./hub-profiles.ts";
 import { resolveHubOrigin } from "./hub-ref-preflight.ts";
 
 /** A local hub must not publish over an existing .local service. The registry
@@ -103,49 +104,10 @@ export function renderEnv(
 	kv("HUB_STORE_PORT", hub.store_port);
 	kv("HUB_BELT_BIND", hub.belt_bind);
 	kv("HUB_BELT_PORT", hub.belt_port);
-	// Compose profiles accumulate: each optional service appends its own, and
-	// one declaration never clobbers another (W1217).
-	const profiles: string[] = [];
-	if (hub.belt_model) {
-		const upstream = new URL(hub.belt_model.upstream);
-		if (
-			!["http:", "https:"].includes(upstream.protocol) ||
-			upstream.username ||
-			upstream.password
-		)
-			throw new Error(
-				"belt_model.upstream must be an HTTP URL without credentials",
-			);
-		profiles.push("belt-model");
-		kv("HUB_BELT_MODEL_PORT", hub.belt_model.port);
-		kv("HUB_BELT_MODEL_HEALTH_PORT", hub.belt_model.health_port);
-		kv("HUB_BELT_MODEL_UPSTREAM", upstream.href.replace(/\/$/, ""));
-	}
-	// W1217: the knowledge sink — declaring `knowledge:` enables the profile
-	// (knowledge-api container + its health probe sidecar); undeclared knobs
-	// fall through to the template defaults, solo posture stays unchanged.
-	if (hub.knowledge) {
-		profiles.push("knowledge");
-		kv("HUB_KNOWLEDGE_SINK_PORT", hub.knowledge.port);
-		kv("HUB_KNOWLEDGE_SINK_HEALTH_PORT", hub.knowledge.health_port);
-	}
-	// W2329: the dataplane face — declaring `dataplane:` enables the profile
-	// (dataplane-api container + its health probe sidecar, knowledge-sink
-	// pattern); own port, never the LLM gateway front door.
-	if (hub.dataplane) {
-		profiles.push("dataplane");
-		kv("HUB_DATAPLANE_PORT", hub.dataplane.port);
-		kv("HUB_DATAPLANE_HEALTH_PORT", hub.dataplane.health_port);
-	}
-	// W2595: litellm behind every buckle — declaring `litellm:` enables the
-	// profile (engine container + health sidecar); the operator-maintained
-	// 0600 litellm.yaml + copilot token cache sit beside the compose dir.
-	if (hub.litellm) {
-		profiles.push("litellm");
-		kv("HUB_LITELLM_PORT", hub.litellm.port);
-		kv("HUB_LITELLM_HEALTH_PORT", hub.litellm.health_port);
-	}
-	if (profiles.length > 0) kv("COMPOSE_PROFILES", profiles.join(","));
+	// W2329: the optional compose profiles (belt-model/knowledge/litellm/
+	// dataplane) accumulate in deploy/hub-profiles.ts — extracted for the
+	// 1200-line stop rule, same env contract.
+	pushProfileEnv(hub, kv);
 	// health sidecar ports (W422.10) — compose health hits the SIDECAR
 	kv("HUB_BUCKLE_HEALTH_PORT", hub.buckle_health_port);
 	kv("HUB_BOARD_HEALTH_PORT", hub.board_health_port);
