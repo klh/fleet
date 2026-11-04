@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	mkdirSync,
@@ -8,15 +7,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	defaultRenderValues,
 	loadManifest,
 	renderDarwin,
 	renderLinux,
 	renderWin32,
+	type ServiceSpec,
 	usedPlaceholders,
 	validateSpec,
-	type ServiceSpec,
 } from "../scripts/install/install-services.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 

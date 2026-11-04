@@ -11,13 +11,13 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
 import { runCli } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import {
 	defaultRenderValues,
 	loadManifest,
-	renderDarwin,
 	type RenderValues,
+	renderDarwin,
 	substitute,
 } from "../scripts/install/install-services.ts";
 import { parsePlistXml } from "./plist-fields.ts";

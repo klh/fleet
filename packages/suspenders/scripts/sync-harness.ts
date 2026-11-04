@@ -13,17 +13,18 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import {
-	HOOK_ITEMS,
-	MANAGED_PREFIX_ENTRIES,
-	PRUNE_ALLOWLIST,
-	RECEIPT_FILE,
-	payloadChecksum,
-} from "../hooks/lib/install/harness-manifest.ts";
+import { z } from "zod";
 import {
 	hubCapabilities,
 	spokeCapabilities,
 } from "../hooks/lib/federation/profile.ts";
+import {
+	HOOK_ITEMS,
+	MANAGED_PREFIX_ENTRIES,
+	PRUNE_ALLOWLIST,
+	payloadChecksum,
+	RECEIPT_FILE,
+} from "../hooks/lib/install/harness-manifest.ts";
 import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
@@ -33,7 +34,6 @@ import {
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install/install-run.ts";
 import { payloadClosure } from "./lib/source-closure.ts";
-import { z } from "zod";
 
 /** Faces the installer bundle-validates in the staged payload (validate()).
  *  Exported for the W1119.2 installer/runtime-parity guard
