@@ -12,7 +12,11 @@
 //   serve-marker cmd → NOT launchd-supervised (label pids + descendants)
 //   → fleet scope: cwd (lsof) inside THIS repo's .worktrees/<name>, or
 //   the commandline names a .worktrees/<name> path / fleet-ish tmp dir
-//   (W973 reap-by-commandline) → worktree NOT protected (live/unknown
+//   (W973 reap-by-commandline) → worktree NOT protected (live/unknown)
+//   W2335 adds the orphan-worker pass to the same cycle: ppid=1
+//   WORKER_MARKERS matches (orphaned Playwright test workers), fleet-scoped
+//   by workerScope (cwd, else the commandline's store path), a lane-owned
+//   worktree scope still protected unless its lane reads dead.
 //   lane verdict or CLAIMED/RUNNING item; tmp stems map to their
 //   w<digits> graph id) → SIGTERM, escalating to SIGKILL past the grace
 //   window (state file survives restarts, pid→firstSeen).
@@ -28,9 +32,14 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, resolve } from "node:path";
-import { parseLaunchctlList, parsePs, supervisedPids } from "./rogue-sweep.ts";
+import { type LaneRef, laneVerdict } from "../lanes/lane-liveness.ts";
+import {
+	type PsRow,
+	parseLaunchctlList,
+	parsePs,
+	supervisedPids,
+} from "./rogue-sweep.ts";
 import { readJsonSync } from "./runtime.ts";
-import { laneVerdict, type LaneRef } from "../lanes/lane-liveness.ts";
 
 // trailing literals of the fleet's serve entrypoints — the same
 // last-segments discipline as rogue-sweep's markerOf (placeholder tokens
@@ -46,6 +55,17 @@ export const SERVE_MARKERS: readonly string[] = [
 	// lane's .worktrees/W2214 and survived every cycle (no marker matched)
 	"knowledge-api.ts",
 	"healthcheck/probe.ts",
+];
+
+// W2335: orphaned test-runner workers — a runner (lane harness, dev shell)
+// dying mid-suite leaves its Playwright workers reparented to launchd
+// (ppid=1); they wedge on the dead runner pipes and balloon (2026-10-30:
+// one climbed to 60-70GB RSS in 36min out of the MAIN checkout's store;
+// owner-reported 230GB+ historical spikes are the same pattern). Same
+// trailing-literal discipline as SERVE_MARKERS: the entry-file tail
+// matches bun-store and npm layouts, every version, any runtime prefix.
+export const WORKER_MARKERS: readonly string[] = [
+	"playwright/lib/worker/workerProcessEntry.js",
 ];
 
 // W973: fleet-ish tmp dirs host A/B lane copies (w894-base, w858-base,
@@ -157,6 +177,34 @@ export function cmdlineScope(cmd: string, repo: string): string | null {
 	const m = /(?:^|[\s"'=])(\/private\/tmp|\/tmp)\/([A-Za-z0-9._-]+)/.exec(cmd);
 	if (m?.[2] === undefined || !FLEET_TMP_SEGMENT.test(m[2])) return null;
 	return `${m[1]}/${m[2]}`;
+}
+
+/** W2335 worker scope for the orphan-worker pass: cwd first, commandline
+ *  fallback (the shared node_modules store path rides the cmdline even
+ *  when lsof cwd fails — the incident shape). A `.worktrees/<name>` scope
+ *  is lane-owned (the protect check applies); anywhere else under the repo
+ *  root is the main-checkout class — no lane maps to it, so the orphan
+ *  evidence itself (ppid=1: the runner is gone) authorizes. Null = not
+ *  fleet — never a candidate. */
+export function workerScope(
+	cwd: string | null,
+	cmd: string,
+	repo: string,
+): { kind: "worktree" | "repo"; path: string } | null {
+	const root = resolve(repo);
+	if (cwd) {
+		const c = resolve(cwd);
+		const wt = insideWorktrees(c, root);
+		if (wt) return { kind: "worktree", path: wt };
+		return c === root || c.startsWith(`${root}/`)
+			? { kind: "repo", path: root }
+			: null;
+	}
+	const wt = cmdlineScope(cmd, root);
+	if (wt) return { kind: "worktree", path: wt };
+	return new RegExp(`${escapeRe(root)}(?:/|\\s|$|['"])`).test(cmd)
+		? { kind: "repo", path: root }
+		: null;
 }
 
 export type ReapCandidate = {
@@ -425,6 +473,61 @@ export function createRogueReap(deps: RogueReapDeps): {
 			const maxKill = deps.maxKill ?? DEFAULT_MAX_KILL;
 			let reaped = 0;
 			let killAttempts = 0;
+			const escalationSig = (key: string): ReapSig => {
+				const first = state[key];
+				return first !== undefined && now() - first >= graceMs
+					? "SIGKILL"
+					: "SIGTERM";
+			};
+			const considerAct = (
+				r: PsRow,
+				key: string,
+				sig: ReapSig,
+				scopePath: string,
+			): void => {
+				const first = state[key];
+				if (act) {
+					// W973: bounded batch — past the cap the process is deferred
+					// to the next cycle (never state-tracked: fresh TERM next fire)
+					if (killAttempts >= maxKill) {
+						log(
+							`DEFERRED pid=${r.pid} worktree=${scopePath} cap=${maxKill} ${r.cmd.slice(0, 120)}`,
+						);
+					} else {
+						killAttempts++;
+						next[key] = first ?? now();
+						const ok = kill(r.pid, sig);
+						if (ok) reaped++;
+						log(
+							`${ok ? "REAPED" : "REAP-FAIL"} pid=${r.pid} sig=${sig} worktree=${scopePath} ${r.cmd.slice(0, 120)}`,
+						);
+					}
+				} else {
+					log(
+						`WOULD-REAP pid=${r.pid} worktree=${scopePath} ${r.cmd.slice(0, 120)}`,
+					);
+				}
+				candidates.push({
+					pid: r.pid,
+					cmd: r.cmd.slice(0, 160),
+					worktree: scopePath,
+					item: worktreeItem(scopePath),
+					sig: act ? sig : "SIGTERM",
+				});
+			};
+			// W2335: ONE kill-accounting body — bounded batch, escalation,
+			// candidate row — shared by the serve pass and the orphan-worker
+			// pass below.
+			const consider = (
+				r: PsRow,
+				scopePath: string,
+				protectedReason: string | null,
+			): void => {
+				if (protectedReason !== null) return;
+				const key = String(r.pid);
+				const sig: ReapSig = escalationSig(key);
+				considerAct(r, key, sig, scopePath);
+			};
 			for (const r of rows) {
 				if (supervised.has(r.pid)) continue;
 				if (!SERVE_MARKERS.some((m) => r.cmd.includes(m))) continue;
@@ -436,39 +539,27 @@ export function createRogueReap(deps: RogueReapDeps): {
 					(cwd ? fleetTmpDir(cwd) : null) ??
 					cmdlineScope(r.cmd, repo);
 				if (!wt) continue; // no fleet scope — never a candidate
-				if (protect(wt) !== null) continue;
-				const key = String(r.pid);
-				const first = state[key];
-				const sig: ReapSig =
-					first !== undefined && now() - first >= graceMs
-						? "SIGKILL"
-						: "SIGTERM";
-				if (act) {
-					// W973: bounded batch — past the cap the serve is deferred to
-					// the next cycle (never state-tracked: fresh TERM next fire)
-					if (killAttempts >= maxKill) {
-						log(
-							`DEFERRED pid=${r.pid} worktree=${wt} cap=${maxKill} ${r.cmd.slice(0, 120)}`,
-						);
-					} else {
-						killAttempts++;
-						next[key] = first ?? now();
-						const ok = kill(r.pid, sig);
-						if (ok) reaped++;
-						log(
-							`${ok ? "REAPED" : "REAP-FAIL"} pid=${r.pid} sig=${sig} worktree=${wt} ${r.cmd.slice(0, 120)}`,
-						);
-					}
-				} else {
-					log(`WOULD-REAP pid=${r.pid} worktree=${wt} ${r.cmd.slice(0, 120)}`);
-				}
-				candidates.push({
-					pid: r.pid,
-					cmd: r.cmd.slice(0, 160),
-					worktree: wt,
-					item: worktreeItem(wt),
-					sig: act ? sig : "SIGTERM",
-				});
+				consider(r, wt, protect(wt));
+			}
+			// W2335 orphan-worker pass: ppid=1 is positive orphan evidence —
+			// the runner is dead, the worker wedges on its pipes and balloons.
+			// WORKER_MARKERS match, unsupervised, fleet-scoped via workerScope
+			// (cwd, else the store path on the commandline); a lane-owned
+			// worktree scope still requires its lane dead (protect), the
+			// main-checkout class runs on the orphan evidence alone. Same
+			// bounded batch, escalation, pause switch as the serve pass.
+			for (const r of rows) {
+				if (r.ppid !== 1) continue;
+				if (supervised.has(r.pid)) continue;
+				if (!WORKER_MARKERS.some((m) => r.cmd.includes(m))) continue;
+				const cwd = (deps.cwdOf ?? lsofCwd)(r.pid);
+				const scope = workerScope(cwd, r.cmd, repo);
+				if (!scope) continue;
+				consider(
+					r,
+					scope.path,
+					scope.kind === "worktree" ? protect(scope.path) : null,
+				);
 			}
 			if (act) {
 				// escalation bookkeeping: firstSeen per reaped pid survives
