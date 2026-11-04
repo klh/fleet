@@ -812,6 +812,9 @@ export const dispatchLane = async (
 		let resolvedHub: string | undefined;
 		// W615: the hub URL rides alongside the label — attribution mints at it.
 		let resolvedHubUrl: string | undefined;
+		// W2566: the stack-profile token resolveHub resolved (HubLocation.token)
+		// — the last hubCredential rung, fed to the mint via attributeHubLane.
+		let resolvedHubToken: string | undefined;
 		if (!NO_BELT) {
 			// always pin a model — an unpinned lane inherits the owner's global
 			// settings.json ANTHROPIC_DEFAULT_*_MODEL (glm-5.3[1m]) and dies on
@@ -832,6 +835,7 @@ export const dispatchLane = async (
 					hubNote = ` — hub ${hub.label} -> ${hub.url} (${hub.via})`;
 					resolvedHub = hub.label;
 					resolvedHubUrl = hub.url;
+					resolvedHubToken = hub.token;
 				} else {
 					hubNote = ` — NOTE hub=${hubPick} unreachable, falling back to local belt (W228-style: surfaced, never silent)`;
 					console.log(`NOTE — hub=${hubPick} unreachable; using local belt`);
@@ -858,6 +862,7 @@ export const dispatchLane = async (
 					hubUrl: resolvedHubUrl ?? resolvedHub,
 					allowUngoverned: ALLOW_UNGOVERNED,
 					env,
+					hubToken: resolvedHubToken,
 				});
 				if (hub.decision.mode === "governed") {
 					ownedKeyId = hub.ownedKeyId;

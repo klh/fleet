@@ -80,7 +80,7 @@ const reapLanes = (): void => {
 const dispatchHubCase = async (
 	preferLines: string[],
 	registryEntries: Record<string, { candidates: string[]; token?: string }>,
-	opts: { allowUngoverned?: boolean } = {},
+	opts: { allowUngoverned?: boolean; stack?: string } = {},
 ): Promise<{
 	id: string;
 	sid: string;
@@ -93,7 +93,10 @@ const dispatchHubCase = async (
 	writeFileSync(regFile, JSON.stringify(registryEntries));
 	const id = await addItem("multi-hub dispatch e2e fixture");
 	const res = await dispatchA(
-		{ SUSPENDERS_HUBS_FILE: regFile },
+		{
+			SUSPENDERS_HUBS_FILE: regFile,
+			...(opts.stack ? { KLH_STACK: opts.stack } : {}),
+		},
 		"--item",
 		id,
 		...(opts.allowUngoverned ? ["--allow-ungoverned"] : []),
@@ -225,6 +228,62 @@ test.describe("multi-hub dispatch e2e (W357): .prefer hub= candidates walk", () 
 			"utf8",
 		);
 		expect(wtBrief).toContain("GOVERNANCE: UNGOVERNED DISPATCH");
+	});
+
+	// W2566: the tredebanken C213 shape — a lowercase hubs.json key behind an
+	// uppercase .prefer pin. resolveHub always folded (the hub resolves);
+	// hubCredential now folds too, so the mint goes through instead of
+	// failing closed "no hub credential".
+	test("pin-case mismatch mints through the hub (W2566: 'ikea' key, IKEA pin)", async () => {
+		test.setTimeout(90_000);
+		const { sid, out } = await dispatchHubCase(["hub=IKEA"], {
+			ikea: {
+				candidates: [DESKTOP_URL],
+				token: "bksk_ikea_admin",
+			},
+		});
+		expect(out).toContain("dispatched ");
+		expect(out).toContain(`hub IKEA -> ${DESKTOP_URL} (registry hubs.json)`);
+		// the mint went THROUGH the hub: its scoped key attributes the lane
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${DESKTOP_URL}/w/${sid}`,
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_desktop_minted",
+		);
+		expect(out).toContain(`lane attribution: hub IKEA /w/${sid}`);
+	});
+
+	// W2566: the stack-profile rung — a migrated stack.json hubs entry with a
+	// token, reached only when neither env nor the registry carries one. The
+	// registry stays present (its candidates back the resolution), but its
+	// row carries NO token: the profile token must feed the mint.
+	test("stack-profile token feeds the dispatch mint (W2566)", async () => {
+		test.setTimeout(90_000);
+		const stack = join(HOME, "w2566-stack.json");
+		writeFileSync(
+			stack,
+			JSON.stringify({
+				version: "2.0.0",
+				hubs: { IKEA: { url: DESKTOP_URL, token: "bksk_stacktok" } },
+			}),
+			{ mode: 0o600 },
+		);
+		const { sid, out } = await dispatchHubCase(
+			["hub=IKEA"],
+			{ IKEA: { candidates: [DESKTOP_URL] } },
+			{ stack },
+		);
+		expect(out).toContain("dispatched ");
+		// profile url wins the resolution (stack.json stage before registry)
+		expect(out).toContain(`hub IKEA -> ${DESKTOP_URL} (stack.json)`);
+		// profile token feeds the mint: the hub stand-in issued its key
+		expect(laneSettings(sid).env.ANTHROPIC_AUTH_TOKEN).toBe(
+			"bksk_desktop_minted",
+		);
+		expect(laneSettings(sid).env.ANTHROPIC_BASE_URL).toBe(
+			`${DESKTOP_URL}/w/${sid}`,
+		);
 	});
 });
 

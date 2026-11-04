@@ -23,7 +23,11 @@ export interface HubAttribution {
 
 /** Resolve the hub credential, mint the lane key at the hub front, decide
  *  the posture; on governed, apply the /w/<sid> attribution onto the lane
- *  env. Pure-ish (fetch injectable for tests via mintLaneKey's default). */
+ *  env. Pure-ish (fetch injectable for tests via mintLaneKey's default).
+ *  `hubToken` (W2566) is the HubLocation.token resolveHub already resolved
+ *  from the stack profile — the last credential rung, after env and the
+ *  case-folded registry/profile walks in hubCredential, so a migrated
+ *  stack profile carrying a token feeds the mint. */
 export const attributeHubLane = async (o: {
 	sid: string;
 	hubLabel: string;
@@ -31,8 +35,10 @@ export const attributeHubLane = async (o: {
 	allowUngoverned: boolean;
 	env: Record<string, string>;
 	fetchFn?: typeof fetch;
+	hubToken?: string;
 }): Promise<HubAttribution> => {
-	const hubToken = hubCredential(o.hubLabel);
+	const hubToken =
+		hubCredential(o.hubLabel) ?? (o.hubToken?.length ? o.hubToken : null);
 	const decision = hubAttributionDecision({
 		hasToken: hubToken !== null,
 		minted: hubToken

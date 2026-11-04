@@ -58,6 +58,22 @@ export function profileToken(prof: HubProfile): string | undefined {
 	}
 }
 
+/** The stack-config hub profile for a label, case-FOLDED (W2566): the
+ *  settings/stack `hubs` keys are the routing identity and their case is
+ *  cosmetic — resolveHub has always folded here, and the credential path
+ *  (hubCredential) must find the same profile to honor its token. Undefined
+ *  when the config is absent or carries no matching label. */
+export function profileForLabel(label: string): HubProfile | undefined {
+	try {
+		const hubs = loadStack().hubs;
+		return Object.entries(hubs).find(
+			([l]) => l.toLowerCase() === label.toLowerCase(),
+		)?.[1];
+	} catch {
+		return undefined;
+	}
+}
+
 /** Every hub label this machine knows (settings/stack hubs + legacy
  *  registry), for `.prefer hub=<label>` validation. */
 export function knownHubLabels(): string[] {
@@ -194,8 +210,13 @@ export async function resolveHub(
 			};
 	}
 	// 3. legacy global registry (hubs.json, one-release fallback — `coord
-	// settings migrate` folds it into settings.json hubs.<label>).
-	const reg = readRegistry()[norm] ?? readRegistry()[norm.toUpperCase()];
+	// settings migrate` folds it into settings.json hubs.<label>). W2566:
+	// label case folds here too — same rule as the stack stage above, so a
+	// lowercase registry key answers an uppercase pin (and vice versa).
+	const want = norm.toLowerCase();
+	const reg = Object.entries(readRegistry()).find(
+		([l]) => l.toLowerCase() === want,
+	)?.[1];
 	for (const cand of reg?.candidates ?? []) {
 		if (await alive(cand)) {
 			warnDeprecated(

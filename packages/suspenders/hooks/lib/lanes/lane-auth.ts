@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readRegistry } from "../hub/hub-locate.ts";
+import { profileForLabel, profileToken, readRegistry } from "../hub/hub-locate.ts";
 import { loopbackUrl, BUCKLE_SPOKE_PORT } from "../loopback.ts";
 
 export const BELT_ENV_PATH =
@@ -68,8 +68,12 @@ export function adminKey(
  *  per-hub, operator-configured (never the local belt.env admin: the hub's
  *  KeyStore verifies only keys it issued). Same channel federation-peers
  *  pulls manifests with: `SUSPENDERS_HUB_<LABEL>_TOKEN` env first, then the
- *  hubs.json registry token for the label. Null = no hub credential — the
- *  caller fails closed (W463 matrix). */
+ *  hubs.json registry token for the label (case-FOLDED, W2566: resolveHub
+ *  folds label case at the stack-profile stage, so a lowercase `ikea`
+ *  registry key behind an `IKEA` pin must resolve too — proven live
+ *  2026-11-02, tredebanken C213), then the stack-profile token
+ *  (profileToken over the settings/stack `hubs` entry, same fold). Null =
+ *  no hub credential — the caller fails closed (W463 matrix). */
 export function hubCredential(
 	label: string,
 	env: NodeJS.ProcessEnv = process.env,
@@ -79,8 +83,12 @@ export function hubCredential(
 		.replace(/[^A-Z0-9]/g, "_")}_TOKEN`;
 	const fromEnv = env[envKey];
 	if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
-	const reg = readRegistry()[label] ?? readRegistry()[label.toUpperCase()];
-	return reg?.token ?? null;
+	const want = label.toLowerCase();
+	const reg = Object.entries(readRegistry()).find(
+		([l]) => l.toLowerCase() === want,
+	)?.[1];
+	if (reg?.token) return reg.token;
+	return profileToken(profileForLabel(label) ?? {}) ?? null;
 }
 
 /** Mint a per-lane proxy key (name=sid, scope buckle:proxy:WRITE_, TTL'd).
