@@ -1,8 +1,4 @@
 import { createHash } from "node:crypto";
-import {
-	listKnowledgeFacts,
-	withKnowledgeFacts,
-} from "../lib/knowledge/knowledge-facts.ts";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -17,6 +13,10 @@ import {
 	projectIdentity,
 } from "../lib/govdb/govdb.ts";
 import { trustOf, withTrust } from "../lib/knowledge/knowledge.ts";
+import {
+	listKnowledgeFacts,
+	withKnowledgeFacts,
+} from "../lib/knowledge/knowledge-facts.ts";
 import { makeStore } from "../lib/knowledge/sqlite-store.ts";
 import type { KnowledgeHit } from "../lib/knowledge/store-schema.ts";
 import { ensureConsultTrust } from "./consult-trust.ts";
