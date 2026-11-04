@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
-import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const home = mkdtempSync(join(tmpdir(), "fleet-start-context-"));
 const repo = mkdtempSync(join(tmpdir(), "fleet-start-context-repo-"));
@@ -43,7 +43,7 @@ function start(
 	return result.stdout.toString();
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(home, { recursive: true, force: true });
 	rmSync(repo, { recursive: true, force: true });
 });

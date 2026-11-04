@@ -1,13 +1,14 @@
 // usage-seed.test.ts — W127: seed/purge round-trip. Seeded rows are clearly
 // flagged (actor LIKE 'demo:%', sids demo-*) and purge removes exactly those.
-import { describe, test, expect, afterAll } from "bun:test";
-import {
-	openMemoryStore,
-	type GovernorStore,
-} from "../hooks/lib/govdb/govdb.ts";
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import {
+	type GovernorStore,
+	openMemoryStore,
+} from "../hooks/lib/govdb/govdb.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-seed-"));
 const { seedUsage, purgeUsage } = await import(
@@ -16,7 +17,7 @@ const { seedUsage, purgeUsage } = await import(
 
 const NOW_MS = Date.parse("2026-10-01T12:00:00Z");
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
@@ -48,7 +49,7 @@ const realRollups = (db: GovernorStore): number =>
 			.get() as { n: number }
 	).n;
 
-describe("usage seed/purge", () => {
+test.describe("usage seed/purge", () => {
 	test("seed → purge round-trip, demo rows only", () => {
 		const db = freshDb();
 		db.query(

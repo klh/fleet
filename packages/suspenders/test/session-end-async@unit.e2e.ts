@@ -1,13 +1,13 @@
-// test/session-end-async.test.ts — W514 (claudecode research §1.8): the
+// test/session-end-async.e2e.ts — W514 (claudecode research §1.8): the
 // session-end hook never hangs teardown — the stdin read is raced against
 // 1 s, and the wiring example marks SessionEnd async:true. The full
 // sid→CLOSED round-trip stays covered by w159-settle; this file pins the
 // timeout mechanics and the wiring shape.
-import { describe, test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
 
 const TMP = mkdtempSync(join(tmpdir(), "suspenders-sessend-"));
 const END = join(import.meta.dir, "..", "hooks", "session-end.ts");
@@ -27,9 +27,9 @@ function spawnEnd(stdinFile: string): {
 	return { code: p.exitCode, ms: Date.now() - t0 };
 }
 
-afterAll(() => rmSync(TMP, { recursive: true, force: true }));
+test.afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
-describe("session-end async hardening", () => {
+test.describe("session-end async hardening", () => {
 	test("stdin never closed → 1s race resolves, exit clean", async () => {
 		// async spawn with stdin held open: spawnSync cannot hold a pipe
 		const t0 = Date.now();

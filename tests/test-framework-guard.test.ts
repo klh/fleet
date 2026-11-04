@@ -34,7 +34,11 @@ const SELF = "tests/test-framework-guard.test.ts";
 // sha.
 // W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the 636
 // base — its −1 re-pins DOWN to the exact merged-tree count.
-const PIN = 635;
+// W1294.9.5 sweep-G slice-5 (17 session-*/usage-* specs, merged via
+// W2656, rebased W2736) re-pins DOWN (635 → 619) — the pin tracks the
+// landing tree's net count, verified by THIS guard's own git ls-files
+// counting at the closing sha.
+const PIN = 619;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
