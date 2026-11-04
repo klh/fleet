@@ -25,21 +25,21 @@ test("direct main merges cannot bypass exact-commit review", () => {
 	const world = scratchWorld({ prefix: "fleet-direct-merge-" });
 	try {
 		const hookRoot = join(import.meta.dir, "../../../.githooks");
+		// W2270: reference-transaction imports fleet-loop/publish-grant.ts and
+		// gates/review-receipt.ts, so it must run from THIS checkout (absolute
+		// hooksPath) — copied into the scratch repo its relative imports
+		// cannot resolve. pre-merge-commit stays self-contained but pre-commit
+		// resolves it at $ROOT/.githooks/, so it must ALSO sit in the scratch
+		// repo for the MERGE_HEAD refusal path to speak.
 		const hookDir = join(world.repo, ".githooks");
 		mkdirSync(hookDir);
-		for (const name of [
-			"pre-merge-commit",
-			"pre-commit",
-			"reference-transaction",
-		]) {
-			const target = join(hookDir, name);
-			writeFileSync(target, readFileSync(join(hookRoot, name)));
-			chmodSync(target, 0o755);
-		}
-		expect(git(world.repo, "branch", "-M", "main").code).toBe(0);
-		expect(git(world.repo, "config", "core.hooksPath", ".githooks").code).toBe(
-			0,
+		writeFileSync(
+			join(hookDir, "pre-merge-commit"),
+			readFileSync(join(hookRoot, "pre-merge-commit")),
 		);
+		chmodSync(join(hookDir, "pre-merge-commit"), 0o755);
+		expect(git(world.repo, "branch", "-M", "main").code).toBe(0);
+		expect(git(world.repo, "config", "core.hooksPath", hookRoot).code).toBe(0);
 		const branch = git(world.repo, "checkout", "-b", "suspenders/BYPASS");
 		expect(branch.code, branch.err).toBe(0);
 		writeFileSync(join(world.repo, "change.txt"), "review not approved\n");
@@ -138,18 +138,24 @@ test("direct main merges cannot bypass exact-commit review", () => {
 			"ordinary release commit\n",
 		);
 		expect(git(world.repo, "add", "release-note.txt").code).toBe(0);
-		expect(
-			git(
-				world.repo,
-				"-c",
-				"user.name=Fixture",
-				"-c",
-				"user.email=fixture@example.invalid",
-				"commit",
-				"-m",
-				"ordinary release commit",
-			).code,
-		).toBe(0);
+		// W2270: a commit directly on main is itself a fast-forward of
+		// refs/heads/main — it rides the same one-use store-grant gate and
+		// fails closed; the release note publishes through the guarded
+		// ladder (the detached scratch merge below), never a direct commit.
+		const release = git(
+			world.repo,
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@example.invalid",
+			"commit",
+			"-m",
+			"ordinary release commit",
+		);
+		expect(release.code).not.toBe(0);
+		expect(`${release.out}${release.err}`).toContain("Main ref update refused");
+		expect(git(world.repo, "rev-parse", "HEAD").out).toBe(before);
+		expect(git(world.repo, "reset", "--hard", "HEAD").code).toBe(0);
 		expect(git(world.repo, "checkout", "--detach", before).code).toBe(0);
 		const guardedScratch = git(
 			world.repo,

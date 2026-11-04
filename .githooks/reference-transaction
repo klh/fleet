@@ -1,117 +1,136 @@
 #!/usr/bin/env bun
-// Protect the main ref itself: pre-merge-commit does not run for a fast-forward.
-// The guarded Fleet ladder grants one exact old→new publication; ordinary
-// commits receive a short-lived old HEAD + staged-tree grant from pre-commit.
+// W2270 — protect refs/heads/main at the reference-transaction boundary:
+// pre-merge-commit and pre-commit cannot run for a fast-forward. The ONLY
+// credential that moves main is a one-use publish_grants row the merge
+// guard mints in the coordination store after the final exact-commit PASS
+// review; this hook independently re-derives that evidence (immutable git
+// objects + store receipts) before honoring it. Trusts nothing
+// caller-supplied: no environment pair, no writable bearer file — the
+// same-UID attacker who could forge a 0600 file can mint no store grant,
+// and a direct commit or plain FF without the guarded ladder fails closed.
 import { spawnSync } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 import {
-	chmodSync,
-	existsSync,
-	readFileSync,
-	renameSync,
-	statSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { randomUUID } from "node:crypto";
+	checkReviewReceipt,
+	reviewContext,
+} from "../packages/suspenders/hooks/lib/gates/review-receipt.ts";
+import { consumePublishGrant } from "../packages/suspenders/hooks/lib/fleet-loop/publish-grant.ts";
 
-const run = (...args: string[]): string => {
+const run = (args: string[]): string => {
 	const result = spawnSync("git", args, { encoding: "utf8" });
 	if (result.status !== 0) throw new Error(`git ${args[0]} failed`);
 	return result.stdout.trim();
 };
-const grantPath = (): string => run("rev-parse", "--git-path", "fleet-main-ref-grant.json");
+const commonDir = (): string =>
+	realpathSync(run(["rev-parse", "--git-common-dir"]));
+const root = run(["rev-parse", "--show-toplevel"]);
 const deny = (reason: string): never => {
-	console.error(`Main ref update refused: ${reason}. Use Fleet's guarded merge/flush.`);
+	console.error(
+		`Main ref update refused: ${reason}. Use Fleet's guarded merge/flush.`,
+	);
 	process.exit(1);
 };
+const sha40 = (value: unknown): value is string =>
+	typeof value === "string" && /^[a-f0-9]{40,64}$/.test(value);
 
-if (process.argv[2] === "--grant") {
-	if (run("symbolic-ref", "--quiet", "--short", "HEAD") !== "main")
-		process.exit(0);
-	const path = grantPath();
-	const temp = `${path}.${randomUUID()}`;
-	writeFileSync(
-		temp,
-		JSON.stringify({ old: run("rev-parse", "HEAD"), tree: run("write-tree"), at: Date.now() }),
-		{ mode: 0o600, flag: "wx" },
-	);
-	chmodSync(temp, 0o600);
-	renameSync(temp, path);
-	process.exit(0);
-}
+// main-update rows from git's transaction stdin: "<old> <new> refs/heads/main"
+const mainRows = (): [string, string][] =>
+	readFileSync(0, "utf8")
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/))
+		.filter(
+			(row): row is [string, string, string] =>
+				row.length === 3 && row[2] === "refs/heads/main",
+		)
+		.filter(([oldRef, next]) => sha40(oldRef) && sha40(next))
+		.map(([oldRef, next]) => [oldRef, next] as [string, string]);
 
+// ─── verify: the reference-transaction phases ───
 const phase = process.argv[2];
-if (!phase || !["preparing", "prepared", "committed", "aborted"].includes(phase))
+if (
+	!phase ||
+	!["preparing", "prepared", "committed", "aborted"].includes(phase)
+)
 	deny("unknown reference transaction phase");
 if (phase === "preparing") process.exit(0);
-const main = readFileSync(0, "utf8")
-	.split("\n")
-	.map((line) => line.trim().split(/\s+/))
-	.filter((row) => row.length === 3 && row[2] === "refs/heads/main");
-if (main.length === 0) process.exit(0);
-const path = grantPath();
-if (phase !== "prepared") {
-	if (existsSync(path)) unlinkSync(path);
-	const staleAttest = run(
-		"rev-parse",
-		"--git-path",
-		"fleet-main-publish-attestation.json",
+if (phase !== "prepared") process.exit(0);
+
+// prepared: the last phase where main's fate is still rejectable
+const rows = mainRows();
+if (rows.length === 0) process.exit(0);
+if (rows.length !== 1) deny("multiple main updates in one transaction");
+const [oldRef, next] = rows[0] ?? ["", ""];
+if (oldRef === next) process.exit(0);
+
+// the store binding is re-derived canonically; caller env never selects it
+const openStoreClean = async () => {
+	delete process.env.GOVERNOR_STORE_URL;
+	delete process.env.GOVERNOR_STORE_TOKEN;
+	delete process.env.GOVERNOR_STORE_TOKEN_FILE;
+	const { openStore } = await import(
+		"../packages/suspenders/hooks/lib/govdb/govdb.ts"
 	);
-	if (existsSync(staleAttest)) unlinkSync(staleAttest);
+	return openStore();
+};
+
+// fast-forward publication: the merge guard's one-use store grant PLUS the
+// hook's own independent re-derivation of the exact-commit PASS evidence —
+// the grant row alone authorizes nothing.
+const isAncestor = Bun.spawnSync(
+	["git", "merge-base", "--is-ancestor", oldRef, next],
+	{ stdout: "pipe", stderr: "pipe" },
+);
+if (isAncestor.exitCode === 0) {
+	const store = await openStoreClean().catch((error) =>
+		deny(`coordination store unavailable (${String(error).slice(0, 200)})`),
+	);
+	try {
+		const grant = consumePublishGrant(store, {
+			project: commonDir(),
+			old: oldRef,
+			new: next,
+		});
+		if (!grant.ok) deny(`fast-forward publish: ${grant.why}`);
+		const branchHead = run([
+			"rev-parse",
+			"--verify",
+			`${grant.branch}^{commit}`,
+		]);
+		if (!sha40(branchHead))
+			deny("publication grant branch does not resolve");
+		if (
+			Bun.spawnSync(
+				["git", "merge-base", "--is-ancestor", branchHead, next],
+				{ stdout: "pipe", stderr: "pipe" },
+			).exitCode !== 0
+		)
+			deny("publication grant branch is not contained in the commit");
+		if (
+			!store
+				.query(
+					"SELECT id FROM work_items WHERE project = ? AND id = ? AND state = 'DONE' AND result_sha = ?",
+				)
+				.get(commonDir(), grant.item, branchHead)
+		)
+			deny("publication grant item is not an exact DONE closure");
+		// the reviewed artifact is the lane tip (merge.ts's verifyReview binds
+		// the receipt there); the containment check above ties that exact tip
+		// into the published commit, and the pair grant binds old→next.
+		const context = reviewContext(root, branchHead, oldRef);
+		const verdict = checkReviewReceipt(
+			store,
+			commonDir(),
+			grant.item,
+			context,
+		);
+		if (!verdict.ok) deny(`review evidence: ${verdict.why}`);
+	} finally {
+		store.close();
+	}
 	process.exit(0);
 }
-if (main.length !== 1) deny("multiple main updates in one transaction");
-const [old, next] = main[0] ?? [];
-if (!old || !next || !/^[a-f0-9]{40,64}$/.test(old) || !/^[a-f0-9]{40,64}$/.test(next))
-	deny("invalid main ref pair");
-if (old === next) process.exit(0);
-// W2255.2: the ONLY guarded-publication credential is the one-use
-// attestation merge-guard.ts mints after canonical verifyReview PASS,
-// bound to this exact old→new pair. A caller-supplied env pair is forgeable
-// by any local process and grants nothing.
-const attestPath = run(
-	"rev-parse",
-	"--git-path",
-	"fleet-main-publish-attestation.json",
-);
-if (existsSync(attestPath)) {
-	let attestation: { old?: unknown; new?: unknown; at?: unknown };
-	try {
-		if ((statSync(attestPath).mode & 0o777) !== 0o600)
-			deny("publish attestation has unsafe mode");
-		attestation = JSON.parse(readFileSync(attestPath, "utf8"));
-	} catch {
-		deny("publish attestation unreadable");
-	}
-	if (
-		attestation.old === old &&
-		attestation.new === next &&
-		typeof attestation.at === "number" &&
-		Date.now() - attestation.at <= 120_000 &&
-		Date.now() >= attestation.at
-	) {
-		unlinkSync(attestPath);
-		process.exit(0);
-	}
-	deny("publish attestation is stale or for another ref pair");
-}
-if (!existsSync(path)) deny("no exact publication grant");
-let grant: { old?: unknown; tree?: unknown; at?: unknown };
-try {
-	if ((statSync(path).mode & 0o777) !== 0o600) deny("publication grant has unsafe mode");
-	grant = JSON.parse(readFileSync(path, "utf8"));
-} catch {
-	deny("publication grant unreadable");
-}
-if (
-	grant.old !== old ||
-	typeof grant.at !== "number" ||
-	Date.now() - grant.at > 120_000 ||
-	Date.now() < grant.at
-)
-	deny("publication grant is stale or for another HEAD");
-const parents = run("rev-list", "--parents", "-n", "1", next).split(" ");
-if (parents.length !== 2 || parents[1] !== old)
-	deny("main update is not the approved ordinary commit");
-if (run("show", "-s", "--format=%T", next) !== grant.tree)
-	deny("main update does not match the reviewed index tree");
+
+// no grant file, no store grant: fail closed. Direct commits and plain FFs
+// both need the guarded ladder (fleet-loop ship/flush) — which mints the
+// one-use grant after its final exact-commit PASS review — to move main.
+deny("no publication grant for this ref update");
