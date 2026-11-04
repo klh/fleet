@@ -546,7 +546,13 @@ test.describe("supervision — stub litellm spawn/kill/respawn/backoff", () => {
 		const sup = new Supervisor([t], {
 			...files(),
 			...fast,
-			probe: async () => ({ tcp: true, http: healthy }),
+			// Wedged holder on the port: bound but not answering; killPort
+			// releases the listen socket (W1104.1 release-wait sees tcp=false)
+			// and the respawn binds it again — model all three phases.
+			probe: async () => ({
+				tcp: healthy || !killed.includes(port),
+				http: healthy,
+			}),
 			killPort: (p) => killed.push(p),
 		});
 		const done = start(sup);
