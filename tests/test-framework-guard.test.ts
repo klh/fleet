@@ -31,10 +31,13 @@ const SELF = "tests/test-framework-guard.test.ts";
 // re-pins DOWN (658 → 636) — main had drifted +1 over the 657 pin (W2595
 // belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
-// sha.
-// W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the 636
-// base — its −1 re-pins DOWN to the exact merged-tree count.
-const PIN = 635;
+// sha. W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the
+// 636 base — its −1 re-pins DOWN (636 → 635). W1294.9.3 sweep-G slice-3
+// (30 install/hubctl files, merged via W2668 from parked/W2654) re-pins
+// DOWN on top (635 → 605 at the W2739 rebase integration — this tree
+// carries slice-4's 636 minus the W2649 port and slice-3's 30 ports,
+// re-pinned at its own measured landing count).
+const PIN = 605;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

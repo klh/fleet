@@ -1,7 +1,7 @@
 // test/hubctl-exec.test.ts — W484.1.1: `exec` runs allowlisted read-only
 // probes on a hub over the existing ssh path. Local fixture: fake docker/ssh
 // bins log calls and answer with canned rows.
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -88,7 +88,7 @@ function callsText(): string {
 	return readFileSync(calls, "utf8");
 }
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 test("exec runs an allowlisted probe on a local hub", () => {
 	writeFileSync(calls, "");
