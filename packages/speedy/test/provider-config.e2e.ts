@@ -2,9 +2,10 @@
 // private stack.json (mode 600) and read it back through the public API —
 // file-posture enforcement included. Key material in fixtures is fake.
 // W1294.12 sweep-I: ported from provider-config.test.ts to @playwright/test.
-import { expect, test } from "@playwright/test";
+
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	loadProviderConfig,
 	PROVIDER_STACK_PATH,
@@ -66,7 +67,9 @@ test.describe("@unit", () => {
 			]);
 			expect(cfg["zai-coding"].key).toBe("fake-key-coding");
 			expect(cfg["zai-coding"].env).toBe("ZAI_CODING_API_KEY");
-			expect(cfg["zai-coding"].endpoints?.openai).toBe("https://api.example/v1");
+			expect(cfg["zai-coding"].endpoints?.openai).toBe(
+				"https://api.example/v1",
+			);
 		});
 
 		test("stack without providers section = valid empty config", () => {
