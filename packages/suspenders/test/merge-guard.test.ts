@@ -1,17 +1,19 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
 // The bypass spec spawns ~15 sequential git children (each firing three
 // bun-backed hooks) — under combined-suite load that exceeds bun's 5s
 // default and kills the in-flight spawn (exitCode null). Same shape as
 // advise-panel/advise-gated: one file-level ceiling.
 setDefaultTimeout(30_000);
+
 import {
 	chmodSync,
-	mkdtempSync,
 	mkdirSync,
+	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
-	realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -486,6 +488,65 @@ test("one added copy cannot cancel repeated removed lines", () => {
 	writeFileSync(join(repo, "added.ts"), `${repeated}export const kept = 1;\n`);
 	git(repo, "add", "real.ts", "added.ts");
 	git(repo, "commit", "-m", "remove repeated lines");
+	git(repo, "checkout", "main");
+	ship(repo);
+	rejected(repo, seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"candidate removes",
+	);
+});
+
+test("canonical rebuild of a qlty-excluded generated asset is not file loss", () => {
+	// W2680: a generated vendor bundle whose canonical bytes the repo itself
+	// declares outside lint scope (qlty exclude_patterns) is parity-guarded,
+	// not line-guarded — the W2590 landing restored 19 drifted assets by
+	// rebuild and the shrink heuristic false-FAILed it three times.
+	const { repo } = fixture("export const valid = 1;\n");
+	// main carries the drifted (expanded) asset + the exclusion declaration
+	mkdirSync(join(repo, ".qlty"), { recursive: true });
+	writeFileSync(
+		join(repo, ".qlty/qlty.toml"),
+		'config_version = "0"\n\nexclude_patterns = ["**/vendor/**"]\n',
+	);
+	mkdirSync(join(repo, "vendor"), { recursive: true });
+	writeFileSync(
+		join(repo, "vendor/generated.js"),
+		`${"// drifted expanded build line\n".repeat(230)}`,
+	);
+	git(repo, "add", ".qlty/qlty.toml", "vendor/generated.js");
+	git(repo, "commit", "-m", "seed drifted asset");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	// canonical rebuild: the same asset, minified back to few lines
+	writeFileSync(join(repo, "vendor/generated.js"), "export const built=1;\n");
+	git(repo, "add", "vendor/generated.js");
+	git(repo, "commit", "-m", "rebuild asset");
+	git(repo, "checkout", "main");
+	ship(repo);
+	expect(git(repo, "rev-parse", "HEAD").out).not.toBe(seeded);
+	expect(readFileSync(join(repo, ".fleet/loop.log"), "utf8")).toContain(
+		"MERGED",
+	);
+});
+
+test("generated-asset exemption fails closed without an exclusion config", () => {
+	// absent .qlty/qlty.toml → qltyExcludePatterns null → the heuristic
+	// keeps its original verdict on the same shape (exempt nothing)
+	const { repo } = fixture("export const valid = 1;\n");
+	mkdirSync(join(repo, "vendor"), { recursive: true });
+	writeFileSync(
+		join(repo, "vendor/generated.js"),
+		`${"// drifted expanded build line\n".repeat(230)}`,
+	);
+	git(repo, "add", "vendor/generated.js");
+	git(repo, "commit", "-m", "seed drifted asset");
+	const seeded = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "branch", "-D", "suspenders/GUARD");
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	writeFileSync(join(repo, "vendor/generated.js"), "export const built=1;\n");
+	git(repo, "add", "vendor/generated.js");
+	git(repo, "commit", "-m", "rebuild asset");
 	git(repo, "checkout", "main");
 	ship(repo);
 	rejected(repo, seeded);

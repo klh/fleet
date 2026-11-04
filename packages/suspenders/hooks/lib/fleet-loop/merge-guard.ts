@@ -1,14 +1,14 @@
-import { setting } from "@klh/settings";
 import {
 	chmodSync,
 	existsSync,
-	unlinkSync,
 	mkdirSync,
 	realpathSync,
 	renameSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
+import { setting } from "@klh/settings";
 import {
 	addedDiffLines,
 	findingsText,
@@ -17,6 +17,7 @@ import {
 } from "../gates/scrub.ts";
 import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
+import { qltyExcluded, qltyExcludePatterns } from "./qlty-exclusions.ts";
 
 type Result = { code: number; tail: string };
 type Options = {
@@ -87,9 +88,20 @@ function validateTree(repo: string, before: string, tree: string): Result {
 		.split("\n")
 		.map((line) => line.split("\t"))
 		.filter((row) => row.length === 3 && row[2]);
+	// W2680: generated assets the repo itself declares outside lint scope
+	// (qlty exclude_patterns — vendor dirs, min.* bundles) are byte-managed
+	// by their own parity guards (vendor-hash), not by line arithmetic. A
+	// canonical rebuild that un-reformats drifted bytes shrinks them by
+	// thousands; the shrink heuristic must not read that as hand deletion.
+	// Fail-closed: an absent/malformed config (null) exempts NOTHING.
+	const exclusions = qltyExcludePatterns(repo);
+	const generated = (path: string): boolean =>
+		exclusions !== null && qltyExcluded(exclusions, path);
 	const shrunk = rows.filter(
-		([added, removed]) =>
-			Number(removed) >= 200 && Number(removed) >= Number(added) * 10,
+		([added, removed, path]) =>
+			Number(removed) >= 200 &&
+			Number(removed) >= Number(added) * 10 &&
+			!generated(path),
 	);
 	const movedIntoAdded = movedLinesIntoAddedFiles(
 		repo,
@@ -100,7 +112,9 @@ function validateTree(repo: string, before: string, tree: string): Result {
 	for (const [added, removed, path] of rows) {
 		const addCount = Number(added);
 		const loss = Number(removed) - (movedIntoAdded.get(path) ?? 0);
-		if (loss >= 200 && loss >= addCount * 10) {
+		// W2680: same generated-asset boundary as above — a qlty-excluded
+		// path's shrink is byte-managed (vendor parity), never hand deletion.
+		if (loss >= 200 && loss >= addCount * 10 && !generated(path)) {
 			if (!TEST_FILE.test(path))
 				return fail(
 					`merge guard: candidate removes ${loss} lines from ${JSON.stringify(path)} with only ${addCount} added`,

@@ -10,10 +10,10 @@
 // (3) residual `left` recounts after the fallback pass; (4) the exclusion
 // reader resolves the repo's real exclude set (no second ignore list).
 
-import { expect, test } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { biomeBin, qltyFixMergedFiles } from "../hooks/lib/fleet-loop/merge.ts";
 import {
 	qltyExcluded,
@@ -124,13 +124,35 @@ test.describe("@unit W2590 merge-fix exclusions", () => {
 		expect(qltyExcludePatterns(broken.repo)).toBeNull();
 	});
 
+	// W2680: qltyFixMergedFiles is documented fail-open without qlty on PATH
+	// (have() probe in merge.ts) — a lane without the bin pins THAT contract
+	// here; a qlty-provisioned lane pins the full writer path. Both are real
+	// assertions, no environment-conditional skip.
+	const qltyOnPath =
+		Bun.spawnSync(["sh", "-c", "command -v qlty"], { stdout: "ignore" })
+			.exitCode === 0;
 	test("fallback fixes the admitted source; excluded vendor bytes identical", () => {
+		const { repo, srcRel, vendorRel } = mergedFixture();
+		const vendorBefore = readFileSync(join(repo, vendorRel));
+		if (!qltyOnPath) {
+			// documented fail-open: no writer, no commit, vendor bytes intact
+			const r = qltyFixMergedFiles({
+				repo,
+				branch: "suspenders/W9990",
+				files: [srcRel, vendorRel],
+			});
+			expect(r.fixed).toBe(false);
+			expect(r.head).toBeNull();
+			expect(r.left).toBe(0);
+			expect(readFileSync(join(repo, vendorRel)).equals(vendorBefore)).toBe(
+				true,
+			);
+			return;
+		}
 		// qlty ships the biome cache on every fleet machine (biomeBin probes
 		// ~/.qlty/cache); a genuinely missing binary resolves null and the
 		// helper skips the fallback — pinned by the reader test's null cases
 		expect(biomeBin()).not.toBeNull();
-		const { repo, srcRel, vendorRel } = mergedFixture();
-		const vendorBefore = readFileSync(join(repo, vendorRel));
 		const r = qltyFixMergedFiles({
 			repo,
 			branch: "suspenders/W9990",
@@ -138,7 +160,7 @@ test.describe("@unit W2590 merge-fix exclusions", () => {
 		});
 		expect(r.fixed).toBe(true);
 		expect(r.head).not.toBeNull();
-		// the admitted source got the fallback correction (a!.b → a?.b)
+		// the admitted source got the fallback correction (non-null → optional)
 		const fixedSrc = readFileSync(join(repo, srcRel), "utf8");
 		expect(fixedSrc).toContain("a?.b");
 		expect(fixedSrc).not.toContain("a!.b");
