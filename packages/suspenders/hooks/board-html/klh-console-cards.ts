@@ -6,11 +6,14 @@
 // cards render tokens-styled shadow DOM. Built by `bun run build:vendor` to
 // vendor/klh-console-cards.js — offline, never CDN. Type-only exports are
 // the server↔component seam (erased at bundle time).
-import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { css, html, LitElement, nothing, type TemplateResult } from "lit";
 import { cardCss } from "./klh-console-card-css.ts";
 // W858.10.3 — the Network overview card defines <klh-network-card> (same
 // bundle, no new allowlist entry; its type imports are erased at bundle time)
 import "./klh-network-card.ts";
+// W2673 — the live gateway flow card defines <klh-gateway-flow-card> (same
+// bundle + pattern: SSR host on /console/buckle, live poll of the flow feed)
+import "./klh-gateway-flow-card.ts";
 
 // interleaves separator strings between rendered parts (flatMap, never
 // nested arrays — the parts array goes straight into lit-html)
