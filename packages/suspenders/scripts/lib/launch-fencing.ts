@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { openStore, type GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
 import { sameMachine } from "../../hooks/lib/host-identity.ts";
+import { TERMINAL_WORK_STATES } from "./intent-reconcile.ts";
 import { compareProcessBirth, darwinProcessBirth } from "./process-birth.ts";
 
 export type LaunchIntent = {
@@ -159,7 +160,11 @@ export function launchSchema(store: GovernorStore): void {
  * never be live again — stamp FORGOTTEN once, guarded by a facts marker so
  * the sweep cost is one indexed SELECT on steady state. */
 const FORGET_SWEEP_KEY = "launch-intent.forget-sweep-v1";
-const TERMINAL_WORK_STATES = "('DONE','FAILED','CANCELLED','SUPERSEDED','SHATTERED')";
+// W2700 merge note: renamed from TERMINAL_WORK_STATES — the W2262 import of
+// the same name (array form) collided with this SQL-string const; each use
+// site keeps its authored shape (line 174 SQL, heldLaunchReport array).
+const TERMINAL_WORK_STATES_SQL =
+	"('DONE','FAILED','CANCELLED','SUPERSEDED','SHATTERED')";
 export function forgetTerminalIntents(store: GovernorStore): void {
 	const have = store
 		.query(
@@ -170,7 +175,7 @@ export function forgetTerminalIntents(store: GovernorStore): void {
 	if (store.query("SELECT value FROM facts WHERE key=?").get(FORGET_SWEEP_KEY))
 		return;
 	store.run(
-		`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE state NOT IN ('FAILED','FORGOTTEN') AND EXISTS (SELECT 1 FROM work_items w WHERE w.project=${TABLE}.project AND w.id=${TABLE}.item AND w.state IN ${TERMINAL_WORK_STATES})`,
+		`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE state NOT IN ('FAILED','FORGOTTEN') AND EXISTS (SELECT 1 FROM work_items w WHERE w.project=${TABLE}.project AND w.id=${TABLE}.item AND w.state IN ${TERMINAL_WORK_STATES_SQL})`,
 	);
 	store
 		.query(
@@ -447,6 +452,16 @@ export function heldLaunchReport(
 		if (workStates.get(row.item) === "terminal") continue;
 		const verdict = inspect(row);
 		if (verdict === "dead") continue;
+		// W2262: a terminal-work intent (DONE/SUPERSEDED/CANCELLED/FAILED
+		// item) is dead weight even when its process verdict is unknown —
+		// no live claim exists for the fence to protect. Fenced row-state
+		// reconciliation (reconcileTerminalLaunchIntents) owns the actual
+		// state flip + audit; this read just stops the phantom slot from
+		// counting. A live or ambiguous NONTERMINAL intent keeps holding.
+		const w = store
+			.query("SELECT state FROM work_items WHERE project=? AND id=?")
+			.get(project, row.item) as { state: string } | null;
+		if (w && TERMINAL_WORK_STATES.includes(w.state)) continue;
 		const step = reprobeStep(store, row, verdict, now);
 		if (step === "exhausted" || step === "still-exhausted") {
 			const prior = readReprobeSpec(store, row.project, row.item);
