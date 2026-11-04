@@ -1,4 +1,4 @@
-import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{R,C,O}from"./lit-d7542ba252e61217.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{M,C,O}from"./lit-c8de1d9fdc736208.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
 		${d(O)}
 		:host {
 			display: block;
@@ -154,7 +154,7 @@ import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{R,C,O}from"./lit-d7542ba25
 								<label>
 									<input
 										type="radio"
-										name=${R}
+										name=${M}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}
