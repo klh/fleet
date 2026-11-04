@@ -378,3 +378,109 @@ test("W2270 guarded ship with hooks installed still publishes", () => {
 		"MERGED",
 	);
 });
+
+test("W2681 merge-time qlty autofix rides the granted publish, never a second main commit", () => {
+	const world = hookWorld();
+	const { repo } = world;
+	const before = git(repo, "rev-parse", "HEAD").out;
+	git(repo, "checkout", "-b", "suspenders/GUARD");
+	// minimal qlty setup (same shape as w869-quality-timing): the scratch
+	// worktree the guard merges in must find a .qlty config for the fix pass
+	mkdirSync(join(repo, ".qlty"), { recursive: true });
+	writeFileSync(
+		join(repo, ".qlty", "qlty.toml"),
+		readFileSync(join(import.meta.dir, "../.qlty/qlty.toml")),
+	);
+	// linty: non-null assertion is in the promoted fixable rule set
+	writeFileSync(
+		join(repo, "linty.ts"),
+		"const a = { b: 1 };\nexport const k = a!.b;\n",
+	);
+	git(repo, "add", ".qlty", "linty.ts");
+	git(repo, "commit", "-m", "lane");
+	git(repo, "checkout", "main");
+	mkdirSync(join(repo, ".fleet"), { recursive: true });
+	writeFileSync(join(repo, ".fleet", "lanes.json"), "[]");
+	const env = {
+		...process.env,
+		HOME: join(repo, ".test-home"),
+		GOVERNOR_STORE_URL: "",
+		FLEET_UNTRACKED_GRACE_MS: "0",
+		SUSPENDERS_RISK_TIERS: "0",
+	};
+	const seeded = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`
+			import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))};
+			import {reviewContext,publishReviewReceipt} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/gates/review-receipt.ts"))};
+			const db=openStore(), project=projectIdentity();
+			const c=reviewContext(process.cwd(),"suspenders/GUARD");
+			db.query("DELETE FROM sessions WHERE sid='fixture-reviewer' AND project=?").run(project);
+			db.query("INSERT OR REPLACE INTO work_items(project,id,title,state,result_sha,created_at,updated_at) VALUES (?,'GUARD','fixture','DONE',?,?,?)").run(project,c.commit,Date.now(),Date.now());
+			db.run("CREATE TABLE IF NOT EXISTS work_completion_records(project TEXT,item TEXT,commit_sha TEXT,completed_by TEXT)");
+			db.query("INSERT INTO work_completion_records VALUES (?,'GUARD',?,'fixture-author')").run(project,c.commit);
+			db.query("INSERT INTO sessions(sid,project,role,started_at,hb,state) VALUES ('fixture-reviewer',?,'reviewer',?,?,'DONE')").run(project,Date.now(),Date.now());
+			publishReviewReceipt(db,project,'GUARD',{version:1,commit:c.commit,base:c.base,instructions:c.instructions,reviewer:'fixture-reviewer',verdict:'PASS',blocking:[],evidence:'fixture independent review'});
+			db.close();
+		`,
+		],
+		{ cwd: repo, env, stdout: "pipe", stderr: "pipe" },
+	);
+	if (seeded.exitCode !== 0)
+		throw new Error(seeded.stderr.toString().slice(-1500));
+	const ship = Bun.spawnSync(
+		[
+			"bun",
+			join(import.meta.dir, "../hooks/bin/fleet-loop.ts"),
+			"ship",
+			"--repo",
+			repo,
+			"--branch",
+			"suspenders/GUARD",
+		],
+		{ cwd: repo, env, stdout: "pipe", stderr: "pipe" },
+	);
+	const head = git(repo, "rev-parse", "HEAD").out;
+	if (head === before)
+		throw new Error(
+			`ship did not publish: ${ship.stderr.toString().slice(-1500)}\
+${readFileSync(join(repo, ".fleet/loop.log"), "utf8").slice(-3500)}`,
+		);
+	const log = readFileSync(join(repo, ".fleet/loop.log"), "utf8");
+	// the fix landed INSIDE the guarded publish: one QLTY-FIXED receipt, the
+	// published main carries the fixed content, and the autofix commit is an
+	// ancestor of main (part of the single granted fast-forward)
+	expect(log).toContain("QLTY-FIXED");
+	expect(readFileSync(join(repo, "linty.ts"), "utf8")).toContain("a?.b");
+	expect(
+		git(repo, "log", "--grep=merge-time qlty autofix", "--format=%H", "main")
+			.out,
+	).not.toBe("");
+	// exactly one grant was minted and consumed for this publish — the W2270
+	// ledger row binds old→published and is spent
+	const grants = Bun.spawnSync(
+		[
+			"bun",
+			"-e",
+			`import {openStore,projectIdentity} from ${JSON.stringify(join(import.meta.dir, "../hooks/lib/govdb/govdb.ts"))};
+			const db=openStore();
+			const rows=db.query("SELECT item,branch,old_sha,new_sha,consumed_at FROM publish_grants WHERE project=? ORDER BY id").all(projectIdentity(process.argv[1]));
+			console.log(JSON.stringify(rows));
+			db.close();`,
+			repo,
+		],
+		{ cwd: repo, env, stdout: "pipe", stderr: "pipe" },
+	);
+	if (grants.exitCode !== 0)
+		throw new Error(grants.stderr.toString().slice(-1200));
+	const rows = JSON.parse(grants.stdout.toString().trim()) as {
+		item: string;
+		new_sha: string;
+		consumed_at: number | null;
+	}[];
+	expect(rows.length).toBe(1);
+	expect(rows[0]?.consumed_at).not.toBeNull();
+	expect(rows[0]?.new_sha).toBe(head);
+});

@@ -9,9 +9,15 @@ import {
 } from "../gates/scrub.ts";
 import { binaryPaths, blobFindings } from "../gates/scrub-git.ts";
 import { TEST_FILE, testRelocationDelta } from "./merge-guard-relocation.ts";
+import { qltyFixMergedFiles } from "./merge-qlty.ts";
 import { mintPublishGrant } from "./publish-grant.ts";
 
-type Result = { code: number; tail: string };
+type Result = {
+	code: number;
+	tail: string;
+	// W2681: the pre-publish autofix outcome (present only when qltyFix ran)
+	qltyFix?: { fixed: boolean; head: string | null; left: number };
+};
 type Options = {
 	repo: string;
 	callerRepo: string;
@@ -28,6 +34,14 @@ type Options = {
 		project: string;
 		item: string;
 	};
+	// W2681: the W869 merge-time autofix, relocated pre-publish. When set,
+	// qltyFixMergedFiles runs in the scratch worktree right after the ladder
+	// merge (over the merged candidate's own diff vs the base) — the fix
+	// commit becomes part of the single candidate that is then
+	// postflight-validated, final-reviewed, granted and published. A
+	// post-merge fix commit directly on main is impossible under W2270
+	// one-use publish grants; the result rides `qltyFix` on the Result.
+	qltyFix?: { branch: string };
 };
 const MARKERS = "^([<]{7,}|[=]{7,}|[>]{7,}|[|]{7,})([[:space:]].*)?$";
 const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -377,7 +391,7 @@ function mergeCandidate(options: Options): Result {
 		const after = command(scratch, ["git", "rev-parse", "HEAD"]);
 		if (after.code !== 0)
 			return fail("merge guard: cannot resolve ladder result");
-		const sha = after.out.trim();
+		let sha = after.out.trim();
 		if (
 			command(repo, ["git", "merge-base", "--is-ancestor", head, sha]).code !==
 				0 ||
@@ -396,6 +410,32 @@ function mergeCandidate(options: Options): Result {
 		]);
 		if (status.code !== 0 || status.out)
 			return fail("merge guard: ladder left uncommitted integration changes");
+		// W2681: the W869 merge-time autofix, relocated pre-publish — the fix
+		// lands as a commit on the scratch candidate BEFORE postflight, final
+		// review and the grant mint, so the published fast-forward carries it
+		// and no post-merge direct-main commit exists. Fail-open: qlty absent
+		// or a broken run never blocks the merge.
+		let fix: { fixed: boolean; head: string | null; left: number } | undefined;
+		if (options.qltyFix) {
+			fix = qltyFixMergedFiles({
+				repo: scratch,
+				branch: options.qltyFix.branch,
+				files: command(scratch, [
+					"git",
+					"diff",
+					"--name-only",
+					`${head}...${sha}`,
+				])
+					.out.split("\n")
+					.filter(Boolean),
+			});
+			if (fix.fixed) {
+				const fixed = command(scratch, ["git", "rev-parse", "HEAD"]);
+				if (fixed.code !== 0)
+					return fail("merge guard: cannot resolve autofixed candidate");
+				sha = fixed.out.trim();
+			}
+		}
 		const postflight = validateTree(repo, head, sha);
 		if (postflight.code !== 0) return postflight;
 		if (command(repo, ["git", "rev-parse", "HEAD"]).out.trim() !== head)
@@ -428,14 +468,9 @@ function mergeCandidate(options: Options): Result {
 			repo,
 			["git", "merge", "--ff-only", "--no-edit", sha],
 			timeoutMs,
-			{
-				...process.env,
-				FLEET_GUARDED_MAIN_OLD: head,
-				FLEET_GUARDED_MAIN_NEW: sha,
-			},
 		);
 		return publish.code === 0
-			? { code: 0, tail: "" }
+			? { code: 0, tail: "", ...(fix ? { qltyFix: fix } : {}) }
 			: fail(`merge guard: publication refused: ${publish.err.slice(-1600)}`);
 	} catch (error) {
 		return fail(
