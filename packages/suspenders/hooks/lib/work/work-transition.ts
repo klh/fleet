@@ -11,6 +11,7 @@
 // release/reclaim stay on releaseWorkClaim's own CAS (work-release.ts) —
 // already fenced.
 import type { GovernorStore } from "../govdb/govdb.ts";
+import { forgetLaunchIntent } from "../../../scripts/lib/launch-fencing.ts";
 
 export const CLAIM_EPOCH_ENV = "KLH_CLAIM_EPOCH";
 
@@ -155,6 +156,10 @@ export function transitionStateOrDie(
 	die: (m: string) => never,
 ): void {
 	transitionOrDie(store, fenceOf(project, it, epoch), { state }, die);
+	// W2313: FAILED is terminal for the claim — the lane's launch intent can
+	// never be live again (RUNNING is not; a started lane keeps its intent).
+	if (state === "FAILED")
+		forgetLaunchIntent(store, project, String(it.id));
 }
 
 /** done's double fence (W643 token + W609/W2186 epoch), CAS-then-write:
@@ -186,6 +191,8 @@ export function doneCas(
 		throw new Error(
 			`${String(it.id)} claim changed — stale writer refused (never clobber)`,
 		);
+	// W2313: the item is terminal — its launch intent can never be live again.
+	forgetLaunchIntent(store, project, String(it.id));
 	onWin();
 }
 
