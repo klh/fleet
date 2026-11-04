@@ -23,7 +23,13 @@ const template = readFileSync(
 	join(import.meta.dir, "../deploy/hub-compose.yaml"),
 	"utf8",
 );
-const compose = parse(template, { merge: true }) as {
+// maxAliasCount: the template's per-service merge anchors (*default-logging,
+// *runtime-hardening) multiply its default-100 guard as services accumulate;
+// 500 leaves headroom for the optional profile blocks (W2329 dataplane).
+const compose = parse(template, {
+	merge: true,
+	maxAliasCount: 500,
+}) as {
 	services: Record<string, Svc>;
 };
 
