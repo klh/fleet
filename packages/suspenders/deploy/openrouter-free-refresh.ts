@@ -14,9 +14,6 @@ import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
 
 /** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
  *  inherited env value or the central profile bound to that env NAME. */
-
-/** W1124.8.4: true when an OPENROUTER_API_KEY binding exists — the
- *  inherited env value or the central profile bound to that env NAME. */
 export const inferenceKeyReady = (
 	stackPath: string = PROVIDER_STACK_PATH(),
 ): boolean => {
