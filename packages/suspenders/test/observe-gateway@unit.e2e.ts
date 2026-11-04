@@ -21,13 +21,17 @@ const notFoundStderr = say(
 );
 const notFoundStdout = say(1, `${LABEL}:\nCould not find specified service\n`);
 
-/** rc 0 print body with a live pid + arguments block. */
+/** rc 0 print body with a live pid + arguments block. The pid rides the
+ * file's unprovable-pid idiom (999999999, as in the not-running-with-pid
+ * case): outside every reachable pid range on any host, so processBirth
+ * finds no process — the running-row test below asserts the fail-closed
+ * throw, never a host-conditional verdict on pid 4321 being absent. */
 const runningPrint = (): PrintResult => {
 	const body = [
 		`${LABEL} = {`,
 		"\tactive count = 1",
 		"\tstate = running",
-		"\tpid = 4321",
+		"\tpid = 999999999",
 		"\targuments = {",
 		"\t\t/usr/local/bin/bun",
 		`\t\t/gen/.harness/packages/buckle/src/server.bundle.js`,
