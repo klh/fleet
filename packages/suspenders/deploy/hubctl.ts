@@ -477,6 +477,8 @@ function pushRepoTierPolicy(hub: HubProfile, dir: string): void {
 	const dest = `${dir}/repo-tier-policy.yaml`;
 	const destQ = JSON.stringify(dest);
 	if (source) {
+		// local hubs preflight existsSync; ssh hubs cannot — the remote cat
+		// is `-chained (below) so a missing remote source fails the push.
 		if (!hub.deploy?.ssh && !existsSync(source))
 			throw new Error(
 				`secrets.repo_tier_policy ${source} configured but missing — refusing to push with the boundary staged from nowhere`,
@@ -489,9 +491,12 @@ function pushRepoTierPolicy(hub: HubProfile, dir: string): void {
 			console.log(`+ ${dest} (already staged — source is the deploy file)`);
 			return;
 		}
+		// `-chained`: a `;`-chained cat on a missing remote source would
+		// leave dest TRUNCATED-EMPTY with exit 0 — a silently disabled
+		// boundary staged as the bind source. cat failure must fail push.
 		runOnHub(
 			hub,
-			`umask 077; cat ${JSON.stringify(source)} > ${destQ}; chmod 600 ${destQ}`,
+			`umask 077; cat ${JSON.stringify(source)} > ${destQ} && chmod 600 ${destQ}`,
 		);
 		console.log(`+ ${dest} (staged from ${source})`);
 		return;
