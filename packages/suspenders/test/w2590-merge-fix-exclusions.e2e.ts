@@ -10,7 +10,7 @@
 // (3) residual `left` recounts after the fallback pass; (4) the exclusion
 // reader resolves the repo's real exclude set (no second ignore list).
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
@@ -47,9 +47,15 @@ const VENDOR = [
 	"",
 ].join("\n");
 
+const SCRATCH = join(import.meta.dir, "..", "..", ".scratch-w2590");
 const worlds: ReturnType<typeof scratchWorld>[] = [];
 test.afterAll(() => {
 	for (const w of worlds.splice(0)) w.clean();
+	// the parent dir sits under packages/ — an empty leftover trips the
+	// workspace-glob check (check-p1) on the next push; remove it once all
+	// worlds are gone (bounded second pass: rmSync leaves .git dirs behind)
+	rmSync(SCRATCH, { recursive: true, force: true });
+	rmSync(SCRATCH, { recursive: true, force: true });
 });
 
 /** A merged-branch shape: the real suspenders qlty.toml (biome plugin +
@@ -61,9 +67,8 @@ function mergedFixture(): {
 	srcRel: string;
 	vendorRel: string;
 } {
-	const dir = join(import.meta.dir, "..", "..", ".scratch-w2590");
-	mkdirSync(dir, { recursive: true });
-	const w = scratchWorld({ prefix: "w2590-", dir });
+	mkdirSync(SCRATCH, { recursive: true });
+	const w = scratchWorld({ prefix: "w2590-", dir: SCRATCH });
 	worlds.push(w);
 	const repo = w.repo;
 	// repo-local identity — the helper's internal git spawns carry lane env
@@ -108,7 +113,7 @@ test.describe("@unit W2590 merge-fix exclusions", () => {
 		// either — the resolver reads repo-root config only, no ancestor walk.
 		const bare = scratchWorld({
 			prefix: "w2590-bare-",
-			dir: join(import.meta.dir, "..", "..", ".scratch-w2590"),
+			dir: SCRATCH,
 		});
 		worlds.push(bare);
 		expect(qltyExcludePatterns(bare.repo)).toBeNull();
@@ -116,7 +121,7 @@ test.describe("@unit W2590 merge-fix exclusions", () => {
 		// result above is cached per path)
 		const broken = scratchWorld({
 			prefix: "w2590-broken-",
-			dir: join(import.meta.dir, "..", "..", ".scratch-w2590"),
+			dir: SCRATCH,
 		});
 		worlds.push(broken);
 		mkdirSync(join(broken.repo, ".qlty"), { recursive: true });
