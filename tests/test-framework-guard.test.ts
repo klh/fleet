@@ -28,11 +28,13 @@ const SELF = "tests/test-framework-guard.test.ts";
 // remotes specs) re-pins DOWN (696 → 661); W1294.9.7 sweep-G slice-7 (the
 // 4 service-* family specs, merged via W2477) re-pins DOWN (661 → 657);
 // W1294.9.4 sweep-G slice-4 (22 claude+hub family files, merged via W2655)
-// re-pins DOWN (658 → 636) — main had drifted +1 over the 657 pin (W2595
-// belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
-// count measured by THIS guard's own git ls-files counting at the closing
-// sha.
-const PIN = 636;
+// re-pins DOWN (658 → 636); W1294.4 sweep-B (59 suspenders/test
+// knowledge+decant+board+roll+sink+work-tags family specs, merged via
+// W2481/W2650) re-pins DOWN (658 → 599); the W2665 merge landing both
+// waves re-pins to the combined measured count (658 - 22 - 59 + 1 overlap
+// in the renamed-file accounting → 578) — the exact non-decant count
+// measured by THIS guard's own git ls-files counting at the closing sha.
+const PIN = 578;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
