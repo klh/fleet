@@ -262,7 +262,8 @@ cd fleet
 bun install --frozen-lockfile
 
 # Focused checks of shared condensing, board transforms and lane credentials.
-bun test packages/blam/test/condense.test.ts packages/suspenders/test/prompt-transform.test.ts packages/suspenders/test/lane-auth.test.ts
+bun --bun playwright test --config=packages/blam/test/playwright.config.ts --project=unit condense
+bun --bun playwright test --config=packages/suspenders/test/playwright.config.ts --project=unit prompt-transform-phases lane-auth
 
 # Run the board from the checkout.
 bun packages/suspenders/hooks/bin/fleet-board.ts
