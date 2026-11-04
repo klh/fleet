@@ -219,6 +219,10 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_REVIEW_ROUND_CAP", "conf"),
 	k("SUSPENDERS_REVIEW_STEPDOWN_CLASSES", "conf"),
 	k("SUSPENDERS_REVIEW_TRANSPORT_PARK", "conf", "review.transport_park"),
+	// W1303.5/W2478 risk-tier gate: the merge ladder's operator escape hatch
+	// (manual merges). Row landed with W2722 — the knob rode the W2671
+	// lineage merge without one.
+	k("SUSPENDERS_RISK_TIERS", "conf", "fleet_loop.risk_tiers"),
 	k("SUSPENDERS_ROLL_KEYS_FILE", "conf"),
 	k("SUSPENDERS_RUNAWAY", "conf"),
 	k("SUSPENDERS_RUNAWAY_FAIL_STREAK", "conf"),
