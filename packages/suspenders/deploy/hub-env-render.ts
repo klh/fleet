@@ -129,6 +129,14 @@ export function renderEnv(
 		kv("HUB_KNOWLEDGE_SINK_PORT", hub.knowledge.port);
 		kv("HUB_KNOWLEDGE_SINK_HEALTH_PORT", hub.knowledge.health_port);
 	}
+	// W2329: the dataplane face — declaring `dataplane:` enables the profile
+	// (dataplane-api container + its health probe sidecar, knowledge-sink
+	// pattern); own port, never the LLM gateway front door.
+	if (hub.dataplane) {
+		profiles.push("dataplane");
+		kv("HUB_DATAPLANE_PORT", hub.dataplane.port);
+		kv("HUB_DATAPLANE_HEALTH_PORT", hub.dataplane.health_port);
+	}
 	// W2595: litellm behind every buckle — declaring `litellm:` enables the
 	// profile (engine container + health sidecar); the operator-maintained
 	// 0600 litellm.yaml + copilot token cache sit beside the compose dir.

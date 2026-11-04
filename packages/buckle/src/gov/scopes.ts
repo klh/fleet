@@ -10,7 +10,8 @@ export type BuckleResource =
 	| "admin"
 	| "spoke"
 	| "store"
-	| "knowledge";
+	| "knowledge"
+	| "dataplane";
 
 /** All concrete scopes; root = this exact list, no wildcards.
  *  W154 adds the spoke pair: federation pull surfaces (policy manifest,
@@ -19,7 +20,10 @@ export type BuckleResource =
  *  scope minted per dev device/lane; WRITE_ = hub-side sync verbs).
  *  W1218 adds the knowledge pair: READ_ = the /knowledge/sql direct
  *  read-only face; QUERY_ = the /knowledge/query NL translator face
- *  (implies nothing — a query key burns LLM tokens, minted deliberately). */
+ *  (implies nothing — a query key burns LLM tokens, minted deliberately).
+ *  W2329 adds the dataplane pair: READ_ = List/Get on the dataplane
+ *  resource face; WRITE_ = Create/Update/Delete + custom methods
+ *  (docs/design/dataplane-api.md). */
 export const ALL_SCOPES: readonly string[] = [
 	"buckle:proxy:READ_",
 	"buckle:proxy:WRITE_",
@@ -31,6 +35,8 @@ export const ALL_SCOPES: readonly string[] = [
 	"buckle:store:WRITE_",
 	"buckle:knowledge:READ_",
 	"buckle:knowledge:QUERY_",
+	"buckle:dataplane:READ_",
+	"buckle:dataplane:WRITE_",
 ];
 
 /** Normalize+validate one scope string; null when not buckle-shaped. */

@@ -23,7 +23,13 @@ const template = readFileSync(
 	join(import.meta.dir, "../deploy/hub-compose.yaml"),
 	"utf8",
 );
-const compose = parse(template, { merge: true }) as {
+// maxAliasCount: the template's per-service merge anchors (*default-logging,
+// *runtime-hardening) multiply its default-100 guard as services accumulate;
+// 500 leaves headroom for the optional profile blocks (W2329 dataplane).
+const compose = parse(template, {
+	merge: true,
+	maxAliasCount: 500,
+}) as {
 	services: Record<string, Svc>;
 };
 
@@ -80,6 +86,22 @@ test("belt_model and knowledge combine into one profiles line", () => {
 	expect(out).toContain("COMPOSE_PROFILES=belt-model,knowledge");
 });
 
+// Coverage-proof (W1262) runs plain `bun test`, which collects only
+// *.test.ts files — the W2329 dataplane contract pins HERE so a tree
+// without the branch (stack-config dataplane schema + hub-profiles
+// accumulation) fails the reverted run; the sibling hub-dataplane.e2e.ts
+// spec is playwright-only, invisible to the proof.
+test("declared dataplane block rides one accumulated profiles line (W2329)", () => {
+	const out = render({
+		host: "127.0.0.1",
+		knowledge: { port: 7802, health_port: 7803 },
+		dataplane: { port: 7804, health_port: 7805 },
+	});
+	expect(out).toContain("HUB_DATAPLANE_PORT=7804");
+	expect(out).toContain("HUB_DATAPLANE_HEALTH_PORT=7805");
+	expect(out).toContain("COMPOSE_PROFILES=knowledge,dataplane");
+});
+
 test("sink runs the real knowledge-api face on the hub-state volume", () => {
 	const sink = compose.services["knowledge-sink"];
 	expect(sink.profiles).toEqual(["knowledge"]);
@@ -96,6 +118,31 @@ test("sink runs the real knowledge-api face on the hub-state volume", () => {
 	// a key env — auth is the W1213 scoped roll key + the install write token.
 	for (const [k] of Object.entries(sink.environment))
 		expect(k, "no credential env on the sink").not.toMatch(/KEY|TOKEN|SECRET/);
+});
+
+// Same coverage-proof lever on the template side: the dataplane-api face +
+// probe sidecar exist only on this branch's hub-compose.yaml; the reverted
+// main template has no such services, so the template asserts fail there.
+test("dataplane face + probe sidecar ride the template (W2329)", () => {
+	const api = compose.services["dataplane-api"];
+	expect(api.profiles).toEqual(["dataplane"]);
+	expect(String(api.command)).toContain(
+		"suspenders/hooks/bin/dataplane-api.ts",
+	);
+	expect(api.volumes).toContain("hub-state:/state/hub-home");
+	expect(api.environment.HOME).toBe("/state/hub-home");
+	// W1141 posture: the face never gets a credential env — bksk_ keys
+	// arrive per request as Bearer headers.
+	for (const [k] of Object.entries(api.environment))
+		expect(k, "no credential env on the face").not.toMatch(/KEY|TOKEN|SECRET/);
+	const health = compose.services["dataplane-health"];
+	expect(health.profiles).toEqual(["dataplane"]);
+	expect(String(health.command)).toContain("deploy/healthcheck/probe.ts");
+	expect(health.depends_on["dataplane-api"].condition).toBe("service_started");
+	// sidecars never hold state
+	expect((health.volumes ?? []).some((v) => String(v).includes("-state"))).toBe(
+		false,
+	);
 });
 
 test("health rides the outside-process probe sidecar (owner law)", () => {
