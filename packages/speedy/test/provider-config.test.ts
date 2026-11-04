@@ -7,9 +7,11 @@ import { join } from "node:path";
 import {
 	loadProviderConfig,
 	PROVIDER_STACK_PATH,
+	type ProviderEntry,
+	profileForEndpoint,
+	profileForEnv,
 	resolveProvider,
 	validateProviderConfig,
-	type ProviderEntry,
 } from "../src/provider-config.ts";
 
 let home = "";
@@ -257,5 +259,43 @@ describe("resolveProvider", () => {
 				broken: { provider: "zai", key: "" },
 			}),
 		).toThrow(/profile broken: key/);
+	});
+});
+
+describe("profileForEnv / profileForEndpoint lookups", () => {
+	const providers: Record<string, ProviderEntry> = {
+		"zai-coding": {
+			provider: "zai",
+			key: "fake-key-coding",
+			env: "ZAI_CODING_API_KEY",
+			endpoints: {
+				openai: "https://api.example/v1",
+				anthropic: "https://api.example/anthropic",
+			},
+		},
+		"zai-general": {
+			provider: "zai",
+			key: "fake-key-general",
+			endpoints: { openai: "https://general.example/v1" },
+		},
+	};
+
+	test("profileForEnv resolves by OUTPUT binding, null when absent", () => {
+		const r = profileForEnv("ZAI_CODING_API_KEY", providers);
+		expect(r?.name).toBe("zai-coding");
+		expect(profileForEnv("ZAI_ABSENT", providers)).toBeNull();
+	});
+
+	test("profileForEndpoint matches by declared endpoint URL, not name", () => {
+		expect(
+			profileForEndpoint("openai", "https://general.example/v1", providers)
+				?.name,
+		).toBe("zai-general");
+		expect(
+			profileForEndpoint("openai", "https://api.example/v1", providers)?.name,
+		).toBe("zai-coding");
+		expect(
+			profileForEndpoint("catalog", "https://api.example/v1", providers),
+		).toBeNull();
 	});
 });
