@@ -312,7 +312,10 @@ button.dismiss { background:none; border:none; padding:0; color:var(--klh-dim); 
 .kstatusnav button[data-tone="done"], .kcol[data-tone="done"], .kcard[data-tone="done"] { --state-color:var(--work-done); }
 .kstatusnav button[data-tone="split"], .kcol[data-tone="split"], .kcard[data-tone="split"] { --state-color:var(--work-split); }
 .kstatusnav button[data-tone="cancelled"], .kcol[data-tone="cancelled"], .kcard[data-tone="cancelled"] { --state-color:var(--work-cancelled); }
-.kwrap { overflow-x:auto; }
+/* W2672: a VISIBLE horizontal affordance — macOS overlay scrollbars render
+   nothing until a gesture, so 4 of 7 columns read as cut off; a stable
+   gutter both shows the rail and stops the wrap's height lurching. */
+.kwrap { overflow-x:auto; scrollbar-width:thin; }
 .kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
 /* W2267.4.2.2: 360–420px readable columns (09-implementation-visual-spec)
    — the kanban scrolls horizontally inside .kwrap when they don't fit. */
