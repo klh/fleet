@@ -505,4 +505,5 @@ ${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPOR
 <script type="module" src="/vendor/klh-board-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions.js"></script>
+<script type="module" src="/vendor/klh-card-activity.js"></script>
 <script type="module" src="/vendor/klh-board-register.js"></script>`);
