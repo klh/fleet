@@ -189,26 +189,30 @@ test("bootstrap preserves exact persisted UUID and refuses fork, wrong UUID or c
 
 test("checkpointed retirement waits for both actual child processes before one replacement", async () => {
 	const f = fixture();
+	// Pid hand-over rides a file, not stdout — async child stdout pipes
+	// deliver a spurious empty first read under the playwright worker
+	// (probed 2026-10-27); stdout:"ignore" spawns keep Bun.spawn.
+	const pidFile = join(dirname(f.snapshot.settings), "old-native.pid");
 	const old = Bun.spawn(
 		[
 			process.execPath,
 			"-e",
-			'const child=Bun.spawn([process.execPath,"-e","setInterval(()=>{},1000)"],{stdout:"ignore",stderr:"ignore"});console.log(child.pid);process.on("SIGTERM",async()=>{child.kill("SIGTERM");await child.exited;process.exit(0);});setInterval(()=>{},1000);',
+			`const {writeFileSync}=require("node:fs");const child=Bun.spawn([process.execPath,"-e","setInterval(()=>{},1000)"],{stdout:"ignore",stderr:"ignore"});writeFileSync(${JSON.stringify(pidFile)},String(child.pid));process.on("SIGTERM",async()=>{child.kill("SIGTERM");await child.exited;process.exit(0);});setInterval(()=>{},1000);`,
 		],
-		{ stdout: "pipe", stderr: "pipe" },
+		{ stdout: "ignore", stderr: "ignore" },
 	);
-	const reader = old.stdout.getReader();
-	const line = await reader.read();
-	reader.releaseLock();
-	// port delta: playwright's worker env forces color, so the child's
-	// console.log(pid) arrives ANSI-wrapped — strip the escapes before
-	// parsing (runtime-built RegExp; no control char in source).
-	const nativePid = Number(
-		new TextDecoder()
-			.decode(line.value ?? new Uint8Array())
-			.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "")
-			.trim(),
-	);
+	let nativePid = 0;
+	for (let i = 0; i < 100 && !nativePid; i++) {
+		await new Promise((r) => setTimeout(r, 20));
+		try {
+			nativePid = Number(readFileSync(pidFile, "utf8").trim());
+		} catch {
+			// wrapper not ready yet
+		}
+	}
+	const waitExit = new Promise<void>((resolve) => {
+		old.exited.then(() => resolve());
+	});
 	const oldBirth = processBirth(old.pid);
 	const nativeBirth = processBirth(nativePid);
 	if (!oldBirth || !nativeBirth)
@@ -222,7 +226,7 @@ test("checkpointed retirement waits for both actual child processes before one r
 	};
 	f.deps.retire = async () => {
 		old.kill("SIGTERM");
-		await old.exited;
+		await waitExit;
 	};
 	f.deps.start = async () => {
 		expect(processBirth(old.pid)).toBe(false);
@@ -246,7 +250,7 @@ test("checkpointed retirement waits for both actual child processes before one r
 			replacement.kill();
 			await replacement.exited;
 		}
-		await old.exited;
+		await waitExit;
 	}
 });
 

@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { verifyRestartDrain } from "../scripts/lib/claude-restart-drain.ts";
+import { expect, test } from "@playwright/test";import { verifyRestartDrain } from "../scripts/lib/claude-restart-drain.ts";
 
 interface Row {
 	rid: string;
