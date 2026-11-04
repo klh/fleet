@@ -1,5 +1,5 @@
-import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{R,C,O}from"./lit-d7542ba252e61217.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${d(O)}
+import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{I,L,N}from"./lit-eb4b58641899178b.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
+		${h(N)}
 		:host {
 			display: block;
 		}
@@ -150,11 +150,11 @@ import{d,r,e,n}from"./lit-9ab93f5debb235da.js";import{R,C,O}from"./lit-d7542ba25
 				<div class="klh-settings-panel" role="group" aria-label="settings">
 					<fieldset class="klh-theme">
 						<legend>theme</legend>
-						${C.map((t)=>e`
+						${L.map((t)=>e`
 								<label>
 									<input
 										type="radio"
-										name=${R}
+										name=${I}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}

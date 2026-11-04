@@ -306,3 +306,43 @@ test("unsubmitted drafts survive an unrelated recovery (root #103404)", {
 	await expect(host.locator(execSel)).toHaveValue("codex");
 	await expect(host.locator(effortSel)).toHaveValue("medium");
 });
+
+test("an open picker defers the structural swap until it closes (review N1)", {
+	tag: "@ui",
+}, async ({ page, cleanBoard }) => {
+	const ready = cleanBoard.mintedId(
+		cleanBoard.workOk(["add", "defer probe ready item"], "add"),
+	);
+	await openLanes(page, cleanBoard);
+	const host = hostOf(page, ready);
+	await expect(host).toBeVisible({ timeout: 20_000 });
+	const execSel = `klh-task-card select.seg[aria-label="executor for ${ready}"]`;
+	// focus the picker WITHOUT submitting — the guard's defer window
+	await host.locator(execSel).focus();
+	// make the feed STRUCTURAL (a new item lands mid-pick) and let ≥2 ticks pass
+	const other = cleanBoard.mintedId(
+		cleanBoard.workOk(["add", "defer probe second item"], "add"),
+	);
+	await page.waitForTimeout(2500);
+	// the swap deferred through every tick: the focused select node SURVIVED
+	// and the new item has NO card yet (no rebuild happened). Shadow-DOM
+	// focus retargets to the host — the composed chain must contain the
+	// select (same walk the guard does).
+	const sameNode = await host.locator(execSel).evaluate((el) => {
+		let n: Element | null = document.activeElement;
+		while (n) {
+			if (n === el) return true;
+			n = n.shadowRoot ? n.shadowRoot.activeElement : null;
+		}
+		return false;
+	});
+	expect(sameNode).toBe(true);
+	await expect(hostOf(page, other)).toHaveCount(0);
+	// closing the picker lets the deferred swap land on the next tick
+	await host.locator(execSel).blur();
+	await expect(
+		page.locator(
+			`.kcol[data-kcol-key="READY"] klh-task-card-host[data-kid="${other}"]`,
+		),
+	).toBeVisible({ timeout: 20_000 });
+});

@@ -215,8 +215,10 @@ export class KlhTaskCardHost extends LitElement {
 
 	/** Quiet context lines: execution proof AND wait/blocked/split reasons —
 	 * #103191: each rides its OWN compact visible line (a single joined
-	 * line truncated the split/wait context away); the tail is the
-	 * fallback only. */
+	 * line truncated the split/wait context away). #103658: the bound
+	 * lane's last-output tail is card information too — it renders as its
+	 * own bounded line AFTER the structural context (deduped when a prior
+	 * part already says the same thing), never suppressed by it. */
 	private contextLinesOf(t: KanbanTask): string[] {
 		const parts: string[] = [];
 		const ex = t.execution;
@@ -234,9 +236,9 @@ export class KlhTaskCardHost extends LitElement {
 		if (blocked.length) parts.push(`waiting on ${blocked.join(", ")}`);
 		const waiting = t.waiting_on ?? [];
 		if (waiting.length) parts.push(`split into ${waiting.join(", ")}`);
-		if (parts.length) return parts;
 		const tail = t.tail?.text?.trim();
-		return tail ? [tail] : [];
+		if (tail && !parts.includes(tail)) parts.push(tail);
+		return parts;
 	}
 
 	/** One wire task → the card model; null when the payload did not

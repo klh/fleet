@@ -1,4 +1,4 @@
-import{r,e,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d537d.js";var c=r`
+import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{c}from"./lit-845e82345feffdf2.js";var d=r`
 	.hint {
 		font-size: 10.5px;
 		color: var(--klh-dim);
@@ -67,7 +67,7 @@ import{r,e,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d537
 		font-size: 11px;
 		cursor: pointer;
 	}
-`;class o extends n{static properties={heading:{type:String},options:{type:Array},chain:{state:!0},pick:{state:!0}};static styles=[l,c];constructor(){super();this.heading="executor preference order",this.options=[],this.chain=[],this.pick=""}get carrier(){return this.querySelector('input[name="default_executors"]')}connectedCallback(){super.connectedCallback();let t=this.carrier?.value??"";this.chain=t.split(",").map((i)=>i.trim()).filter(Boolean)}set(t){this.chain=t;let i=this.carrier;if(i)i.value=t.join(",")}move(t,i){let s=t+i;if(s<0||s>=this.chain.length)return;let a=[...this.chain];[a[t],a[s]]=[a[s],a[t]],this.set(a)}add(){let i=this.renderRoot.querySelector("select")?.value??this.pick;if(i&&!this.chain.includes(i))this.set([...this.chain,i])}render(){return e`<h2>${this.heading}</h2>
+`;class l extends n{static properties={heading:{type:String},options:{type:Array},chain:{state:!0},pick:{state:!0}};static styles=[c,d];constructor(){super();this.heading="executor preference order",this.options=[],this.chain=[],this.pick=""}get carrier(){return this.querySelector('input[name="default_executors"]')}connectedCallback(){super.connectedCallback();let t=this.carrier?.value??"";this.chain=t.split(",").map((i)=>i.trim()).filter(Boolean)}set(t){this.chain=t;let i=this.carrier;if(i)i.value=t.join(",")}move(t,i){let s=t+i;if(s<0||s>=this.chain.length)return;let a=[...this.chain];[a[t],a[s]]=[a[s],a[t]],this.set(a)}add(){let i=this.renderRoot.querySelector("select")?.value??this.pick;if(i&&!this.chain.includes(i))this.set([...this.chain,i])}render(){return e`<h2>${this.heading}</h2>
 			<p class="hint">
 				dispatch walks this order as its fallback chain — first entry first; a
 				dead lane re-dispatch advances to the next; the same-model tail rides
@@ -115,7 +115,7 @@ import{r,e,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d537
 			>
 				✕
 			</button>
-		</li>`}}if(!customElements.get("klh-executor-editor"))customElements.define("klh-executor-editor",o);class d extends n{static properties={heading:{type:String},lines:{type:Array}};static styles=[l,r`
+		</li>`}}if(!customElements.get("klh-executor-editor"))customElements.define("klh-executor-editor",l);class o extends n{static properties={heading:{type:String},lines:{type:Array}};static styles=[c,r`
 			pre {
 				background: var(--klh-bg);
 				border: 1px solid var(--klh-edge);
@@ -137,4 +137,4 @@ import{r,e,n}from"./lit-9ab93f5debb235da.js";import{l}from"./lit-4c1b2687ab6d537
 				display: block;
 			}
 		`];constructor(){super();this.heading="",this.lines=[]}cls(t){return t.startsWith("+ ")?"add":t.startsWith("- ")?"del":"ctx"}render(){let t=this.lines.length?this.lines.map((i)=>e`<span class=${this.cls(i)}>${i}</span>`):e`no textual change`;return e`<h2>${this.heading}</h2>
-			<pre class="diff">${t}</pre>`}}if(!customElements.get("klh-diff-view"))customElements.define("klh-diff-view",d);
+			<pre class="diff">${t}</pre>`}}if(!customElements.get("klh-diff-view"))customElements.define("klh-diff-view",o);

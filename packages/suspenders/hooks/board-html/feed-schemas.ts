@@ -28,6 +28,14 @@ export const DecisionsFeedSchema = z.looseObject({
 	projects: z.optional(z.array(z.string())),
 });
 
+/** History feed (?history=1): the same envelope — decisions carries the
+ * resolved (state ≠ OPEN) rows. Named separately so the hist feed installs
+ * its own validator at the FeedStore boundary (schema law, W1238.4). */
+export const DecisionsHistoryFeedSchema = z.looseObject({
+	ts: z.number(),
+	decisions: z.array(z.looseObject({})),
+});
+
 export const TasksFeedSchema = z.looseObject({
 	ok: z.literal(true),
 	tasks: z.array(z.looseObject({ id: z.string(), project: z.string() })),
@@ -44,6 +52,7 @@ export const SpendSeriesFeedSchema = z.looseObject({
 export const FEED_SCHEMAS = {
 	data: DataFeedSchema,
 	dec: DecisionsFeedSchema,
+	hist: DecisionsHistoryFeedSchema,
 	tasks: TasksFeedSchema,
 	spend: SpendSeriesFeedSchema,
 } as const;

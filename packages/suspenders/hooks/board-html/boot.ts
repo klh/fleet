@@ -4,12 +4,14 @@
 // biome-ignore lint/complexity/noUselessStringRaw: byte-compat (W157)
 export const BOOT = String.raw`function renderAll(){
   renderFleet();
-  renderDecisions();
   renderTab();
 }
 function setCollapsed(v){
-  decCollapsed = v;
-  renderDecisions();
+  // the decisions section's collapse moved into <klh-decisions-mediator>
+  // (W2550.1); the needs-you badge click still expands it via this event
+  var el = document.querySelector('klh-decisions-mediator');
+  if (el && el.setCollapsed) el.setCollapsed(v);
+  else window.dispatchEvent(new CustomEvent('decisions-collapse', { detail: v }));
 }
 setInterval(tick, 1000);
 pollExecutors(); // belt targets for the dispatch dropdown (page-load, not polled)
