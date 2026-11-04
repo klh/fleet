@@ -3,28 +3,29 @@
 // serve scoping, the act leg (pin/remove/-d/TERM), the re-list verify, the
 // scan-only degradation, and the registry + toGcTarget wiring. All legs
 // injected — no ssh, no git, no network.
-import { expect, test } from "@playwright/test";
-import { join } from "node:path";
+
 import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import {
-	classifyWorktree,
+	ancestryProbe,
+	gcPaused,
+	type realGcExec,
+	toGcTarget,
+} from "../hooks/bin/hub-orphan-gc.ts";
+import {
 	claimTerminal,
+	classifyWorktree,
 	gcHub,
+	type HubGcTarget,
+	type HubGcWorktree,
 	listScript,
 	parseHubGcListing,
 	reapScript,
 	scopedServes,
 	TERMINAL_STATES,
-	type HubGcTarget,
-	type HubGcWorktree,
 } from "../hooks/lib/fleet-loop/hub-orphan-gc.ts";
-import {
-	ancestryProbe,
-	gcPaused,
-	toGcTarget,
-	type realGcExec,
-} from "../hooks/bin/hub-orphan-gc.ts";
 import { MAINTENANCE_TASKS } from "../hooks/lib/fleet-loop/maintenance.ts";
 
 test.describe("@unit", () => {

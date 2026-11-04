@@ -8,13 +8,14 @@
 // every test here goes red — there is no listScript to run, no marker
 // probe inside it, and no classification to observe. This is the
 // no-coverage FAIL the W2645 review demanded the fix prove.
-import { expect, test } from "@playwright/test";
-import { join } from "node:path";
+
 import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import {
-	type HubGcTarget,
 	gcHub,
+	type HubGcTarget,
 	listScript,
 	parseHubGcListing,
 	shQuote,

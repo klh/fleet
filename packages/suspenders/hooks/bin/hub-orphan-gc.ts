@@ -21,16 +21,16 @@
 // rows or serves (a human should notice), else 0; 2 on argv misuse.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { sshOpts } from "../../deploy/hub-remote.ts";
 import { emitLoopEvent } from "../lib/fleet-loop/events.ts";
 import {
-	type HubGcTarget,
 	gcHub,
+	type HubGcTarget,
 	type HubGcWorktree,
 	shQuote,
 } from "../lib/fleet-loop/hub-orphan-gc.ts";
-import { sshOpts } from "../../deploy/hub-remote.ts";
-import { inQuietHours, loadStack } from "../lib/stack-config.ts";
 import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
+import { inQuietHours, loadStack } from "../lib/stack-config.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 /** The stack hub profile slice toGcTarget reads. */

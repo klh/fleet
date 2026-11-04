@@ -22,8 +22,9 @@
 // get SIGTERM; survivors re-report next fire. Dry-run is the default;
 // --act performs. The bin is the CLI face; the maintenance registry fires
 // it with --act every 30 min.
-import { parsePs } from "./rogue-sweep.ts";
+
 import { cmdlineScope, SERVE_MARKERS, worktreeItem } from "./rogue-reap.ts";
+import { parsePs } from "./rogue-sweep.ts";
 
 /** Terminal claim states at the authority — the only deletion license.
  * SHATTERED trees are the parent of an executed split; the kept child
