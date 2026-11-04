@@ -19,7 +19,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { fleetRootOf } from "./lib/auto-install.ts";
-import { readPostMergeStamp } from "./lib/activation-readiness.ts";
+import {
+	parseBudgetMs,
+	readPostMergeStamp,
+} from "./lib/activation-readiness.ts";
 import { appendLog, buildPostMergeDeps } from "./lib/post-merge-live.ts";
 import { runPostMergeSync } from "./lib/post-merge-runner.ts";
 import { decideRuntimeSync } from "./lib/runtime-sync.ts";
@@ -91,7 +94,15 @@ const main = (): number => {
 	const logPath = flagValue("--log") ?? LOG_DEFAULT;
 	const checkOnly = hasFlag("--check");
 	const skipKick = hasFlag("--skip-kick");
-	const budgetMs = Number(flagValue("--budget-ms") ?? 30_000);
+	// NaN/Infinity/junk/≤0 refuse loudly (N2-budget-nan): a NaN deadline made
+	// every poll's budget compare false — a transport-failure poll hung the
+	// sync child forever instead of exhausting truthfully.
+	const budgetRaw = flagValue("--budget-ms");
+	const budgetMs = parseBudgetMs(budgetRaw);
+	if (budgetMs === null) {
+		log(`refused: --budget-ms must be a finite positive number (${budgetRaw})`);
+		return 1;
+	}
 
 	const head = sh(["git", "-C", fleetRoot, "rev-parse", "main"]);
 	const headSha = head.code === 0 ? head.out.trim() || null : null;

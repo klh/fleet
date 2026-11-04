@@ -43,6 +43,23 @@ function plist(bytes: string, format: "json" | "xml1"): string {
 	if (result.exitCode !== 0) throw new Error("Gateway unit cannot be parsed");
 	return result.stdout.toString();
 }
+/** One launchctl print result: exit code + combined output — launchd writes
+ * its not-found line to either stream. Injectable so the observation
+ * branches are testable without live launchd (the live face is the
+ * default). */
+export type PrintResult = { code: number; out: string };
+
+const livePrint = (): PrintResult => {
+	const result = Bun.spawnSync(
+		["/bin/launchctl", "print", `gui/${process.getuid()}/${LABEL}`],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
+	return {
+		code: result.exitCode ?? 1,
+		out: `${result.stdout.toString()}${result.stderr.toString()}`,
+	};
+};
+
 /** Exact loaded argv + PID birth snapshot; PID replacement is a new review.
  * A PROVEN-absent daemon (launchd's explicit not-found line) observes as a
  * stable sentinel so the failed-load retry can run the fenced load through
@@ -53,19 +70,15 @@ function plist(bytes: string, format: "json" | "xml1"): string {
  * a failed activation with a dead process stays repairable instead of
  * wedging prepare in pending. Unknown/unparseable print output still
  * throws — unknown inspection is pending, never guessed. */
-export function observeGateway(): string {
-	const print = () => {
-		const result = Bun.spawnSync(
-			["/bin/launchctl", "print", `gui/${process.getuid()}/${LABEL}`],
-			{ stdout: "pipe", stderr: "pipe" },
-		);
-		if (result.exitCode !== 0) {
-			const said = `${result.stdout.toString()}${result.stderr.toString()}`;
-			if (/Could not find (specified )?service/.test(said))
+export function observeGateway(print: () => PrintResult = livePrint): string {
+	const observeOnce = (): string => {
+		const said = print();
+		if (said.code !== 0) {
+			if (/Could not find (specified )?service/.test(said.out))
 				return digestUnit(JSON.stringify({ absent: true, label: LABEL }));
 			throw new Error("Gateway supervised identity unavailable");
 		}
-		const text = result.stdout.toString(),
+		const text = said.out,
 			pid = Number(/\n\s*pid = (\d+)/.exec(text)?.[1]);
 		const block = /\n\s*arguments = \{([\s\S]*?)\n\s*\}/.exec(text)?.[1];
 		const notRunning = /^\s*state = not running\s*$/m.test(text);
@@ -84,8 +97,8 @@ export function observeGateway(): string {
 		if (!birth) throw new Error("Gateway supervised identity unknown");
 		return digestUnit(JSON.stringify({ pid, args, birth }));
 	};
-	const first = print();
-	if (print() !== first)
+	const first = observeOnce();
+	if (observeOnce() !== first)
 		throw new Error("Gateway identity changed during observation");
 	return first;
 }
