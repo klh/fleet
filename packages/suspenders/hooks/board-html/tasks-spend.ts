@@ -26,12 +26,12 @@ function showSparkTip(e, bar){
   }
   if (tip._bar !== bar){
     var at = Number(bar.getAttribute('data-at'));
-    var minutes = Number(bar.getAttribute('data-minutes'));
+    var grain = bar.getAttribute('data-minutes') || ''; // W2591: the bin-width word, e.g. '30-second'
     var fresh = Number(bar.getAttribute('data-fresh'));
     var cached = Number(bar.getAttribute('data-cached'));
     var out = Number(bar.getAttribute('data-out'));
     var time = dualStamp(at);
-    tip.textContent = time + ' · ' + minutes + ' min\nFresh input  ' + fresh.toLocaleString('en-US') + '\nCached input  ' + cached.toLocaleString('en-US') + '\nOutput  ' + out.toLocaleString('en-US');
+    tip.textContent = time + ' · ' + grain + '\nFresh input  ' + fresh.toLocaleString('en-US') + '\nCached input  ' + cached.toLocaleString('en-US') + '\nOutput  ' + out.toLocaleString('en-US');
     tip._bar = bar;
   }
   tip.hidden = false;
@@ -41,23 +41,52 @@ function showSparkTip(e, bar){
   tip.style.top = (above >= 8 ? above : e.clientY + 12) + 'px';
 }
 function pollSpendSeries(force){ feeds.kick('spend', !!force); }
-// W1203: the window derives from the MEASURED track, never a fixed bin count
-// — bins = floor(track / SPARK_STEP_PX) at the token-design cell, the bin
-// duration = SPARK_MIN_BIN_MS (the design bin: 6px <-> 3 minutes), and the
-// window = bins x D end-pinned at the newest point, so wider cards show MORE
-// history, the last bar hugs the track's right edge (no dead gap), and data
-// shorter than the window left-aligns (empty bins draw no bars).
+// W1203: the window derives from the MEASURED track, never a fixed bin count.
+// W2591: ADAPTIVE bins — the viewport stays the legacy interval
+// (floor(w/SPARK_STEP_PX) x SPARK_MIN_BIN_MS) and the bin duration is the
+// finest nice rung (SPARK_LADDER_MS) whose slots fit ~1px each, never finer
+// than the coarsest point grain visible in-window (5th tuple element;
+// absent = per-request precise). Coarse history aggregates UP, never expands.
 var SPARK_STEP_PX = 6, SPARK_BAR_CARD_PX = 4, SPARK_BAR_DRAWER_PX = 5, SPARK_MIN_BIN_MS = 180000;
+var SPARK_MIN_SLOT_PX = 1;
+var SPARK_LADDER_MS = [15000, 30000, 60000, 120000, 180000, 300000, 600000, 900000, 1800000, 3600000];
+function sparkViewportMs(w){ return Math.max(1, Math.floor(w / SPARK_STEP_PX)) * SPARK_MIN_BIN_MS; }
+// W2591: honest compact bin-width word (30-second / 2-minute / 1-hour),
+// never a fractional 0.5m
+function sparkBinWord(ms){
+  if (ms < 60000) return Math.round(ms / 1000) + '-second';
+  if (ms < 3600000) return Math.round(ms / 60000) + '-minute';
+  return Math.round(ms / 3600000) + '-hour';
+}
+function sparkBinMs(w, fineMs){
+  var vp = sparkViewportMs(w), i;
+  for (i = 0; i < SPARK_LADDER_MS.length; i++){
+    var rung = SPARK_LADDER_MS[i];
+    if (rung < fineMs) continue;
+    if (Math.ceil(vp / rung) * SPARK_MIN_SLOT_PX <= w) return rung;
+  }
+  return SPARK_LADDER_MS[SPARK_LADDER_MS.length - 1];
+}
 function sparkSvg(points, w, h, barPx){
   var svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('width', w); svg.setAttribute('height', h);
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
-  var count = Math.floor(w / SPARK_STEP_PX);
-  if (count < 1) return svg; // track narrower than one bin — totals line only
   var first = Number(points[0][0]), last = Number(points[points.length - 1][0]);
-  var slotMs = SPARK_MIN_BIN_MS; // the design bin — 6px cell, 3 minutes
+  // the coarsest visible grain bounds the rung (only points inside the
+  // viewport count); absent 5th element = request-precise source
+  var vp = sparkViewportMs(w);
+  var provStart = Math.max(last - vp, first);
+  var fineMs = 1, i;
+  for (i = 0; i < points.length; i++){
+    var pt = points[i];
+    if (Number(pt[0]) < provStart) continue;
+    if (pt.length > 4 && Number(pt[4]) > fineMs) fineMs = Number(pt[4]);
+  }
+  var slotMs = sparkBinMs(w, fineMs);
+  var count = Math.max(1, Math.ceil(vp / slotMs));
+  if (w < 1) return svg; // track narrower than one pixel — totals line only
   var start = Math.max(first, last - count * slotMs); // end-pinned on dense data; short data left-aligns
-  var bins = {}, maxV = 0, i;
+  var bins = {}, maxV = 0, i2;
   for (i = 0; i < points.length; i++){
     var slot = Math.floor((Number(points[i][0]) - start) / slotMs);
     if (slot > count - 1) slot = count - 1; // the newest point rides the last bin — never dropped
@@ -69,11 +98,11 @@ function sparkSvg(points, w, h, barPx){
   }
   for (var key in bins) maxV = Math.max(maxV, bins[key][0] + bins[key][1]);
   svg.setAttribute('role', 'img');
-  svg.setAttribute('data-bin-min', String(slotMs / 60000));
+  svg.setAttribute('data-bin-min', sparkBinWord(slotMs));
   svg.setAttribute('data-window-end', String(start + count * slotMs));
-  svg.setAttribute('aria-label', 'Fresh and cached input tokens in ' + (slotMs / 60000) + '-minute bins across the measured track');
+  svg.setAttribute('aria-label', 'Fresh and cached input tokens in ' + sparkBinWord(slotMs) + ' bins across the measured track');
   if (!maxV) return svg;
-  var step = w / count, barW = barPx || SPARK_BAR_CARD_PX;
+  var step = w / count, barW = Math.max(0.5, Math.min(barPx || SPARK_BAR_CARD_PX, step));
   for (i = 0; i < count; i++){
     var at = start + i * slotMs, bucket = bins[i];
     if (!bucket) continue;
@@ -90,7 +119,7 @@ function sparkSvg(points, w, h, barPx){
       rect.setAttribute('height', bh.toFixed(1));
       rect.setAttribute('class', part ? 'spark-cached' : 'spark-fresh');
       rect.setAttribute('data-at', String(at));
-      rect.setAttribute('data-minutes', String(slotMs / 60000));
+      rect.setAttribute('data-minutes', sparkBinWord(slotMs));
       rect.setAttribute('data-fresh', String(bucket[0]));
       rect.setAttribute('data-cached', String(bucket[1]));
       rect.setAttribute('data-out', String(bucket[2]));
@@ -139,7 +168,7 @@ function paintSparks(root){
     if (axis){
       axis.style.display = 'flex';
       axis.firstElementChild.textContent = dualShort(pts[0][0]);
-      axis.lastElementChild.textContent = dualShort(Number(chart.getAttribute('data-window-end'))) + ' · ' + chart.getAttribute('data-bin-min') + 'm/bin';
+      axis.lastElementChild.textContent = dualShort(Number(chart.getAttribute('data-window-end'))) + ' · ' + chart.getAttribute('data-bin-min') + ' bins';
     }
   }
   paintAttempts(root);

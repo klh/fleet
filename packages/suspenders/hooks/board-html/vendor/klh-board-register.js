@@ -1,4 +1,4 @@
-import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-b1895177b7fe27ad.js";import{o,u,M,b,a,i,x,z,s,p}from"./lit-d1335ced603fe410.js";import{m,D}from"./lit-b7eecf58073b7927.js";import{c}from"./lit-d4f1cb4c1f513c55.js";var re=new Set,L=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);re.add(l),customElements.define(l,d)};var U=r`${h(`@charset "UTF-8";
+import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc763ae.js";import{o,u,M,b,a,i,x,A,s,p}from"./lit-41f576601b74fc5b.js";import{m,I}from"./lit-abee8ae562874fb2.js";import{c}from"./lit-05d02c13d2fb5953.js";var re=new Set,L=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);re.add(l),customElements.define(l,d)};var U=r`${h(`@charset "UTF-8";
 /* tone → color, self-contained: the page maps data-tone on .kcard/
    .kcol only, so the card owns its own --state-color token map. */
 :host([data-tone=ready]) {
@@ -345,14 +345,14 @@ footer button.seg:focus-visible,
 .seg select:focus-visible {
   outline: 2px solid var(--klh-accent);
   outline-offset: -2px;
-}`)}`;class q extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,g,v){super(q.eventName);this.action=l,this.id=d,this.project=g,this.executor=v?.executor,this.effort=v?.effort}}class I extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,g){super(I.eventName);this.id=l,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class W extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(W.eventName);this.id=l,this.project=d}}function V(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function G(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Y(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function J(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var T=s(p(o())),S=s(p(u())),se=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(M())}),oe=i({tokens:S,wallMs:S,tokPerMin:S,cachePct:S}),ie=i({mode:z(["spend","attempt"]),windowStartMs:S,windowEndMs:S,binMs:S,elapsedMs:S,scaleMs:S}),Q=i({id:o(),project:T,title:T,state:o(),ageS:S,contextLines:s(a(o())),parentRef:T,model:T,host:T,warn:T,metrics:s(oe),activity:s(ie),nested:s(M()),preferColor:T,executors:s(a(se)),executorPick:T,effortOptions:s(a(o())),effortPick:T,pendingAction:T});function X(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Z(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function ee(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function te(l){if(l==null)return"—";return`${Math.round(l)}%`}var H="—";class B extends n{static properties={card:{attribute:!1}};static styles=U;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return V(this.card.state)}open(){this.dispatchEvent(new W(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new q(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new I(this.card.id,this.card.project??null,l))}statusWord(){return G(this.card.state)}render(){let l=this.card,d=this.tone(),g=l.metrics??null,v=l.ageS==null?H:D(l.ageS),E=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,k=l.executors??[],w=l.executorPick??"",j=l.effortOptions??[],N=l.effortPick??"",P=l.pendingAction??"",O=(f,F)=>P===f?`${F}…`:F,K=(f)=>P===f,_=(f)=>P===f?"true":"false";return e`
+}`)}`;class q extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,g,v){super(q.eventName);this.action=l,this.id=d,this.project=g,this.executor=v?.executor,this.effort=v?.effort}}class D extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,g){super(D.eventName);this.id=l,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class W extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(W.eventName);this.id=l,this.project=d}}function V(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function G(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Y(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function J(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var E=s(p(o())),T=s(p(u())),se=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(M())}),oe=i({tokens:T,wallMs:T,tokPerMin:T,cachePct:T}),ie=i({mode:A(["spend","attempt"]),windowStartMs:T,windowEndMs:T,binMs:T,elapsedMs:T,scaleMs:T}),Q=i({id:o(),project:E,title:E,state:o(),ageS:T,contextLines:s(a(o())),parentRef:E,model:E,host:E,warn:E,metrics:s(oe),activity:s(ie),nested:s(M()),preferColor:E,executors:s(a(se)),executorPick:E,effortOptions:s(a(o())),effortPick:E,pendingAction:E});function X(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Z(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function ee(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function te(l){if(l==null)return"—";return`${Math.round(l)}%`}var H="—";class B extends n{static properties={card:{attribute:!1}};static styles=U;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return V(this.card.state)}open(){this.dispatchEvent(new W(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new q(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new D(this.card.id,this.card.project??null,l))}statusWord(){return G(this.card.state)}render(){let l=this.card,d=this.tone(),g=l.metrics??null,v=l.ageS==null?H:I(l.ageS),z=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,k=l.executors??[],w=l.executorPick??"",j=l.effortOptions??[],N=l.effortPick??"",P=l.pendingAction??"",S=(f,F)=>P===f?`${F}…`:F,K=(f)=>P===f,_=(f)=>P===f?"true":"false";return e`
 			${l.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
 				<div class="pad">
 				<div class="head">
 					<span class="sq" data-tone=${d}></span>
 					<span class="stw">${this.statusWord()}</span>
-					<span class="age" title=${E}>${v}</span>
+					<span class="age" title=${z}>${v}</span>
 				</div>
 				<button class="tid" type="button" @click=${this.open}>
 					${l.id}
@@ -408,7 +408,7 @@ footer button.seg:focus-visible,
 							aria-busy=${_("retry")}
 							@click=${()=>this.act("retry")}
 						>
-							${O("retry","Retry")}
+							${S("retry","Retry")}
 						</button>
 						<button
 							class="seg recover"
@@ -417,7 +417,7 @@ footer button.seg:focus-visible,
 							aria-busy=${_("recover")}
 							@click=${()=>this.act("recover")}
 						>
-							${O("recover","Recover → Ready")}
+							${S("recover","Recover → Ready")}
 						</button>
 						<button
 							class="seg prompt"
@@ -458,7 +458,7 @@ footer button.seg:focus-visible,
 							aria-busy=${_("start")}
 							@click=${()=>this.act("start",{executor:this.draftExecutor??w,effort:this.draftEffort??N})}
 						>
-							${O("start","Start ▶")}
+							${S("start","Start ▶")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
@@ -471,7 +471,7 @@ footer button.seg:focus-visible,
 								aria-busy=${_("release")}
 								@click=${()=>this.act("release")}
 							>
-								${O("release","Release ⏏")}
+								${S("release","Release ⏏")}
 							</button>
 							<span class="spacer"></span>
 							${this.promptSeg()}`:t}
@@ -495,7 +495,7 @@ footer button.seg:focus-visible,
 							aria-busy=${_("reassign")}
 							@click=${()=>this.act("reassign",{executor:this.draftExecutor??w})}
 						>
-							${O("reassign","Reassign ↻")}
+							${S("reassign","Reassign ↻")}
 						</button>
 						<button
 							class="seg release"
@@ -505,7 +505,7 @@ footer button.seg:focus-visible,
 							aria-busy=${_("release")}
 							@click=${()=>this.act("release")}
 						>
-							${O("release","Release ⏏")}
+							${S("release","Release ⏏")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
@@ -527,12 +527,12 @@ footer button.seg:focus-visible,
 			@click=${()=>this.act("prompt")}
 		>
 			Prompt ↗
-		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var y=s(p(o())),A=s(p(u())),le=i({fresh:A,cached:A,out:A,wall_ms:A,model_groups:s(x(o(),b()))}),ce=i({state:o(),observed_at:A,source:y,progress:s(p(i({stage:z(["completed","reviewed","review-blocked","landed"]),ts:A})))}),de=i({text:y}),pe=i({id:o(),project:y,title:y,state:o(),age_s:A,owner_sid:y,owner_label:y,origin:y,model:y,locality:y,parent_id:y,tag_color:y,failure_note:y,wait_kind:y,wait_reason:y,requires:y,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(p(le)),execution:s(p(ce)),tail:s(p(de))});class C extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(l){let d=l.spend?.model_groups,g="",v=-1;if(d)for(let[E,k]of Object.entries(d)){let w=typeof k==="object"&&k!==null?Number(k.requests??0):0;if(Number.isFinite(w)&&w>v)g=E,v=w}return g||l.model||void 0}static hostOf(l){let d=l.owner_label?.trim();if(d&&d!==l.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(d))return d;return l.owner_sid??void 0}static metricsOf(l){let d=l.spend;if(!d)return;let g=d.fresh??void 0,v=d.cached??void 0,E=d.out??void 0,k=d.wall_ms??void 0,w=g===void 0&&v===void 0&&E===void 0?void 0:(g??0)+(v??0)+(E??0),j=k!==void 0&&k>0?k/60000:0,N=j>0&&E!==void 0?E/j:void 0,P=(g??0)+(v??0),O=P>0&&v!==void 0?v/P*100:void 0;return{tokens:w,wallMs:k,tokPerMin:N,cachePct:O}}static parentRefOf(l){return l.parent_id??void 0}contextLinesOf(l){let d=[],g=l.execution;if(g){let w=g.progress?.stage;d.push(w?`${g.state} · ${w}`:`${g.state} · no artifact evidence in snapshot`)}if(l.state==="WAITING"&&l.wait_reason)d.push(`${l.wait_kind??"external"} · ${l.wait_reason}`);let v=l.blocked_by??[];if(v.length)d.push(`waiting on ${v.join(", ")}`);let E=l.waiting_on??[];if(E.length)d.push(`split into ${E.join(", ")}`);let k=l.tail?.text?.trim();if(k&&!d.includes(k))d.push(k);return d}modelOf(l){let d={id:l.id,project:l.project??void 0,title:l.title??void 0,state:l.state,ageS:l.age_s??void 0,contextLines:this.contextLinesOf(l),parentRef:C.parentRefOf(l),model:C.modelOf(l),host:C.hostOf(l),warn:l.failure_note??void 0,metrics:C.metricsOf(l),nested:this.hasAttribute("data-nested"),preferColor:l.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},g=Q.safeParse(d);return g.success?g.data:null}render(){let l=pe.safeParse(this.t);if(!this.t||!l.success)return e`<div class="kcard-invalid dim" role="note">
+		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var y=s(p(o())),C=s(p(u())),le=i({fresh:C,cached:C,out:C,wall_ms:C,model_groups:s(x(o(),b()))}),ce=i({state:o(),observed_at:C,source:y,progress:s(p(i({stage:A(["completed","reviewed","review-blocked","landed"]),ts:C})))}),de=i({text:y}),pe=i({id:o(),project:y,title:y,state:o(),age_s:C,owner_sid:y,owner_label:y,origin:y,model:y,locality:y,parent_id:y,tag_color:y,failure_note:y,wait_kind:y,wait_reason:y,requires:y,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(p(le)),execution:s(p(ce)),tail:s(p(de))});class O extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(l){let d=l.spend?.model_groups,g="",v=-1;if(d)for(let[z,k]of Object.entries(d)){let w=typeof k==="object"&&k!==null?Number(k.requests??0):0;if(Number.isFinite(w)&&w>v)g=z,v=w}return g||l.model||void 0}static hostOf(l){let d=l.owner_label?.trim();if(d&&d!==l.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(d))return d;return l.owner_sid??void 0}static metricsOf(l){let d=l.spend;if(!d)return;let g=d.fresh??void 0,v=d.cached??void 0,z=d.out??void 0,k=d.wall_ms??void 0,w=g===void 0&&v===void 0&&z===void 0?void 0:(g??0)+(v??0)+(z??0),j=k!==void 0&&k>0?k/60000:0,N=j>0&&z!==void 0?z/j:void 0,P=(g??0)+(v??0),S=P>0&&v!==void 0?v/P*100:void 0;return{tokens:w,wallMs:k,tokPerMin:N,cachePct:S}}static parentRefOf(l){return l.parent_id??void 0}contextLinesOf(l){let d=[],g=l.execution;if(g){let w=g.progress?.stage;d.push(w?`${g.state} · ${w}`:`${g.state} · no artifact evidence in snapshot`)}if(l.state==="WAITING"&&l.wait_reason)d.push(`${l.wait_kind??"external"} · ${l.wait_reason}`);let v=l.blocked_by??[];if(v.length)d.push(`waiting on ${v.join(", ")}`);let z=l.waiting_on??[];if(z.length)d.push(`split into ${z.join(", ")}`);let k=l.tail?.text?.trim();if(k&&!d.includes(k))d.push(k);return d}modelOf(l){let d={id:l.id,project:l.project??void 0,title:l.title??void 0,state:l.state,ageS:l.age_s??void 0,contextLines:this.contextLinesOf(l),parentRef:O.parentRefOf(l),model:O.modelOf(l),host:O.hostOf(l),warn:l.failure_note??void 0,metrics:O.metricsOf(l),nested:this.hasAttribute("data-nested"),preferColor:l.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},g=Q.safeParse(d);return g.success?g.data:null}render(){let l=pe.safeParse(this.t);if(!this.t||!l.success)return e`<div class="kcard-invalid dim" role="note">
 				card payload invalid
 			</div>`;let d=l.data,g=this.modelOf(d);if(!g)return e``;let v=this.series||this.attempt?e`<klh-card-activity
 						slot="activity"
 						.points=${this.series??[]}
-						.wallMs=${C.metricsOf(d)?.wallMs??null}
+						.wallMs=${O.metricsOf(d)?.wallMs??null}
 						.attempt=${this.attempt}
 						.mode=${this.attemptView?"attempt":"spend"}
-					></klh-card-activity>`:null;return e`<klh-task-card .card=${g}>${v}</klh-task-card>`}createRenderRoot(){return this}}var fe=()=>{L("klh-task-card-host",C),L("klh-task-card",B),L("klh-card-activity",R)};fe();export{fe as registerBoardElements};
+					></klh-card-activity>`:null;return e`<klh-task-card .card=${g}>${v}</klh-task-card>`}createRenderRoot(){return this}}var fe=()=>{L("klh-task-card-host",O),L("klh-task-card",B),L("klh-card-activity",R)};fe();export{fe as registerBoardElements};

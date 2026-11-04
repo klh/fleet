@@ -18,8 +18,25 @@ export const ACTIVITY_STEP_PX = 6;
 /** W2267.4.2.2 (#103177): thin ~1.5px real-bin strokes — the approved 09
  * spectral look. Bin spacing/count and data geometry are unchanged. */
 export const ACTIVITY_BAR_PX = 1.5;
-/** The design bin: a 6px cell ↔ 3 minutes — the board's one bin width. */
+/** The design bin: a 6px cell ↔ 3 minutes — the board's one bin width.
+ *  W2591: still the HORIZON anchor (activityViewportMs derives the displayed
+ *  interval from the same mapping); the PLOT bin itself adapts finer. */
 export const ACTIVITY_BIN_MS = 180_000;
+/**
+ * W2591: the finest cell the approved strip can draw — ~1 CSS px per bin.
+ * The adaptive ladder picks bins so each slot gets at least this width.
+ */
+export const ACTIVITY_MIN_SLOT_PX = 1;
+/**
+ * W2591: the nice-time-step ladder (seconds) a viewport may bin at — every
+ * step divides the next coarser one, so coarser-only history aggregates UP
+ * losslessly (60s → any coarser rung) and finer rungs (15s/30s) are only
+ * chosen when the fresh per-request resolution actually covers the window.
+ */
+export const ACTIVITY_BIN_LADDER_MS = [
+	15_000, 30_000, 60_000, 120_000, 180_000, 300_000, 600_000, 900_000,
+	1_800_000, 3_600_000,
+] as const;
 /**
  * The shared duration scale: elapsed wall time that maps to the FULL card
  * width. One documented constant for every card (owner contract 2026-10-29:
@@ -34,9 +51,11 @@ export interface ActivityBin {
 	out: number;
 }
 
-/** Aggregate raw [t, fresh, cached, out] points into `count` fixed slots. */
+/** Aggregate raw [t, fresh, cached, out] points into `count` fixed slots.
+ *  W2591: points may carry a 5th element — the point's own grain (binMs) —
+ *  used only for choosing the display rung, never re-binned finer. */
 export function binPoints(
-	points: readonly [number, number, number, number][],
+	points: readonly [number, number, number, number, number?][],
 	start: number,
 	count: number,
 	_slotMs = ACTIVITY_BIN_MS,
@@ -81,6 +100,39 @@ export function activityWindow(
 	return { count, slotMs, start: end - count * slotMs, end };
 }
 
+/**
+ * W2591: the displayed interval a track width OWNS — the legacy viewport
+ * (floor(px/6px) × 3min), preserved exactly. The owner correction (#103978):
+ * 24h is the duration-hairline scale/retention horizon, NOT the activity
+ * viewport; finer bins multiply WITHIN this interval, never replace it.
+ */
+export function activityViewportMs(trackPx: number): number {
+	return Math.max(1, Math.floor(trackPx / ACTIVITY_STEP_PX)) * ACTIVITY_BIN_MS;
+}
+
+/**
+ * W2591: pick the adaptive bin for a measured width. The finest ladder rung
+ * whose slots still fit the track (≥ ACTIVITY_MIN_SLOT_PX each) while the
+ * binned horizon stays ≥ the width's own viewport — a narrower card shows
+ * the SAME interval at a coarser rung, a wider one shows the SAME interval
+ * finer. `fineMs` bounds what the DATA can honestly support (per-request
+ * 15s vs coarse minute history 60s): the rung is never finer than that, so
+ * coarse history is aggregated up, never expanded into fake fine samples.
+ */
+export function activityBinMs(
+	trackPx: number,
+	fineMs: number,
+	ladder: readonly number[] = ACTIVITY_BIN_LADDER_MS,
+): number {
+	const viewport = activityViewportMs(trackPx);
+	for (const rung of ladder) {
+		if (rung < fineMs) continue; // finer than the data supports — skip
+		const slots = Math.ceil(viewport / rung);
+		if (slots * ACTIVITY_MIN_SLOT_PX <= trackPx) return rung; // finest fit
+	}
+	return ladder[ladder.length - 1]; // degenerate track — coarsest, honest
+}
+
 export interface SpectralBins {
 	bins: (ActivityBin | null)[];
 	/** first REAL point (null when there is no data at all). */
@@ -112,9 +164,15 @@ const EMPTY_BINS: SpectralBins = {
  *  the strip's right side (root-proven #100836: 38 real bins labeled to
  *  09:52 while 63 inspect slots walked into empty 11:04+ future). Dense
  *  data keeps the measured width-derived count with older points
- *  clipping out (W1203 parity). */
+ *  clipping out (W1203 parity).
+ *  W2591: the slot width is ADAPTIVE (activityBinMs) — the displayed
+ *  interval stays the width's own viewport (floor(px/6)×3min, #103978),
+ *  divided into the finest nice rung the pixels (≥1px slot) AND the data's
+ *  own grain support. Points may carry [t,f,c,o,binMs] 5-tuples; the
+ *  coarsest grain in the VISIBLE window bounds the rung — old minute
+ *  history renders at ≥60s, never fake 30s detail. */
 export function spectralBins(
-	points: readonly [number, number, number, number][],
+	points: readonly [number, number, number, number, number?][],
 	trackPx: number,
 	forceStart?: number,
 ): SpectralBins {
@@ -125,21 +183,80 @@ export function spectralBins(
 		if (p[0] < first) first = p[0];
 		if (p[0] > last) last = p[0];
 	}
-	const w = activityWindow(last, trackPx);
+	// W2591: the rung — viewport fixed by width, bounded by the data's own
+	// grain. A point without a 5th element is per-request-precise source
+	// (fineMs floor); one carrying binMs=60000 caps the rung at 60s.
+	let fineMs = 1;
+	const viewport = activityViewportMs(trackPx);
+	const provisionalStart = Math.max(last - viewport, first);
+	for (const p of points) {
+		if (p[0] < provisionalStart) continue; // only the visible window counts
+		if (p[4] !== undefined && p[4] > fineMs) fineMs = p[4];
+	}
+	const slotMs = activityBinMs(trackPx, fineMs);
+	// W2591: the count derives from the FIXED viewport ÷ the adaptive rung —
+	// more, finer slots in the SAME interval (never the legacy 6px count).
+	const count = Math.max(1, Math.ceil(viewport / slotMs));
 	// end-pinned on dense data (older points clip); short data left-aligns
 	// at its own first point and its own span clips the count — never
 	// empty future bins, never a labeled end no slot reaches.
-	const start = forceStart ?? Math.max(w.start, first);
-	const spanBins = Math.ceil((last - start) / w.slotMs) + 1;
-	const count = Math.max(1, Math.min(w.count, spanBins));
+	const start = forceStart ?? Math.max(last - count * slotMs, first);
+	const spanBins = Math.ceil((last - start) / slotMs) + 1;
+	const finalCount = Math.max(1, Math.min(count, spanBins));
 	return {
-		bins: binPoints(points, start, count),
+		bins: binPoints(points, start, finalCount, slotMs),
 		firstTs: first,
 		windowStart: start,
-		windowEnd: start + count * w.slotMs,
-		count,
-		slotMs: w.slotMs,
+		windowEnd: start + finalCount * slotMs,
+		count: finalCount,
+		slotMs,
 		startClipped: start > first,
+		hasData: true,
+	};
+}
+
+/**
+ * W2701 (owner #108724): the attempt-mode spectral field — the SAME real
+ * spend spikes spend mode draws, bounded to the attempt’s FIXED window so
+ * the strip never swaps fine token marks for state blocks. The rung adapts
+ * exactly like spectralBins (finest ladder step ≥ the visible points’ own
+ * grain whose slots fit ≥1px), but the viewport is the attempt window
+ * itself, never the width-derived one. Points outside [windowStart,
+ * windowEnd] drop — a fixed historical window never clamps future points
+ * into its last bin.
+ */
+export function attemptSpectralBins(
+	points: readonly [number, number, number, number, number?][],
+	windowStart: number,
+	windowEnd: number,
+	trackPx: number,
+): SpectralBins {
+	const vis = points.filter((p) => p[0] >= windowStart && p[0] <= windowEnd);
+	if (!vis.length) return EMPTY_BINS;
+	const viewport = Math.max(1, windowEnd - windowStart);
+	let fineMs = 1;
+	for (const p of vis) {
+		if (p[4] !== undefined && p[4] > fineMs) fineMs = p[4];
+	}
+	let slotMs = ACTIVITY_BIN_LADDER_MS[ACTIVITY_BIN_LADDER_MS.length - 1];
+	for (const rung of ACTIVITY_BIN_LADDER_MS) {
+		if (rung < fineMs) continue; // finer than the data supports — skip
+		if (Math.ceil(viewport / rung) * ACTIVITY_MIN_SLOT_PX <= trackPx) {
+			slotMs = rung; // finest fit inside the fixed window
+			break;
+		}
+	}
+	const count = Math.max(1, Math.ceil(viewport / slotMs));
+	let first = Number.POSITIVE_INFINITY;
+	for (const p of vis) if (p[0] < first) first = p[0];
+	return {
+		bins: binPoints(vis, windowStart, count, slotMs),
+		firstTs: first,
+		windowStart,
+		windowEnd: windowStart + count * slotMs,
+		count,
+		slotMs,
+		startClipped: false,
 		hasData: true,
 	};
 }
@@ -151,6 +268,15 @@ export function fmtHHmm(t: number): string {
 	const d = new Date(t);
 	const pad = (n: number): string => String(n).padStart(2, "0");
 	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** W2591: honest compact bin-width word for axis/tooltip/aria — the
+ *  ACTUAL interval (`30-second`, `2-minute`, `1-hour`), never a
+ *  hardcoded 3-minute grid. */
+export function fmtBinWidth(binMs: number): string {
+	if (binMs < 60_000) return `${Math.round(binMs / 1000)}-second`;
+	if (binMs < 3_600_000) return `${Math.round(binMs / 60_000)}-minute`;
+	return `${Math.round(binMs / 3_600_000)}-hour`;
 }
 
 export interface DurationSpan {
