@@ -165,6 +165,26 @@ export type ProbeFn = (url: string) => ProbeVerdict;
 /** One-shot external probe budget — small: the service just (re)started. */
 export const PROBE_TIMEOUT_MS = 5_000;
 
+/** Default per-label readiness budget: the belt-swarm manifest contract for
+ * a child respawn (post-merge-sync --budget-ms default). */
+export const DEFAULT_READINESS_BUDGET_MS = 30_000;
+
+/** Parse a --budget-ms style CLI value into a bounded finite positive
+ * budget: junk strings, NaN/±Infinity, 0 and negatives all refuse (null) —
+ * a NaN deadline makes every poll's `now() + interval > deadline` compare
+ * false and a transport-failure (status 0) poll spins forever instead of
+ * exhausting truthfully (N2-budget-nan). The finite default is returned
+ * only when the flag is absent. */
+export function parseBudgetMs(
+	raw: string | undefined,
+	defaultMs: number = DEFAULT_READINESS_BUDGET_MS,
+): number | null {
+	if (raw === undefined) return defaultMs;
+	const value = Number(raw);
+	if (!Number.isFinite(value) || value <= 0) return null;
+	return value;
+}
+
 /** The per-label outcome outcomeLine renders: expectation + kick + the
  * readiness proofs behind this attempt's verdict. */
 export interface ActivationOutcome {

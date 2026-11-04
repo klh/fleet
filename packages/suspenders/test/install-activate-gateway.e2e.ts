@@ -15,6 +15,19 @@ import { runCli, scratchWorld } from "@klh/test-kit";
 
 const BIN = `${import.meta.dir}/../scripts/install.ts`;
 
+// Kit lifecycle (root #102613/#102620): trailing world.clean() leaks the
+// fixture dirs when an assertion fails mid-test — the shared afterEach
+// always runs, an assertion failure still cleans.
+const worlds: ReturnType<typeof scratchWorld>[] = [];
+test.afterEach(() => {
+	while (worlds.length > 0) worlds.pop()?.clean();
+});
+const worldFixture = (prefix: string): ReturnType<typeof scratchWorld> => {
+	const world = scratchWorld({ prefix: `${prefix}-` });
+	worlds.push(world);
+	return world;
+};
+
 /** test-kit CLI run: the child inherits this process's env plus the
  * fixture's isolated HOME/PREFIX (W1135.1.3 — no hand-rolled spawn). */
 function run(
@@ -54,7 +67,7 @@ test("explicit --step syncHarness remains publication-only", async () => {
 });
 
 test("executed activateGateway on a fresh host is the truthful skip", async () => {
-	const world = scratchWorld({ prefix: "w2546-fresh-" });
+	const world = worldFixture("w2546-fresh");
 	const prefix = join(world.home, "prefix");
 	const statePath = join(world.home, "state", "post-merge-sync.json");
 	const { code, stdout } = run(
@@ -69,11 +82,10 @@ test("executed activateGateway on a fresh host is the truthful skip", async () =
 	expect(doc.steps[0].note).toContain("fresh host");
 	// the global multi-service sync ledger is untouched by the gateway step
 	expect(() => readFileSync(statePath)).toThrow();
-	world.clean();
 });
 
 test("executed dry-run activateGateway never stages", async () => {
-	const world = scratchWorld({ prefix: "w2546-dry-" });
+	const world = worldFixture("w2546-dry");
 	const prefix = join(world.home, "prefix");
 	mkdirSync(prefix, { recursive: true });
 	// a published receipt at the prefix: dry-run must STILL do nothing
@@ -92,5 +104,4 @@ test("executed dry-run activateGateway never stages", async () => {
 	expect(code).toBe(0);
 	const doc = JSON.parse(stdout);
 	expect(doc.steps[0].status).toBe("planned");
-	world.clean();
 });
