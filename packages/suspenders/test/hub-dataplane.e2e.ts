@@ -6,10 +6,11 @@
 // undeclared = no dataplane service and a byte-clean solo render; declared
 // knobs fall through to the template defaults. The face owns its port — it
 // never rides the LLM gateway front door.
-import { expect, test } from "@playwright/test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runCli, scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { parse } from "yaml";
 
 type Svc = Record<string, unknown> & {
@@ -20,42 +21,32 @@ type Svc = Record<string, unknown> & {
 };
 
 const compose = parse(
-	readFileSync(
-		join(import.meta.dir, "../deploy/hub-compose.yaml"),
-		"utf8",
-	),
+	readFileSync(join(import.meta.dir, "../deploy/hub-compose.yaml"), "utf8"),
 	{ merge: true, maxAliasCount: 500 },
 ) as { services: Record<string, Svc> };
 
 test.describe("@unit W2329 — dataplane hub profile", () => {
-	const dir = mkdtempSync(join(tmpdir(), "fleet-hub-dataplane-"));
+	const world = scratchWorld({ prefix: "fleet-hub-dataplane-" });
 
 	function render(hub: Record<string, unknown>): string {
-		const stack = join(dir, "stack.json");
+		const stack = join(world.home, "stack.json");
 		writeFileSync(
 			stack,
 			JSON.stringify({ version: "v-fixture-w2329", hubs: { nas: hub } }),
 			{ mode: 0o600 },
 		);
-		const p = Bun.spawnSync(
-			[
-				process.execPath,
-				join(import.meta.dir, "../deploy/hubctl.ts"),
-				"render",
-				"nas",
-			],
-			{
-				env: { ...process.env, KLH_STACK: stack },
-				stdout: "pipe",
-				stderr: "pipe",
-			},
+		const p = runCli(
+			join(import.meta.dir, "../deploy/hubctl.ts"),
+			["render", "nas"],
+			{ env: { KLH_STACK: stack } },
 		);
-		expect(p.exitCode).toBe(0);
-		return p.stdout.toString();
+		expect(p.err, p.err).toBe("");
+		expect(p.code).toBe(0);
+		return p.out;
 	}
 
 	test.afterAll(() => {
-		rmSync(dir, { recursive: true, force: true });
+		world.clean();
 	});
 
 	test("declared dataplane block enables the face profile + ports", () => {
@@ -103,6 +94,7 @@ test.describe("@unit W2329 — dataplane hub profile", () => {
 			);
 		// W264: the host allowlist rides the shared guard, not a new auth path.
 		expect(api.environment.SUSPENDERS_ALLOWED_HOSTS).toBe(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: compose contract
 			"${HUB_ALLOWED_HOSTS:-suspenders.local}",
 		);
 	});
