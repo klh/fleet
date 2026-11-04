@@ -241,7 +241,9 @@ test.describe("@unit", () => {
 		};
 		test("all conditions AND-ed", () => {
 			expect(mayEscalate({ ...base, attempts: 2 })).toBe(true);
-			expect(mayEscalate({ ...base, attempts: 1 })).toBe(false);
+			// W2244.1 fail-fast herd ride: one knock per rung per walk — the old
+			// "failed twice" retry counter is one genuine failure (>= 1 fires).
+			expect(mayEscalate({ ...base, attempts: 1 })).toBe(true);
 			expect(
 				mayEscalate({
 					...base,
