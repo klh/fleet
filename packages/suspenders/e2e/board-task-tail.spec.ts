@@ -111,13 +111,29 @@ test("kanban card carries the bound tail on the lanes view", {
 }, async ({ page }) => {
 	const b = mustBoard();
 	await page.goto(`${b.BASE}/#lanes`);
-	const card = page.locator(`.kcard[data-kid="${bound}"]`);
+	// approved09 (#103658): the tail is card information — it rides its own
+	// bounded .ctx line AFTER the execution/wait context, never suppressed
+	// by it; the retired .ktail node is gone
+	const card = page.locator(`klh-task-card-host[data-kid="${bound}"]`);
 	await expect(card).toBeVisible({ timeout: 20_000 });
-	await expect(card.locator(".ktail")).toHaveText(
-		"bound lane reading the diff",
-	);
+	await expect(card.locator("klh-task-card .ctx").first()).toBeVisible();
 	await expect(
-		page.locator(`.kcard[data-kid="${sibling}"] .ktail`),
+		card.locator("klh-task-card .ctx", {
+			hasText: "bound lane reading the diff",
+		}),
+	).toHaveCount(1);
+	// same owner sid, no registry row: the sibling CANNOT inherit the tail
+	await expect(
+		page.locator(
+			`klh-task-card-host[data-kid="${sibling}"] klh-task-card .ctx`,
+			{ hasText: "bound lane reading the diff" },
+		),
+	).toHaveCount(0);
+	// the stale pre-launch record never surfaces on the bound card either
+	await expect(
+		card.locator("klh-task-card .ctx", {
+			hasText: "stale pre-launch progress",
+		}),
 	).toHaveCount(0);
 });
 
