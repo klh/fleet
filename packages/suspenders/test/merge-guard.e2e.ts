@@ -3,6 +3,7 @@
 // and kills the in-flight spawn (exitCode null). Same shape as
 // advise-panel/advise-gated: one file-level ceiling.
 test.setTimeout(30_000);
+
 import {
 	chmodSync,
 	mkdirSync,

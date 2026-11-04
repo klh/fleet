@@ -7,20 +7,20 @@
 // test (dead upstreams now ride the panel path via the board route).
 
 import { Database } from "bun:sqlite";
-import { expect, test } from "./pw";
-import { KlhDecisionsMediator } from "../hooks/board-html/klh-decisions-mediator.ts";
 import {
+	type DecisionRequestState,
 	legLine,
 	panelClassOf,
 	usableRec,
-	type DecisionRequestState,
 } from "../hooks/board-html/klh-decisions.ts";
+import { KlhDecisionsMediator } from "../hooks/board-html/klh-decisions-mediator.ts";
 import {
 	recommendationOf,
 	usableRecommendation,
 } from "../hooks/lib/govdb/advice-quality.ts";
 import { consensusOf } from "../hooks/lib/hub/oracle-legs.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
+import { expect, test } from "./pw";
 
 test.setTimeout(30_000);
 

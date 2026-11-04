@@ -1,23 +1,23 @@
-import { expect, test } from "./pw";
 import { Database } from "bun:sqlite";
-import { FeedStore } from "../hooks/board-html/feed-store.ts";
-import {
-	histUrlOf,
-	projQueryOf,
-} from "../hooks/board-html/klh-decisions-mediator.ts";
-import {
-	KlhDecisions,
-	type DecisionRow,
-	type DecisionsSlice,
-	type HistoryRow,
-} from "../hooks/board-html/klh-decisions.ts";
 import {
 	DataFeedSchema,
 	DecisionsFeedSchema,
 	SpendSeriesFeedSchema,
 	TasksFeedSchema,
 } from "../hooks/board-html/feed-schemas.ts";
+import { FeedStore } from "../hooks/board-html/feed-store.ts";
+import {
+	type DecisionRow,
+	type DecisionsSlice,
+	type HistoryRow,
+	KlhDecisions,
+} from "../hooks/board-html/klh-decisions.ts";
+import {
+	histUrlOf,
+	projQueryOf,
+} from "../hooks/board-html/klh-decisions-mediator.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
+import { expect, test } from "./pw";
 
 const fixture = await boardFixture(0, test.afterAll);
 const a = "/projects/selected/.git";
