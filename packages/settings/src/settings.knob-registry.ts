@@ -126,6 +126,11 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 		"hubs.json (per-label URL/TOKEN)",
 	),
 	k("SUSPENDERS_HUB_VIA", "machine-conf", "hubs.json (per-label URL/TOKEN)"),
+	k(
+		"SUSPENDERS_HUB_LOST_GRACE_MS",
+		"conf",
+		"fleet_loop.hub_lost_grace_ms (floor 60s)",
+	),
 	k("SUSPENDERS_IMPORT_LAW", "conf", "gates.import_law"),
 	k("SUSPENDERS_INTERACTIVE_KEYS", "conf"),
 	k("SUSPENDERS_KEV_CURATION_TIMEOUT_MS", "model-plane"),
