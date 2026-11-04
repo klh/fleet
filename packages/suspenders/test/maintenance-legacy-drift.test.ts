@@ -48,7 +48,9 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"gov-gc": "W2274",
 	"lost-hub-sweep": "W2321.4",
 	"knowledge-distill": "6cec9094 — fork G knowledge distiller",
+	// heartbeat-born since W2318; row landed here first in 2b66a047 (W2484)
 	"hold-drain": "W2318 — born on the heartbeat (drain-mode dispatch hold)",
+	"hub-orphan-gc": "W2321.5",
 };
 
 // Retired com.suspenders.* labels that were never maintenance tasks —
