@@ -23,6 +23,10 @@ test("serveStub: records path/body/auth and answers programmatically", async () 
 	const first = stub.requests[0];
 	if (!first) throw new Error("no recorded request");
 	expect(first.path).toBe("/v1/messages");
+	// url carries the query string path drops (W2679)
+	const health = stub.requests[1];
+	if (!health) throw new Error("no recorded health request");
+	expect(health.url.startsWith(`${stub.url}/health`)).toBe(true);
 	expect(first.body).toEqual({ model: "kit-probe" });
 	expect(first.auth).toBe("Bearer kit-probe");
 	expect(first.headers.get("x-kit-probe")).toBe("1");

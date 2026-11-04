@@ -5,6 +5,9 @@
 export interface StubRequest {
 	/** Request pathname. */
 	path: string;
+	/** Full request URL (path + query string) — assert query params here;
+	 *  `path` alone drops them (W2679). */
+	url: string;
 	/** Parsed JSON body, null when the body is not JSON. */
 	body: Record<string, unknown> | null;
 	/** Authorization header, null when absent. */
@@ -48,6 +51,7 @@ export function serveStub(
 			> | null;
 			requests.push({
 				path: new URL(req.url).pathname,
+				url: req.url,
 				body,
 				auth: req.headers.get("authorization"),
 				headers: req.headers,

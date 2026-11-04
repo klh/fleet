@@ -127,8 +127,8 @@ export const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "backfill",
 		usage:
-			"usage: backfill <id> [--as sid] — W2059: link a DONE item's closer-session ledger rows (sid key + interactive keys, final claim window) as a work.attribution stamp so the report renders MODEL/TOKENS/CACHE; no rows = stays '-' (honest no-data)",
-		flags: [...ITEM_FLAGS],
+			"usage: backfill <id> [--as sid] [--hub <label>] — W2059: link a DONE item's closer-session ledger rows (sid key + interactive keys, final claim window) as a work.attribution stamp so the report renders MODEL/TOKENS/CACHE; --hub (W2321.3) pulls the HUB's ledger over its /v1/admin/requests face instead of the local spoke — hub lane spend flows back onto the authoritative graph; no rows = stays '-' (honest no-data)",
+		flags: [...ITEM_FLAGS, "--hub"],
 		minPos: 1,
 	}),
 	defineVerb({
