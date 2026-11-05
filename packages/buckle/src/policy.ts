@@ -11,6 +11,7 @@
 // (utils.py::_calculate_retry_after semantics).
 
 import { existsSync, readFileSync } from "node:fs";
+import { resolvePolicyDoc } from "@klh/settings";
 import {
 	assertThroughputPolicy,
 	type ThroughputPolicy,
@@ -288,10 +289,12 @@ const jsonSibling = (path: string): string =>
 const formatOf = (path: string): "json" | "yaml" =>
 	path.endsWith(".json") ? "json" : "yaml";
 
-/** Resolution order: explicit path → BUCKLE_POLICY → BELT_POLICY → runtime
- *  copy in the local-llm dir → the committed default in the repo root.
- *  Candidates whose content does not parse (a legacy yaml awaiting the
- *  install migrate step) are skipped, never fatal mid-chain. */
+/** Resolution order (W2760): explicit path → BUCKLE_POLICY → BELT_POLICY →
+ *  the settings.json `routing_policy` section (the law home, resolved by
+ *  @klh/settings with the legacy local-llm side files folded in read-only)
+ *  → the committed default in the repo root. Candidates whose content does
+ *  not parse (a legacy yaml awaiting the install migrate step) are skipped,
+ *  never fatal mid-chain. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 	const pinned = [
 		explicitPath,
@@ -299,14 +302,28 @@ export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
 		process.env.BELT_POLICY,
 	];
 	const home = process.env.HOME ?? "";
-	const candidates = [
-		...pinned.flatMap((path) => (path ? [jsonSibling(path), path] : [])),
+	const candidates = pinned.flatMap((path) =>
+		path ? [jsonSibling(path), path] : [],
+	);
+	let last: unknown;
+	for (const p of candidates) {
+		if (!existsSync(p)) continue;
+		try {
+			return parsePolicy(readFileSync(p, "utf8"), formatOf(p));
+		} catch (error) {
+			last = error;
+		}
+	}
+	// W2760: no pin — the settings.json `routing_policy` section is the law
+	// home (the helper also folds the legacy local-llm side files read-only).
+	const settingsDoc = resolvePolicyDoc(undefined);
+	if (settingsDoc.text !== null) return parsePolicy(settingsDoc.text);
+	const runtimeCandidates = [
 		`${home}/.claude/local-llm/routing-policy.json`,
 		`${home}/.claude/local-llm/routing-policy.yaml`,
 		new URL("../routing-policy.json", import.meta.url).pathname,
 	];
-	let last: unknown;
-	for (const p of candidates) {
+	for (const p of runtimeCandidates) {
 		if (!existsSync(p)) continue;
 		try {
 			return parsePolicy(readFileSync(p, "utf8"), formatOf(p));

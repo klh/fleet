@@ -19,6 +19,7 @@
 // into zero for verified Buckle-fronted deployments. SDK retries stay disabled.
 // Owner directives: never flashx; operators edit machine config, never code.
 import { existsSync, readFileSync } from "node:fs";
+import { resolvePolicyDoc } from "@klh/settings";
 import { chatEntries } from "./registry.ts";
 
 export interface GatewayPolicy {
@@ -143,19 +144,32 @@ function validateHealthChecks(value: unknown): boolean {
 	return value;
 }
 
-/** Resolution order: explicit path → BELT_POLICY → runtime copy in the
- *  local-llm dir → the ONE committed default (buckle/routing-policy.json).
- *  Read-both (W1253): both file NAMES are candidates but the content is
- *  always parsed as JSON — a legacy-named file whose content is still YAML
- *  is skipped (never fatal mid-chain) so a rolling deploy keeps resolving
- *  the migrated sibling. */
+/** Resolution order (W2760): explicit path → BELT_POLICY → the settings.json
+ *  `routing_policy` section (the law home, resolved by @klh/settings with
+ *  the legacy local-llm side files folded in read-only) → the ONE committed
+ *  default (buckle/routing-policy.json). Read-both (W1253): both file NAMES
+ *  are candidates but the content is always parsed as JSON — a legacy-named
+ *  file whose content is still YAML is skipped (never fatal mid-chain) so a
+ *  rolling deploy keeps resolving the migrated sibling. */
 export function loadGatewayPolicy(explicitPath?: string): GatewayPolicy {
-	const candidates = policyCandidates(
-		[explicitPath, process.env.BELT_POLICY],
-		process.env.HOME ?? "",
-	);
+	const home = process.env.HOME ?? "";
 	let last = "no candidate exists";
-	for (const p of candidates) {
+	const pinned = [explicitPath, process.env.BELT_POLICY].flatMap((path) =>
+		path ? [jsonSibling(path), path] : [],
+	);
+	for (const p of pinned) {
+		if (!existsSync(p)) continue;
+		try {
+			return parsePolicy(readFileSync(p, "utf8"));
+		} catch (e) {
+			last = `${p}: ${e instanceof Error ? e.message : String(e)}`;
+		}
+	}
+	// W2760: no operator pin — the settings plane owns the chain (settings.json
+	// routing_policy section first, legacy side files read-only, JSON only).
+	const settingsDoc = resolvePolicyDoc(undefined);
+	if (settingsDoc.text !== null) return parsePolicy(settingsDoc.text);
+	for (const p of policyCandidates([], home)) {
 		if (!existsSync(p)) continue;
 		try {
 			return parsePolicy(readFileSync(p, "utf8"));
@@ -362,6 +376,17 @@ export function loadDirectTiers(
 		`${h}/.claude/local-llm/direct-tiers.json`,
 	);
 	if (artifact) return artifact;
+	// W2760: the settings.json routing_policy section is the law home — its
+	// `direct:` rows (legacy operator shape) resolve before the side files.
+	const settingsDoc = resolvePolicyDoc(undefined);
+	if (settingsDoc.text !== null) {
+		try {
+			const rows = parseDirect(settingsDoc.text);
+			if (Object.keys(rows).length > 0) return rows;
+		} catch {
+			// no direct section / malformed rows — keep walking
+		}
+	}
 	// runtime policy: JSON name first, then the legacy NAME as read-both —
 	// non-JSON content there is skipped, never fatal (W1253)
 	const runtimePaths = [
