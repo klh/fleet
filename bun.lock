@@ -108,6 +108,14 @@
         "@playwright/test": "1.64.1",
       },
     },
+    "packages/fleet-knowledge": {
+      "name": "@klh/fleet-knowledge",
+      "version": "2.1.4",
+      "dependencies": {
+        "p-queue": "9.3.5",
+        "zod": "4.6.7",
+      },
+    },
     "packages/kernel": {
       "name": "@klh/kernel",
       "version": "2.1.4",
@@ -180,6 +188,7 @@
         "@klh/blam": "2.1.4",
         "@klh/buckle": "2.1.4",
         "@klh/design-ui": "2.1.4",
+        "@klh/fleet-knowledge": "2.1.4",
         "@klh/kernel": "2.1.4",
         "@klh/local-llm": "2.1.4",
         "@klh/settings": "2.1.4",
@@ -233,6 +242,8 @@
     "@klh/buckle": ["@klh/buckle@workspace:packages/buckle"],
 
     "@klh/design-ui": ["@klh/design-ui@workspace:packages/design-ui"],
+
+    "@klh/fleet-knowledge": ["@klh/fleet-knowledge@workspace:packages/fleet-knowledge"],
 
     "@klh/kernel": ["@klh/kernel@workspace:packages/kernel"],
 

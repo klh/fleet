@@ -1,0 +1,541 @@
+// deploy/healthcheck/probe.ts — the health sidecar (owner law 2026-10-05):
+// a healthcheck is only valid when it does NOT run in the served process.
+// Every hub service gets one of these as a sidecar container: it polls the
+// real target over the network and serves the verdict on its OWN port —
+// compose health hits the SIDECAR, never the server, so a wedged server
+// runtime cannot paint itself healthy.
+//
+// Verdict (the sidecar never trusts the target's process, only its wire
+// answer):
+//   up        last poll succeeded — healthy = last probe ok
+//   degrading missLimit consecutive misses; an ACTIVE confirming re-probe
+//           runs before the down flip (a single blip must not drop a
+//           service — and a stale sample must never vouch for a live one)
+//   down      the confirming re-probe also failed; stays down until any
+//           poll succeeds again
+//
+// Config — CLI flag > env > default (config-over-code: hubctl render emits
+// the profile knobs; the container env carries them in):
+//   TARGET_URL   URL to poll (--target)
+//   PORT         the sidecar's own serve port (--listen)
+//   PROBE_PATH   optional path replacing the target URL's path (--path;
+//                deliberately NOT the env name PATH — that is the
+//                executable search path)
+//   INTERVAL     poll interval ms (--every, default 5000)
+//   TIMEOUT_MS   per-probe timeout ms (--timeout, default 2000)
+//   MISS_LIMIT   consecutive misses before the confirming re-probe
+//                (--misses, default 3)
+//   RING         bounded ring of recent results (--ring, default 20)
+//
+// Route catalog (W1004): --catalog-model checks that an authenticated
+// /v1/models response lists the exact configured id. It spends no inference
+// tokens and reports inference availability as unknown. Quota observations
+// must come from real inference traffic, not this structural check.
+//
+// Synthetic route canary (W467): a /status answer proves only that the server
+// responds. When a JSON body is declared, the probe POSTs it and requires a
+// 2xx JSON answer whose expect-path resolves (auth → routing → upstream →
+// response envelope). A one-token request may produce an empty text answer
+// on a thinking model, so this check proves route reachability, not answer
+// quality or completeness:
+//   SYNTHETIC_JSON  request body to POST (--synthetic-json; presence flips
+//                   the probe from liveness to synthetic)
+//   AUTH_ENV        name of the env var holding the bearer token
+//                   (--auth-env; fail-closed — an unset credential is a
+//                   config error, never an "up")
+//   EXPECT_PATH     dot-path that must resolve in the answer body
+//                   (--expect-path, e.g. "choices.0" for chat completions)
+//
+//   server: bun probe.ts --target http://127.0.0.1:4111/status --listen 4112
+//           GET /healthz → 200 when up, 502 once degraded/down (compose
+//           health hits this) · GET /status → full JSON verdict
+//   cli:    bun probe.ts --target URL [--timeout 2000] — one-shot, exit 0/1
+
+export interface ProbeArgs {
+	target: string;
+	listen?: number;
+	path?: string;
+	every: number;
+	timeout: number;
+	misses: number;
+	ring: number;
+	synthetic?: string;
+	authEnv?: string;
+	expect?: string;
+	catalogModel?: string;
+}
+
+/** The wire request a probe carries: liveness is a bare GET; synthetic
+ *  readiness POSTs the declared body with its credential header. */
+export interface ProbeRequest {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	/** dot-path that must resolve in the answer for the probe to count */
+	expect?: string;
+	/** Exact model id required in an OpenAI-compatible /v1/models catalog. */
+	catalogModel?: string;
+}
+
+interface Sample {
+	ok: boolean;
+	status: number;
+	ms: number;
+	at: string;
+}
+
+type VerdictState = "up" | "degrading" | "down";
+
+interface FlagOverrides {
+	target?: string;
+	listen?: number;
+	path?: string;
+	every?: number;
+	timeout?: number;
+	misses?: number;
+	ring?: number;
+	synthetic?: string;
+	authEnv?: string;
+	expect?: string;
+	catalogModel?: string;
+}
+
+function optNum(v: string | undefined): number | undefined {
+	if (v === undefined || v.trim().length === 0) return undefined;
+	const n = Number(v);
+	return Number.isFinite(n) ? n : undefined;
+}
+
+/** Typed flag parse — last occurrence wins; unknown flags are ignored so a
+ *  compose template can carry extra knobs without breaking the probe. */
+function parseFlags(argv: string[]): FlagOverrides {
+	const flags: FlagOverrides = {};
+	for (let i = 0; i < argv.length; i++) {
+		const flag = argv[i];
+		const val = argv[i + 1];
+		if (val === undefined) continue;
+		switch (flag) {
+			case "--target":
+				flags.target = val;
+				break;
+			case "--listen":
+				flags.listen = optNum(val);
+				break;
+			case "--path":
+				flags.path = val;
+				break;
+			case "--every":
+				flags.every = optNum(val);
+				break;
+			case "--timeout":
+				flags.timeout = optNum(val);
+				break;
+			case "--misses":
+				flags.misses = optNum(val);
+				break;
+			case "--ring":
+				flags.ring = optNum(val);
+				break;
+			case "--synthetic-json":
+				flags.synthetic = val;
+				break;
+			case "--auth-env":
+				flags.authEnv = val;
+				break;
+			case "--expect-path":
+				flags.expect = val;
+				break;
+			case "--catalog-model":
+				flags.catalogModel = val;
+				break;
+			default:
+				continue;
+		}
+		i++;
+	}
+	return flags;
+}
+
+/** CLI flag > env > default — the compose env carries what the profile
+ *  rendered; flags remain the explicit override. */
+function resolveArgs(argv: string[]): ProbeArgs {
+	const env = process.env;
+	const f = parseFlags(argv);
+	return {
+		target: f.target ?? env.TARGET_URL ?? "",
+		listen: f.listen ?? optNum(env.PORT),
+		path: f.path ?? env.PROBE_PATH,
+		every: f.every ?? optNum(env.INTERVAL) ?? 5000,
+		timeout: f.timeout ?? optNum(env.TIMEOUT_MS) ?? 2000,
+		misses: f.misses ?? optNum(env.MISS_LIMIT) ?? 3,
+		ring: f.ring ?? optNum(env.RING) ?? 20,
+		synthetic: f.synthetic ?? env.SYNTHETIC_JSON,
+		authEnv: f.authEnv ?? env.AUTH_ENV,
+		expect: f.expect ?? env.EXPECT_PATH,
+		catalogModel: f.catalogModel ?? env.CATALOG_MODEL,
+	};
+}
+
+/** The poll URL: TARGET_URL/--target, with --path/PROBE_PATH replacing the
+ *  URL's path when given. */
+function targetUrl(args: ProbeArgs): string {
+	const url = new URL(args.target);
+	if (args.path !== undefined) url.pathname = args.path;
+	return url.toString();
+}
+
+/** The synthetic wire request: POST the declared JSON body, bearer token
+ *  resolved from AUTH_ENV. Throws when the credential is declared but unset
+ *  — fail-closed, a synthetic probe without its credential is a config
+ *  error, never an "up". Undefined when no synthetic body is declared
+ *  (plain liveness GET).
+ *
+ *  W921: every synthetic request carries `x-klh-traffic: readiness` —
+ *  the gate's mark for root-auth readiness traffic, so the synthetic
+ *  full-chain poll can be told apart from agent inference in the ledger
+ *  (the cache drilldown excludes it instead of counting it as cold). */
+export function syntheticRequest(args: ProbeArgs): ProbeRequest | undefined {
+	if (args.synthetic === undefined) return undefined;
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+		"x-klh-traffic": "readiness",
+	};
+	if (args.authEnv !== undefined) {
+		const token = process.env[args.authEnv];
+		if (token === undefined || token.trim().length === 0)
+			throw new Error(
+				`AUTH_ENV "${args.authEnv}" is not set — refusing to probe without the credential`,
+			);
+		headers.authorization = `Bearer ${token}`;
+	}
+	return { method: "POST", headers, body: args.synthetic, expect: args.expect };
+}
+
+/** A catalog probe checks the configured route without invoking inference.
+ *  The result says nothing about provider quota or answer availability. */
+export function catalogRequest(args: ProbeArgs): ProbeRequest | undefined {
+	if (args.catalogModel === undefined) return undefined;
+	if (args.synthetic !== undefined)
+		throw new Error("catalog and synthetic probes are mutually exclusive");
+	if (args.catalogModel.trim().length === 0)
+		throw new Error("CATALOG_MODEL must name a model");
+	const headers: Record<string, string> = {};
+	if (args.authEnv !== undefined) {
+		const token = process.env[args.authEnv];
+		if (token === undefined || token.trim().length === 0)
+			throw new Error(
+				`AUTH_ENV "${args.authEnv}" is not set — refusing to probe without the credential`,
+			);
+		headers.authorization = `Bearer ${token}`;
+	}
+	return { method: "GET", headers, catalogModel: args.catalogModel };
+}
+
+function probeRequest(args: ProbeArgs): ProbeRequest | undefined {
+	return catalogRequest(args) ?? syntheticRequest(args);
+}
+
+/** Walk a dot-path ("choices.0.message") through objects/arrays; a missed
+ *  segment yields undefined. */
+export function pathValue(body: unknown, path: string): unknown {
+	let cur: unknown = body;
+	for (const seg of path.split(".")) {
+		if (cur === null || typeof cur !== "object") return undefined;
+		cur = (cur as Record<string, unknown>)[seg];
+	}
+	return cur;
+}
+
+export async function probeOnce(
+	url: string,
+	timeoutMs: number,
+	req: ProbeRequest = {},
+): Promise<Sample> {
+	const t0 = Date.now();
+	try {
+		const r = await fetch(url, {
+			signal: AbortSignal.timeout(timeoutMs),
+			redirect: "manual",
+			method: req.method,
+			headers: req.headers,
+			body: req.body,
+		});
+		let ok = r.ok;
+		// synthetic: the expect-path must resolve, so parse even a body the
+		// upstream mislabeled — a non-JSON answer to a JSON request fails
+		if (
+			ok &&
+			(r.headers.get("content-type")?.includes("json") ||
+				req.expect !== undefined ||
+				req.catalogModel !== undefined)
+		) {
+			const reader = r.body?.getReader();
+			let size = 0;
+			const chunks: Uint8Array[] = [];
+			if (reader) {
+				try {
+					for (;;) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						size += value.byteLength;
+						if (size > 65536) throw new Error("probe response exceeds 64 KiB");
+						chunks.push(value);
+					}
+				} finally {
+					await reader.cancel();
+				}
+			}
+			const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+			ok =
+				body !== null &&
+				typeof body === "object" &&
+				!Array.isArray(body) &&
+				body.ok !== false &&
+				body.healthy !== false &&
+				![
+					"down",
+					"unhealthy",
+					"error",
+					"failed",
+					"unavailable",
+					"dead",
+					"stopped",
+					"degraded",
+				].includes(body.status);
+			if (ok && req.expect !== undefined)
+				ok = pathValue(body, req.expect) !== undefined;
+			if (ok && req.catalogModel !== undefined)
+				ok =
+					Array.isArray(body.data) &&
+					body.data.some(
+						(row: unknown) =>
+							row !== null &&
+							typeof row === "object" &&
+							(row as Record<string, unknown>).id === req.catalogModel,
+					);
+		} else {
+			await r.body?.cancel();
+		}
+		return {
+			ok,
+			status: r.status,
+			ms: Date.now() - t0,
+			at: new Date().toISOString(),
+		};
+	} catch {
+		return {
+			ok: false,
+			status: 0,
+			ms: Date.now() - t0,
+			at: new Date().toISOString(),
+		};
+	}
+}
+
+/** The monitor: bounded result ring + the gated verdict. One probe on the
+ *  wire at a time; the down flip requires an active confirming re-probe. */
+export function createMonitor(args: ProbeArgs) {
+	const url = targetUrl(args);
+	// resolved once: a synthetic probe's credential is startup config, and
+	// an unset AUTH_ENV fails every poll closed instead of probing bare
+	let wire: ProbeRequest | undefined;
+	let wireError: string | null = null;
+	try {
+		wire = probeRequest(args);
+	} catch (e) {
+		wireError = e instanceof Error ? e.message : String(e);
+	}
+	const ring: Sample[] = [];
+	let state: VerdictState = "down";
+	let misses = 0;
+	let lastOk: string | null = null;
+	let total = 0;
+	let okTotal = 0;
+	let inFlight = false;
+
+	function apply(s: Sample): void {
+		ring.push(s);
+		if (ring.length > args.ring) ring.shift();
+		total++;
+		if (s.ok) {
+			okTotal++;
+			misses = 0;
+			state = "up";
+			lastOk = s.at;
+			return;
+		}
+		misses++;
+	}
+
+	async function poll(): Promise<void> {
+		if (inFlight) return;
+		inFlight = true;
+		try {
+			const s =
+				wireError !== null
+					? {
+							ok: false,
+							status: 0,
+							ms: 0,
+							at: new Date().toISOString(),
+						}
+					: await probeOnce(url, args.timeout, wire);
+			apply(s);
+			// degrading: past the miss limit and not yet down — actively
+			// re-probe; the flip to down is earned only when the confirming
+			// probe fails on the wire too. While degrading, every failed
+			// poll re-confirms; any success anywhere recovers to up.
+			if (!s.ok && misses >= args.misses && state !== "down") {
+				state = "degrading";
+				// Confirm the same operation. A bare GET to a completion endpoint
+				// cannot establish readiness and omits the traffic classification.
+				const confirm =
+					wireError === null
+						? await probeOnce(url, args.timeout, wire)
+						: { ok: false, status: 0, ms: 0, at: new Date().toISOString() };
+				apply(confirm);
+				if (!confirm.ok) state = "down";
+			}
+		} finally {
+			inFlight = false;
+		}
+	}
+
+	function snapshot(): {
+		target: string;
+		mode: "synthetic" | "catalog" | "liveness";
+		check: "inference-route" | "route-catalog" | "http-liveness";
+		inferenceAvailability: "available" | "quota-blocked" | "unknown";
+		model: string | null;
+		error: string | null;
+		intervalMs: number;
+		state: VerdictState;
+		ok: boolean;
+		misses: number;
+		missLimit: number;
+		lastOk: string | null;
+		latencyMs: number | null;
+		checkedAt: string | null;
+		probes: { total: number; ok: number; failed: number };
+		recent: Sample[];
+	} {
+		const last = ring.at(-1);
+		const fresh =
+			!!last &&
+			Date.now() - Date.parse(last.at) <= args.every + args.timeout * 2;
+		const reportedState = !fresh
+			? "down"
+			: !last?.ok && state === "up"
+				? "degrading"
+				: state;
+		return {
+			target: url,
+			mode:
+				args.synthetic !== undefined
+					? "synthetic"
+					: args.catalogModel !== undefined
+						? "catalog"
+						: "liveness",
+			check:
+				args.synthetic !== undefined
+					? "inference-route"
+					: args.catalogModel !== undefined
+						? "route-catalog"
+						: "http-liveness",
+			inferenceAvailability:
+				args.synthetic !== undefined
+					? !fresh
+						? "unknown"
+						: last?.status === 429
+							? "quota-blocked"
+							: last?.ok
+								? "available"
+								: "unknown"
+					: "unknown",
+			model: args.catalogModel ?? null,
+			intervalMs: args.every,
+			error: wireError,
+			state: reportedState,
+			ok: reportedState === "up" && last?.ok === true,
+			misses,
+			missLimit: args.misses,
+			lastOk,
+			latencyMs: last?.ms ?? null,
+			checkedAt: last?.at ?? null,
+			probes: { total, ok: okTotal, failed: total - okTotal },
+			recent: [...ring],
+		};
+	}
+
+	return { poll, snapshot };
+}
+
+async function main(): Promise<void> {
+	const args = resolveArgs(process.argv.slice(2));
+	if (args.target.length === 0) {
+		console.log(
+			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--catalog-model id | --synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING CATALOG_MODEL SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
+		);
+		process.exit(2);
+	}
+	// CLI mode: one shot, exit code carries the verdict.
+	if (args.listen === undefined) {
+		let req: ProbeRequest | undefined;
+		try {
+			req = probeRequest(args);
+		} catch (e) {
+			console.error(e instanceof Error ? e.message : String(e));
+			process.exit(2);
+		}
+		const v = await probeOnce(targetUrl(args), args.timeout, req);
+		console.log(JSON.stringify(v));
+		process.exit(v.ok ? 0 : 1);
+	}
+	const monitor = createMonitor(args);
+	// probe once BEFORE serving: the sidecar never vouches from ignorance
+	await monitor.poll();
+	const timer = setInterval(() => {
+		void monitor.poll();
+	}, args.every);
+	timer.unref?.();
+	const server = Bun.serve({
+		hostname: "127.0.0.1",
+		port: args.listen,
+		fetch: (req) => {
+			const { pathname } = new URL(req.url);
+			if (pathname !== "/healthz" && pathname !== "/status")
+				return new Response("not found", { status: 404 });
+			const headers = {
+				allow: "GET, HEAD, OPTIONS",
+				"cache-control": "no-store",
+			};
+			if (req.method === "OPTIONS")
+				return new Response(null, { status: 204, headers });
+			if (req.method !== "GET" && req.method !== "HEAD")
+				return new Response("method not allowed", { status: 405, headers });
+			const snap = monitor.snapshot();
+			if (req.method === "HEAD")
+				return new Response(null, { status: snap.ok ? 200 : 502, headers });
+			if (pathname === "/healthz") {
+				return Response.json(
+					{
+						ok: snap.ok,
+						state: snap.state,
+						check: snap.check,
+						inferenceAvailability: snap.inferenceAvailability,
+						model: snap.model,
+						intervalMs: snap.intervalMs,
+						target: snap.target,
+					},
+					{ status: snap.ok ? 200 : 502, headers },
+				);
+			}
+			return Response.json(snap, { status: snap.ok ? 200 : 502, headers });
+		},
+	});
+	console.log(
+		`healthcheck: sidecar on http://127.0.0.1:${server.port}/healthz -> ${monitor.snapshot().target}`,
+	);
+}
+
+if (import.meta.main) await main();
