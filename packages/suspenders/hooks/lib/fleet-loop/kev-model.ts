@@ -7,10 +7,7 @@
 // when kev is down or answers outside the set. Candidate union: the local
 // buckle front's /v1/models plus, for scope "all", every known hub's —
 // one bounded read each (W779: never a burst).
-import { kevTypedDecision } from "../knowledge/kev.ts";
-import { fetchHubCatalog } from "../hub/model-health.ts";
-import { adminKey, hubCredential } from "../lanes/lane-auth.ts";
-import { BUCKLE_SPOKE_PORT, loopbackUrl } from "../loopback.ts";
+
 import type { KevPlan } from "../../../scripts/lib/kev-sentinel.ts";
 import {
 	globFilter,
@@ -21,12 +18,21 @@ import {
 	knownHubLabels,
 	resolveHub,
 } from "../hub/hub-locate.ts";
+import { fetchHubCatalog } from "../hub/model-health.ts";
+import { kevTypedDecision } from "../knowledge/kev.ts";
+import { adminKey, hubCredential } from "../lanes/lane-auth.ts";
+import { BUCKLE_SPOKE_PORT, loopbackUrl } from "../loopback.ts";
 
 export type KevModelGate =
 	| { verdict: "skip"; note: string }
 	| { verdict: "wait"; reason: string }
 	| { verdict: "refused"; why: string }
-	| { verdict: "model"; model: string; via: "kev" | "deterministic"; note: string };
+	| {
+			verdict: "model";
+			model: string;
+			via: "kev" | "deterministic";
+			note: string;
+	  };
 
 /** The belt front the dispatch process itself rides. */
 const beltFront = (env: NodeJS.ProcessEnv): string =>

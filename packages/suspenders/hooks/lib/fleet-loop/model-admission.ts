@@ -25,20 +25,21 @@ import type { GovernorStore } from "../govdb/govdb.ts";
 import type { HubLocation } from "../hub/hub-locate.ts";
 import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
-import { kevPlacement } from "./kev-placement.ts";
 // W2593: the kev model sentinel's async half — resolves pick.kevPlan into
 // the real model BEFORE every other gate (they validate what it sets).
 import { kevModelGate } from "./kev-model.ts";
 import {
+	type KevModelPick,
 	kevModelBriefLines,
 	kevModelNote,
 	kevModelPick,
-	type KevModelPick,
 } from "./kev-model-pick.ts";
+import { kevPlacement } from "./kev-placement.ts";
 
 // W2677: lane-launch imports the brief renderer through this module (one
 // import line there — 1200-line stop rule); it composes from the same pick.
 export { kevModelBriefLines };
+
 import {
 	poolOccupancy,
 	recordPlacementReason,

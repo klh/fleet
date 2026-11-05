@@ -33,6 +33,12 @@ import {
 	preferOverlayOf,
 	readPreferText,
 } from "../../hooks/lib/prefer-format.ts";
+import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
+// W374: the per-provider quota measure — providerOf keys a chain slot to its
+// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
+// chain is owner intent, W228 parity with the W620 cv reorder).
+import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
+import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
 // W2593: the kev model sentinel — `kev` as a model value means the local
 // kev (:8912) picks the real model; the pure grammar lives next door and
 // the async resolution rides launch admission (kev-model.ts).
@@ -43,12 +49,6 @@ import {
 	kevSentinel,
 	stripKevDirectives,
 } from "./kev-sentinel.ts";
-import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
-// W374: the per-provider quota measure — providerOf keys a chain slot to its
-// provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
-// chain is owner intent, W228 parity with the W620 cv reorder).
-import type { ProviderPenalty } from "../../hooks/lib/usage/exec-quota.ts";
-import { providerOf } from "../../hooks/lib/usage/exec-quota.ts";
 import { resolveLaneExecutor } from "./launch-preflight.ts";
 
 /** Dotfile (.prefer, dotfiles-win law): `must=` / `prefer=` / `can=`
@@ -494,6 +494,9 @@ export const execPick = (
 		// falls to the hub/conf layers. Glob tokens (trailing *) are kev-only.
 		// W2637: a hub-pinned slot with no pin of its own takes the HUB's
 		// default chain (per-hub serving reality) before the executor row.
+		// W2593 noop guard: the eff layers strip kev/glob tokens — never
+		// forwarded on the model pin (the CLI would 400 on it); the pick
+		// falls to the hub/conf layer.
 		const slotHub = slot.hub ?? prefer.hub;
 		const hubDefaults = effHubDefaults(slotHub);
 		const hubIdx =
@@ -678,12 +681,12 @@ export const execPick = (
 			can,
 		},
 		modelPin:
-			prefer.model !== null && prefer.file
+			effPrefer.model !== null && prefer.file
 				? {
 						file: prefer.file,
 						line: prefer.modelLine ?? 0,
 						key: "model" as const,
-						target: prefer.model,
+						target: effPrefer.model,
 					}
 				: null,
 	};
