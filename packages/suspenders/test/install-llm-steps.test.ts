@@ -21,12 +21,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { YAML } from "bun";
 import { INSTALL_CONTRACT } from "../scripts/install/install-contract.ts";
 import {
+	beltBin,
 	defaultRun,
 	diagnosticTail,
 	downloadModels,
-	beltBin,
 	ensureLiteLlmIntegrity,
 	ensureLiteLlmMetricsDependency,
 	gatewayConfigStale,
@@ -299,9 +300,23 @@ describe("seedLocalLlm", () => {
 			"memory-policy.ts",
 			"belt.env",
 			"routing-policy.json",
+			"repo-tier-policy.yaml",
 		]) {
 			expect(existsSync(join(home, file))).toBe(true);
 		}
+		// W1265.2.1: the tier policy seeds as machine config — 0600, general
+		// default bytes, and it must parse as the W1265.2 doc shape.
+		const tierPolicy = join(home, "repo-tier-policy.yaml");
+		expect(statSync(tierPolicy).mode & 0o777).toBe(0o600);
+		const parsed = YAML.parse(readFileSync(tierPolicy, "utf8")) as {
+			version: number;
+			classes: Array<{ id: string; keys: string[]; providers: string[] }>;
+		};
+		expect(parsed.version).toBe(1);
+		expect(parsed.classes).toHaveLength(1);
+		expect(parsed.classes[0].id).toBe("general");
+		expect(parsed.classes[0].keys).toEqual(["*"]);
+		expect(parsed.classes[0].providers).toEqual(["zai", "openrouter"]);
 		expect(existsSync(join(home, "tier.json"))).toBe(true);
 		// W284: serve-family kit files are retired — never seeded fresh.
 		for (const retired of ["gateway-supervision.ts", "serve-observation.ts"]) {
@@ -380,6 +395,21 @@ describe("seedLocalLlm never clobbers", () => {
 		expect(swarm).toContain('case "supervise"');
 		// the serve FORK is retired — its observer import never appears
 		expect(swarm).not.toContain("serve-observation");
+	});
+
+	test("operator-edited repo-tier-policy survives re-install (W1265.2.1)", async () => {
+		const home = tmpHome("seed-keep-tier-policy");
+		mkdirSync(home, { recursive: true });
+		writeGuard(home);
+		const operatorDoc = "version: 1\nclasses:\n  - id: ikea\n    tier: work\n";
+		writeFileSync(join(home, "repo-tier-policy.yaml"), operatorDoc, {
+			mode: 0o600,
+		});
+		const res = await seedLocalLlm(ctxFor(home));
+		expect(res.status).toBe("ok");
+		expect(readFileSync(join(home, "repo-tier-policy.yaml"), "utf8")).toBe(
+			operatorDoc,
+		);
 	});
 });
 
