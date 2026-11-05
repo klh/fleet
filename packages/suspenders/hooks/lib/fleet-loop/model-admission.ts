@@ -26,6 +26,9 @@ import type { HubLocation } from "../hub/hub-locate.ts";
 import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
 import { kevPlacement } from "./kev-placement.ts";
+// W2593: the kev model sentinel's async half — resolves pick.kevPlan into
+// the real model BEFORE every other gate (they validate what it sets).
+import { kevModelGate } from "./kev-model.ts";
 import {
 	kevModelBriefLines,
 	kevModelNote,
@@ -102,6 +105,30 @@ export async function admitModel(io: {
 	} = io;
 	let pick = io.pick;
 	let bin = io.bin;
+
+	// W2593 kev model sentinel — FIRST gate: a pick stamped kevPlan by
+	// execPick means the local kev (:8912) picks the real model from the
+	// rule-allowed candidates. Every gate below validates the model this
+	// sets, so nothing may run before it. misconfig REFUSES (must+prefer
+	// coexistence is an owner error, not a guess); no candidates WAIT.
+	if (pick.kevPlan) {
+		const kev = await kevModelGate({ plan: pick.kevPlan });
+		if (kev.verdict === "refused") {
+			governanceRefusals.push(item);
+			console.log(`REFUSED ${item} — ${kev.why}; nothing claimed or minted`);
+			store.close();
+			return { verdict: "refused", reason: kev.why };
+		}
+		if (kev.verdict === "wait") {
+			launchWaits.push(item);
+			console.log(`WAIT ${item} — ${kev.reason}`);
+			return { verdict: "wait", reason: kev.reason };
+		}
+		if (kev.verdict === "model") {
+			console.log(`NOTE — kev: model → ${kev.model} (${kev.note})`);
+			pick = { ...pick, model: kev.model };
+		} else if (kev.note) console.log(`NOTE — ${kev.note}`);
+	}
 
 	// W2263 provider pools: placement sees the live occupancy/cooldown
 	// snapshot BEFORE the model is chosen; owner pins (dotfile

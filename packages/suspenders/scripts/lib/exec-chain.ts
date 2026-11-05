@@ -33,6 +33,16 @@ import {
 	preferOverlayOf,
 	readPreferText,
 } from "../../hooks/lib/prefer-format.ts";
+// W2593: the kev model sentinel — `kev` as a model value means the local
+// kev (:8912) picks the real model; the pure grammar lives next door and
+// the async resolution rides launch admission (kev-model.ts).
+import {
+	type KevPlan,
+	kevChainView,
+	kevPlanOf,
+	kevSentinel,
+	stripKevDirectives,
+} from "./kev-sentinel.ts";
 import { darkHubNow, tryLoadStack } from "../../hooks/lib/stack-config.ts";
 // W374: the per-provider quota measure — providerOf keys a chain slot to its
 // provider; quota demotion reorders the DEFAULT ladder only (a .prefer MUST
@@ -359,6 +369,9 @@ export const execPick = (
 	preference: PreferDecision;
 	/** W2636: null = no dotfile pin behind the model (conf default/no pin). */
 	modelPin: ModelPinProvenance | null;
+	/** W2593: present when the kev sentinel fired — the launch admission
+	 * gate (kev-model.ts) resolves it into the real model. */
+	kevPlan?: KevPlan;
 } => {
 	const prefer = preferOf(repo);
 	// W2570 amendment: the machine-conf executor row is the MODEL default —
@@ -388,7 +401,75 @@ export const execPick = (
 		const h = hubOverride ?? prefer.hub;
 		return h ? `[${h.toUpperCase()}] ${executor}` : executor;
 	};
-	const { entries: chainEntries, can } = chainEntriesOf(prefer, cvOf, quota);
+	// W2593 kev model sentinel: model=kev (pin, directive token, or a conf
+	// executors row) means the local kev (:8912) picks the real model from
+	// the rule-allowed candidates — resolved at launch admission (async),
+	// never here. misconfig throws like any owner-error .prefer; noop keeps
+	// today's walk with the kev token stripped (it must never ride a model
+	// pin — the CLI would 400 on it).
+	const kevView = kevChainView(prefer);
+	const confEx = tryLoadStack()?.executors;
+	const confKev =
+		!!confEx &&
+		Object.values(confEx).some(
+			(r) => (r as { model?: string } | undefined)?.model === "kev",
+		);
+	const kevFired = kevSentinel({
+		modelPin: prefer.model,
+		directives: kevView.directives,
+		confModel: confKev ? "kev" : null,
+	});
+	const kevPlan = kevFired ? kevPlanOf(stripKevDirectives(kevView)) : null;
+	if (kevPlan?.kind === "misconfig")
+		throw new Error(`.prefer: kev sentinel — ${kevPlan.why}`);
+	if (kevPlan?.kind === "choose") {
+		return {
+			name: "kev",
+			agent: label("kev"),
+			model: null,
+			bin: "claude",
+			hub: prefer.hub,
+			hubUrls: prefer.hubUrls,
+			fallbackModels: [],
+			chainLen: 1,
+			chainIdx: 0,
+			preference: {
+				source: "dotfile",
+				directive: "default",
+				line: 0,
+				index: 0,
+				target: "kev",
+				can: "absent",
+			},
+			// W2636: no dotfile model pin behind the pick — kev decides.
+			modelPin: null,
+			kevPlan,
+		};
+	}
+	// noop (or no sentinel): today's behavior — with the kev token removed
+	// from every model layer so nothing forwards the literal "kev" id.
+	const effPrefer =
+		kevPlan?.kind === "noop"
+			? {
+					...prefer,
+					directives: prefer.directives.filter((d) => d.value !== "kev"),
+					model: prefer.model === "kev" ? null : prefer.model,
+				}
+			: prefer;
+	const effConfModel =
+		kevPlan?.kind === "noop"
+			? (binName: string): string | null => {
+					const m = confModel(binName);
+					return m === "kev" ? null : m;
+				}
+			: confModel;
+	// W2593×W2637: the hub default chain with kev tokens stripped under noop —
+	// a hub whose default_models lists kev must not forward it to the CLI.
+	const effHubDefaults = (hubLabel: string | null): string[] =>
+		kevPlan?.kind === "noop"
+			? hubDefaultModels(hubLabel).filter((m) => m !== "kev")
+			: hubDefaultModels(hubLabel);
+	const { entries: chainEntries, can } = chainEntriesOf(effPrefer, cvOf, quota);
 	if (chainEntries.length > 0) {
 		const chain = chainEntries.map((d) => d.value);
 		const idx = Math.min(attempt, chain.length - 1);
@@ -408,17 +489,20 @@ export const execPick = (
 		// always outranks it (owner intent, must= parity). The machine-conf
 		// executor row is the last default (amendment: it was unreachable
 		// dead config — laneModelOf collapsed null before insertion).
+		// W2593 noop guard: a kev/glob token as a must=/prefer= target under
+		// noop never rides the model pin (the CLI would 400 on it); the pick
+		// falls to the hub/conf layers. Glob tokens (trailing *) are kev-only.
 		// W2637: a hub-pinned slot with no pin of its own takes the HUB's
 		// default chain (per-hub serving reality) before the executor row.
 		const slotHub = slot.hub ?? prefer.hub;
-		const hubDefaults = hubDefaultModels(slotHub);
+		const hubDefaults = effHubDefaults(slotHub);
 		const hubIdx =
 			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
 		const model =
 			slot.model ??
-			prefer.model ??
+			effPrefer.model ??
 			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
-			confModel(slot.bin);
+			effConfModel(slot.bin);
 		// W2636: which dotfile key actually produced `model`, for refusals.
 		const modelPin =
 			slot.model !== null
@@ -428,12 +512,12 @@ export const execPick = (
 						key: chosen.kind,
 						target: e,
 					}
-				: prefer.model !== null && prefer.file
+				: effPrefer.model !== null && prefer.file
 					? {
 							file: prefer.file,
 							line: prefer.modelLine ?? 0,
 							key: "model" as const,
-							target: prefer.model,
+							target: effPrefer.model,
 						}
 					: null;
 		const qwhy = quota?.get(providerOf(model ?? e) ?? "");
@@ -523,26 +607,27 @@ export const execPick = (
 		// W2570: the repo's model= pin fills a null slot model on the
 		// default ladder too (an executor row picks no model by design);
 		// the machine-conf row is the last default (amendment).
+		// W2593: the eff layers strip kev tokens (noop) — never forwarded.
 		// W2637: a hub-pinned default pick with no model of its own takes
 		// the HUB's default chain at the attempt index; the chain tail
 		// rides --fallback-model with the ladder's own tail.
-		const hubDefaults = hubDefaultModels(prefer.hub);
+		const hubDefaults = effHubDefaults(prefer.hub);
 		const hubIdx =
 			hubDefaults.length > 0 ? Math.min(attempt, hubDefaults.length - 1) : -1;
 		const pinned =
 			model ??
-			prefer.model ??
+			effPrefer.model ??
 			(hubIdx >= 0 ? (hubDefaults[hubIdx] ?? null) : null) ??
-			confModel(bin);
+			effConfModel(bin);
 		// W2636: an executor-row slot model pins nothing the user can edit;
 		// only a dotfile model= (or a directive token) carries provenance.
 		const modelPin =
-			prefer.model !== null && prefer.file
+			effPrefer.model !== null && prefer.file
 				? {
 						file: prefer.file,
 						line: prefer.modelLine ?? 0,
 						key: "model" as const,
-						target: prefer.model,
+						target: effPrefer.model,
 					}
 				: null;
 		const fallbackModels = [
@@ -577,7 +662,7 @@ export const execPick = (
 	return {
 		name: "claude",
 		agent: "claude",
-		model: prefer.model ?? confModel("claude"),
+		model: effPrefer.model ?? effConfModel("claude"),
 		bin: "claude",
 		hub: prefer.hub,
 		hubUrls: prefer.hubUrls,
