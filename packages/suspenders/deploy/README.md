@@ -338,6 +338,43 @@ overlay resolves its pinned public base under `node_modules/<dep>/packages`
 deploy key minted ON the hub device (0600, never printed); nothing in the
 public repo changes to flip.
 
+## Azure hub (IKEA, W2759)
+
+`docs/ikea-azure-deploy-plan-w2759.md` carries the full architecture
+(Entra front, the Azure hub as the estate stop, 4× H100 hubs behind it) and
+the measured Azure ground truth. Deploy-side, an Azure hub is ONE more
+stack.json profile — same compose, same verbs, three Azure-specific rows:
+
+- **Azure OpenAI upstreams**: `packages/buckle/upstreams.azure.json` is the
+  template (the copilot/zai precedent). Rows use the tier-2 `azure-openai`
+  adapter; Entra client-credentials ride `adapter_config.entra` with
+  `client_secret_env` naming the env var — the secret itself is a
+  `secrets.upstream_keys` PATH on the hub, materialized into the 0600
+  `upstream.env` by `hubctl push` like every other key. Key-based auth is
+  the fallback posture (`api_key_env` at the row top).
+- **Entra at the gate**: `auth.oidc` (issuer
+  `https://login.microsoftonline.com/<tenant>/v2.0`, JWKS
+  `https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys`,
+  audience `api://<appId>`) renders into `HUB_BUCKLE_OIDC_*` — W372 law,
+  zero code. App roles per the L3 finding: `buckle:proxy:READ_/WRITE_`.
+- **litellm**: the profile `litellm:` block (W2595 — litellm behind every
+  buckle); azure/azure_ai rows in the hub-side litellm.yaml share the same
+  credential law.
+
+The H100 hubs are ordinary peer hubs: one profile each, `peers:` naming the
+Azure hub label, their own buckle fronts. The Azure hub's ladder carries a
+spoke row per H100 hub (url = that hub's front, per-label spoke key), so
+its `/v1/models` lists what they serve. GPU hosts need docker + the pinned
+images reachable — `oven/bun:1` and the litellm image may need `docker
+save | docker load` or an ACR import on a network-isolated host.
+
+Container Apps caveat: ACA cannot run `network_mode: host`. An ACA-hosted
+hub translates the compose to explicit ingress (the belt-hub `ports:`
+pattern), `BUCKLE_BIND=0.0.0.0` behind ACA ingress (Entra JWT still
+enforces at the gate; ACA ingress is transport), and sidecar containers
+carry the outside-process health law (ACA probes hit the SIDECAR port). A
+docker-on-VM host keeps the compose as-is.
+
 ## Peer edges
 
 Hubs declare peers in runtime config: `hubs.<label>.peers` lists hub LABELS

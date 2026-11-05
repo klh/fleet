@@ -56,6 +56,69 @@
 				"health_port": 4114,
 				"sidecar_port": 4115
 			}
+		},
+		"azure": {
+			"host": "azure-hub.example.invalid",
+			"display_name": "Azure hub (Entra front)",
+			"buckle_port": 4111,
+			"buckle_health_port": 4112,
+			"buckle_ready_port": 4113,
+			"board_port": 7809,
+			"board_health_port": 7800,
+			"store_port": 7796,
+			"store_health_port": 7794,
+			"belt_port": 7792,
+			"belt_health_port": 7790,
+			"bind": "0.0.0.0",
+			"board_bind": "0.0.0.0",
+			"belt_bind": "0.0.0.0",
+			"allowed_hosts": ["azure-hub.example.invalid"],
+			"peers": ["h100-1", "h100-2", "h100-3", "h100-4"],
+			"litellm": {
+				"port": 4100,
+				"health_port": 4105
+			},
+			"deploy": {
+				"ssh": "user@azure-hub.example.invalid",
+				"dir": "/srv/klh/hub",
+				"docker": "docker"
+			},
+			"repos": {
+				"ref": "0123456789abcdef0123456789abcdef01234567",
+				"buckle": "https://example.invalid/mirror/fleet.git"
+			},
+			"secrets": {
+				"buckle_root_key": "/srv/klh/hub/buckle/buckle.env",
+				"upstream_keys": {
+					"AZURE_ENTRA_CLIENT_SECRET": "/srv/klh/hub/entra-client.secret"
+				}
+			},
+			"buckle_prefs": {
+				"allow_cloud": true,
+				"cost_speed": "balanced"
+			},
+			"ready_model": "azure-gpt",
+			"upstreams": {
+				"groups": {
+					"azure-gpt": [
+						{
+							"url": "https://example.openai.azure.com",
+							"dialect": "openai",
+							"adapter": "azure-openai",
+							"model": "REPLACE_ME_MODEL_ID",
+							"adapter_config": {
+								"deployment": "REPLACE_ME_DEPLOYMENT",
+								"api_version": "2025-04-01-preview",
+								"entra": {
+									"tenant_id": "REPLACE_ME_TENANT_ID",
+									"client_id": "REPLACE_ME_CLIENT_ID",
+									"client_secret_env": "AZURE_ENTRA_CLIENT_SECRET"
+								}
+							}
+						}
+					]
+				}
+			}
 		}
 	},
 	"auth": {
@@ -64,7 +127,11 @@
 			"ttlHours": 720
 		},
 		"oidc": {
-			"enforced": true
+			"enforced": true,
+			"issuer": "https://login.microsoftonline.com/REPLACE_ME_TENANT/v2.0",
+			"jwksUri": "https://login.microsoftonline.com/REPLACE_ME_TENANT/discovery/v2.0/keys",
+			"audience": "api://REPLACE_ME_APP_ID",
+			"requiredScope": "REPLACE_ME_SCOPE"
 		}
 	},
 	"admin": {

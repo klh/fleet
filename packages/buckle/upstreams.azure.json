@@ -1,0 +1,75 @@
+{
+	"comment": [
+		"W2759 — Azure OpenAI deployments as first-class upstreams for the",
+		"IKEA Azure hub. Operator overlay TEMPLATE: copy these groups into the",
+		"machine stack.json hubs.<label>.upstreams.groups (merged over",
+		"upstreams.json by group name; hubctl push materializes the hub ladder).",
+		"Never committed as the active default — credentials live only in env",
+		"vars named by api_key_env / entra.client_secret_env, resolved by",
+		"hubctl from the stack secrets.upstream_keys paths into upstream.env",
+		"(0600, on the hub device; the value is never printed or committed).",
+		"",
+		"Adapter: azure-openai (tier 2, W150) = the openai-compat pass-through",
+		"plus the Azure URL/auth profile. Two auth postures per row:",
+		"  entra (preferred): adapter_config.entra client-credentials — the",
+		"    gate fetches AAD tokens itself (scope cognitiveservices.azure.com",
+		"    /.default, cached ~55min, single in-flight refresh); needs an",
+		"    Entra app registration + secret. client_secret_env NAMES the env",
+		"    var, never the secret.",
+		"  api-key (fallback): api_key_env points at the env var holding the",
+		"    AOAI resource key (Key Vault-sourced on the hub).",
+		"",
+		"URL law: the row url is the AOAI RESOURCE endpoint",
+		"(https://<resource>.openai.azure.com); the adapter rewrites the path",
+		"to /openai/deployments/<deployment>/chat/completions and appends",
+		"api-version. adapter_config.deployment names the AOAI deployment",
+		"(defaults to the row model when omitted); adapter_config.api_version",
+		"pins the GA API (preview deployments use \"preview\").",
+		"",
+		"Group name = the wire id lanes send; model = the served model id.",
+		"Placeholder values below — the operator's machine stack.json carries",
+		"the real resource names, deployment ids and tenant/client ids.",
+		"",
+		"H100 hubs: the 4 GPU hubs expose their own buckle fronts; the Azure",
+		"hub's ladder carries one row per H100 hub (url = that hub's buckle",
+		"front, adapter = anthropic/openai per its dialect, api_key_env = the",
+		"per-label spoke key). Those rows are NOT in this template — they are",
+		"machine config (hub URLs + spoke keys exist only on the hub)."
+	],
+	"groups": {
+		"azure-gpt": [
+			{
+				"url": "https://REPLACE_ME_RESOURCE.openai.azure.com",
+				"dialect": "openai",
+				"adapter": "azure-openai",
+				"model": "REPLACE_ME_MODEL_ID",
+				"adapter_config": {
+					"deployment": "REPLACE_ME_DEPLOYMENT",
+					"api_version": "2025-04-01-preview",
+					"entra": {
+						"tenant_id": "REPLACE_ME_TENANT_ID",
+						"client_id": "REPLACE_ME_CLIENT_ID",
+						"client_secret_env": "AZURE_ENTRA_CLIENT_SECRET"
+					}
+				}
+			}
+		],
+		"azure-gpt-mini": [
+			{
+				"url": "https://REPLACE_ME_RESOURCE.openai.azure.com",
+				"dialect": "openai",
+				"adapter": "azure-openai",
+				"model": "REPLACE_ME_SMALL_MODEL_ID",
+				"adapter_config": {
+					"deployment": "REPLACE_ME_SMALL_DEPLOYMENT",
+					"api_version": "2025-04-01-preview",
+					"entra": {
+						"tenant_id": "REPLACE_ME_TENANT_ID",
+						"client_id": "REPLACE_ME_CLIENT_ID",
+						"client_secret_env": "AZURE_ENTRA_CLIENT_SECRET"
+					}
+				}
+			}
+		]
+	}
+}
