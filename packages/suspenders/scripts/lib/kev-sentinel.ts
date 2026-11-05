@@ -94,7 +94,10 @@ export const kevPlanOf = (c: KevChainView): KevPlan => {
 				hub: c.hub,
 				prefixes: [tok.slice(0, -1)],
 			};
-		return { kind: "noop", reason: `must=${tok} is a full model — kev does nothing` };
+		return {
+			kind: "noop",
+			reason: `must=${tok} is a full model — kev does nothing`,
+		};
 	}
 	if (prefers.length === 1) {
 		const tok = prefers[0]?.value ?? "";
@@ -105,10 +108,18 @@ export const kevPlanOf = (c: KevChainView): KevPlan => {
 				hub: c.hub,
 				prefixes: [tok.slice(0, -1)],
 			};
-		return { kind: "noop", reason: `prefer=${tok} is a full model — kev does nothing` };
+		return {
+			kind: "noop",
+			reason: `prefer=${tok} is a full model — kev does nothing`,
+		};
 	}
 	// no directives: the model pin is what says kev (guard kevSentinel below)
-	return { kind: "choose", scope: c.hub ? "hub" : "all", hub: c.hub, prefixes: [] };
+	return {
+		kind: "choose",
+		scope: c.hub ? "hub" : "all",
+		hub: c.hub,
+		prefixes: [],
+	};
 };
 
 /** True when the model layer says kev — the sentinel trigger. */
