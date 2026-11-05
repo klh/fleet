@@ -9,7 +9,10 @@
 import { serveStub, scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import type { KevDecision } from "../hooks/lib/knowledge/kev.ts";
-import { kevModelGate, kevCandidates } from "../hooks/lib/fleet-loop/kev-model.ts";
+import {
+	kevModelGate,
+	kevCandidates,
+} from "../hooks/lib/fleet-loop/kev-model.ts";
 import type { HubLocation } from "../hooks/lib/hub/hub-locate.ts";
 import {
 	globFilter,
@@ -28,8 +31,7 @@ import { join } from "node:path";
 
 /** Stubbed kev answer (injected decide) — no :8912 dependency. */
 const kevAnswer =
-	(choice: string) =>
-	async (): Promise<KevDecision | null> => ({
+	(choice: string) => async (): Promise<KevDecision | null> => ({
 		model: "kev-latest",
 		choice,
 		confidence: 0.9,
@@ -91,13 +93,29 @@ test("rules 1-8: kevPlanOf classifies each configuration @unit", () => {
 		prefixes: [],
 	});
 	// 3
-	expect(kevPlanOf(view({ hub: "ikea", directives: [{ value: "glm-*", kind: "prefer" }] }))).toMatchObject({ kind: "choose", prefixes: ["glm-"] });
+	expect(
+		kevPlanOf(
+			view({ hub: "ikea", directives: [{ value: "glm-*", kind: "prefer" }] }),
+		),
+	).toMatchObject({ kind: "choose", prefixes: ["glm-"] });
 	// 4
-	expect(kevPlanOf(view({ hub: "ikea", directives: [{ value: "glm-5.3", kind: "prefer" }] }))).toMatchObject({ kind: "noop" });
+	expect(
+		kevPlanOf(
+			view({ hub: "ikea", directives: [{ value: "glm-5.3", kind: "prefer" }] }),
+		),
+	).toMatchObject({ kind: "noop" });
 	// 5
-	expect(kevPlanOf(view({ hub: "ikea", directives: [{ value: "glm-*", kind: "must" }] }))).toMatchObject({ kind: "choose", prefixes: ["glm-"] });
+	expect(
+		kevPlanOf(
+			view({ hub: "ikea", directives: [{ value: "glm-*", kind: "must" }] }),
+		),
+	).toMatchObject({ kind: "choose", prefixes: ["glm-"] });
 	// 6a full-model must
-	expect(kevPlanOf(view({ hub: "ikea", directives: [{ value: "glm-5.3", kind: "must" }] }))).toMatchObject({ kind: "noop" });
+	expect(
+		kevPlanOf(
+			view({ hub: "ikea", directives: [{ value: "glm-5.3", kind: "must" }] }),
+		),
+	).toMatchObject({ kind: "noop" });
 	// 6b multiple musts
 	expect(
 		kevPlanOf(
@@ -170,7 +188,7 @@ test("execPick: rule-7 misconfig throws; rule-4/6 noop keeps today's pin @unit",
 	rmSync(join(REPO, ".prefer"), { force: true });
 });
 
-const kevAnswerUnused = undefined;
+const _kevAnswerUnused = undefined;
 
 test("kevCandidates: scope hub reads the pinned hub's own catalog @unit", async () => {
 	const hub = serveStub(catalog(["gpt-6-sol"]));
@@ -236,7 +254,11 @@ test("kevModelGate: kev pick, out-of-set answer, and deterministic fallback @uni
 			env,
 			decide: kevAnswer("gpt-6-sol"),
 		});
-		expect(kev).toMatchObject({ verdict: "model", model: "gpt-6-sol", via: "kev" });
+		expect(kev).toMatchObject({
+			verdict: "model",
+			model: "gpt-6-sol",
+			via: "kev",
+		});
 		// out-of-set answer → deterministic first candidate
 		const off = await kevModelGate({
 			plan,
@@ -308,8 +330,7 @@ test("end-to-end: admitModel runs the kev gate first and sets the model @unit", 
 		});
 		// the belt serves both candidates; kev dead → deterministic first
 		expect(out.verdict).toBe("proceed");
-		if (out.verdict === "proceed")
-			expect(out.pick.model).toBe("glm-5.3");
+		if (out.verdict === "proceed") expect(out.pick.model).toBe("glm-5.3");
 	} finally {
 		delete process.env.SUSPENDERS_BUCKLE_FRONT;
 		store.close();
