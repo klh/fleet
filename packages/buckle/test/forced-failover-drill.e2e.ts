@@ -118,7 +118,9 @@ test.describe({ tag: "@unit" }, () => {
 		policy: {
 			num_retries: 0,
 			request_timeout_s: 1,
-			first_byte_budget_s: 2,
+			// W2617: ample walk budget so the 2s knob cap (not remaining-walk)
+			// binds the interactive cold wait deterministically.
+			first_byte_budget_s: 5,
 			provider_pools: {
 				shared: {
 					concurrency: 1,
@@ -147,16 +149,22 @@ test.describe({ tag: "@unit" }, () => {
 		group: "primary",
 		failureStatus: 429 as const,
 		maxAttempts: 3,
-		maxWallMs: 2000,
+		// W2617: the 2s interactive cold-wait knob rides inside this budget —
+		// 5000 leaves the independent fallback knock room after a knob-capped wait.
+		maxWallMs: 5000,
 	};
 
 	// W1294.17 port delta: playwright has no test.each — the bun .each loop
 	// became a for-of registration with the %d title interpolated per case.
+	// W2617 refresh: the shared-account alias cold earns the interactive
+	// caller a bounded wait (min(lapse, 2s knob default)) before the walk
+	// reaches the independent fallback — the alias itself never takes a
+	// wire knock.
 	for (const retryAfterS of [1, 60])
 		test(
 			"account 429 Retry-After " +
 				retryAfterS +
-				"s skips same-account alias and reaches independent fallback without waiting",
+				"s skips same-account alias and delivers through the independent fallback (W2617 bounded wait)",
 			async () => {
 				const started = performance.now();
 				const report = await runForcedFailoverDrill({
@@ -171,7 +179,9 @@ test.describe({ tag: "@unit" }, () => {
 					"primary",
 					"local",
 				]);
-				expect(report.simulatedWaitMs).toBe(0);
+				expect(report.simulatedWaitMs).toBe(
+					Math.min(retryAfterS * 1000, 2_000),
+				);
 			},
 		);
 
@@ -229,6 +239,8 @@ test.describe({ tag: "@unit" }, () => {
 		expect(report.ok).toBe(false);
 		expect(report.deliveredGroup).toBeNull();
 		expect(report.attempts.map((a) => a.status)).toEqual([429]);
-		expect(report.simulatedWaitMs).toBe(0);
+		// W2617: the blocked alias earns the knob-capped bounded wait before
+		// the honest local answer — the non-delivery truth is unchanged.
+		expect(report.simulatedWaitMs).toBe(2_000);
 	});
 });
