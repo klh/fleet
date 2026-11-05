@@ -22,10 +22,13 @@ import {
 	wireBeltRowSettings,
 } from "../scripts/lib/belt-row-settings.ts";
 import {
+	BELT_ROW_URL,
 	BELT_UPSTREAM_KEY_VAR,
+	beltRowBlock,
 	ensureBeltUpstreamKey,
 	readBeltEnvVar,
 	verifyBeltPeerWiring,
+	wireBeltRow,
 } from "../scripts/lib/belt-upstream-key.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
@@ -138,6 +141,49 @@ describe("W1124.2 belt peer key (installer face)", () => {
 		).toBe(true);
 	});
 
+	test("belt row: seeds an absent override and preserves operator bytes", () => {
+		const home = tmp();
+		const override = join(home, "upstreams.yaml");
+		const existing =
+			"# operator rows\nversion: 1\ngroups:\n  glm-local:\n    - url: http://127.0.0.1:8902\n      dialect: openai\n";
+		writeFileSync(override, existing, { mode: 0o600 });
+		const res = wireBeltRow(override);
+		expect(res.status).toBe("wired");
+		const body = readFileSync(override, "utf8");
+		expect(body.startsWith("# operator rows\nversion: 1\ngroups:\n")).toBe(
+			true,
+		);
+		expect(body).toContain(
+			"  glm-local:\n    - url: http://127.0.0.1:8902\n      dialect: openai\n",
+		);
+		expect(body).toContain(BELT_ROW_URL);
+		expect(body).toContain(`api_key_env: ${BELT_UPSTREAM_KEY_VAR}`);
+		const groups = (Bun.YAML.parse(body) as { groups: Record<string, unknown> })
+			.groups;
+		expect(Object.keys(groups).sort()).toEqual(["belt", "glm-local"]);
+		scrub();
+	});
+	test("belt row: patches a wrong row; kept when wired; unparseable refused", () => {
+		const home = tmp();
+		const override = join(home, "upstreams.yaml");
+		writeFileSync(
+			override,
+			`groups:\n  belt:\n    - url: ${BELT_ROW_URL}\n      dialect: anthropic\n`,
+			{ mode: 0o600 },
+		);
+		expect(wireBeltRow(override).status).toBe("wired");
+		const patched = readFileSync(override, "utf8");
+		expect(patched).toContain(`api_key_env: ${BELT_UPSTREAM_KEY_VAR}`);
+		expect(patched.split("- url:").length).toBe(2);
+		writeFileSync(override, `${beltRowBlock()}`, { mode: 0o600 });
+		expect(wireBeltRow(override).status).toBe("kept");
+		const broken = join(home, "broken.yaml");
+		writeFileSync(broken, "groups: [unclosed\n", { mode: 0o600 });
+		const refused = wireBeltRow(broken);
+		expect(refused.status).toBe("failed");
+		expect(readFileSync(broken, "utf8")).toBe("groups: [unclosed\n");
+		scrub();
+	});
 	test("W2760 belt row: lands in settings.json, idempotent, fail closed", () => {
 		const home = tmp();
 		const settings = join(home, "settings.json");
