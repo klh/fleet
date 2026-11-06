@@ -65,6 +65,7 @@ const serveFile = async (
 	if (
 		path !== "/dashboard-topology.js" &&
 		path !== "/dashboard-topology-model.js" &&
+		path !== "/dashboard-wallclock.js" &&
 		path !== "/vendor/lit.js"
 	)
 		return false;

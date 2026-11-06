@@ -125,6 +125,7 @@ const serveFile = async (
 		"/dashboard-topology-model.js",
 		"/dashboard-topology-hubs.js",
 		"/dashboard-topology-hubs-model.js",
+		"/dashboard-wallclock.js",
 		"/vendor/lit.js",
 	];
 	if (!allowed.includes(path)) return false;
