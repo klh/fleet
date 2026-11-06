@@ -334,3 +334,59 @@ function coerceLessonRows(
 			: [];
 	});
 }
+
+export interface SinkPostOutcome {
+	ok: boolean;
+	status: number;
+	/** the face's JSON answer ({} on a transport miss) */
+	data: Record<string, unknown>;
+	error?: string;
+}
+
+/** ONE generic poster for the curation/write faces the coord knowledge
+ *  verbs call (/enqueue /curate /promote /retire /note). Install write
+ *  token auth; fail-open (ok:false on any miss — the verb falls back to
+ *  the fleet-local store per the compatibility law). */
+export async function sinkPostFace(
+	path: string,
+	body: Record<string, unknown>,
+	writeConf: FkWriteConf = fkWriteConf(),
+	fetchFn: typeof fetch = fetch,
+): Promise<SinkPostOutcome> {
+	if (!writeConf.conf.url)
+		return { ok: false, status: 0, data: {}, error: "sink not configured" };
+	if (!writeConf.writeToken)
+		return { ok: false, status: 0, data: {}, error: "no write token" };
+	try {
+		const res = await fetchFn(
+			`${writeConf.conf.url.replace(/\/$/, "")}${path}`,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${writeConf.writeToken}`,
+				},
+				body: JSON.stringify(body),
+				signal: AbortSignal.timeout(writeConf.conf.timeoutMs),
+			},
+		);
+		const data = (await res
+			.json()
+			.catch(() => ({}))) as Record<string, unknown>;
+		return res.ok
+			? { ok: true, status: res.status, data }
+			: {
+					ok: false,
+					status: res.status,
+					data,
+					error: (data.error as string) ?? `HTTP ${res.status}`,
+				};
+	} catch (e) {
+		return {
+			ok: false,
+			status: 0,
+			data: {},
+			error: e instanceof Error ? e.message : String(e),
+		};
+	}
+}

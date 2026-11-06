@@ -23,6 +23,10 @@ import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
 import { drainKevReview } from "../lib/knowledge/kev-review.ts";
 import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
+import {
+	fkWriteConf,
+	sinkPostFace,
+} from "../lib/knowledge/knowledge-sink-client.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge
@@ -82,14 +86,27 @@ export async function cmdKnowledgeEnqueue(_rest: string[]): Promise<void> {
 		die(
 			'usage: knowledge-enqueue --source <why> --payload "<text>" [--domain d] [--area a] [--code-origin repo/path] [--as sid]',
 		);
-	const qid = await enqueueKnowledge({
+	// W2779.3.1: sink-first thin client — POST /enqueue on the fk sink when
+	// the conf resolves; the fleet-local ingest queue is the compatibility
+	// fallback (fail-open, seam doc).
+	const sinkQ = await sinkPostFace("/enqueue", {
 		source,
 		payload,
 		domain: arg("--domain"),
 		area: arg("--area"),
-		codeOrigin: arg("--code-origin"),
-		originSid: arg("--as"),
+		code_origin: arg("--code-origin"),
+		origin_sid: arg("--as"),
 	});
+	const qid = sinkQ.ok
+		? Number(sinkQ.data.id ?? sinkQ.data.qid ?? 0)
+		: await enqueueKnowledge({
+				source,
+				payload,
+				domain: arg("--domain"),
+				area: arg("--area"),
+				codeOrigin: arg("--code-origin"),
+				originSid: arg("--as"),
+			});
 	// W909 CONSULT column: stamp the enqueueing lane's current claim into the
 	// bus — `knowledge.enqueued` payload carries work+project (shred trigger
 	// stamps the events.project column), the reporter renders Y/N from it.
@@ -120,6 +137,13 @@ export async function cmdKnowledgePromote(rest: string[]): Promise<void> {
 	const by = arg("--by");
 	const refused = promoteActorError(by);
 	if (refused) die(refused);
+	// W2779.3.1: sink-first POST /promote (write token); local store is the
+	// compatibility fallback.
+	const sink = await sinkPostFace("/promote", { id, by });
+	if (sink.ok) {
+		console.log(`${green("✓")} knowledge #${id} → active (by ${by})`);
+		return;
+	}
 	const store = makeStore();
 	const ok = await store.promote(id);
 	if (!ok) die(`knowledge #${id} is not a candidate (or missing)`);
@@ -150,6 +174,12 @@ export async function cmdKnowledgeRetire(rest: string[]): Promise<void> {
 	const id = Number(rest[0]);
 	if (!id) die("usage: knowledge-retire <id> [--superseded-by <id>]");
 	const by = Number(arg("--superseded-by") ?? 0) || null;
+	// W2779.3.1: sink-first POST /retire; local store is the fallback.
+	const sink = await sinkPostFace("/retire", { id, superseded_by: by });
+	if (sink.ok) {
+		console.log(`${green("✓")} knowledge #${id} → retired`);
+		return;
+	}
 	const ok = await makeStore().retire(id, by);
 	if (!ok) die(`knowledge #${id} is already retired (or missing)`);
 	console.log(`${green("✓")} knowledge #${id} → retired`);
@@ -206,7 +236,13 @@ export async function cmdKnowledgeNote(rest: string[]): Promise<void> {
 	const as = arg("--as");
 	if (!id || !what || !as)
 		die('usage: knowledge-note <id> --what "what changed" --as <sid>');
-	// #9b: micro-updates go through the store port
+	// #9b: micro-updates go through the store port — W2779.3.1: sink-first
+	// POST /note (write token); the local store port is the fallback.
+	const sink = await sinkPostFace("/note", { id, sid: as, what });
+	if (sink.ok) {
+		console.log(`${green("✓")} knowledge #${id} noted by ${as.slice(0, 8)}`);
+		return;
+	}
 	const n = await makeStore().note(id, as, what);
 	if (n < 0) die(`no such knowledge: #${id}`);
 	console.log(
@@ -251,6 +287,28 @@ export async function cmdKnowledgeCurate(_rest: string[]): Promise<void> {
 	// already teaches — human review decides pointer-ize vs retire; flagged
 	// rows stay in place (state untouched, append-only contributor note).
 	const repoRoot = arg("--repo") ?? process.cwd();
+	// W2779.3.1: sink-first POST /curate {repo, by}; local sweep is the
+	// compatibility fallback.
+	const sink = await sinkPostFace("/curate", {
+		repo: repoRoot,
+		by: arg("--as") ?? "coord-curate",
+	});
+	if (sink.ok) {
+		const flagged = (sink.data.flagged ?? []) as {
+			id: number;
+			topic: string;
+			doc: string;
+			coverage: number;
+		}[];
+		for (const f of flagged)
+			console.log(
+				`${amber("⚠")} k#${f.id} "${f.topic.slice(0, 48)}" — derivable from ${f.doc} (${f.coverage}% terms)`,
+			);
+		console.log(
+			`${green("✓")} curate: ${flagged.length}/${sink.data.checked ?? flagged.length} rows flagged for review (left in place, state unchanged)`,
+		);
+		return;
+	}
 	const res = await makeStore().curate({
 		repoRoot,
 		by: arg("--as") ?? "coord-curate",

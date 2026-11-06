@@ -8,6 +8,7 @@ import {
 	fkWriteConf,
 	lessonsViaSink,
 	settleViaSink,
+	sinkPostFace,
 } from "../hooks/lib/knowledge/knowledge-sink-client.ts";
 import {
 	lessonPushLines,
@@ -113,4 +114,22 @@ test("lessonPushLines truncates long values with the fact-get pointer", () => {
 	]);
 	expect(lines[0]).toBe("LESSON short: tiny");
 	expect(lines[1]).toContain("… (coord fact get lesson.long)");
+});
+
+test("sinkPostFace posts the write-token bearer and fails open on 4xx", async () => {
+	const stub = serveStub((_req, body) => {
+		expect(body).toMatchObject({ id: 5, by: "klh" });
+		return Response.json({ ok: true });
+	});
+	try {
+		const out = await sinkPostFace("/promote", { id: 5, by: "klh" }, wc(stub.url, "wt"));
+		expect(out.ok).toBe(true);
+		expect(stub.requests[0].path).toBe("/promote");
+		expect(stub.requests[0].auth).toBe("Bearer wt");
+		const bad = await sinkPostFace("/promote", { id: 5 }, wc(stub404().url, "wt"));
+		expect(bad.ok).toBe(false);
+		expect(bad.status).toBe(404);
+	} finally {
+		stub.close();
+	}
 });
