@@ -8,6 +8,7 @@ import type { CandidateRow } from "./candidates.ts";
 import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
 import type { Ctx } from "./request-context.ts";
+import { exportProxySpan } from "./otlp-request-spans.ts";
 import { stampServedIdentity } from "./served-identity.ts";
 
 export const SSE_HEADERS = (h: Headers): Headers => {
@@ -118,5 +119,6 @@ export function stamped(
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest
+	exportProxySpan(ctx, { ...route, status: resp.status }); // W2788
 	return resp;
 }
