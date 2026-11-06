@@ -15,21 +15,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	type LicenseAuditDeps,
 	classifyLicense,
 	composeLicenseReport,
 	EXTERNAL_SOURCES,
-	loadAccepted,
+	type LicenseAuditDeps,
 	type LicenseReport,
-	readLicenseLines,
-	parseModelIds,
+	loadAccepted,
 	PERMISSIVE,
+	parseModelIds,
+	readLicenseLines,
 	saveAccepted,
-	vendoredLitChunks,
 	vendoredEntries,
-	violationKey,
-	verifyVendorHeaders,
+	vendoredLitChunks,
 	verifyVendorFreshness,
+	verifyVendorHeaders,
+	violationKey,
 	violationsOf,
 	walkLicenses,
 } from "../hooks/lib/fleet-loop/license-audit.ts";

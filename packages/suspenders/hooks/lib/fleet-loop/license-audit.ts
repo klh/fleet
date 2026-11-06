@@ -9,7 +9,7 @@
 // (Chorus AGPL-3.0: zero code — patterns only; emdash Apache-2.0, superlite
 // and best-of MIT: attribution required, patterns preferred). Writes the
 // report json the W822 pulse reads and lands finding.license-audit.
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -350,7 +350,7 @@ export function lockPackageVersion(root: string, name: string): string | null {
 	} catch {
 		return null;
 	}
-	const marker = '"' + name + "@";
+	const marker = `"${name}@`;
 	const idx = lock.indexOf(marker);
 	if (idx === -1) return null;
 	const rest = lock.slice(idx + marker.length);

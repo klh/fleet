@@ -4,22 +4,22 @@
 // HOME and BELT_POLICY pinned to a TEMP COPY of the policy — never the live
 // belt policy, never the committed default.
 
-import { scratchWorld, waitUp } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld, waitUp } from "@klh/test-kit";
 import {
+	applyBoardSettings,
+	boardSettingsPath,
 	ConfigError,
 	diffLines,
+	formToBoardSettings,
 	parsePolicy,
 	patchPolicyJson,
 	patchPolicyText,
 	policyWritePath,
 	readBoardSettings,
 	resolvePolicy,
-	applyBoardSettings,
-	boardSettingsPath,
-	formToBoardSettings,
 } from "../hooks/lib/board/board-config.ts";
 
 const world = scratchWorld({ prefix: "w147-" });
