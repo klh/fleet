@@ -47,7 +47,7 @@ test("column order holds at desktop width", {
 		test.info().project.name !== "chromium-desktop",
 		"desktop project runs the desktop-width assertion",
 	);
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
 	await assertOrder(page);
 });
@@ -59,7 +59,7 @@ test("column order holds on a narrow screen", {
 		test.info().project.name !== "chromium-narrow",
 		"narrow project runs the narrow-screen assertion",
 	);
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await expect(page.locator(".kanban .kcol")).toHaveCount(ORDER.length);
 	await assertOrder(page);
 });
@@ -83,7 +83,7 @@ test("empty conditional columns follow filtered task transitions and keep jump t
 		"INSERT INTO work_deps(project,work_id,depends_on) VALUES (?,?,?)",
 	).run(b.MY_PROJ, "WBLOCK", "WFAIL");
 	try {
-		await page.goto(`${b.BASE}/#lanes`);
+		await page.goto(`${b.BASE}/#lanes?view=cards`);
 		await expect(page.locator('.kcol[data-kcol-key="FAILED"]')).toBeVisible();
 		await expect(page.locator('.kcol[data-kcol-key="BLOCKED"]')).toBeVisible();
 		await expect(page.locator('.kcol[data-kcol-key="PAUSED"]')).toHaveCount(0);

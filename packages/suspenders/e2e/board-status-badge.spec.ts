@@ -92,7 +92,7 @@ async function measure(page: Page, board: Board) {
 		);
 		await route.fulfill({ response, json: payload });
 	});
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	// the kanban renders after the polled fetch — wait for the injected cards
 	// render readiness (root #103631): host visibility can precede the Lit
 	// child's first update + registration — assert ALL NINE shadow squares

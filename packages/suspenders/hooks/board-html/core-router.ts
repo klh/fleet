@@ -38,7 +38,7 @@ function parseHashQuery(hash){
   return { tab: safeDecode(h.slice(1, i)), params: params };
 }
 // query params this router owns; everything else warns loudly and is ignored
-var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1, days: 1, weeks: 1, team: 1, dept: 1, includeDemo: 1, hour: 1, section: 1 };
+var HASH_PARAM_KEYS = { w: 1, task: 1, id: 1, project: 1, q: 1, filter: 1, proj: 1, days: 1, weeks: 1, team: 1, dept: 1, includeDemo: 1, hour: 1, section: 1, view: 1 };
 var pendingProj = ''; // ?project= seen before the scope <select> had its option
 var pendingSelect = null; // ?w= card select waiting for its kanban card to render
 function hashNeedle(){
@@ -78,10 +78,17 @@ function applyHashRoute(){
   if (parsed.tab && TABS[parsed.tab] && item === undefined) setTab(parsed.tab, true);
   else if (parsed.tab && item === undefined) console.warn('[board] unknown tab in hash: #' + parsed.tab);
   if (p.project !== undefined) applyHashProject(p.project); // project first — the drawer fetch scopes off sel.value
+  if (p.view !== undefined) applyHashView(p.view); // W2269.2: #lanes?view=cards — the kanban deep-link
   if (item !== undefined) applyHashItem(item, p);
   var unknown = [];
   for (var k in p) if (!HASH_PARAM_KEYS[k] && unknown.indexOf(k) < 0) unknown.push(k);
   if (unknown.length) console.warn('[board] unknown hash params ignored: ' + unknown.join(', '));
+}
+// W2269.2: #lanes?view=cards|table — the lanes view mode (table default)
+function applyHashView(v){
+  var want = String(v || '');
+  if (want !== 'cards' && want !== 'table') { console.warn('[board] unknown view param in hash: ' + want); return; }
+  if (typeof setLanesView === 'function') setLanesView(want, false);
 }
 function applyHashProject(v){
   var want = String(v || '');
@@ -107,6 +114,9 @@ function applyHashItem(v, p){
   var id = String(v || '');
   if (!id) { console.warn('[board] empty item id in hash'); return; }
   setTab('lanes', true); // item numbers link straight into the lanes view
+  // W2269.2: an item deep link selects a CARD (scroll + .ksel) — force the
+  // card board regardless of the persisted/default view
+  if (typeof setLanesView === 'function') setLanesView('cards', false);
   var proj = p.proj ? p.proj : null;
   openTask(id, proj, null);
   pendingSelect = { id: id, proj: proj, at: Date.now() };

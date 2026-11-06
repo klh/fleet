@@ -91,7 +91,7 @@ async function wireTasks(board: Board): Promise<WireTask[]> {
 }
 
 async function openLanes(page: Page, board: Board): Promise<void> {
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await expect(page.locator("klh-task-card-host").first()).toBeVisible({
 		timeout: 20_000,
 	});

@@ -31,6 +31,7 @@ import { DECISIONS_CSS } from "../board-html/decisions-css.ts";
 import { FEEDS } from "../board-html/feeds.ts";
 import { DIFF } from "../board-html/diff.ts";
 import { LAUNCH } from "../board-html/launch.ts";
+import { LANES_TABLE } from "../board-html/lanes-table.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
 import { REPORT } from "../board-html/report.ts";
@@ -479,6 +480,21 @@ button.diffsend:disabled { opacity:.45; cursor:default; }
 .lanemsg:focus { outline:1px solid var(--klh-accent); }
 button.lanesend { background:var(--klh-accent); color:var(--klh-on-accent); border:1px solid var(--klh-accent); border-radius:2px; padding:3px 10px; font:inherit; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; cursor:pointer; }
 button.lanesend:disabled { opacity:.45; cursor:default; }
+/* W2269.2 the #lanes per-lane table */
+.ltablewrap { overflow-x:auto; }
+table.ltbl { width:100%; border-collapse:collapse; font-size:11px; }
+table.ltbl th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--klh-dim); padding:4px 8px; border-bottom:1px solid var(--klh-edge-strong); white-space:nowrap; }
+table.ltbl td { padding:4px 8px; border-bottom:1px solid var(--klh-edge); vertical-align:top; }
+tr.lsec td { background:var(--klh-warm); color:var(--klh-dim); font-size:10px; text-transform:uppercase; letter-spacing:.08em; padding:3px 8px; }
+tr.lrow { cursor:pointer; }
+tr.lrow:hover td { background:var(--klh-wash, rgba(127,127,127,.06)); }
+tr.lrow.degraded td { background:var(--klh-danger-wash); }
+tr.lrow.degraded .llane { color:var(--klh-danger-ink); font-weight:600; }
+.llane { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space:nowrap; }
+.litem { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space:nowrap; }
+.lst { white-space:nowrap; }
+.lnum, .lmodel { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space:nowrap; }
+.lchip { display:inline-block; margin-left:6px; padding:0 5px; font-size:9.5px; border:1px solid var(--klh-danger); color:var(--klh-danger-ink); border-radius:2px; white-space:nowrap; }
 /* W1198 live work-report pane */
 .rpttable { margin:0 0 10px; padding:0; font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:11px; line-height:1.5; overflow-x:auto; }
 .rptstrip { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 8px; }
@@ -495,7 +511,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${LANES_TABLE}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>

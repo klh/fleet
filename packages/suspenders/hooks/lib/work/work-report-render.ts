@@ -76,7 +76,9 @@ export const truncateTask = (t: string): string =>
 
 const UNKNOWN = "—"; // §5 — unreported, never a measured 0
 
-const tokensCell = (i: ReportItem): string => {
+/** W2269.2: exported for the lanes board face — the SAME cell helpers the
+ *  CLI table renders with pre-format the #lanes table cells server-side. */
+export const tokensCell = (i: ReportItem): string => {
 	const v = i.usage["gen_ai.usage.input_tokens"];
 	return v == null ? UNKNOWN : compactTokens(v);
 };
@@ -86,7 +88,8 @@ const cacheCell = (i: ReportItem): string => {
 	return `${Math.round(i.cache_share * 100)}%${i.blind_cache ? CACHE_MARK : ""}`;
 };
 
-const outMinCell = (i: ReportItem): string => {
+/** W2269.2: exported with tokensCell — the lanes board face joins these. */
+export const outMinCell = (i: ReportItem): string => {
 	const out = i.usage["gen_ai.usage.output_tokens"];
 	if (out == null || i.age_ms == null || i.age_ms === 0) return UNKNOWN;
 	return `${Math.round(out / (i.age_ms / 60_000))}`;
@@ -95,7 +98,8 @@ const outMinCell = (i: ReportItem): string => {
 const agoCell = (ms: number | null): string =>
 	ms == null ? UNKNOWN : agentClock(ms);
 
-const modelCell = (i: ReportItem): string =>
+/** W2269.2: exported with tokensCell — the lanes board face joins these. */
+export const modelCell = (i: ReportItem): string =>
 	i.model ? (i.hub ? `${i.model}@${i.hub}` : i.model) : UNKNOWN;
 
 /** Narrow-default column set; §6 --wide unhides the wide-only ones (REQ,

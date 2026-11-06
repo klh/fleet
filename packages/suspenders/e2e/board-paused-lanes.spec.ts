@@ -55,7 +55,7 @@ test("paused execution has its own column, navigation and filter without changin
 }, async ({ page, cleanBoard }) => {
 	const board = cleanBoard;
 	worker = seedPausedWorld(board);
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	const paused = page
 		.locator(".kcol")
 		.filter({ has: page.locator("h3", { hasText: /^paused/ }) });
@@ -81,7 +81,7 @@ test("paused execution has its own column, navigation and filter without changin
 		`lane.${sid}.state`,
 	);
 	db.close();
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await expect(paused.locator(`[data-kid="${item}"]`)).toHaveCount(0);
 	// Resuming restores existing family placement; never duplicates the card.
 	await expect(page.locator(`#kanban [data-kid="${item}"]`)).toHaveCount(1);
