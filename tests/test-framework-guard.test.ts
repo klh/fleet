@@ -32,8 +32,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
 // sha.
-// W2649 rebase: the risk-tier .test.ts→.e2e.ts port rides onto the 636
-// base — its −1 re-pins DOWN to the exact merged-tree count.
+// W2664 rebase (merged here by W2737): merging suspenders/W2649
+// (parked/W2478 risk-tier merge gate) onto main carries the risk-tier
+// .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635).
 const PIN = 635;
 
 function trackedTestFiles(): string[] {
