@@ -13,17 +13,18 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import {
-	HOOK_ITEMS,
-	MANAGED_PREFIX_ENTRIES,
-	PRUNE_ALLOWLIST,
-	RECEIPT_FILE,
-	payloadChecksum,
-} from "../hooks/lib/install/harness-manifest.ts";
+import { z } from "zod";
 import {
 	hubCapabilities,
 	spokeCapabilities,
 } from "../hooks/lib/federation/profile.ts";
+import {
+	HOOK_ITEMS,
+	MANAGED_PREFIX_ENTRIES,
+	PRUNE_ALLOWLIST,
+	payloadChecksum,
+	RECEIPT_FILE,
+} from "../hooks/lib/install/harness-manifest.ts";
 import { twinDrift } from "./belt-bin-overlay.ts";
 import {
 	type PlannedShim,
@@ -33,7 +34,6 @@ import {
 } from "./ensure-shims.ts";
 import type { StepContext, StepResult } from "./install/install-run.ts";
 import { payloadClosure } from "./lib/source-closure.ts";
-import { z } from "zod";
 
 /** Faces the installer bundle-validates in the staged payload (validate()).
  *  Exported for the W1119.2 installer/runtime-parity guard
@@ -46,6 +46,10 @@ export const ENTRYPOINTS = [
 	"hooks/pre-compact.ts", // W253 checkpoint roll — validated with the other faces
 	"hooks/bin/coord.ts",
 	"hooks/bin/work.ts",
+	// W2470.2: string-referenced by the rendered launchd units (confEnv
+	// ProgramArguments) — never import-graph reachable, named here so the
+	// payload closure ships it to prefix/bin
+	"hooks/bin/launchd-launcher.ts",
 	"hooks/bin/oracle.ts",
 	"hooks/bin/fleet-loop.ts",
 	"hooks/bin/fleet-tracker.ts",

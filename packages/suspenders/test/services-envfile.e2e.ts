@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
 	existsSync,
 	mkdirSync,
@@ -8,15 +7,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	defaultRenderValues,
 	loadManifest,
 	renderDarwin,
 	renderLinux,
 	renderWin32,
+	type ServiceSpec,
 	usedPlaceholders,
 	validateSpec,
-	type ServiceSpec,
 } from "../scripts/install/install-services.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
@@ -71,6 +71,9 @@ test.describe("W501 supervised gateway env files @unit", () => {
 			"/sbin",
 		]);
 		for (const spec of loadManifest()) {
+			// W2470.2: confEnv services render env-less units — PATH rides the
+			// launcher baseline (hooks/bin/launchd-launcher.ts), proven there.
+			if (spec.confEnv === true) continue;
 			const unit = parsePlistXml(renderDarwin(spec, f.values));
 			const servicePath = (unit.EnvironmentVariables as Record<string, string>)
 				.PATH;
