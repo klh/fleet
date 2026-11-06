@@ -27,7 +27,9 @@ if (typeof t.each !== "function") {
 	t.each = (table: EachTable) => (title, fn) => {
 		for (const raw of table) {
 			const row: EachRow = Array.isArray(raw) ? raw : [raw];
-			const shown = /%[sdijp]/.test(title) ? fmt(title, row) : `${title} ${row.join(" ")}`;
+			const shown = /%[sdijp]/.test(title)
+				? fmt(title, row)
+				: `${title} ${row.join(" ")}`;
 			t(shown, () => fn(...row));
 		}
 	};
@@ -42,17 +44,17 @@ export const afterEach = (fn: () => void | Promise<void>) => t.afterEach(fn);
 
 // bun:test conditional-registration shims: skipIf/runIf are missing from
 // the bun-runtime playwright surface (probed 2026-10-27).
-type SimpleCase = (
-	title: string,
-	fn: () => void | Promise<void>,
-) => void;
-const conditional = (shouldRun: boolean): SimpleCase => (title, fn) => {
-	if (shouldRun) t(title, fn);
-	else t.skip(title, fn);
-};
+type SimpleCase = (title: string, fn: () => void | Promise<void>) => void;
+const conditional =
+	(shouldRun: boolean): SimpleCase =>
+	(title, fn) => {
+		if (shouldRun) t(title, fn);
+		else t.skip(title, fn);
+	};
 const tt = t as typeof t & {
 	skipIf?: (cond: unknown) => SimpleCase;
 	runIf?: (cond: unknown) => SimpleCase;
 };
 if (typeof tt.skipIf !== "function") tt.skipIf = (cond) => conditional(!cond);
-if (typeof tt.runIf !== "function") tt.runIf = (cond) => conditional(Boolean(cond));
+if (typeof tt.runIf !== "function")
+	tt.runIf = (cond) => conditional(Boolean(cond));
