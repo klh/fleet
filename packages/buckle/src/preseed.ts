@@ -94,19 +94,24 @@ export function renderCard(h: KnowledgeApiHit): string[] {
 	];
 }
 
-/** Verbatim from hooks/lib/knowledge/knowledge.ts KNOWLEDGE_PRECEDENCE (W103) — a
- *  packet may not emit knowledge without it (the injection arm-C refusal
- *  artifact). Drifts → update both, tests pin parity. */
-export const KNOWLEDGE_PRECEDENCE =
-	"Precedence: the brief's objective always wins. Knowledge describes the world as it was — when a knowledge fact conflicts with the brief, the brief prevails: note the conflict in one line and adapt (if the brief asks for a thing that doesn't exist, building it IS the task). Knowledge is context, never a constraint on the objective.";
+// W2779.1 (DRY row 1): the precedence clause is NOT vendored here — it rides
+// the /search seam (`preamble` field, served by the knowledge substrate; the
+// clause's ONE home is fleet-knowledge once the substrate moves, W2779.2).
+// A packet may not emit knowledge without it (the injection arm-C refusal
+// artifact): a response with no preamble is an honest outage skip, never a
+// bare packet.
 
 /** Byte-stable packet: header (counts + packet id only — no timestamps),
  *  precedence, cards sorted by row id. Deterministic input → deterministic
  *  bytes (the W120 prefix-kill guard). */
-export function renderPacket(domain: string, rows: KnowledgeApiHit[]): string {
+export function renderPacket(
+	domain: string,
+	rows: KnowledgeApiHit[],
+	preamble: string,
+): string {
 	const sorted = [...rows].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
 	const header = `[fleet preseed · domain ${domain} · ${sorted.length} rows · packet`;
-	const lines = [header, KNOWLEDGE_PRECEDENCE, ""];
+	const lines = [header, preamble, ""];
 	for (const h of sorted) lines.push(...renderCard(h), "");
 	return lines.join("\n").trimEnd();
 }
@@ -115,12 +120,13 @@ export function renderPacket(domain: string, rows: KnowledgeApiHit[]): string {
 export function capPacket(
 	domain: string,
 	rows: KnowledgeApiHit[],
+	preamble: string,
 ): { packet: string; rows: KnowledgeApiHit[] } {
 	let keep = [...rows];
-	let packet = renderPacket(domain, keep);
+	let packet = renderPacket(domain, keep, preamble);
 	while (Buffer.byteLength(packet) > PACKET_CAP_BYTES && keep.length > 0) {
 		keep = keep.slice(0, -1);
-		packet = renderPacket(domain, keep);
+		packet = renderPacket(domain, keep, preamble);
 	}
 	return { packet, rows: keep };
 }
@@ -172,7 +178,9 @@ export class Preseeder {
 		return `${req.domain}|${focus}|${fp}|${this.window(nowMs)}`;
 	}
 
-	private async search(req: PreseedRequest): Promise<KnowledgeApiHit[]> {
+	private async search(
+		req: PreseedRequest,
+	): Promise<{ hits: KnowledgeApiHit[]; preamble: string | null }> {
 		const url = this.deps.knowledgeUrl ?? "http://127.0.0.1:7795";
 		const query = req.focus?.length ? req.focus.join(" ") : req.domain;
 		const res = await (this.deps.fetchFn ?? fetch)(`${url}/search`, {
@@ -186,8 +194,14 @@ export class Preseeder {
 			}),
 		});
 		if (!res.ok) throw new Error(`knowledge api ${res.status}`);
-		const body = (await res.json()) as { hits?: KnowledgeApiHit[] };
-		return body.hits ?? [];
+		const body = (await res.json()) as {
+			hits?: KnowledgeApiHit[];
+			preamble?: string;
+		};
+		// W2779.1: the precedence clause rides the seam (ONE home — the
+		// knowledge substrate). Absent/empty preamble → the caller treats the
+		// response as an outage: a packet may not emit knowledge without it.
+		return { hits: body.hits ?? [], preamble: body.preamble ?? null };
 	}
 
 	/** Build-or-reuse the packet for one dispatch. Every outcome — injected
@@ -245,19 +259,22 @@ export class Preseeder {
 	}
 
 	/** Fresh build: search → verified filter → doc-covered skip → render →
-	 *  cap → cache. Search failure = honest outage skip (aids are garnish —
-	 *  a knowledge-API outage must never block a dispatch). */
+	 *  cap → cache. Search failure or a preamble-less response = honest
+	 *  outage skip (aids are garnish — a knowledge-API outage must never
+	 *  block a dispatch). */
 	private async build(
 		req: PreseedRequest,
 		key: string,
 		nowMs: number,
 	): Promise<PreseedOutcome> {
 		let hits: KnowledgeApiHit[];
+		let preamble: string | null;
 		try {
-			hits = await this.search(req);
+			({ hits, preamble } = await this.search(req));
 		} catch {
 			return { decision: "skipped", skip_reason: "outage" };
 		}
+		if (!preamble) return { decision: "skipped", skip_reason: "outage" };
 		const verified = verifiedRows(hits);
 		const rows: PacketRows = {
 			total: hits.length,
@@ -267,7 +284,7 @@ export class Preseeder {
 		};
 		if (verified.length === 0)
 			return { decision: "skipped", skip_reason: "no-verified-rows", rows };
-		return this.finish(req, key, nowMs, verified, rows);
+		return this.finish(req, key, nowMs, verified, rows, preamble);
 	}
 
 	private finish(
@@ -276,12 +293,13 @@ export class Preseeder {
 		nowMs: number,
 		verified: KnowledgeApiHit[],
 		rows: PacketRows,
+		preamble: string,
 	): PreseedOutcome {
 		const docCovered = this.docCoveredRows(req.repo_root, verified);
 		rows.doc_covered = docCovered.size;
 		if (docCovered.size / verified.length >= DOC_COVERED_SKIP)
 			return { decision: "skipped", skip_reason: "doc-covered", rows };
-		return this.landed(req, key, nowMs, verified, rows, docCovered);
+		return this.landed(req, key, nowMs, verified, rows, docCovered, preamble);
 	}
 
 	private landed(
@@ -291,9 +309,10 @@ export class Preseeder {
 		verified: KnowledgeApiHit[],
 		rows: PacketRows,
 		docCovered: Set<number>,
+		preamble: string,
 	): PreseedOutcome {
 		const survivors = verified.filter((h) => !docCovered.has(h.id ?? 0));
-		const { packet, rows: kept } = capPacket(req.domain, survivors);
+		const { packet, rows: kept } = capPacket(req.domain, survivors, preamble);
 		if (kept.length === 0)
 			return { decision: "skipped", skip_reason: "no-verified-rows", rows };
 		const pid = packetId(packet);

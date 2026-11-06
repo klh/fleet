@@ -145,14 +145,15 @@ describe("preseed pipeline", () => {
 	});
 
 	test("render is byte-stable + sorted by id; packetId deterministic", () => {
-		const a = renderPacket("gaps", [hit({ id: 7 }), hit({ id: 3 })]);
-		const b = renderPacket("gaps", [hit({ id: 3 }), hit({ id: 7 })]);
+		const pre = "Precedence: the brief's objective always wins (stub).";
+		const a = renderPacket("gaps", [hit({ id: 7 }), hit({ id: 3 })], pre);
+		const b = renderPacket("gaps", [hit({ id: 3 }), hit({ id: 7 })], pre);
 		expect(a).toBe(b);
 		expect(a).toContain("[fleet preseed · domain gaps · 2 rows");
 		expect(a).toContain("k#3 ·");
-		expect(a).toContain("Precedence: the brief's objective always wins.");
+		expect(a).toContain(pre);
 		expect(packetId(a)).toBe(
-			packetId(renderPacket("gaps", [hit({ id: 3 }), hit({ id: 7 })])),
+			packetId(renderPacket("gaps", [hit({ id: 3 }), hit({ id: 7 })], pre)),
 		);
 	});
 
@@ -163,7 +164,7 @@ describe("preseed pipeline", () => {
 				fact: `fact number ${i} with padding text to grow the packet bytes substantially`,
 			}),
 		);
-		const { packet, rows } = capPacket("gaps", many);
+		const { packet, rows } = capPacket("gaps", many, "Precedence: stub.");
 		expect(Buffer.byteLength(packet)).toBeLessThanOrEqual(3072);
 		expect(rows.length).toBeLessThan(60);
 		const ids = rows.map((r) => r.id ?? 0);
@@ -197,6 +198,19 @@ describe("Preseeder decisions", () => {
 		expect(out.skip_reason).toBe("outage");
 	});
 
+	test("W2779.1: response without preamble → outage skip, no bare packet", async () => {
+		// the precedence clause rides the /search seam; a sink that serves
+		// hits but no preamble must never yield a packet without it
+		const p = new Preseeder({
+			policy: { preseed: { default: "on" } },
+			fetchFn: async () => Response.json({ hits: [hit({})] }),
+		});
+		const out = await p.preseed({ domain: "gaps", repo_root: "/tmp" });
+		expect(out.decision).toBe("skipped");
+		expect(out.skip_reason).toBe("outage");
+		expect(out.packet).toBeUndefined();
+	});
+
 	test("injects verified rows; cache hit reuses without a second search", async () => {
 		const root = mkdtempSync(join(tmpdir(), "buckle-aids-cache-"));
 		tmpRoots.push(root);
@@ -211,6 +225,7 @@ describe("Preseeder decisions", () => {
 			fetchFn: async () => {
 				calls++;
 				return Response.json({
+					preamble: "Precedence: the brief's objective always wins (stub).",
 					hits: [
 						hit({ source_ref: "README.md", source_hash: realHash }),
 						hit({ id: 2, source_ref: "README.md", source_hash: realHash }),
@@ -238,6 +253,7 @@ describe("Preseeder decisions", () => {
 			policy: { preseed: { default: "on" } },
 			fetchFn: async () =>
 				Response.json({
+					preamble: "Precedence: the brief's objective always wins (stub).",
 					hits: [
 						hit({
 							id: 1,
@@ -403,7 +419,10 @@ describe("doc-skip mechanics", () => {
 describe("aids routes", () => {
 	test("preseed → rollup end-to-end through the route table", async () => {
 		const deps = mkDeps(POLICY_ON);
-		const knowledge = Response.json({ hits: [hit({}), hit({ id: 2 })] });
+		const knowledge = Response.json({
+			preamble: "Precedence: the brief's objective always wins (stub).",
+			hits: [hit({}), hit({ id: 2 })],
+		});
 		deps.preseeder = new Preseeder({
 			policy: POLICY_ON,
 			fetchFn: async () => knowledge,
