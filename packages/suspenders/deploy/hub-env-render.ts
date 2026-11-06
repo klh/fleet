@@ -8,7 +8,10 @@ import { join } from "node:path";
 import type { HubProfile, StackAuth } from "../hooks/lib/stack-config.ts";
 import { hubMetricsEnv } from "./hub-metrics.ts";
 import { pushProfileEnv } from "./hub-profiles.ts";
-import { resolveHubOrigin } from "./hub-ref-preflight.ts";
+import {
+	assertKnowledgeVersionShape,
+	resolveHubOrigin,
+} from "./hub-ref-preflight.ts";
 
 /** A local hub must not publish over an existing .local service. The registry
  * is machine-owned, so this check follows the operator's actual front. */
@@ -55,6 +58,9 @@ export function renderEnv(
 	// W1302.3: the origin/ref shape gate moved to deploy/hub-ref-preflight.ts
 	// (shared with the activation preflight — ONE shape gate, one error set)
 	const { origin, ref } = resolveHubOrigin(hub, version);
+	// W2779.5: the fk pin shape gate rides the same one-error-set rule —
+	// an fk-mode hub renders only with a materialized knowledge_version.
+	assertKnowledgeVersionShape(hub);
 	const lines = [`HUB_NAME=${name}`];
 	for (const [key, value] of Object.entries(hubMetricsEnv(hub)))
 		lines.push(`${key}=${value}`);

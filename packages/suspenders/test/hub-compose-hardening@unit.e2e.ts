@@ -28,11 +28,13 @@ const RUNTIME = [
 	"model-store-health",
 	"knowledge-sink",
 	"knowledge-health",
+	"fk-sink",
+	"fk-health",
 	"mdns-announce",
 	"mdns-health",
 	"peer-pull",
 ];
-const BUILD = ["fleet-repo", "fleet-deps"];
+const BUILD = ["fleet-repo", "fleet-deps", "fk-repo"];
 const STATEFUL = [
 	"buckle-hub",
 	"board-hub",
@@ -40,6 +42,7 @@ const STATEFUL = [
 	"belt-hub",
 	"model-store-hub",
 	"knowledge-sink",
+	"fk-sink",
 	"peer-pull",
 ];
 
@@ -117,13 +120,15 @@ test("writable surface = explicit state mounts; code mounts stay :ro", () => {
 				expect(m.endsWith(":ro"), name).toBe(true);
 		}
 	}
-	// hub-init owns exactly the five state volumes it re-owns
+	// hub-init owns exactly the six state volumes it re-owns (W2779.5:
+	// fk-state joins — the fk sink's store/write-token surface)
 	expect(svcs["hub-init"]?.volumes).toEqual([
 		"buckle-state:/state/buckle",
 		"hub-state:/state/hub-home",
 		"hub-secrets:/state/secrets",
 		"belt-state:/state/belt-home",
 		"model-store:/state/model-store",
+		"fk-state:/state/fk",
 	]);
 });
 

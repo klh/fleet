@@ -507,6 +507,39 @@ function pushRepoTierPolicy(hub: HubProfile, dir: string): void {
 	);
 }
 
+/** W2779.5: stage the fk conf beside the compose. hubs.<label>.knowledge.conf
+ *  is a PATH on the hub naming the operator-maintained 0600 fk conf JSON
+ *  (placeholders in repos only); fk-sink mounts it ro at /etc/klh/fk-conf.json
+ *  as FLEET_KNOWLEDGE_CONFIG. Undeclared = an empty placeholder (the bind
+ *  source must always be a file; fk falls to its own default conf — inert
+ *  while the sink runs fleet-local). A declared-but-missing source fails
+ *  push loudly (fail closed, the pushRepoTierPolicy posture). */
+function pushFkConf(hub: HubProfile, dir: string): void {
+	const source = hub.knowledge?.conf;
+	const dest = `${dir}/fk-conf.json`;
+	const destQ = JSON.stringify(dest);
+	if (source) {
+		if (!hub.deploy?.ssh && !existsSync(source))
+			throw new Error(
+				`knowledge.conf ${source} configured but missing — refusing to push the fk conf staged from nowhere`,
+			);
+		// same-inode = already staged (cat src > dst would truncate-eat itself)
+		if (source === dest) {
+			runOnHub(hub, `chmod 600 ${destQ}`);
+			console.log(`+ ${dest} (already staged — source is the deploy file)`);
+			return;
+		}
+		runOnHub(
+			hub,
+			`umask 077; cat ${JSON.stringify(source)} > ${destQ} && chmod 600 ${destQ}`,
+		);
+		console.log(`+ ${dest} (staged from ${source})`);
+		return;
+	}
+	runOnHub(hub, `umask 077; printf '' > ${destQ}; chmod 600 ${destQ}`);
+	console.log(`+ ${dest} (empty placeholder — knowledge.conf undeclared)`);
+}
+
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
 function reloadUpstreams(
@@ -589,6 +622,11 @@ function pushConfig(
 	// W2632: the staged repo→tier account policy (empty placeholder when the
 	// knob is undeclared — the compose bind source must always be a file)
 	pushRepoTierPolicy(hub, dir);
+	// W2779.5: the staged fk conf (fk knowledge mode) — the 0600
+	// FLEET_KNOWLEDGE_CONFIG source the fk-sink mounts ro. Undeclared = an
+	// empty placeholder (the bind source must always be a file; fk defaults
+	// its conf then — inert while the knowledge mode stays fleet-local).
+	pushFkConf(hub, dir);
 	// W1124.8.2.1: central provider profiles → the 0600 provider.env
 	pushProviderEnv(hub, dir);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
@@ -1019,6 +1057,13 @@ function main(): void {
 		process.exit(hubName ? 0 : 2);
 	}
 	const hub = requireHub(stack, hubName);
+	// W2779.5: fk hubs pull the public fleet-knowledge repo — materialize the
+	// stack-wide knowledge_version pin onto the profile (per-hub override
+	// wins) BEFORE any verb reads it: renderEnv emits HUB_KNOWLEDGE_VERSION,
+	// the activation preflight resolves it against the fk origin.
+	if (hub.knowledge?.mode === "fk" && !hub.knowledge.version) {
+		hub.knowledge.version = stack.knowledge_version;
+	}
 	const hubVersion = hub.version_override ?? stack.version;
 	if (verb === "status") {
 		// W483: inside the hub's quiet-hours window the hub is EXPECTED down
