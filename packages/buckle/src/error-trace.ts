@@ -10,6 +10,7 @@ import {
 } from "@klh/telemetry/src/http-trace.ts";
 import { z } from "zod";
 import { PROBLEM_SLUGS } from "./citizenship.ts";
+import { traceUrl } from "./trace-url.ts";
 
 const TRACE_ID = /^[0-9a-f]{32}$/;
 const HUB_LABEL = /^[a-zA-Z0-9][\w.-]{0,63}$/;
@@ -235,6 +236,10 @@ export function traceStreamErrorPayload(
 	// SSE errors ride HTTP 200; their hop status remains 200 in the trace.
 	body.trace_id = id;
 	body.fleet_trace = trace;
+	// W2268: the clickable details link — set ONLY when a base is
+	// configured, so unconfigured payloads gain no key at all.
+	const streamUrl = traceUrl(id);
+	if (streamUrl) body.trace_url = streamUrl;
 	if (error) {
 		error.trace_id = id;
 		if (typeof error.message === "string") {
@@ -351,6 +356,11 @@ export async function traceErrorResponse(
 	};
 	body.fleet_trace = trace;
 	body.trace_id = id;
+	// W2268: the clickable details link rides the JSON detail object for
+	// CLI clients — set ONLY when a base is configured (absent = no page
+	// deployed, never a fabricated link).
+	const detailsUrl = traceUrl(id);
+	if (detailsUrl) body.trace_url = detailsUrl;
 	const origin = trace.hops[0]?.hub ?? hub;
 	const path = [...trace.hops]
 		.reverse()
