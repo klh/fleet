@@ -249,6 +249,24 @@ describe("composePulse license section", () => {
 	});
 });
 
+// W2794: the lane-drift section — same injection contract as license
+describe("composePulse drift section", () => {
+	test("drift lines render the W2787 window section; empty = absent", () => {
+		const db = mkStore();
+		item(db, "R1", "READY", T0 - 2 * HOUR);
+		const lines = ["glm-5.3 review_pass_rate 90→40 (Δ-50)"];
+		const dg = composePulse(
+			baseDeps(db, { now: () => T0, drift: () => lines }),
+		);
+		expect(dg.body).toContain("lane drift (W2787 windows):");
+		expect(dg.body).toContain("glm-5.3 review_pass_rate 90→40");
+		const quiet = composePulse(
+			baseDeps(db, { now: () => T0, drift: () => [] }),
+		);
+		expect(quiet.body).not.toContain("lane drift");
+	});
+});
+
 describe("firePulse", () => {
 	test("sends on class channels and advances state on first ok", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "pulse-fire-"));

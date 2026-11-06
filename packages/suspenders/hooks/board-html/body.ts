@@ -100,6 +100,7 @@ export const BODY = String.raw`
   <nav id="kstatusnav" class="kstatusnav" hidden aria-label="Jump to lane status">
     <button type="button" id="attemptView" class="taskOrder" aria-pressed="false" title="Current-attempt timeline per card: one fixed 90-minute window, 3-minute bins — queue / firstbyte / tool / pause segments, artifact milestones as diamonds, gaps unknown. Spend sparkline keeps its full-history truth view.">attempt view</button>
   </nav>
+  <div id="driftCard" class="driftcard" hidden></div>
   <div id="lanesTableWrap" class="ltablewrap"><div id="lanesTable" class="state dim">loading lanes table...</div></div>
   <div class="kwrap" hidden><div id="kanban"><div class="state dim">loading lanes...</div></div></div>
 </section>

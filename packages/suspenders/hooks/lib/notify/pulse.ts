@@ -136,6 +136,9 @@ export interface PulseDeps {
 	/** W1132 cost-alert lines — the ledger sweep's renderCostAlert
 	 *  one-liners (default: none; no ledger, no section). */
 	cost?: () => string[];
+	/** W2794 lane-drift lines — readDriftAlerts/driftAlertLine over emitted
+	 *  `lane.drift` events (default: none; no events, no section). */
+	drift?: () => string[];
 }
 
 export interface PulseDigest {
@@ -236,6 +239,7 @@ function sectionsOf(args: {
 	license: string[];
 	maintenance: string[];
 	cost: string[];
+	drift: string[];
 }): string[] {
 	const out: string[] = [];
 	if (args.done.length > 0) {
@@ -273,6 +277,8 @@ function sectionsOf(args: {
 		);
 	if (args.cost.length > 0)
 		out.push("cost alerts:", ...args.cost.map((c) => `  ${c}`));
+	if (args.drift.length > 0)
+		out.push("lane drift (W2787 windows):", ...args.drift.map((d) => `  ${d}`));
 	if (args.commits.length > 0) {
 		out.push("commits:");
 		for (const c of args.commits) out.push(`  ${c}`);
@@ -303,6 +309,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 	const license = deps.license?.() ?? [];
 	const maintenance = deps.maintenance?.() ?? [];
 	const cost = deps.cost?.() ?? [];
+	const drift = deps.drift?.() ?? [];
 	const warmFrag =
 		warm !== null ? ` · warm ${(warm.rate * 100).toFixed(1)}%` : "";
 	// W902: the report header carries its own generated-at stamp — UTC Z first,
@@ -321,6 +328,7 @@ export function composePulse(deps: PulseDeps): PulseDigest {
 		license,
 		maintenance,
 		cost,
+		drift,
 	});
 	const digestKey = digestKeyOf(sections.join("\n"));
 	const deltas =

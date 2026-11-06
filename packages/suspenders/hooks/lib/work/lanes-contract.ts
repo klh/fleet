@@ -61,6 +61,10 @@ export interface LanesCells {
 	consult: string;
 	/** e.g. "launch ×16 · FAILED" — '' when no launch intent row */
 	launch: string;
+	/** W2794: recent lane.drift alerts for this row's lane class, pre-rendered
+	 *  by driftAlertLine — '' when the class is not drifting. Rendered as a
+	 *  chip beside the launch chip; every view renders the same string. */
+	drift: string;
 }
 
 /** The lanes payload: schema_version rides the W892 report contract's
@@ -85,10 +89,20 @@ export interface LanesContract {
 	/** launch-failure rollup (the failed-N counter the operator scans for):
 	 *  lanes with a non-null launch join, and the worst attempt count */
 	launch_failures: { lanes: number; worst_attempts: number };
+	/** W2794 (review B1-drift-not-surfaced): recent `lane.drift` alerts from
+	 *  readDriftAlerts — the ONE row set the board drift card and the #lanes
+	 *  chips render from; [] = no drift in the window (not "not checked"). */
+	drift: {
+		/** per-class alert lines, driftAlertLine-rendered, class order */
+		lines: string[];
+		/** classes with at least one alert (the chip join key) */
+		classes: string[];
+	};
 }
 
 /** A degraded lane: dead verdict, active launch backoff, or burned
  *  attempts — the rows the view emphasizes (owner directive 2026-11-06). */
 export const laneDegraded = (l: LanesLaneRow): boolean =>
 	l.verdict === "dead" ||
-	(l.launch !== null && (l.launch.attempts > 0 || l.launch.requeueInMs !== null));
+	(l.launch !== null &&
+		(l.launch.attempts > 0 || l.launch.requeueInMs !== null));

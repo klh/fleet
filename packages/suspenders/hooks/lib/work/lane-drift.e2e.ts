@@ -5,8 +5,10 @@ import { expect, test } from "@playwright/test";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import {
 	computeDrift,
+	driftAlertLine,
 	driftLine,
 	emitDriftAlerts,
+	readDriftAlerts,
 	readDriftRows,
 	topGroup,
 } from "./lane-drift.ts";
@@ -121,4 +123,37 @@ test("@unit W2787 topGroup picks the heaviest model_group", () => {
 	).toBe("b");
 	expect(topGroup("nope")).toBeNull();
 	expect(topGroup(undefined)).toBeNull();
+});
+
+test("@unit W2794 readDriftAlerts reads emitted alerts, ages them out, skips malformed", () => {
+	const d = store();
+	const alert = { previous: "90", current: "40", delta: "-50" };
+	put(d, NOW - DAY, "lane.drift", {
+		...alert,
+		drift_key: "m1|review_pass_rate|1",
+		lane_class: "m1",
+		metric: "review_pass_rate",
+	});
+	// aged out (8d > the 7d maxAge default), malformed (no metric), and
+	// another project's alert — none of these may surface
+	put(d, NOW - 8 * DAY, "lane.drift", {
+		...alert,
+		lane_class: "old",
+		metric: "review_pass_rate",
+	});
+	put(d, NOW - DAY, "lane.drift", { lane_class: "bad" });
+	put(d, NOW - DAY, "lane.drift", {
+		...alert,
+		lane_class: "m2",
+		metric: "blocking_per_review",
+		project: "/other/.git",
+	});
+	const rows = readDriftAlerts(d as unknown as GovernorStore, PROJ, NOW);
+	expect(rows).toHaveLength(1);
+	expect(rows[0]).toMatchObject({
+		lane_class: "m1",
+		metric: "review_pass_rate",
+		...alert,
+	});
+	expect(driftAlertLine(rows[0])).toBe("m1 review_pass_rate 90→40 (Δ-50)");
 });

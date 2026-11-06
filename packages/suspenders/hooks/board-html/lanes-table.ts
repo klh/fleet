@@ -40,9 +40,17 @@ function renderLanesTable(){
   var ls = lanesData.lanes || [];
   var lf = lanesData.launch_failures || { lanes: 0, worst_attempts: 0 };
   setText(byId('lanesStamp'), ls.length + ' lanes' + (lf.lanes ? ' · ' + lf.lanes + ' launch-failed (worst ×' + lf.worst_attempts + ')' : '') + ' · checked ' + ago(msAgo(lanesOkAt)));
+  var dc = byId('driftCard');
+  if (dc) {
+    var dl = (lanesData.drift && lanesData.drift.lines) || [];
+    if (dl.length) {
+      dc.hidden = false;
+      sigSet(dc, 'drift' + dl.join('|'), '<div class="dhead">lane drift (rolling window)</div>' + dl.map(function(l){ return '<div class="dline">' + esc(l) + '</div>'; }).join(''));
+    } else { dc.hidden = true; }
+  }
   var shown = ls.filter(function(l){ var t = lanesRowText(l); return (!hashFilter || hashMatch(t)) && (!boardQuery || boardMatch(t)); });
   if (!shown.length) { sigSet(el, 'empty', '<div class="state dim">no lanes in scope</div>'); return; }
-  var sig = shown.map(function(l){ var it = l.item || {}; return [l.sid, it.id, it.glyph, l.verdict, l.degraded ? 1 : 0, l.cells ? l.cells.launch : ''].join('\u0001'); }).join('|');
+  var sig = shown.map(function(l){ var it = l.item || {}; var c = l.cells || {}; return [l.sid, it.id, it.glyph, l.verdict, l.degraded ? 1 : 0, c.launch || '', c.drift ? '1' : ''].join('\u0001'); }).join('|');
   var secs = lanesData.sections || {};
   var html = '<table class="ltbl"><thead><tr><th scope="col">LANE</th><th scope="col">ITEM</th><th scope="col">ST</th><th scope="col">TASK</th><th scope="col">TOKENS</th><th scope="col">OUT/MIN</th><th scope="col">MODEL</th><th scope="col">EFFORT</th><th scope="col">CONSULT</th></tr></thead><tbody>';
   var lastSec = '';
@@ -54,7 +62,7 @@ function renderLanesTable(){
     }
     var tip = (l.sid || '') + (l.verdict ? ' · ' + l.verdict : '') + (l.name ? ' · ' + l.name : '');
     html += '<tr class="lrow' + (l.degraded ? ' degraded' : '') + '" data-task="' + esc(it.id || '') + '" data-proj="' + esc(lanesData.project || '') + '" title="' + esc(it.best_action || it.title || '') + '">' +
-      '<td class="llane" title="' + esc(tip) + '">' + esc(c.sid || '—') + (c.launch ? ' <span class="lchip">' + esc(c.launch) + '</span>' : '') + '</td>' +
+      '<td class="llane" title="' + esc(tip) + '">' + esc(c.sid || '—') + (c.launch ? ' <span class="lchip">' + esc(c.launch) + '</span>' : '') + (c.drift ? ' <span class="lchip drift" title="' + esc(c.drift) + '">drift</span>' : '') + '</td>' +
       '<td class="litem">' + esc(c.item || it.id || '') + '</td>' +
       '<td class="lst">' + esc(c.st || '') + '</td>' +
       '<td class="ltask">' + esc(c.task || '') + '</td>' +

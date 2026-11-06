@@ -495,6 +495,11 @@ tr.lrow.degraded .llane { color:var(--klh-danger-ink); font-weight:600; }
 .lst { white-space:nowrap; }
 .lnum, .lmodel { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space:nowrap; }
 .lchip { display:inline-block; margin-left:6px; padding:0 5px; font-size:9.5px; border:1px solid var(--klh-danger); color:var(--klh-danger-ink); border-radius:2px; white-space:nowrap; }
+/* W2794 lane-drift surfacing: the drift chip variant + the drift card */
+.lchip.drift { border-color:var(--klh-warn, #b8860b); color:var(--klh-warn-ink, #7a5a00); cursor:help; }
+.driftcard { border:1px solid var(--klh-warn, #b8860b); border-radius:2px; padding:6px 10px; margin:0 0 8px; font-size:11px; }
+.driftcard .dhead { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-warn-ink, #7a5a00); margin-bottom:3px; }
+.driftcard .dline { font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); line-height:1.5; }
 /* W1198 live work-report pane */
 .rpttable { margin:0 0 10px; padding:0; font-family:var(--klh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:11px; line-height:1.5; overflow-x:auto; }
 .rptstrip { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 8px; }

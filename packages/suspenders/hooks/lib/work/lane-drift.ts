@@ -69,7 +69,14 @@ export interface DriftAlert {
 const DRIFT_KINDS =
 	"('work.review','work.done','work.retried','NEED_DECISION','work.attribution')";
 
-/** The bus rows the detector replays — two windows back from now. */
+/** W2794 (review N1-attribution-unbounded-scan): the attribution replay is
+ *  bounded too — the class map only needs the LATEST attribution per work,
+ *  so rows older than this horizon (after the two comparison windows) are
+ *  dead weight every sweep would otherwise re-json_extract. */
+export const ATTRIBUTION_HORIZON_MS = 90 * 86_400_000;
+
+/** The bus rows the detector replays — two windows back from now, plus the
+ *  attribution rows inside the horizon that carry the lane-class map. */
 export function readDriftRows(
 	db: Database | GovernorStore,
 	project: string,
@@ -77,9 +84,9 @@ export function readDriftRows(
 ): DriftEventRow[] {
 	return db
 		.query(
-			`SELECT id, ts, kind, payload FROM events WHERE kind IN ${DRIFT_KINDS} AND (ts >= ? OR kind = 'work.attribution') AND json_valid(payload) AND json_extract(payload, '$.project') = ? ORDER BY ts, id`,
+			`SELECT id, ts, kind, payload FROM events WHERE kind IN ${DRIFT_KINDS} AND ts >= ? AND json_valid(payload) AND json_extract(payload, '$.project') = ? ORDER BY ts, id`,
 		)
-		.all(since, project) as DriftEventRow[];
+		.all(since - ATTRIBUTION_HORIZON_MS, project) as DriftEventRow[];
 }
 
 const emptyStats = (): WindowStats => ({
@@ -243,7 +250,12 @@ export function computeDrift(
 }
 
 /** Emit one `lane.drift` event per alert, idempotent per class+metric+window
- *  (window index = floor(now / windowMs)) so a sweep re-run never re-alerts. */
+ *  (window index = floor(now / windowMs)) so a sweep re-run never re-alerts.
+ *  W2794 (review N1-window-key-misaligned, documented): the dedupe bucket is
+ *  the EPOCH-ALIGNED window, not the rolling comparison — the same drift can
+ *  re-alert after a bucket boundary, and one fully inside a bucket is
+ *  suppressed until it crosses. Accepted for v1: hourly sweep, 7d windows, so
+ *  at most one re-alert per class+metric per week boundary. */
 export function emitDriftAlerts(
 	db: GovernorStore,
 	project: string,
@@ -283,4 +295,54 @@ export function driftLine(c: ClassDrift): string {
 		? ` ⚠ ${c.alerts.map((a) => `${a.metric} ${a.delta > 0 ? "+" : ""}${a.delta}`).join(", ")}`
 		: "";
 	return `${c.lane_class}: pass ${rate(c.pass_rate.previous)} → ${rate(c.pass_rate.current)} (n ${c.previous.reviews}/${c.current.reviews}) · done ${c.current.done} unverified ${c.current.unverified} · retries ${c.current.retries}${flag}`;
+}
+
+/** One emitted `lane.drift` alert as the consuming faces read it (W2794:
+ *  the board card, the #lanes drift chip, and the pulse drift section all
+ *  render FROM these rows — one reader, no per-face re-parsing). */
+export interface DriftAlertRow {
+	id: number;
+	ts: number;
+	lane_class: string;
+	metric: string;
+	previous: string;
+	current: string;
+	delta: string;
+}
+
+/** Recent emitted drift alerts, newest last; bounded by maxAge (default 7d —
+ *  one window, so a drifted class stays visible for the window it shifted
+ *  in, then ages out). Fail-soft: malformed payloads skip, never throw. */
+export function readDriftAlerts(
+	db: Database | GovernorStore,
+	project: string,
+	now: number,
+	maxAgeMs = 7 * 86_400_000,
+): DriftAlertRow[] {
+	const rows = db
+		.query(
+			"SELECT id, ts, payload FROM events WHERE kind = 'lane.drift' AND ts >= ? AND json_valid(payload) AND json_extract(payload, '$.project') = ? ORDER BY ts, id",
+		)
+		.all(now - maxAgeMs, project) as DriftEventRow[];
+	const out: DriftAlertRow[] = [];
+	for (const r of rows) {
+		const p = parse(r.payload);
+		const s = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
+		if (!s("lane_class") || !s("metric")) continue;
+		out.push({
+			id: r.id,
+			ts: r.ts,
+			lane_class: s("lane_class"),
+			metric: s("metric"),
+			previous: s("previous"),
+			current: s("current"),
+			delta: s("delta"),
+		});
+	}
+	return out;
+}
+
+/** One-line render per alert row (pulse section + board card text). */
+export function driftAlertLine(a: DriftAlertRow): string {
+	return `${a.lane_class} ${a.metric} ${a.previous}→${a.current} (Δ${Number(a.delta) > 0 ? "+" : ""}${a.delta})`;
 }

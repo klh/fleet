@@ -23,6 +23,7 @@ import {
 	reportRows,
 } from "./work-report.ts";
 import { modelCell, outMinCell, tokensCell } from "./work-report-render.ts";
+import { driftAlertLine, readDriftAlerts } from "./lane-drift.ts";
 import { type LaneLive, laneLiveRows } from "./work-report-live.ts";
 import { resolveBuckleDb } from "../lanes/lane-spend.ts";
 import { verdictBySid } from "../lanes/lane-liveness.ts";
@@ -47,14 +48,21 @@ const sessionName = (db: Database, sid: string): string | null => {
 /** Launch intents for one project: item → attempt/state/requeue. Fail-soft —
  *  a graph without the intents table answers an empty map (launch column
  *  renders absent, never a fabricated 0). */
-const launchStates = (db: Database, project: string): Map<string, LaneLaunchState> => {
+const launchStates = (
+	db: Database,
+	project: string,
+): Map<string, LaneLaunchState> => {
 	const out = new Map<string, LaneLaunchState>();
 	try {
 		const rows = db
 			.query(
 				"SELECT item, attempt, state FROM lane_launch_intents WHERE project = ?",
 			)
-			.all(project) as { item: string; attempt: number | null; state: string }[];
+			.all(project) as {
+			item: string;
+			attempt: number | null;
+			state: string;
+		}[];
 		for (const r of rows)
 			out.set(r.item, {
 				attempts: Number(r.attempt ?? 0),
@@ -89,12 +97,25 @@ export const lanesFace = (
 	const registry = loadLaneRegistrySafe(project);
 	const sids = [
 		...new Set(
-			rows
-				.map((r) => r.ownerSid)
-				.filter((s): s is string => Boolean(s)),
+			rows.map((r) => r.ownerSid).filter((s): s is string => Boolean(s)),
 		),
 	];
 	const verdicts = verdictBySid(sids, registry);
+	// W2794: the one drift row set (readDriftAlerts over emitted lane.drift
+	// events) — the chips below and the board card render from these SAME
+	// rows; the chip join is prefix-tolerant because item.model is the
+	// reportModel truncation (MODEL_CAP 16, "+" when several groups) of the
+	// alert's full lane_class name.
+	const drift = readDriftAlerts(db, project, now);
+	const driftLines = drift.map(driftAlertLine);
+	const driftClasses = [...new Set(drift.map((a) => a.lane_class))];
+	const driftChip = (model: string): string => {
+		const m = model.replace(/\+$/, "");
+		const hit = driftClasses.find((c) => m.startsWith(c) || c.startsWith(m));
+		return hit
+			? driftLines.filter((l) => l.startsWith(`${hit} `)).join(" · ")
+			: "";
+	};
 	const sections = Object.fromEntries(
 		REPORT_SECTIONS.map((s) => [s, 0]),
 	) as Record<ReportSection, number>;
@@ -117,7 +138,7 @@ export const lanesFace = (
 			verdict,
 			launch,
 			item,
-			cells: lanesCells(item, sid, name, launch),
+			cells: lanesCells(item, sid, name, launch, driftChip(item.model)),
 		};
 		return { ...row, degraded: laneDegraded(row) };
 	});
@@ -137,11 +158,14 @@ export const lanesFace = (
 			requests: contract.totals.requests,
 		},
 		launch_failures: { lanes: failedLanes, worst_attempts: worstAttempts },
+		drift: { lines: driftLines, classes: driftClasses },
 	};
 };
 
-const rowSid = (item: ReportItem, rows: { id: string; ownerSid: string | null }[]): string | null =>
-	rows.find((r) => r.id === item.id)?.ownerSid ?? null;
+const rowSid = (
+	item: ReportItem,
+	rows: { id: string; ownerSid: string | null }[],
+): string | null => rows.find((r) => r.id === item.id)?.ownerSid ?? null;
 
 /** W2269.2: pre-format the #lanes table cells with the SAME exported
  *  helpers the CLI table renders with — the board renders these strings
@@ -151,6 +175,7 @@ const lanesCells = (
 	sid: string | null,
 	name: string | null,
 	launch: LaneLaunchState | null,
+	drift: string,
 ): LanesCells => ({
 	sid: name ?? sid ?? "—",
 	item: item.id,
@@ -167,6 +192,7 @@ const lanesCells = (
 			: launch.attempts > 0
 				? `launch ×${launch.attempts} · ${launch.state || "held"}`
 				: `launch · ${launch.state || "held"}`,
+	drift,
 });
 
 const defaultLive = (now: number): LaneLive[] => {

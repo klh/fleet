@@ -7,6 +7,7 @@
 // emphasis; the card board stays reachable behind ?view=cards.
 import { expect, test } from "./fixtures";
 import type { APIResponse } from "@playwright/test";
+import { Database } from "bun:sqlite";
 
 test("#lanes serves the per-lane contract and renders its rows", {
 	tag: "@ui",
@@ -125,4 +126,67 @@ test("launch failures surface in the stamp and the lane chip", {
 		await expect(
 			page.locator(`#lanesTable tr[data-task="${burned.item.id}"] .lchip`),
 		).toContainText("launch");
+});
+
+test("drift alerts surface in the card and the lane chip", {
+	tag: "@ui",
+}, async ({ page, board, api }) => {
+	const b = board;
+	const rid = b.mintedId(
+		b.workOk(["add", "drift probe item"], "mint a drift row"),
+	);
+	const db = new Database(`${b.HOME}/.cache/claude-governor/governor.db`);
+	const now = Date.now();
+	// give the row model group "dclass" so the chip join has a real match
+	db.query(
+		"INSERT INTO events (ts, source, kind, payload) VALUES (?, 't', 'work.attribution', ?)",
+	).run(
+		now,
+		JSON.stringify({
+			project: `${b.MY_PROJ}/.git`,
+			work: rid,
+			backfill: JSON.stringify({ groups: { dclass: { in: 100, out: 50 } } }),
+		}),
+	);
+	db.query(
+		"INSERT INTO events (ts, source, kind, payload) VALUES (?, 't', 'lane.drift', ?)",
+	).run(
+		now,
+		JSON.stringify({
+			// the served project is the git-common-dir form (<repo>/.git),
+			// not the bare MY_PROJ realpath
+			project: `${b.MY_PROJ}/.git`,
+			drift_key: `dclass|review_pass_rate|${Math.floor(now / 604800000)}`,
+			lane_class: "dclass",
+			metric: "review_pass_rate",
+			previous: "90",
+			current: "40",
+			delta: "-50",
+		}),
+	);
+	try {
+		await page.goto(`${b.BASE}/#lanes?project=${b.projShort}`);
+		await expect(page.locator("#driftCard")).toBeVisible();
+		await expect(page.locator("#driftCard .dline").first()).toContainText(
+			"dclass review_pass_rate 90→40",
+		);
+		const res = await api.get(`${b.BASE}/api/lanes-table`);
+		const j = (await res.json()) as {
+			drift: { lines: string[]; classes: string[] };
+		};
+		expect(j.drift.classes).toContain("dclass");
+		expect(j.drift.lines.join("\n")).toContain("dclass review_pass_rate");
+		// the row's chip joins on its model group (reportModel renders the
+		// full "dclass" group name) — chip present, title carries the line
+		const chip = page.locator(
+			`#lanesTable tr[data-task="${rid}"] .lchip.drift`,
+		);
+		await expect(chip).toHaveCount(1);
+	} finally {
+		db.query("DELETE FROM events WHERE kind = 'lane.drift'").run();
+		db.query(
+			"DELETE FROM events WHERE kind = 'work.attribution' AND json_extract(payload, '$.work') = ?",
+		).run(rid);
+		db.close();
+	}
 });

@@ -511,6 +511,20 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 240_000,
 		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
+	{
+		// W2787: the lane drift sweep — replays work.review/work.done/
+		// work.retried/completion-block events into per-lane-class behavioral
+		// windows and emits one idempotent `lane.drift` event per alert (the
+		// board drift card, the #lanes drift chip, and the pulse drift section
+		// read those events; a --emit re-run never re-alerts the same
+		// class+metric+window). Exit 1 = drift present (metrics-alert
+		// convention, the heartbeat notices).
+		name: "lane-drift",
+		everySeconds: 3600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root) => [join(root, "hooks/bin/lane-drift.ts"), "--emit"],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
