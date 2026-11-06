@@ -1,11 +1,12 @@
 // src/usage-record.ts — one completed proxied request → ledger row,
 // servicemon token counters, per-lane cache telemetry (honest unknown).
 
+import type { AppDeps } from "./app-deps.ts";
 import { boundaryKey, boundaryOfDeployment } from "./cache-boundary.ts";
 import type { MissCause } from "./cache-fingerprint.ts";
+import { settleTokenBudget } from "./gov/token-budgets.ts";
 import type { Ctx } from "./request-context.ts";
 import type { Usage } from "./usage.ts";
-import type { AppDeps } from "./app-deps.ts";
 import { exportUsageSpan } from "./otlp-request-spans.ts";
 
 /** One completed proxied request → ledger row + servicemon token counters.
@@ -115,4 +116,13 @@ export function record(
 	deps.sm.tokens("out", usage.out_tok);
 	deps.sm.tokens("cache_read", usage.cache_r);
 	deps.sm.tokens("cache_create", usage.cache_c);
+	// W2790: the real usage joins the monthly book at settle — the ingress
+	// reservation already holds the weighted input estimate, so the book
+	// errs high (never under); usage null settles nothing (honest unknown).
+	if (ctx.tokenBudget)
+		settleTokenBudget(
+			ctx.tokenBudget.subject,
+			ctx.group,
+			usage.in_tok + usage.out_tok,
+		);
 }

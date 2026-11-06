@@ -59,6 +59,27 @@ CREATE TABLE IF NOT EXISTS spend_state (
   used_tok INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT 0
 );
+
+-- W2790 per-key monthly token budgets: one row per budgeted subject (mint
+-- name, prefix*, or actor:<id>) - absent = unlimited (lanes keep working;
+-- this is for shared/employee-facing deployments). weights = per-model-
+-- group multipliers (JSON, default 1).
+CREATE TABLE IF NOT EXISTS token_budgets (
+  subject TEXT PRIMARY KEY,
+  monthly_tokens INTEGER NOT NULL,
+  weights TEXT NOT NULL DEFAULT "{}",
+  updated_at INTEGER NOT NULL
+);
+-- W2790 the monthly book: post-reservation sums per (month, subject) -
+-- admission reserves the weighted input estimate, settle adds the real
+-- usage (W843 errs-high doctrine). Rows exist ONLY for budgeted subjects.
+CREATE TABLE IF NOT EXISTS token_budget_state (
+  month TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  used_tok INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (month, subject)
+);
 CREATE TABLE IF NOT EXISTS admission_slots (
   scope TEXT PRIMARY KEY,
   held INTEGER NOT NULL DEFAULT 0,
