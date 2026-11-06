@@ -8,6 +8,13 @@
 //   openai client → anthropic upstream: JSON + streaming (AnthropicToOpenAIStream)
 // count_tokens never bridges. A transform that rejects (reject-verbose)
 // makes the hop ineligible — the walk skips it, nothing is mangled.
+
+import { resolveAdapter } from "./adapters/index.ts";
+import { responsesToChatSse } from "./adapters/responses-sse.ts";
+import {
+	chatToResponses,
+	responsesToChatJson,
+} from "./adapters/responses-translate.ts";
 import {
 	type AnthropicEvent,
 	AnthropicToOpenAIStream,
@@ -20,12 +27,6 @@ import {
 import { chatgptSafeBody, isChatgptGroupModel } from "./chatgpt-bridge.ts";
 import { upstreamErrorDetail } from "./error-detail.ts";
 import { peerErrorTrace } from "./error-trace.ts";
-import { responsesToChatSse } from "./adapters/responses-sse.ts";
-import {
-	chatToResponses,
-	responsesToChatJson,
-} from "./adapters/responses-translate.ts";
-import { resolveAdapter } from "./adapters/index.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { SSE_KEEPALIVE } from "./sse.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
@@ -64,6 +65,11 @@ export function bridgeRequest(
 			isResponsesUpstream(dep)
 		) {
 			const body = chatToResponses(req.body);
+			// W2780 live receipt: api.githubcopilot.com serves BOTH /responses
+			// and /v1/responses (2026-11-06 probes: 200 status=completed on
+			// gpt-6-luna, copilot_usage accounting) — the /models rows
+			// advertise [/responses] only, but the un-prefixed set is
+			// advertising metadata, not path enforcement.
 			return body === null ? null : { ...req, path: "/v1/responses", body };
 		}
 		// The native ChatGPT converter extracts only a leading string SYSTEM
@@ -98,6 +104,8 @@ export function bridgeRequest(
 		if (isResponsesUpstream(dep)) {
 			const r = chatToResponses(body);
 			if (r === null) return null;
+			// Same W2780 live receipt as the chat rung: /v1/responses is
+			// wire-valid on the live seat (both prefixes 200).
 			return { ...req, dialect: "openai", path: "/v1/responses", body: r };
 		}
 		return { ...req, dialect: "openai", path: PATH.openai, body };
