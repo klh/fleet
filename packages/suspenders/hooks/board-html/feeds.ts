@@ -78,6 +78,15 @@ feeds.define('report', {
   ok: function(j){ reportData = j; reportOkAt = Date.now(); reportErr = null; renderReport(); },
   fail: function(e){ reportErr = e; renderReport(); }
 });
+// W2269.2: the #lanes per-lane table (lanes-table.ts) — same spine as the
+// report feed; only fetches while the lanes tab shows the table view.
+feeds.define('lanesTable', {
+  everyMs: 2000,
+  url: function(){ return curTab === 'lanes' && lanesView === 'table' ? '/api/lanes-table' + projQuery() : null; },
+  accept: function(j){ if (!j || j.ok === false || !Array.isArray(j.lanes)) throw new Error('bad /api/lanes-table payload'); },
+  ok: function(j){ lanesData = j; lanesOkAt = Date.now(); lanesErr = null; renderLanesTable(); },
+  fail: function(e){ lanesErr = e; renderLanesTable(); }
+});
 feeds.define('reportRow', {
   everyMs: 30000, url: reportRowUrl,
   accept: function(j){ if (!j || j.ok === false) throw new Error((j && j.error) || 'row not found'); },

@@ -65,7 +65,7 @@ test("tasks table: pills carry state letters in the semantic hues", {
 test("board cards, columns and pills resolve state hues in both themes", {
 	tag: "@ui",
 }, async ({ page, board }) => {
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await expect(page.locator('.kcard[data-tone="ready"]').first()).toBeVisible();
 	for (const theme of ["dark", "light"]) {
 		await page
@@ -198,7 +198,7 @@ test("the FAILED kanban card shows the note head; the drawer keeps the full note
 	tag: "@ui",
 }, async ({ page, cleanBoard }) => {
 	const failedId = seedFailed(cleanBoard);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	// ids collide across projects on the demo board (W318) — the title scopes
 	// the card to the seeded scratch-repo item
 	const card = page

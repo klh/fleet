@@ -57,7 +57,7 @@ test("split child nests beneath the SHATTERED parent card with the parent color"
 	tag: "@ui",
 }, async ({ page, cleanBoard }) => {
 	const { parentId, childId, child2Id } = seedFamily(cleanBoard);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	// W2267.4.2.2: the card IS the klh-task-card-host bridge — identity
 	// rides the host's own data-kid attribute (light DOM), not the shadow
 	// tid button the legacy .kcard string carried (ids are unique per
@@ -101,7 +101,7 @@ test("the child leaves the READY column — no scattered duplicate", {
 	tag: "@ui",
 }, async ({ page, cleanBoard }) => {
 	const { childId } = seedFamily(cleanBoard);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	const readyCol = page
 		.locator(".kcol")
 		.filter({ has: page.locator("h3", { hasText: "ready" }) });

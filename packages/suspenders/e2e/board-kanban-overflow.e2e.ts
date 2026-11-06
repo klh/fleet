@@ -16,7 +16,7 @@ test.use({ boardOptions: { env: { GOVERNOR_STORE_URL: "local" } } });
 test("kanban overflow rides a visible wrap scrollbar, never the page", {
 	tag: "@ui",
 }, async ({ page, board }) => {
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await page.locator(".kcol").first().waitFor({ state: "visible" });
 	const facts = await page.evaluate(() => {
 		const wrap = document.querySelector(".kwrap");
@@ -41,7 +41,7 @@ test("kanban overflow rides a visible wrap scrollbar, never the page", {
 test("status-nav jump brings the last column fully into view", {
 	tag: "@ui",
 }, async ({ page, board }) => {
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await page.locator(".kcol").first().waitFor({ state: "visible" });
 	const jumps = page.locator("#kstatusnav button[data-kcol]");
 	const count = await jumps.count();

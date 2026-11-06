@@ -95,7 +95,7 @@ test("gui: attempt view paints segments behind the toggle, spend chart intact", 
 			localStorage.setItem("sb.attemptView", "1");
 		} catch {}
 	});
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${b.BASE}/#lanes?view=cards`);
 	// the toggle reflects the restored state
 	await expect(page.locator('#attemptView[aria-pressed="true"]')).toBeVisible({
 		timeout: 20_000,

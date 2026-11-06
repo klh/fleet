@@ -24,7 +24,7 @@ test("tagged card paints the .prefer border on #lanes", {
 	const taggedId = cleanBoard.mintedId(
 		cleanBoard.workOk(["add", "prefer-colored lane card"], "mint tagged item"),
 	);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	const card = page
 		.locator(".kcard")
 		.filter({ has: page.locator(`[data-task="${taggedId}"]`) });

@@ -50,7 +50,7 @@ async function openLanes(page: Page, board: Board) {
 	// default project scope is "all" — the scratch world's cards render
 	// without touching #proj (the kanban families-spec pattern), so the spec
 	// never depends on the .git-suffixed project string
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 }
 
 function failedCard(page: Page, id: string) {
