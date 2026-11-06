@@ -245,6 +245,9 @@ services:
       BUCKLE_LITELLM_METRICS_KEY_ENV: ${HUB_LITELLM_METRICS_KEY_ENV:-}
       BUCKLE_LITELLM_METRICS_SOURCE_ID: ${HUB_LITELLM_METRICS_SOURCE_ID:-}
       BUCKLE_AUTH: ${HUB_BUCKLE_AUTH:-on}
+      # W2788: per-request OTLP trace export (empty endpoint = off).
+      BUCKLE_OTLP_ENDPOINT: ${HUB_BUCKLE_OTLP_ENDPOINT:-}
+      BUCKLE_OTLP_SAMPLE: ${HUB_BUCKLE_OTLP_SAMPLE:-}
       # W372: stack.json auth.oidc/auth.tokens → env (Entra-ready, config-only
       # — the gate builds its JWT validator from these when present; empty =
       # base posture unchanged). Issuer/jwksUri/audience are the validator

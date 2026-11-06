@@ -6,6 +6,7 @@ import type { MissCause } from "./cache-fingerprint.ts";
 import type { Ctx } from "./request-context.ts";
 import type { Usage } from "./usage.ts";
 import type { AppDeps } from "./app-deps.ts";
+import { exportUsageSpan } from "./otlp-request-spans.ts";
 
 /** One completed proxied request → ledger row + servicemon token counters.
  *  usage null = honest unknown: the requests column still increments, token
@@ -29,6 +30,7 @@ export function record(
 		cacheWriteReported,
 		ctx.model,
 	);
+	exportUsageSpan(ctx, usage); // W2788 usage settle
 	// W458.4 per-lane cache telemetry: attributed lanes append the row with
 	// the boundary the request actually rode (the delivered head). Usage
 	// null = honest unknown — the request still counts, tokens stay zero.
