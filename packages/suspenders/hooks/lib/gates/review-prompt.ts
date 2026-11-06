@@ -62,8 +62,9 @@ export function reviewPrompt(p: ReviewPromptInput): string {
 		`Explicitly resolved prior findings use a separate line RESOLVED: B<round>-<slug> followed by evidence. Unresolved blocker IDs prevent merge even with a PASS final line.`,
 		`Prior blocking IDs (W1263): for every B-ID in PRIOR BLOCKING IDS, your reply must carry one line — either re-open it (state it as a finding bullet) or close it (RESOLVED: B<id> <one-line evidence>). A clean PASS with prior IDs silently absent is not a resolution and will be rejected by the receipt contract.`,
 		`Evidence-kind caps severity: a file:line-only claim caps at blocker(high); a runtime-behavior claim without a trigger path caps at note(low).`,
-		`End your reply with ONE machine-parseable final line:`,
+		`End your reply with TWO machine-parseable lines: the verdict, then your calibrated confidence in it (0-1):`,
 		`VERDICT: PASS | VERDICT: FAIL - <reason>`,
+		`CONFIDENCE: <0.00-1.00>`,
 	].join("\n");
 }
 

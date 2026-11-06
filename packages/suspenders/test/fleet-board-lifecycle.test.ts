@@ -358,7 +358,8 @@ describe("W182 review-lane e2e (stub leg)", () => {
 					choices: [
 						{
 							message: {
-								content: "looked at the claims: fine\nVERDICT: PASS - clean",
+								content:
+									"looked at the claims: fine\nVERDICT: PASS - clean\nCONFIDENCE: 0.95",
 							},
 						},
 					],

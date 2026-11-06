@@ -16,6 +16,7 @@ import {
 } from "@klh/settings";
 import { z } from "zod";
 import { ProviderPoolsSchema } from "./fleet-loop/provider-pools.schema.ts";
+import { SecondOpinionBandSchema } from "./gates/review-confidence.ts";
 import { readJsonConfEither } from "./kernel-conf.ts";
 import { PostureDocumentSchema } from "./posture/posture.zod.ts";
 
@@ -462,6 +463,9 @@ export const StackConfigSchema = z
 		/** W2264: the model-health block — the capability-class taxonomy the
 		 *  pin-layer fallback may re-pin within. */
 		model_health: ModelHealthConfigSchema.optional(),
+		/** W2803: review crank — PASS confidence band [lo, hi] that triggers
+		 *  the second-opinion leg (default [0.30, 0.90]). */
+		review_second_opinion_band: SecondOpinionBandSchema.optional(),
 	})
 	.loose();
 

@@ -29,6 +29,7 @@ import {
 	protectedFamily,
 	protectedWireMismatch,
 } from "../lib/gates/protected-family.ts";
+import { secondOpinion } from "../lib/gates/review-confidence.ts";
 import { requestReviewLeg, reviewPrompt } from "../lib/gates/review-prompt.ts";
 import {
 	parseFallbackModels,
@@ -62,6 +63,7 @@ import {
 	mintLaneKey,
 	revokeLaneKey,
 } from "../lib/lanes/lane-auth.ts";
+import { tryLoadStack } from "../lib/stack-config.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
 // ---- args (W820: verb-kit owns parsing — W651 law) -------------------------
@@ -341,9 +343,13 @@ async function requestLlm(
 	});
 	return reply.text;
 }
-async function requestLeg(legIndex: number): Promise<string> {
+async function requestLeg(
+	legIndex: number,
+	modelOverride?: string,
+): Promise<string> {
 	if (leg?.kind === "buckle") {
-		const model = walkModels[legIndex] ?? legModel ?? leg.model;
+		const model =
+			modelOverride ?? walkModels[legIndex] ?? legModel ?? leg.model;
 		const admin = adminKey();
 		if (!admin) throw new Error("Buckle review admin credential unavailable");
 		const scoped = await mintLaneKey(reviewerSid, admin);
@@ -404,7 +410,7 @@ async function requestLeg(legIndex: number): Promise<string> {
 	if (leg?.kind === "llm") {
 		return requestLlm(
 			leg.url,
-			walkModels[legIndex] ?? legModel ?? leg.model,
+			modelOverride ?? walkModels[legIndex] ?? legModel ?? leg.model,
 			process.env.SUSPENDERS_LLM_KEY,
 		);
 	}
@@ -660,21 +666,52 @@ if (!verdictLineOf(legParts.join("\n\n")))
 	console.error(`review-lane ${item}: no verdict line — ${reviewTrail}`);
 const findings = legParts.length ? legParts.join("\n\n") : null;
 const verdictLine = verdictLineOf(findings);
-const verdict =
+const firstVerdict =
 	findings && verdictLine
 		? verdictLine.startsWith("PASS")
 			? "PASS"
 			: "FAIL"
 		: "ERROR";
+// W2803: confidence-gated second-opinion leg (hybrid judge cascade).
+const cascade = await secondOpinion({
+	verdict: firstVerdict,
+	reply: findings,
+	model: legModel
+		? (walk.trail.findLast((a) => a.ok)?.leg ?? legModel)
+		: undefined,
+	band: tryLoadStack()?.review_second_opinion_band,
+	request: async (model) => {
+		legWireModel = undefined;
+		return requestLeg(0, model);
+	},
+	servedWire: () => legWireModel,
+});
+const verdict = cascade.verdict;
+const cascadeHeadline = [
+	cascade.confidence === undefined ? "" : `confidence ${cascade.confidence}`,
+	cascade.second
+		? `second-opinion ${cascade.second.model} (conf ${cascade.second.confidence ?? "?"}) -> ${verdict}`
+		: "",
+	cascade.reason ?? "",
+]
+	.filter(Boolean)
+	.join("; ");
+const allFindings = cascade.second?.text
+	? `${findings ?? ""}\n\n--- second opinion (${cascade.second.model}) ---\n${cascade.second.text}`
+	: findings;
 // W1313: the retry trail rides the headline (receipt evidence + review fact)
 // so every ERROR names its exact leg ladder instead of a bare transport line.
 const reviewerHeadline = (
 	verdictLine ?? (findings ? "no verdict line in reply" : legFailure)
 ).slice(0, 300);
-const trailHeadline =
-	verdict === "ERROR" || walk.trail.length > 1
-		? `${reviewTrail} | ${reviewerHeadline}`.slice(0, 480)
-		: reviewerHeadline;
+const trailHeadline = [
+	verdict === "ERROR" || walk.trail.length > 1 ? reviewTrail : "",
+	reviewerHeadline,
+	cascadeHeadline,
+]
+	.filter(Boolean)
+	.join(" | ")
+	.slice(0, 480);
 
 // Sinai proof gates the approval: a PASS stands only when the branch's new
 // tests FAIL without the change — otherwise the verdict is downgraded, with
@@ -699,9 +736,11 @@ const proofHeadline =
 // review was requested as glm-5.3-flash and served by chatgpt/gpt-6-sol.
 // W1313 walk: a fallback model that answered is the model this review
 // requested at that point — audit the served wire against it, not the primary.
-const answeredModel = legModel
-	? (walk.trail.findLast((a) => a.ok)?.leg ?? requestedModel)
-	: requestedModel;
+const answeredModel = cascade.second
+	? cascade.second.model
+	: legModel
+		? (walk.trail.findLast((a) => a.ok)?.leg ?? requestedModel)
+		: requestedModel;
 const wireAudit = wireModelAudit(answeredModel, legWireModel);
 // W2571: for a protected-family item the strict assertion holds for EVERY
 // verdict — a served wire id outside the requested class grades ERROR (the
@@ -781,7 +820,7 @@ const noteArgs = [
 emitCli(noteArgs);
 
 // One bound work.review event; the board still reads its top-level verdict.
-const { blocking, resolved } = reviewFindingIds(findings ?? "");
+const { blocking, resolved } = reviewFindingIds(allFindings ?? "");
 publishReviewReceipt(db, project, item, {
 	version: 1,
 	commit: boundContext.commit,
@@ -791,7 +830,7 @@ publishReviewReceipt(db, project, item, {
 	verdict: effective,
 	blocking,
 	resolved,
-	evidence: `${headline}\n${proofNote}\n${(findings ?? "").slice(0, 3000)}`,
+	evidence: `${headline}\n${proofNote}\n${(allFindings ?? "").slice(0, 3000)}`,
 	requested_model: requestedModel,
 	wire_model: legWireModel,
 });

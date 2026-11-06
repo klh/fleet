@@ -177,7 +177,8 @@ async function runCase(
 					choices: [
 						{
 							message: {
-								content: "looked at the diff: fine\nVERDICT: PASS - clean",
+								content:
+									"looked at the diff: fine\nVERDICT: PASS - clean\nCONFIDENCE: 0.95",
 							},
 						},
 					],
@@ -394,7 +395,10 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 					choices: [
 						{
 							finish_reason: "stop",
-							message: { content: "No blocking findings.\nVERDICT: PASS" },
+							message: {
+								content:
+									"No blocking findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+							},
 						},
 					],
 				});
@@ -404,9 +408,10 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 		);
 		expect(budgets).toEqual([16000]);
 		expect(requests[0]).toContain(
-			"End your reply with ONE machine-parseable final line:",
+			"End your reply with TWO machine-parseable lines:",
 		);
 		expect(requests[0]).toContain("VERDICT: PASS | VERDICT: FAIL - <reason>");
+		expect(requests[0]).toContain("CONFIDENCE: <0.00-1.00>");
 		expect(fact.verdict).toBe("PASS");
 		expect(fact.wire_model).toBe("glm-5.3-flash");
 
@@ -462,7 +467,13 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 				expect(body.max_tokens).toBe(16000);
 				prompt = body.messages[0]?.content ?? "";
 				return Response.json({
-					choices: [{ message: { content: "No findings.\nVERDICT: PASS" } }],
+					choices: [
+						{
+							message: {
+								content: "No findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+							},
+						},
+					],
 				});
 			},
 		);
@@ -576,7 +587,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 							message: {
 								content: "",
 								reasoning_content:
-									"N1-recovered: advisory.\nVERDICT: PASS - recovered from reasoning_content",
+									"N1-recovered: advisory.\nVERDICT: PASS - recovered from reasoning_content\nCONFIDENCE: 0.95",
 							},
 						},
 					],
@@ -646,7 +657,10 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					choices: [
 						{
 							finish_reason: "stop",
-							message: { content: "No blocking findings.\nVERDICT: PASS" },
+							message: {
+								content:
+									"No blocking findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+							},
 						},
 					],
 				}),
@@ -695,7 +709,11 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 			},
 			{
 				choices: [
-					{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+					{
+						message: {
+							content: "No blocking findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+						},
+					},
 				],
 			},
 		];
@@ -763,7 +781,12 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 				prompt = body.messages[0].content;
 				return Response.json({
 					choices: [
-						{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+						{
+							message: {
+								content:
+									"No blocking findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+							},
+						},
 					],
 				});
 			},
@@ -791,7 +814,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 						{
 							message: {
 								content:
-									"B2-erase-guard: the retry path drops a prior attempt's blocker.\nVERDICT: FAIL - retry drops prior attempt's blocker",
+									"B2-erase-guard: the retry path drops a prior attempt's blocker.\nVERDICT: FAIL - retry drops prior attempt's blocker\nCONFIDENCE: 0.95",
 							},
 						},
 					],
@@ -828,7 +851,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 						{
 							message: {
 								content:
-									"The prior B1-no-coverage-proof is covered by the proved scratch run.\nRESOLVED: B1-no-coverage-proof scratch revert failed 9 new test(s).\nVERDICT: PASS - clean",
+									"The prior B1-no-coverage-proof is covered by the proved scratch run.\nRESOLVED: B1-no-coverage-proof scratch revert failed 9 new test(s).\nVERDICT: PASS - clean\nCONFIDENCE: 0.95",
 							},
 						},
 					],
@@ -959,7 +982,12 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					expect(body.messages[0].content).toContain(context.commit);
 					return Response.json({
 						choices: [
-							{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+							{
+								message: {
+									content:
+										"No blocking findings.\nVERDICT: PASS\nCONFIDENCE: 0.95",
+								},
+							},
 						],
 					});
 				}
