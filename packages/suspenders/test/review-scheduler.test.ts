@@ -6,8 +6,14 @@ import {
 } from "../hooks/lib/gates/review-park.ts";
 import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
+	deterministicProofFailure,
 	finishReviewRequest,
 	providerPressureKey,
+	providerPressureOf,
+	reviewBaseSettleMs,
+	reviewProofParkMarker,
+	reviewProofParkMs,
+	reviewRateBudget,
 	reviewRequestKey,
 	scheduleReview,
 } from "../hooks/lib/gates/review-scheduler.ts";
@@ -485,4 +491,143 @@ test("W2548: the park advisory is one NEED_DECISION per episode, scoped to the i
 		)
 		.all() as { e: string }[];
 	expect(epochs.map((r) => r.e).sort()).toEqual(["1", "2"]);
+});
+test("W2754 deterministicProofFailure: PASS content with error/unknown proof parks; nothing else does", () => {
+	expect(deterministicProofFailure("PASS", "error")).toBe(true);
+	expect(deterministicProofFailure("PASS", "unknown")).toBe(true);
+	expect(deterministicProofFailure("PASS", "proved")).toBe(false);
+	expect(deterministicProofFailure("PASS", "skipped")).toBe(false);
+	expect(deterministicProofFailure("FAIL", "error")).toBe(false);
+	expect(deterministicProofFailure(undefined, "unknown")).toBe(false);
+});
+test("W2754 knobs: unset or junk → default, an integer overrides, conf row wins, 0 disables", () => {
+	expect(reviewProofParkMs({})).toBe(21_600_000);
+	expect(reviewProofParkMs({ SUSPENDERS_REVIEW_PROOF_PARK_MS: "x" })).toBe(
+		21_600_000,
+	);
+	expect(
+		reviewProofParkMs({ SUSPENDERS_REVIEW_PROOF_PARK_MS: "3600000" }),
+	).toBe(3_600_000);
+	expect(reviewProofParkMs({ SUSPENDERS_REVIEW_PROOF_PARK_MS: "0" })).toBe(0);
+	expect(reviewProofParkMs({}, 120)).toBe(120);
+	expect(reviewBaseSettleMs({})).toBe(600_000);
+	expect(reviewBaseSettleMs({ SUSPENDERS_REVIEW_BASE_SETTLE_MS: "x" })).toBe(
+		600_000,
+	);
+	expect(
+		reviewBaseSettleMs({ SUSPENDERS_REVIEW_BASE_SETTLE_MS: "30000" }),
+	).toBe(30_000);
+	expect(reviewBaseSettleMs({ SUSPENDERS_REVIEW_BASE_SETTLE_MS: "0" })).toBe(0);
+	expect(reviewBaseSettleMs({}, 45)).toBe(45);
+	expect(reviewRateBudget({})).toBe(30);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "x" })).toBe(30);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" })).toBe(7);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "0" })).toBe(0);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" }, 12)).toBe(
+		12,
+	);
+});
+test("W2754: deterministic-proof park refuses re-drive while fresh, advisory deduped per stamp", () => {
+	const f = capFixture();
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	const request = requestOf(f);
+	finishReviewRequest(
+		f.db,
+		f.key,
+		request.token,
+		true,
+		`${reviewProofParkMarker}: coverage-proof unknown: scratch changed mid-run`,
+	);
+	const after = requestOf(f);
+	expect(after.state).toBe("ERROR");
+	expect(after.proof_park_at).toBeGreaterThan(0);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review parked: deterministic proof failure",
+	);
+	expect(f.launches).toHaveLength(1);
+	expect(decisions(f)).toHaveLength(1);
+	// second knock while fresh: same refusal, advisory deduped per stamp
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review parked: deterministic proof failure",
+	);
+	expect(decisions(f)).toHaveLength(1);
+	// the stamp lapses: the leg re-drives (fresh admission, launch 2)
+	after.proof_park_at = Date.now() - 21_600_001;
+	after.nextAt = 0;
+	f.db
+		.query("UPDATE facts SET value=? WHERE key=?")
+		.run(JSON.stringify(after), f.key);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(2);
+});
+test("W2754: transport-class finishes never stamp proof_park_at and still open the AIMD pause", () => {
+	const f = capFixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	const request = requestOf(f);
+	finishReviewRequest(f.db, f.key, request.token, true);
+	const after = requestOf(f);
+	expect(after.state).toBe("ERROR");
+	expect(after.proof_park_at).toBeUndefined();
+	expect(providerPressureOf(f.db).fails).toBe(1);
+});
+test("W2754 base-move settle: an out-of-base receipt defers re-review until the window lapses", () => {
+	const f = capFixture();
+	// one bound receipt at the same commit with a DIFFERENT base = a base move
+	review(f, "W1", f.context.commit, "PASS", "c".repeat(40));
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review re-review deferred until",
+	);
+	expect(f.launches).toHaveLength(0);
+	// the window lapses: age the receipt and clear the settle-written nextAt
+	f.db.run("UPDATE events SET ts = ts - 610000");
+	const req = requestOf(f);
+	req.nextAt = 0;
+	f.db
+		.query("UPDATE facts SET value=? WHERE key=?")
+		.run(JSON.stringify(req), f.key);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(1);
+	// a same-base receipt (or no receipt) is not a base move — launches
+	f.db.run("DELETE FROM events");
+	const req2 = requestOf(f);
+	req2.state = "ERROR";
+	req2.leaseUntil = 0;
+	req2.nextAt = 0;
+	f.db
+		.query("UPDATE facts SET value=? WHERE key=?")
+		.run(JSON.stringify(req2), f.key);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(2);
+});
+test("W2754 rate budget: review starts stop at the per-minute cap; re-open when the minute lapses", () => {
+	const f = capFixture();
+	const env = { ...f.options.env, SUSPENDERS_REVIEW_RATE_BUDGET: "2" };
+	for (const item of ["W1", "W2"]) {
+		expect(
+			scheduleReview({ ...f.options, env, item, spawn: f.spawn }),
+		).toContain("requested through Buckle");
+	}
+	expect(f.launches).toHaveLength(2);
+	expect(
+		scheduleReview({ ...f.options, env, item: "W3", spawn: f.spawn }),
+	).toContain("review rate budget spent (2/2 starts this minute)");
+	expect(f.launches).toHaveLength(2);
+	// the minute lapses: backdate the admissions and the third start admits
+	f.db
+		.query(
+			"UPDATE facts SET value = json_set(value, '$.admitted_at', ?) WHERE source = 'review-scheduler'",
+		)
+		.run(Date.now() - 61_000);
+	expect(
+		scheduleReview({ ...f.options, env, item: "W3", spawn: f.spawn }),
+	).toContain("requested through Buckle");
+	expect(f.launches).toHaveLength(3);
 });

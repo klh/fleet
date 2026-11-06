@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { z } from "zod";
+import { emitStoredEvent } from "../../coord/event-publish.ts";
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import { rePinFallback } from "../hub/model-health.ts";
 import {
@@ -39,9 +41,16 @@ interface Request {
 	 * failed finish and deferred counts the backoffs instead. */
 	deferred?: number;
 	/** W2194: when the health sweep had the pinned group DOWN, the model the
-	 * request was re-pinned FROM — the receipt shows the swap, never a
+	 * request was re-pinned FROM — the receipt banks the swap, never a
 	 * silent alias (the wire audit still grades the new pin as itself). */
 	repinned_from?: string;
+	/** W2754: admission timestamp for the per-minute start budget rung —
+	 *  absent on legacy rows (not counted by the budget query). */
+	admitted_at?: number;
+	/** W2754: deterministic-proof park stamp (Date.now() at the finish that
+	 *  carried the reviewProofParkMarker reason); admission refuses while
+	 *  now - stamp < SUSPENDERS_REVIEW_PROOF_PARK_MS. */
+	proof_park_at?: number;
 }
 /** W1243: capped transport backoff — 1m doubling to a 15m ceiling. */
 const backoffMs = (deferred: number): number =>
@@ -92,6 +101,145 @@ export const jitterMs = (key: string): number =>
 			90_000n,
 	);
 /** Read the provider pressure ledger. Absent/corrupt = healthy. */
+
+// ---- W2754 completion-throughput rungs --------------------------------------
+/** W2754: a coverage-proof failure on a PASS-content verdict (scratch tree
+ *  changed mid-run, unfingerprintable tree, module resolution) is DETERMINISTIC
+ *  — the identical leg fails identically until the proof environment changes,
+ *  so W1243's refund-then-readmit re-drives full model legs for nothing (the
+ *  2026-11-06 W2731 specimen: same commit+base re-driven twice in 10 minutes).
+ *  The finish stamps proof_park_at; admission refuses while the stamp is
+ *  fresh. The gate stays fail-closed: the receipt banks ERROR, a PASS never
+ *  banks without its proof. */
+export const reviewProofParkMarker = "coverage-proof deterministic failure";
+
+/** W2754: a PASS-content verdict with an error/unknown proof outcome is the
+ *  deterministic-proof class — a FAIL needs no proof; proved/skipped proofs
+ *  never block. */
+export const deterministicProofFailure = (
+	verdict: string | undefined,
+	proofStatus: string | undefined,
+): boolean =>
+	verdict === "PASS" && (proofStatus === "error" || proofStatus === "unknown");
+
+/** W2754 knob (conf row wins, env fills, default 6h; 0 disables): how long a
+ *  deterministic-proof park refuses re-admission.
+ *  SUSPENDERS_REVIEW_PROOF_PARK_MS. */
+const ProofParkKnobSchema = z.union([
+	z.literal("0"),
+	z.string().regex(/^\d+$/),
+]);
+export function reviewProofParkMs(
+	env: NodeJS.ProcessEnv,
+	confVal?: number,
+): number {
+	if (typeof confVal === "number") return confVal;
+	const parsed = ProofParkKnobSchema.safeParse(
+		env.SUSPENDERS_REVIEW_PROOF_PARK_MS?.trim(),
+	);
+	return parsed.success ? Number(parsed.data) : 21_600_000;
+}
+
+/** Newest bound receipt ts for this commit whose base differs from `base`,
+ *  null when the exact base was already reviewed (not a base move) or the
+ *  history is unreadable (fail-open — W1243: unreadable history never
+ *  starves the merge ladder). */
+export function newestOutOfBaseReceipt(
+	db: GovernorStore,
+	project: string,
+	item: string,
+	commit: string,
+	base: string,
+): number | null {
+	try {
+		const events = db
+			.query(
+				"SELECT ts, payload FROM events WHERE kind = 'work.review' AND json_extract(payload, '$.work') = ? AND json_extract(payload, '$.project') = ? ORDER BY id DESC LIMIT 50",
+			)
+			.all(item, project) as { ts: number; payload: string }[];
+		let newest: number | null = null;
+		for (const event of events) {
+			let receipt: { commit?: unknown; base?: unknown };
+			try {
+				receipt = JSON.parse(JSON.parse(event.payload).receipt);
+			} catch {
+				continue;
+			}
+			if (receipt.commit !== commit) continue;
+			if (receipt.base === base) return null;
+			if (newest === null) newest = Number(event.ts);
+		}
+		return newest;
+	} catch {
+		return null;
+	}
+}
+
+/** W2754 knob (conf row wins, env fills, default 10m; 0 disables): a base-move
+ *  re-review waits this long past the newest out-of-base receipt before its
+ *  first knock — landing waves coalesce into one re-review per window instead
+ *  of one per ladder pass. SUSPENDERS_REVIEW_BASE_SETTLE_MS. */
+const SettleKnobSchema = z.union([
+	z.literal("0"),
+	z.string().regex(/^\d+$/),
+]);
+export function reviewBaseSettleMs(
+	env: NodeJS.ProcessEnv,
+	confVal?: number,
+): number {
+	if (typeof confVal === "number") return confVal;
+	const parsed = SettleKnobSchema.safeParse(
+		env.SUSPENDERS_REVIEW_BASE_SETTLE_MS?.trim(),
+	);
+	return parsed.success ? Number(parsed.data) : 600_000;
+}
+
+/** W2754 knob (conf row wins, env fills, default 30; 0 = unbounded — the
+ *  W1243 posture on demand): per-minute review START budget on the shared
+ *  provider account. SUSPENDERS_REVIEW_RATE_BUDGET. */
+const RateBudgetKnobSchema = z.union([
+	z.literal("0"),
+	z.string().regex(/^\d+$/),
+]);
+export function reviewRateBudget(
+	env: NodeJS.ProcessEnv,
+	confVal?: number,
+): number {
+	if (typeof confVal === "number") return confVal;
+	const parsed = RateBudgetKnobSchema.safeParse(
+		env.SUSPENDERS_REVIEW_RATE_BUDGET?.trim(),
+	);
+	return parsed.success ? Number(parsed.data) : 30;
+}
+
+/** One NEED_DECISION per deterministic-proof park stamp — the completion
+ *  author learns the proof environment is the blocker and that the leg
+ *  re-drives itself once the park window lapses. */
+function emitProofParkDecision(
+	db: GovernorStore,
+	project: string,
+	item: string,
+	author: string,
+	stamp: number,
+): void {
+	const prior = db
+		.query(
+			"SELECT id FROM events WHERE kind = 'NEED_DECISION' AND json_extract(payload, '$.project') = ? AND json_extract(payload, '$.work') = ? AND json_extract(payload, '$.review_proof_park') = ? LIMIT 1",
+		)
+		.get(project, item, String(stamp));
+	if (prior) return;
+	emitStoredEvent(db, project, {
+		kind: "NEED_DECISION",
+		source: "review-scheduler",
+		scope: item,
+		to: author,
+		note:
+			item +
+			": coverage-proof failed deterministically (content PASS banked, proof unknown — gate stays fail-closed). No model re-drive while the park window is fresh (W2754, the W2731 ruling); the leg re-drives once SUSPENDERS_REVIEW_PROOF_PARK_MS (default 6h) lapses or the proof environment is repaired.",
+		extra: { work: item, review_proof_park: String(stamp) },
+	});
+}
+
 export function providerPressureOf(db: GovernorStore): Pressure {
 	try {
 		const row = db
@@ -179,6 +327,13 @@ export function finishReviewRequest(
 		request.error = failed
 			? (reason ?? "review transport unavailable")
 			: undefined;
+		// W2754: a deterministic-proof failure is a LOCAL blocker, not provider
+		// pressure — stamp proof_park_at (marker-prefixed reason) so admission
+		// refuses re-drive while fresh, and leave the AIMD ledger alone.
+		const proofPark = Boolean(
+			failed && request.error?.startsWith(reviewProofParkMarker),
+		);
+		if (proofPark) request.proof_park_at = Date.now();
 		// W1243: a transport failure refunds its reservation attempt and
 		// defers instead — the 3-attempt budget is verdicts-only, so a 429/503
 		// wave or a dead leg can never exhaust it. Backoff grows on the
@@ -190,7 +345,9 @@ export function finishReviewRequest(
 		request.leaseUntil = 0;
 		request.nextAt =
 			Date.now() + backoffMs(request.deferred ?? request.attempts);
-		applyPressure(db, failed);
+		// W2754: deterministic-proof parks never open the global AIMD pause —
+		// one lane's local proof blocker is not the provider account failing.
+		if (!proofPark) applyPressure(db, failed);
 		db.query(
 			"UPDATE facts SET value = ?, version = version + 1, ts = ? WHERE key = ?",
 		).run(JSON.stringify(request), Date.now(), key);
@@ -496,6 +653,37 @@ export function scheduleReview(o: {
 		}
 		if (old && old.attempts >= 3)
 			return "review retry budget exhausted (3 attempts); explicit repair required";
+		// W2754: a deterministic-proof park refuses re-admission while its
+		// stamp is fresh — the identical leg would fail identically, so the
+		// refund path must not re-drive a full model leg (the W2731 ruling:
+		// no further model retries for a deterministic proof failure). Checked
+		// before the transport machinery: a local proof failure is not provider
+		// pressure, and one leg per park window bounds the spend instead of
+		// reaching transport-park only after six wasted legs.
+		const proofParkMs = reviewProofParkMs(
+			env,
+			o.settings?.().reviewProofParkMs,
+		);
+		if (
+			proofParkMs > 0 &&
+			old &&
+			old.state === "ERROR" &&
+			typeof old.proof_park_at === "number" &&
+			now - old.proof_park_at < proofParkMs
+		) {
+			emitProofParkDecision(
+				o.db,
+				o.project,
+				o.item,
+				author.completed_by,
+				old.proof_park_at,
+			);
+			return `review parked: deterministic proof failure (stamped ${new Date(
+				old.proof_park_at,
+			).toISOString()}) — no model re-drive until ${new Date(
+				old.proof_park_at + proofParkMs,
+			).toISOString()} (SUSPENDERS_REVIEW_PROOF_PARK_MS)`;
+		}
 		// W2548: the transport-park bound on W1243's unbounded retry — an
 		// ERROR request whose consecutive deferrals reached the threshold
 		// parks instead of knocking again (every knock walks the full
@@ -559,6 +747,26 @@ export function scheduleReview(o: {
 		}
 		if (old && old.nextAt > now)
 			return `review transport retry deferred until ${new Date(old.nextAt).toISOString()}`;
+		// W2754: a base-move re-review coalesces landing-wave churn — each
+		// landing re-keys the request context, so the re-knock waits one
+		// settle window past the newest out-of-base receipt instead of
+		// re-reviewing per ladder pass (reviews-per-landing → 1/window).
+		const settleMs = reviewBaseSettleMs(env, o.settings?.().reviewBaseSettleMs);
+		if (settleMs > 0 && (!old || old.state === "ERROR")) {
+			const newest = newestOutOfBaseReceipt(o.db, o.project, o.item, o.context.commit, o.context.base);
+			const settleAt = newest === null ? 0 : newest + settleMs;
+			if (settleAt > now) {
+				const settled: Request = old
+					? { ...old, state: "ERROR", nextAt: settleAt }
+					: { state: "ERROR", attempts: 0, deferred: 0, leaseUntil: 0, token, nextAt: settleAt };
+				o.db
+					.query(
+						"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
+					)
+					.run(key, JSON.stringify(settled), now);
+				return `review re-review deferred until ${new Date(settleAt).toISOString()} (base-move settle)`;
+			}
+		}
 		// W1243: no artificial default ceiling — the reviewer is unbounded and
 		// the real constraint is upstream capacity, not scheduler slots (the
 		// 2-slot default starved the merge ladder during the 2026-10-23 ERROR
@@ -577,6 +785,20 @@ export function scheduleReview(o: {
 			if (count.n >= limit)
 				return `review capacity occupied (${count.n}/${limit})`;
 		}
+		// W2754: per-minute START budget on the shared provider account —
+		// review legs are the churn source (28 sessions/15m observed
+		// 2026-11-04); the rung bounds review-class spend so implementation
+		// lanes keep account capacity. 0 = unbounded (the W1243 posture).
+		const budget = reviewRateBudget(env, o.settings?.().reviewRateBudget);
+		if (budget > 0) {
+			const spent = o.db
+				.query(
+					"SELECT COUNT(*) AS n FROM facts WHERE source = 'review-scheduler' AND json_extract(value, '$.admitted_at') > ?",
+				)
+				.get(now - 60_000) as { n: number };
+			if (spent.n >= budget)
+				return `review rate budget spent (${spent.n}/${budget} starts this minute)`;
+		}
 		const request: Request = {
 			state: "RUNNING",
 			attempts: (old?.attempts ?? 0) + 1,
@@ -584,6 +806,7 @@ export function scheduleReview(o: {
 			leaseUntil: now + 25 * 60_000,
 			token,
 			nextAt: 0,
+			admitted_at: now,
 			...(repinnedFrom ? { repinned_from: repinnedFrom } : {}),
 		};
 		o.db
