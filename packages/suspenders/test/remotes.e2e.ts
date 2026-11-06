@@ -47,7 +47,7 @@ const stub = Bun.serve({
 // tls machines route by hostname (SNI), matching z.ai's CDN edge, which
 // 421s any request arriving by raw IP with no SNI/Host match. The
 // self-signed cert needs NODE_TLS_REJECT_UNAUTHORIZED=0, scoped to this
-// file's tests only (restored in afterAll).
+// file's tests only (restored in test.afterAll).
 const certDir = mkdtempSync(`${tmpdir()}/suspenders-remotes-tls-`);
 Bun.spawnSync([
 	"openssl",
@@ -138,7 +138,7 @@ test.afterAll(() => {
 });
 
 /** configPath() reads HOME at call time — the fixture points HOME at TMP for
- *  this file's tests and afterAll restores the real one (a leaked HOME
+ *  this file's tests and test.afterAll restores the real one (a leaked HOME
  *  poisons later test files that assert against $HOME paths). */
 const REAL_HOME = process.env.HOME;
 
