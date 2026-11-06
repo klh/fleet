@@ -16,7 +16,12 @@ import {
 } from "./adapters/errors.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
-import { bridgeRequest, bridgeResponse } from "./bridge.ts";
+import {
+	bridgeRequest,
+	bridgeResponse,
+	bridgeResponsesUpstream,
+	isResponsesUpstream,
+} from "./bridge.ts";
 import { ColdMarks } from "./cold-marks.ts";
 import { retryAfterS } from "./cooldown.ts";
 import { peerErrorTrace } from "./error-trace.ts";
@@ -304,14 +309,19 @@ export async function tryOnce(
 		const resp = lease === undefined ? raw : bindProviderLease(raw, lease);
 		if (resp.ok) {
 			host.cooldowns.success(dep);
-			const response = bridged
-				? bridgeResponse(
-						resp,
-						req.dialect,
-						req.body.stream === true,
-						dep.buckle === true,
-					)
-				: resp;
+			// W2583: a Responses-only upstream re-frames its reply to the client's
+			// wire (the /v1/responses ingress stays byte-identical pass-through).
+			const response =
+				isResponsesUpstream(dep) && req.path !== "/v1/responses"
+					? bridgeResponsesUpstream(resp, req.dialect, req.body.stream === true)
+					: bridged
+						? bridgeResponse(
+								resp,
+								req.dialect,
+								req.body.stream === true,
+								dep.buckle === true,
+							)
+						: resp;
 			// W1078 canary metadata (body-free, set AFTER the bridge so both
 			// dialects preserve it): proves which configured pool served the
 			// alias and separates queue dwell from provider latency. Local

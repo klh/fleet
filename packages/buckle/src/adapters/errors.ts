@@ -97,6 +97,17 @@ const STATUS_KINDS: Partial<Record<AdapterFamily, Record<number, ErrorKind>>> =
 			429: "rate_limited",
 			503: "overloaded",
 		},
+		// the Responses wire speaks the openai error envelope — same row
+		"openai-responses": {
+			408: "timeout",
+			401: "auth",
+			403: "auth",
+			404: "bad_request",
+			413: "bad_request",
+			422: "bad_request",
+			429: "rate_limited",
+			503: "overloaded",
+		},
 		anthropic: {
 			401: "auth",
 			403: "auth",

@@ -5,18 +5,20 @@
 // so identity must be free, not inherited overhead. Families, not
 // providers — the tier-3 long tail is data rows, never new adapters.
 import type { UpstreamRequest } from "../router.ts";
-import type { Dialect, Deployment } from "../upstreams.ts";
+import type { Deployment, Dialect } from "../upstreams.ts";
 import type { Usage } from "../usage.ts";
 import type { RouterError } from "./errors.ts";
 
-/** The five wire families. Tier-1 ships openai-compat + anthropic;
- *  azure-openai / bedrock / vertex are tier-2 ports (W134 §3). */
+/** The six wire families. Tier-1 ships openai-compat + anthropic;
+ *  azure-openai / bedrock / vertex are tier-2 ports (W134 §3);
+ *  openai-responses is the Responses-only wire family (W2583). */
 export type AdapterFamily =
 	| "openai-compat"
 	| "anthropic"
 	| "azure-openai"
 	| "bedrock"
-	| "vertex";
+	| "vertex"
+	| "openai-responses";
 
 export const ADAPTER_FAMILIES: readonly AdapterFamily[] = [
 	"openai-compat",
@@ -24,6 +26,7 @@ export const ADAPTER_FAMILIES: readonly AdapterFamily[] = [
 	"azure-openai",
 	"bedrock",
 	"vertex",
+	"openai-responses",
 ];
 
 export function isAdapterFamily(v: unknown): v is AdapterFamily {
@@ -104,7 +107,10 @@ function staticHeaders(dep: Deployment): Record<string, string> {
  *  path; anything not listed forwards verbatim). GitHub Copilot serves chat
  *  completions at /chat/completions (no /v1) while /v1/messages and
  *  /v1/responses keep the /v1 prefix — verbatim forwarding 404s the chat
- *  wire. Values must be absolute paths; invalid rows are dropped (fail
+ *  wire. (W2780 live receipt 2026-11-06: /v1/responses is served as-is by
+ *  api.githubcopilot.com — 200 completed — despite /models advertising the
+ *  un-prefixed [/responses]; the deleted W2583 path_rewrite rows were chat
+ *  wire only.) Values must be absolute paths; invalid rows are dropped (fail
  *  closed to verbatim), matching staticHeaders tolerance. Only the pathname
  *  moves — scheme/host stay dep.url, where the egress law lives. */
 export function upstreamUrlOf(dep: Deployment, path: string): string {
