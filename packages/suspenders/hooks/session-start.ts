@@ -30,6 +30,9 @@ import {
 } from "./lib/knowledge/knowledge-sink-client.ts";
 import { checkpointPath } from "./lib/lanes/checkpoint.ts";
 import { enrollTopLevel } from "./lib/lanes/hook-scripts.ts";
+// W2782: the session-scoped lanes table rides the supervisor block — same
+// lane-liveness source as the fleet-loop cycle-end carrier.
+import { sessionLanesBlock } from "./lib/lanes/session-lanes-report.ts";
 import {
 	nativeTitleFromTranscript,
 	renameSession,
@@ -433,6 +436,17 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 		// session-start only CALLS the one implementation (lib/work-report.ts),
 		// the same shape the install tail and lane briefs carry.
 		out.push(renderFleetReport(db as unknown as Database, project));
+		// W2782: the session-scoped lanes table — the lanes this session owns
+		// or started, same lane-liveness source as the cycle-end carrier. The
+		// no-lanes row renders for sessions with zero scoped lanes.
+		out.push(
+			...sessionLanesBlock(
+				db as unknown as Database,
+				project,
+				lane,
+				input.cwd ?? process.cwd(),
+			),
+		);
 	}
 }
 
@@ -442,6 +456,17 @@ if (mine.length || inbox > 0 || readyN > 0 || head) {
 // acceptance is every top-level bootstrap, fleet project or not.
 if (supervisor && readyN === 0) {
 	out.push(supervisorContractNotice(supervisorControlStatus(db, project)));
+	// W2782: the lanes table rides EVERY supervisor bootstrap — a supervisor
+	// can start with an empty READY pool and mint work later, so the block
+	// above (READY>0-gated) is not enough. The no-lanes row covers the rest.
+	out.push(
+		...sessionLanesBlock(
+			db as unknown as Database,
+			project,
+			lane,
+			input.cwd ?? process.cwd(),
+		),
+	);
 } else if (topLevel && !supervisor) {
 	// every other top-level interactive session: the worker contract
 	out.push(workerContract(readyN, supervisorControlStatus(db, project)));
