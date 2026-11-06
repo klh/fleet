@@ -9,6 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { loadLaneRegistry } from "../lanes/lane-registry.ts";
+import type { RungKey } from "../../../scripts/lib/rung-breaker.ts";
 import type { LoopConfig } from "./config.ts";
 export type Lane = {
 	sid: string;
@@ -19,6 +20,7 @@ export type Lane = {
 	agent?: string;
 	launchedAt?: number;
 	host?: string;
+	rung?: RungKey;
 };
 
 export function readJsonSync<T>(p: string): T | null {

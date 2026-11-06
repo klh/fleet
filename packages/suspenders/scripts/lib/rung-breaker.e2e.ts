@@ -17,6 +17,8 @@ import { launchLogAppended } from "./launch-backoff.ts";
 import {
 	clearRung,
 	laneRungOf,
+	markRungHealthy,
+	recordPostSpawnFailure,
 	recordRungFailure,
 	resolveLaunchPick,
 	rungBreakerK,
@@ -148,4 +150,38 @@ test("evidence flows from the attempt-scoped log tail (the catch seam)", () => {
 	const open = rungOpen(store, rung);
 	expect(open?.kind).toBe("upstream");
 	clearRung(store, rung);
+});
+
+test("W2793: a proven-healthy lane never cuts an open window short", () => {
+	const rung = laneRungOf("copilot", "gpt-6-sol", "zai");
+	clearRung(store, rung);
+	for (let i = 0; i < rungBreakerK(); i++)
+		recordRungFailure(store, rung, W2783_EVIDENCE);
+	expect(markRungHealthy(store, rung)).toBe(false);
+	expect(rungOpen(store, rung)).not.toBeNull(); // still cooling
+	// after expiry the healthy signal resets the count
+	const after = Date.now() + rungBreakerWindowMs() + 1;
+	expect(markRungHealthy(store, rung, after)).toBe(true);
+	expect(recordRungFailure(store, rung, W2783_EVIDENCE, after).failures).toBe(
+		1,
+	);
+	clearRung(store, rung);
+});
+
+test("W2793: zero-token post-spawn deaths feed the same rung counter", () => {
+	const rung = laneRungOf("claude", "claude-sonnet-5", "zai");
+	clearRung(store, rung);
+	// one launch-exit + one post-spawn death = K on the SAME rung
+	recordRungFailure(store, rung, W2783_EVIDENCE);
+	const s = recordPostSpawnFailure(store, rung, "ledger + backfill all empty");
+	expect(s.failures).toBe(2);
+	expect(rungOpen(store, rung)?.kind).toBe("upstream");
+	// configuration evidence still never trips, even post-spawn
+	const auth = laneRungOf("codex", "gpt-6", null);
+	clearRung(store, auth);
+	for (let i = 0; i < rungBreakerK(); i++)
+		recordPostSpawnFailure(store, auth, "API Error: 401 invalid api key");
+	expect(rungOpen(store, auth)).toBeNull();
+	clearRung(store, rung);
+	clearRung(store, auth);
 });

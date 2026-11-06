@@ -16,6 +16,7 @@ import {
 	type AuditRow,
 	fetchBuckleRouteAuditVerdict,
 } from "./route-audit-read.ts";
+import type { RungKey } from "./rung-breaker.ts";
 
 export type DispatchLane = {
 	sid: string;
@@ -30,6 +31,9 @@ export type DispatchLane = {
 	launchedAt: number;
 	attempt?: number;
 	seedError?: StarterSeedFailure;
+	/** W2793: the launched (executor, model, hub) rung — the post-spawn
+	 *  breaker seam keys on it after the launcher has exited. */
+	rung?: RungKey;
 };
 
 const INTERNAL_CODES = new Set([

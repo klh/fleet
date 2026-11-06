@@ -145,8 +145,38 @@ export function recordRungFailure(
 	return state;
 }
 
-/** A committed launch on the rung is the first success — the breaker
- *  resets (half-open: one healthy launch re-enters the rung). */
+/** W2793 post-spawn seam: a lane that launched, then died with PROVABLY zero
+ *  banked tokens never reached a working model — the same rung evidence as a
+ *  launch-exit. Classified log text keeps its kind; unclassified evidence
+ *  folds as `upstream` (the zero-token proof IS the evidence). */
+export function recordPostSpawnFailure(
+	store: GovernorStore,
+	r: RungKey,
+	evidence: string,
+	now = Date.now(),
+): RungBreakerState {
+	const kind = classifyLaunchFailure(evidence, now).kind;
+	const text = TRIPPING_KINDS.has(kind)
+		? evidence
+		: `${evidence}\nzero-token post-spawn death: 503 upstream unavailable`;
+	return recordRungFailure(store, r, text, now);
+}
+
+/** A PROVEN-healthy lane on the rung (it banked tokens) resets the count —
+ *  but never cuts a cooling window short: a commit/spawn is not health, and
+ *  an open rung re-enters rotation only on window expiry. */
+export function markRungHealthy(
+	store: GovernorStore,
+	r: RungKey,
+	now = Date.now(),
+): boolean {
+	if (rungOpen(store, r, now)) return false;
+	clearRung(store, r);
+	return true;
+}
+
+/** Unconditional reset — test fixtures and operator repair only; the launch
+ *  path never calls it (W2793: clear-on-commit re-fired walled rungs). */
 export function clearRung(store: GovernorStore, r: RungKey): void {
 	try {
 		store.query("DELETE FROM facts WHERE key=?").run(factKey(r));

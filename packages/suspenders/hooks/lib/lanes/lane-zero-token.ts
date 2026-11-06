@@ -20,6 +20,9 @@ export type ZeroTokenVerdict = {
 	zero: boolean;
 	/** which proof produced the verdict */
 	why: string;
+	/** W2793: true ONLY when the ledger positively shows spend — the rung
+	 *  served real work (the breaker's proven-healthy signal) */
+	banked?: boolean;
 };
 
 /** Is the item's attribution provably empty? Ledger > backfill > self-report
@@ -52,6 +55,7 @@ export function zeroTokenProof(
 	if (a.fresh + a.cached + a.out + a.requests > 0)
 		return {
 			zero: false,
+			banked: true,
 			why: `banked tokens (fresh ${a.fresh}, out ${a.out})`,
 		};
 	return { zero: true, why: "ledger + backfill + self-report all empty" };

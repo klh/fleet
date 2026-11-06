@@ -64,7 +64,6 @@ import {
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
 import {
-	clearRung,
 	laneRungOf,
 	recordRungFailure,
 	resolveLaunchPick,
@@ -1113,6 +1112,9 @@ export const dispatchLane = async (
 			slab,
 			launchedAt: Date.now(),
 			attempt,
+			// W2793: commit is not health — the rung rides the registry row so
+			// the post-spawn seam (stall-watch) can feed the breaker later
+			rung: laneRungOf(pick.bin, pick.model, resolvedHub ?? pick.hub),
 			...(seedError ? { seedError } : {}),
 		};
 		// Accept the launch only after its PID and ownership are durable.
@@ -1122,7 +1124,6 @@ export const dispatchLane = async (
 		saveLanes([entry]);
 		lanes.push(entry);
 		committedLaunch = true;
-		clearRung(store, laneRungOf(pick.bin, pick.model, resolvedHub ?? pick.hub));
 		log(
 			`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch}, slab ${jobslabTag(slab, js)})${hubNote}`,
 		);

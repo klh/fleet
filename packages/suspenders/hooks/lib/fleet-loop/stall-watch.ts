@@ -14,6 +14,10 @@ import {
 	type DeadEpisode,
 } from "../lanes/dead-claim-recovery.ts";
 import { failIntent } from "../../../scripts/lib/launch-intent-cli.ts";
+import {
+	markRungHealthy,
+	recordPostSpawnFailure,
+} from "../../../scripts/lib/rung-breaker.ts";
 import { pruneLaneRegistry } from "../lanes/lane-registry.ts";
 import { fastRetireEligible } from "../lanes/lane-zero-token.ts";
 import {
@@ -204,6 +208,12 @@ export function createStallWatch(
 							},
 						);
 						if (fast.zero) retireDeadLane(store, project, l, fast.why);
+						// W2793 post-spawn seam: the dead lane's verdict feeds the
+						// launch breaker on the rung it rode — zero tokens = rung
+						// failure, banked tokens = proven healthy (count reset only).
+						if (l.rung && fast.zero)
+							recordPostSpawnFailure(store, l.rung, fast.why);
+						else if (l.rung && fast.banked) markRungHealthy(store, l.rung);
 						recovery = attemptRecovery(
 							store,
 							{ project, id: l.item, owner: l.sid, revision: claim.updated_at },
