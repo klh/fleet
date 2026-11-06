@@ -9,14 +9,16 @@ import type { Dialect, Deployment } from "../upstreams.ts";
 import type { Usage } from "../usage.ts";
 import type { RouterError } from "./errors.ts";
 
-/** The five wire families. Tier-1 ships openai-compat + anthropic;
- *  azure-openai / bedrock / vertex are tier-2 ports (W134 §3). */
+/** The six wire families. Tier-1 ships openai-compat + anthropic;
+ *  azure-openai / bedrock / vertex are tier-2 ports (W134 §3);
+ *  openai-responses is the Responses-only wire family (W2583). */
 export type AdapterFamily =
 	| "openai-compat"
 	| "anthropic"
 	| "azure-openai"
 	| "bedrock"
-	| "vertex";
+	| "vertex"
+	| "openai-responses";
 
 export const ADAPTER_FAMILIES: readonly AdapterFamily[] = [
 	"openai-compat",
@@ -24,6 +26,7 @@ export const ADAPTER_FAMILIES: readonly AdapterFamily[] = [
 	"azure-openai",
 	"bedrock",
 	"vertex",
+	"openai-responses",
 ];
 
 export function isAdapterFamily(v: unknown): v is AdapterFamily {

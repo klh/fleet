@@ -20,6 +20,12 @@ import {
 import { chatgptSafeBody, isChatgptGroupModel } from "./chatgpt-bridge.ts";
 import { upstreamErrorDetail } from "./error-detail.ts";
 import { peerErrorTrace } from "./error-trace.ts";
+import { responsesToChatSse } from "./adapters/responses-sse.ts";
+import {
+	chatToResponses,
+	responsesToChatJson,
+} from "./adapters/responses-translate.ts";
+import { resolveAdapter } from "./adapters/index.ts";
 import type { UpstreamRequest } from "./router.ts";
 import { SSE_KEEPALIVE } from "./sse.ts";
 import type { Deployment, Dialect } from "./upstreams.ts";
@@ -34,12 +40,32 @@ const PATH: Record<Dialect, string> = {
 /** Anthropic requires max_tokens; openai bodies often omit it. */
 const DEFAULT_MAX_TOKENS = 4096;
 
+/** True when dep speaks ONLY the Responses wire (W2583 family). */
+export function isResponsesUpstream(dep: Deployment): boolean {
+	try {
+		return resolveAdapter(dep).family === "openai-responses";
+	} catch {
+		return false;
+	}
+}
+
 /** The request rewritten for dep's dialect, or null = hop not eligible. */
 export function bridgeRequest(
 	req: UpstreamRequest,
 	dep: Deployment,
 ): UpstreamRequest | null {
 	if (dep.dialect === req.dialect) {
+		// W2583: a chat-shaped body re-targets the Responses wire (reject-verbose
+		// — a tools/non-text shape has no equivalent at this tier and the rung
+		// is skipped, never mangled). /v1/responses ingress forwards verbatim.
+		if (
+			req.dialect === "openai" &&
+			req.path === PATH.openai &&
+			isResponsesUpstream(dep)
+		) {
+			const body = chatToResponses(req.body);
+			return body === null ? null : { ...req, path: "/v1/responses", body };
+		}
 		// The native ChatGPT converter extracts only a leading string SYSTEM
 		// prefix. Normalize equivalent text shapes, preserving roles/order;
 		// unsupported instruction shapes make this rung ineligible and the
@@ -67,6 +93,13 @@ export function bridgeRequest(
 					? [{ role: "system", content: system }, ...messages]
 					: messages,
 		};
+		// W2583: the Responses-only rung composes — anthropic → openai-chat
+		// transform, then chat → Responses; a rejected shape skips the rung.
+		if (isResponsesUpstream(dep)) {
+			const r = chatToResponses(body);
+			if (r === null) return null;
+			return { ...req, dialect: "openai", path: "/v1/responses", body: r };
+		}
 		return { ...req, dialect: "openai", path: PATH.openai, body };
 	}
 	const pre: AnyRec = { ...req.body };
@@ -78,6 +111,52 @@ export function bridgeRequest(
 	if (t.rejected) return null;
 	const body: AnyRec = { max_tokens: DEFAULT_MAX_TOKENS, ...t.body };
 	return { ...req, dialect: "anthropic", path: PATH.anthropic, body };
+}
+
+/** W2583 response leg: a Responses upstream reply re-framed to the client's
+ *  wire (SSE leg). For anthropic clients the re-framed chat wire then rides
+ *  the existing W426 mirror (responses→chat→anthropic). */
+export function bridgeResponsesUpstream(
+	resp: Response,
+	client: Dialect,
+	stream: boolean,
+): Response {
+	const headers = new Headers(resp.headers);
+	headers.delete("content-length");
+	headers.delete("content-encoding");
+	if (stream && resp.body) {
+		headers.set("content-type", "text/event-stream");
+		const translated = resp.body.pipeThrough(responsesToChatSse());
+		if (client === "anthropic") {
+			return new Response(translated.pipeThrough(openAIToAnthropicSse()), {
+				status: resp.status,
+				headers,
+			});
+		}
+		return new Response(translated, { status: resp.status, headers });
+	}
+	// JSON leg: re-frame to the chat wire, then the W426 mirror for anthropic
+	const body = resp.text().then((text) => {
+		let wire: AnyRec = {};
+		try {
+			wire = JSON.parse(text) as AnyRec;
+		} catch {
+			return text; // not JSON: surface verbatim, never fabricate
+		}
+		const chat = responsesToChatJson(wire);
+		const out =
+			client === "anthropic" ? responseOpenAIToAnthropic(chat).message : chat;
+		return JSON.stringify(out);
+	});
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			async start(c) {
+				c.enqueue(new TextEncoder().encode(await body));
+				c.close();
+			},
+		}),
+		{ status: resp.status, headers },
+	);
 }
 
 /** Upstream reply (dep's dialect) → the client's dialect. */

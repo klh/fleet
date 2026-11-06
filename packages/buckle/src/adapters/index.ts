@@ -10,6 +10,7 @@ import { BEDROCK } from "./bedrock.ts";
 import { VERTEX } from "./vertex.ts";
 import { resolveCatalogFamily } from "./catalog.ts";
 import { OPENAI_COMPAT } from "./openai-compat.ts";
+import { OPENAI_RESPONSES } from "./responses.ts";
 import { deriveAdapter, isAdapterFamily, type ChatAdapter } from "./types.ts";
 
 const REGISTRY: Partial<Record<string, ChatAdapter>> = {
@@ -18,6 +19,7 @@ const REGISTRY: Partial<Record<string, ChatAdapter>> = {
 	"azure-openai": AZURE_OPENAI,
 	bedrock: BEDROCK,
 	vertex: VERTEX,
+	"openai-responses": OPENAI_RESPONSES,
 };
 
 /** Registry lookup. Unknown/unimplemented names throw — never a silent
