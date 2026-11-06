@@ -7,6 +7,7 @@ import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
 import type { CandidateRow } from "./candidates.ts";
 import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
+import { releaseOccupancy } from "./gov/occupancy.ts";
 import type { Ctx } from "./request-context.ts";
 import { stampServedIdentity } from "./served-identity.ts";
 
@@ -118,5 +119,8 @@ export function stamped(
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
 	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest
+	// W2618: the admission frees at the real settle — a streaming response
+	// keeps its occupancy until the stream finish seam (proxy-stream).
+	if (route.streaming !== true) releaseOccupancy(ctx.rid);
 	return resp;
 }

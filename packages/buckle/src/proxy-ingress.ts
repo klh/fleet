@@ -21,6 +21,7 @@ import { scoreComplexity, textFromMessages } from "./complexity.ts";
 import { CountTokensBodySchema, estimatedCountTokens } from "./count-tokens.ts";
 import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
+import { acquireOccupancy } from "./gov/occupancy.ts";
 import { hintFromHeaders } from "./hints.ts";
 import { hopFromBaggage, laneFromBaggage } from "./hop.ts";
 import { admitHopContract, HOP_CONTRACT_HEADER } from "./hop-deadline.ts";
@@ -185,6 +186,18 @@ export async function proxy(
 	ctx.affKey = deps.affinity ? affKeyOf(body) : null;
 	ctx.group = model;
 	ctx.model = model;
+	// W2618 hub admission caps: per-user/per-model/hub-total concurrency,
+	// enforced BEFORE any routing; the admission releases at the real
+	// settle (wire-stamp / proxy-stream — the W1259 exactness law).
+	if (!acquireOccupancy(ctx.rid, ctx.key, model))
+		return deny(
+			deps,
+			ctx,
+			429,
+			"admission cap reached for this user/model/hub",
+			"buckle.occupancy_cap",
+			"denied",
+		);
 	ctx.hint = hint.hint;
 	ctx.hintRaw = hint.raw;
 	ctx.tier = scoreComplexity(textFromMessages(body.messages)).tier;

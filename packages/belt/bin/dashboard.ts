@@ -32,7 +32,6 @@ import {
 	citizenshipGate,
 	etagJson,
 	problem,
-	type RouteMethods,
 	rateLimiter,
 } from "./http-citizenship.ts";
 import {
@@ -44,6 +43,8 @@ import {
 	readHubs,
 } from "./hubs.ts";
 import { modelFromProcess, probePathFor } from "./inventory-probe.ts";
+import { occupancyApiPayload } from "./occupancy-face.ts";
+import { ROUTES } from "./dashboard-routes.ts";
 import {
 	displayLabel,
 	FLEET_NAV_CSS,
@@ -54,7 +55,10 @@ import {
 	THEME_SETTINGS_CSS,
 	THEME_SETTINGS_JS,
 } from "@klh/kernel/src/kernel.theme.module.ts";
-import { handleTheme, isThemePath } from "@klh/kernel/src/kernel.theme-sync.module.ts";
+import {
+	handleTheme,
+	isThemePath,
+} from "@klh/kernel/src/kernel.theme-sync.module.ts";
 import { metricsFor, metricsHistory, metricsSnapshot } from "./metrics.ts";
 import { type ModelAccess, modelAccess } from "./model-access.ts";
 import {
@@ -496,6 +500,7 @@ ${fleetNav("belt", "models")}
 <link rel="stylesheet" href="/vendor/uPlot.min.css">
 <script src="/vendor/uPlot.iife.min.js"></script>
 <script type="module" src="/dashboard-observability.js"></script>
+<script type="module" src="/dashboard-occupancy.js"></script>
 <div class="rhead"><span id="remotesnote" class="mut">loading…</span><button id="remotesbtn" type="button">refresh</button></div>
 <div id="remotesdisc"></div>
 <details class="route-details"><summary>Recent Belt routes and router audit</summary>
@@ -922,40 +927,6 @@ const topologyContext = async (): Promise<Response> => {
 	});
 };
 
-// W155.3 http-citizenship: methods each known path serves — the single
-// source the gate introspects (HEAD rides GET paths; Bun strips its body).
-const ROUTES: RouteMethods = {
-	"/": ["GET", "HEAD"],
-	"/api/status": ["GET", "HEAD"],
-	"/api/remotes": ["GET", "HEAD"],
-	"/api/network": ["GET", "HEAD"],
-	"/api/flow": ["GET", "HEAD"],
-	"/api/topology-context": ["GET", "HEAD"],
-	"/api/model-access": ["GET", "HEAD"],
-	"/api/model-inventory": ["GET", "HEAD"],
-	"/api/model-capabilities": ["GET", "HEAD"],
-	"/api/catalog": ["GET", "HEAD"],
-	"/api/metrics": ["GET", "HEAD"],
-	"/api/metrics/history": ["GET", "HEAD"],
-	"/api/supervisor": ["GET", "HEAD"],
-	"/registry.json": ["GET", "HEAD"],
-	"/observation.js": ["GET", "HEAD"],
-	"/api/route": ["POST"],
-	"/llms.txt": ["GET", "HEAD"],
-	"/threads-mark.js": ["GET", "HEAD"],
-	"/dashboard-observability.js": ["GET", "HEAD"],
-	"/dashboard-model-access.js": ["GET", "HEAD"],
-	"/dashboard-topology.js": ["GET", "HEAD"],
-	"/dashboard-topology-model.js": ["GET", "HEAD"],
-	"/dashboard-topology-hubs.js": ["GET", "HEAD"],
-	"/dashboard-topology-hubs-model.js": ["GET", "HEAD"],
-	"/dashboard-wallclock.js": ["GET", "HEAD"],
-	"/dashboard-state.js": ["GET", "HEAD"],
-	"/vendor/lit.js": ["GET", "HEAD"],
-	"/vendor/uPlot.iife.min.js": ["GET", "HEAD"],
-	"/vendor/uPlot.min.css": ["GET", "HEAD"],
-};
-
 // Fixed 60s window per bearer token on the authenticated route API
 // (BELT_ROUTE_RPM overrides; default 120).
 const ROUTE_RPM = Number(process.env.BELT_ROUTE_RPM ?? 120);
@@ -1045,6 +1016,9 @@ Bun.serve({
 		if (path === "/api/route") return serveRoute(req);
 		// W272 self-heal status (ports, last probe, restarts, since) written by
 		// `swarm.ts supervise`; null when no supervisor has ever run.
+		// W2618: the per-hub admission-cap occupancy rows (occupancy-face.ts).
+		if (path === "/api/occupancy")
+			return etagJson(req, await occupancyApiPayload());
 		if (path === "/api/supervisor") {
 			// W858.7.33: on-demand lane/process detail requires the lanes scope.
 			const lanes = detailAccess(authority, "topology.lanes");
@@ -1108,6 +1082,7 @@ Bun.serve({
 			path === "/dashboard-topology-model.js" ||
 			path === "/dashboard-topology-hubs.js" ||
 			path === "/dashboard-topology-hubs-model.js" ||
+			path === "/dashboard-occupancy.js" ||
 			path === "/dashboard-wallclock.js"
 		)
 			return new Response(Bun.file(`${import.meta.dir}${path}`), {
