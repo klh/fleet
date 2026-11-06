@@ -67,6 +67,11 @@ export function renderEnv(
 	kv("HUB_FLEET_REPO_URL", origin);
 	kv("HUB_FLEET_SRC", hub.repos?.src);
 	kv("HUB_BUCKLE_ENV_FILE", hub.secrets?.buckle_root_key);
+	// W2618: the hub's admission caps (per-user/per-model/hub-total) — the
+	// whole block renders as one JSON line into BUCKLE_ADMISSION_CAPS;
+	// undeclared = the .env line is absent = the gate runs uncapped.
+	if (hub.admission_caps)
+		kv("HUB_BUCKLE_ADMISSION_CAPS", JSON.stringify(hub.admission_caps));
 	// W2632: the hub's repo→tier account policy (W1265.1) — a secrets PATH on
 	// the hub names the operator-maintained 0600 repo-tier-policy.yaml; hubctl
 	// push stages it beside the compose (mounted read-only at the fixed

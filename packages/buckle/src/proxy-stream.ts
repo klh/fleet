@@ -8,14 +8,12 @@ import type { AppDeps } from "./app-deps.ts";
 import { onDrain, writeDrainTerminal } from "./drain.ts";
 import { traceStreamErrorPayload } from "./error-trace.ts";
 import { endInflight } from "./gov/inflight.ts";
+import { releaseOccupancy } from "./gov/occupancy.ts";
 import { jsonResponse } from "./proxy-body.ts";
 import { type Ctx, observe } from "./request-context.ts";
 import type { ExecuteResult } from "./router.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
-import {
-	hopCorrelationOf,
-	streamActivityOf,
-} from "./stream-correlation.ts";
+import { hopCorrelationOf, streamActivityOf } from "./stream-correlation.ts";
 import {
 	blackHole,
 	once,
@@ -288,6 +286,7 @@ export function streamResponse(
 				attempts: result.attempts,
 			});
 		endInflight(ctx.rid, 200, success, decision, null); // W1259: stream settle
+		releaseOccupancy(ctx.rid); // W2618: the stream's admission frees here
 		ctx.slot?.(); // W450: the drain settled — the upstream slot frees
 	});
 	sniffBranch

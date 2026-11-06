@@ -6,6 +6,7 @@
 // without echoing hashes.
 import { beginDrain, drainInfo } from "../drain.ts";
 import { inflightIndex } from "./inflight.ts";
+import { occupancySnapshot } from "./occupancy.ts";
 import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
 import { readBoundedJson } from "../ingress-body.ts";
 import { z } from "zod";
@@ -180,6 +181,13 @@ export async function handleAdmin(
 	// counts. Admin READ_ gate class; no key material, no prompts.
 	if (method === "GET" && path === "/v1/admin/inflight") {
 		return ok(inflightIndex());
+	}
+	// W2618 hub admission-cap occupancy: per-model utilization cards data —
+	// current vs tree-derived max, per-user rows, hub total gauge, 1m/5m
+	// admission gauges and the sparkline ring. Admin READ_ gate class; no
+	// key material (key IDS only), no prompts.
+	if (method === "GET" && path === "/v1/admin/occupancy") {
+		return ok(occupancySnapshot(process.env.BUCKLE_HUB_ID ?? "local"));
 	}
 	// W824 per-request inspection over the usage ledger: capped, filtered,
 	// read-only (gate class enforces buckle:admin:READ_); key NAME/team join
