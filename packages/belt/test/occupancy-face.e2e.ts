@@ -12,11 +12,14 @@ import { hubOccupancy, occupancyApiPayload } from "../bin/occupancy-face.ts";
 import type { HubRow } from "../bin/hubs.ts";
 
 const REPORT = {
+	hub: "stubhub",
 	enabled: true,
 	generated_ms: 1,
+	caps: null,
 	derived_total: 6,
 	totals: { current: 1, max: 6, basis: "derived" },
 	models: [],
+	users: [],
 	gauges: { admitted_1m: 1, admitted_5m: 2, active: 1 },
 	samples: [],
 };
@@ -52,6 +55,26 @@ test.describe("hubOccupancy", () => {
 	test("shape-drift payload answers null + note", async () => {
 		const stub = serveStub(() => Response.json({ nope: true }));
 		const dir = mkdtempSync(join(tmpdir(), "w2618-occ-"));
+		const tok = join(dir, "tok");
+		writeFileSync(tok, "k-s1-test", { mode: 0o600 });
+		try {
+			const row = await hubOccupancy(hubOf(stub.url), tok);
+			expect(row.report).toBeNull();
+			expect(row.note).toContain("payload shape");
+		} finally {
+			stub.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	// W2781: NESTED drift (a top-level-valid body with a garbage models row)
+	// must also refuse — the hand-rolled pre-W2781 check accepted it and the
+	// card renderer consumed a half-shaped row.
+	test("nested shape drift answers null + note", async () => {
+		const stub = serveStub(() =>
+			Response.json({ ...REPORT, models: [{ model: "m", current: 1 }] }),
+		);
+		const dir = mkdtempSync(join(tmpdir(), "w2781-occ-"));
 		const tok = join(dir, "tok");
 		writeFileSync(tok, "k-s1-test", { mode: 0o600 });
 		try {

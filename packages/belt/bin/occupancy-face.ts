@@ -7,56 +7,15 @@
 // null snapshot with a note, never a fabricated zero.
 import { readFileSync } from "node:fs";
 import { tryLoadStack } from "@klh/suspenders/hooks/lib/stack-config.ts";
+import { OccupancyReportSchema, type OccupancyReport } from "@klh/buckle/src/gov/occupancy.ts";
 import { readHubs, type HubRow } from "./hubs.ts";
 
 export interface HubOccupancyRow {
 	hub: string;
 	base: string;
-	report: OccupancyReportLike | null;
+	report: OccupancyReport | null;
 	note: string | null;
 }
-
-type BoundedNum = number | null;
-
-/** Structural slice of the buckle OccupancyReport — read structurally so
- *  an upstream shape drift answers null fields, never a throw. */
-export interface OccupancyReportLike {
-	enabled: boolean;
-	generated_ms: number;
-	derived_total: number;
-	totals: { current: number; max: BoundedNum; basis: string };
-	models: Array<{
-		model: string;
-		current: number;
-		max: BoundedNum;
-		pct: BoundedNum;
-		users: Array<{ user: string; current: number; max: BoundedNum }>;
-	}>;
-	gauges: {
-		admitted_1m: number;
-		admitted_5m: number;
-		active: number;
-	};
-	samples: Array<{
-		ts_ms: number;
-		total: number;
-		by_model: Record<string, number>;
-	}>;
-}
-
-const isFiniteReport = (v: unknown): v is OccupancyReportLike => {
-	if (v === null || typeof v !== "object") return false;
-	const r = v as Record<string, unknown>;
-	return (
-		typeof r.enabled === "boolean" &&
-		typeof r.generated_ms === "number" &&
-		Array.isArray(r.models) &&
-		typeof r.gauges === "object" &&
-		r.gauges !== null &&
-		typeof r.totals === "object" &&
-		r.totals !== null
-	);
-};
 
 /** Fetch one hub's occupancy report. Null report + a note on any failure
  *  (down, 4xx/5xx, tokenless, non-JSON) — the board renders "unreachable"
@@ -103,14 +62,15 @@ export async function hubOccupancy(
 				note: `HTTP ${response.status}`,
 			};
 		const payload: unknown = await response.json();
-		if (!isFiniteReport(payload))
+		const parsed = OccupancyReportSchema.safeParse(payload);
+		if (!parsed.success)
 			return {
 				hub: hub.label,
 				base: hub.base,
 				report: null,
 				note: "unexpected payload shape",
 			};
-		return { hub: hub.label, base: hub.base, report: payload, note: null };
+		return { hub: hub.label, base: hub.base, report: parsed.data, note: null };
 	} catch (e) {
 		return {
 			hub: hub.label,

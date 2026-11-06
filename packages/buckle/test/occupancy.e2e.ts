@@ -15,6 +15,7 @@ import {
 	derivedTotal,
 	occupancyEnabled,
 	occupancySnapshot,
+	OccupancyReportSchema,
 	releaseOccupancy,
 	resetOccupancyForTest,
 } from "../src/gov/occupancy.ts";
@@ -127,6 +128,37 @@ test.describe("@api", () => {
 			acquireOccupancy("t1", "u", "m");
 			const snap = occupancySnapshot("hub-y");
 			expect(snap.totals).toEqual({ current: 1, max: 9, basis: "hub_total" });
+		});
+
+		// W2781: a CONFIGURED model with zero active admissions still renders
+		// its 0/N utilization card — idle models used to vanish from the row
+		// set (built from active admissions only), so the board showed nothing
+		// for exactly the models an operator capped on purpose.
+		test("idle configured models render a 0/N card", () => {
+			resetOccupancyForTest({ models: { busy: 4, idle: 2 } });
+			acquireOccupancy("i1", "u1", "busy");
+			const snap = occupancySnapshot("hub-z");
+			expect(snap.models).toEqual([
+				{
+					model: "busy",
+					current: 1,
+					max: 4,
+					pct: 25,
+					users: [{ user: "u1", current: 1, max: null }],
+				},
+				{ model: "idle", current: 0, max: 2, pct: 0, users: [] },
+			]);
+			// the row set unions active + configured, nothing else
+			expect(snap.models.map((r) => r.model)).toEqual(["busy", "idle"]);
+		});
+
+		// W2781 schema-law face: the snapshot the endpoint serves parses
+		// against the named OccupancyReportSchema (drift fails here first).
+		test("occupancySnapshot output satisfies OccupancyReportSchema", () => {
+			resetOccupancyForTest({ models: { m: 3 }, users: { u1: 2 } });
+			acquireOccupancy("z1", "u1", "m");
+			const parsed = OccupancyReportSchema.safeParse(occupancySnapshot("hub-s"));
+			expect(parsed.success).toBe(true);
 		});
 
 		test("gauges count admissions in the last 1m/5m; release drops active", () => {

@@ -180,19 +180,56 @@ function maybeSample(atMs: number): void {
 	while (samples.length > SAMPLE_MAX) samples.shift();
 }
 
-export interface OccupancyUserRow {
-	user: string;
-	current: number;
-	max: number | null;
-}
+// W2781 (W1238.4 schema law): the report wire face is a named zod schema —
+// one source of truth for the GET /v1/admin/occupancy body; consumers
+// (belt occupancy-face) safeParse against it instead of hand-rolling
+// structural checks that let nested drift render garbage.
+const BoundedNumSchema = z.number().int().nonnegative().nullable();
 
-export interface OccupancyModelRow {
-	model: string;
-	current: number;
-	max: number | null;
-	pct: number | null;
-	users: OccupancyUserRow[];
-}
+export const OccupancyUserRowSchema = z.object({
+	user: z.string(),
+	current: z.number().int().nonnegative(),
+	max: BoundedNumSchema,
+});
+
+export const OccupancyModelRowSchema = z.object({
+	model: z.string(),
+	current: z.number().int().nonnegative(),
+	max: BoundedNumSchema,
+	pct: BoundedNumSchema,
+	users: z.array(OccupancyUserRowSchema),
+});
+
+export type OccupancyUserRow = z.infer<typeof OccupancyUserRowSchema>;
+export type OccupancyModelRow = z.infer<typeof OccupancyModelRowSchema>;
+
+/** The GET /v1/admin/occupancy wire body — parsed, not assumed. */
+export const OccupancyReportSchema = z.object({
+	hub: z.string(),
+	enabled: z.boolean(),
+	generated_ms: z.number(),
+	caps: AdmissionCapsSchema.nullable(),
+	derived_total: z.number(),
+	totals: z.object({
+		current: z.number().int().nonnegative(),
+		max: z.number().int().nonnegative(),
+		basis: z.enum(["hub_total", "derived"]),
+	}),
+	models: z.array(OccupancyModelRowSchema),
+	users: z.array(OccupancyUserRowSchema),
+	gauges: z.object({
+		admitted_1m: z.number().int().nonnegative(),
+		admitted_5m: z.number().int().nonnegative(),
+		active: z.number().int().nonnegative(),
+	}),
+	samples: z.array(
+		z.object({
+			ts_ms: z.number(),
+			total: z.number().int().nonnegative(),
+			by_model: z.record(z.string(), z.number()),
+		}),
+	),
+});
 
 export interface OccupancyReport {
 	hub: string;
@@ -222,7 +259,12 @@ export function occupancySnapshot(
 	const byModel = countBy("model");
 	const byUser = countBy("user");
 	const capForModel = (m: string): number | null => c?.models?.[m] ?? null;
-	const models: OccupancyModelRow[] = Object.keys(byModel)
+	// W2781: idle configured models must still render a card — the row set
+	// is the UNION of active models and every configured per-model cap, so a
+	// capped model at 0 current shows its 0/N card instead of vanishing.
+	const models: OccupancyModelRow[] = [
+		...new Set([...Object.keys(byModel), ...Object.keys(c?.models ?? {})]),
+	]
 		.sort()
 		.map((m) => {
 			const current = byModel[m] ?? 0;
