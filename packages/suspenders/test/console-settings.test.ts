@@ -4,18 +4,10 @@
 // HOME and BELT_POLICY pinned to a TEMP COPY of the policy — never the live
 // belt policy, never the committed default.
 
-import { waitUp } from "@klh/test-kit";
+import { scratchWorld, waitUp } from "@klh/test-kit";
 import { afterAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import {
 	ConfigError,
 	diffLines,
@@ -30,9 +22,9 @@ import {
 	formToBoardSettings,
 } from "../hooks/lib/board/board-config.ts";
 
-const HOME = mkdtempSync(join(tmpdir(), "w147-home-"));
-const REPO = mkdtempSync(join(tmpdir(), "w147-repo-"));
-mkdirSync(join(REPO, ".git"), { recursive: true });
+const world = scratchWorld({ prefix: "w147-" });
+const HOME = world.home;
+const REPO = world.repo;
 const POLICY = join(HOME, "policy-copy.yaml");
 const POLICY_JSON = join(HOME, "policy-copy.json");
 const REG = join(HOME, "registry.json");
@@ -80,8 +72,7 @@ await waitUp(`${BASE}/api/data`);
 afterAll(async () => {
 	proc.kill();
 	await proc.exited;
-	rmSync(HOME, { recursive: true, force: true });
-	rmSync(REPO, { recursive: true, force: true });
+	world.clean();
 });
 
 // W264: the board's HTML pages hand the browser its write token as an
