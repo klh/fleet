@@ -267,6 +267,34 @@ describe("supervisor-default directive (W637)", () => {
 		expect(r.out).toContain("ITEM");
 		expect(r.out).toContain("TOKENS");
 		expect(r.out).toMatch(/WSUP1\s+·/);
+		// W2782: the session-scoped lanes table rides the same block — PARENT
+		// owns no lanes here, so the one-line no-lanes row renders
+		expect(r.out).toContain(
+			"SESSION LANES: none — no lanes riding under this session",
+		);
+	});
+
+	test("W2782: the supervisor block carries the session-scoped lanes table", () => {
+		const db = new Database(DB);
+		db.run(
+			"INSERT INTO work_items (project, id, title, state, priority, owner_sid, required, created_at, updated_at) VALUES (?, 'WSUP2', 'parent-owned claim', 'CLAIMED', 0, ?, 1, ?, ?)",
+			[PROJECT_B, PARENT, Date.now(), Date.now()],
+		);
+		db.run(
+			"INSERT INTO sessions (sid, project, role, parent_sid, started_at, hb, state) VALUES ('sup-child-lane-3333', ?, 'worker', ?, ?, ?, 'RUNNING')",
+			[PROJECT_B, PARENT, Date.now(), Date.now()],
+		);
+		db.run(
+			"INSERT INTO work_items (project, id, title, state, priority, owner_sid, required, created_at, updated_at) VALUES (?, 'WSUP3', 'child lane claim', 'CLAIMED', 0, 'sup-child-lane-3333', 1, ?, ?)",
+			[PROJECT_B, Date.now(), Date.now()],
+		);
+		db.close();
+		const r = runHook(REPO_B, join(HOME, "tp-b.jsonl"));
+		expect(r.code).toBe(0);
+		// header + both scoped rows: own claim + the child lane it started
+		expect(r.out).toContain("SESSION LANES (2, 2 live):");
+		expect(r.out).toMatch(/sup-child-lane-3333\s+WSUP3\s+◐ working/);
+		expect(r.out).toMatch(new RegExp(`${PARENT}\\s+WSUP2\\s+◐ working`));
 	});
 
 	test("subagent lane never arms the loop", () => {

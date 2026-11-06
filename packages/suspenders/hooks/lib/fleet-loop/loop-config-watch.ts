@@ -99,10 +99,11 @@ export function createLoopConfigWatch(opts: {
 			before.reviewStepdownClasses !== current.reviewStepdownClasses ||
 			before.reviewRoundCap !== current.reviewRoundCap ||
 			before.reviewLegTimeoutMs !== current.reviewLegTimeoutMs ||
-			before.reviewLegMaxTokens !== current.reviewLegMaxTokens
+			before.reviewLegMaxTokens !== current.reviewLegMaxTokens ||
+			before.cycleReportQuietS !== current.cycleReportQuietS
 		) {
 			log(
-				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"} review_leg_timeout_ms=${current.reviewLegTimeoutMs ?? 900_000} review_leg_max_tokens=${current.reviewLegMaxTokens ?? 16_000}`,
+				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"} review_leg_timeout_ms=${current.reviewLegTimeoutMs ?? 900_000} review_leg_max_tokens=${current.reviewLegMaxTokens ?? 16_000} cycle_report_quiet_s=${current.cycleReportQuietS ?? 600}`,
 			);
 		}
 	};

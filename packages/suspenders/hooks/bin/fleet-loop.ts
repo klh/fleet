@@ -63,7 +63,7 @@ import { createRogueSweep } from "../lib/fleet-loop/rogue-sweep.ts";
 import { createRuntime } from "../lib/fleet-loop/runtime.ts";
 import { createRuntimeSync } from "../lib/fleet-loop/runtime-sync.ts";
 import { createStallWatch } from "../lib/fleet-loop/stall-watch.ts";
-import { openStore } from "../lib/govdb/govdb.ts";
+import { openStore, projectIdentity } from "../lib/govdb/govdb.ts";
 // W641: the ladder's govdb lease gate — shared flush predicate, one source
 import {
 	doneShaResolves,
@@ -72,6 +72,13 @@ import {
 	itemClaimOf,
 } from "../lib/lanes/ladder-lease.ts";
 import { laneProcessIdentity } from "../lib/lanes/lane-liveness.ts";
+// W2782: the cycle-end lanes report — same session-lanes source as the
+// SessionStart bootstrap block (on-landed-change + quiet cap cadence).
+import {
+	cycleReportBlock,
+	readCycleReportState,
+	writeCycleReportState,
+} from "../lib/lanes/session-lanes-report.ts";
 import { createTransportProbe } from "../lib/lanes/transport-liveness.ts";
 // W911: the plaid posture switch — read/write .fleet/posture (the file
 // dispatch-next reads once per invocation).
@@ -340,6 +347,29 @@ async function cycle(): Promise<void> {
 	// spawned as a child (callee decides fan-out); a watchdog-killed cycle
 	// never re-fires the same task. Fail-isolated inside runMaintenanceSweep.
 	runMaintenanceSweep();
+
+	// 9. cycle-end lanes report (W2782): the supervisor table rides the cycle
+	// log — full table when the lane set changed (or the quiet cap passed),
+	// one-liner unchanged. Fail-isolated: a report bug never takes down the
+	// merge/dispatch loop (the wisdom-sweep rule).
+	try {
+		const r = cycleReportBlock(
+			openStore(),
+			projectIdentity(REPO),
+			REPO,
+			readCycleReportState(REPO),
+			Date.now(),
+			loopWatch.settings().cycleReportQuietS,
+		);
+		if (r) {
+			for (const line of r.lines) log(line);
+			writeCycleReportState(REPO, r.state);
+		}
+	} catch (e) {
+		log(
+			`CYCLE-REPORT failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
 }
 
 // dispatch: one Work Graph item → claimed, worktree, briefed headless lane.
