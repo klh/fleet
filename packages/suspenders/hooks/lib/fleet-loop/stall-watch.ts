@@ -4,6 +4,7 @@
 
 import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import type { Database } from "bun:sqlite";
 import { openStore, projectIdentity } from "../govdb/govdb.ts";
 import { emitLoopEvent } from "./events.ts";
 import {
@@ -12,6 +13,9 @@ import {
 	recordRecoveryResult,
 	type DeadEpisode,
 } from "../lanes/dead-claim-recovery.ts";
+import { failIntent } from "../../../scripts/lib/launch-intent-cli.ts";
+import { pruneLaneRegistry } from "../lanes/lane-registry.ts";
+import { fastRetireEligible } from "../lanes/lane-zero-token.ts";
 import {
 	laneProcessIdentity,
 	transcriptAlive,
@@ -104,6 +108,37 @@ export function createStallWatch(
 	// graph's events table is the broadcast plane (same idiom as work.landed).
 	const emitLaneEvent = emitLoopEvent;
 
+	// W2786: the retirement-recipe legs a zero-token dead lane runs —
+	// intent FAILED (the W2783 manual-unwind wedge) + registry prune (never a
+	// live process: the guard refuses any row whose pid still proves alive).
+	const retireDeadLane = (
+		store: ReturnType<typeof openStore>,
+		project: string,
+		lane: Lane,
+		why: string,
+	): void => {
+		const intentFail = failIntent(
+			store,
+			project,
+			lane.item,
+			`W2786 fast retire: dead lane, zero attribution tokens (${why})`,
+		);
+		const pruned = pruneLaneRegistry<Lane>(REPO, [lane.sid], (row) => {
+			const ident = laneProcessIdentity(row);
+			return ident === false || ident === null;
+		});
+		emitLaneEvent("lane.auto-retired", lane.item, {
+			project,
+			sid: lane.sid,
+			intent: intentFail.line,
+			registryPruned: pruned.removed.length > 0,
+			why,
+		});
+		log(
+			`AUTO-RETIRED ${lane.sid} on ${lane.item} — zero-token dead lane (${why}); ${intentFail.line}`,
+		);
+	};
+
 	function stallWatch(): void {
 		const now = Date.now();
 		const state: StallState = readJsonSync(STALL_FILE) ?? {};
@@ -150,6 +185,25 @@ export function createStallWatch(
 					let recovery: "released" | "held" | "exhausted" = "held";
 					try {
 						const store = openStore();
+						// W2786 fast retire: a provably-dead lane with PROVABLY zero
+						// banked tokens has nothing to lose — run the retirement
+						// recipe's intent-fail + registry-prune legs here (the
+						// conservative path only released the claim and left the
+						// REGISTERED intent + registry row stranding redispatch —
+						// the W2783 manual-intent-fail wedge). An unknown ledger
+						// reads NOT zero: keep the conservative flow.
+						const fast = fastRetireEligible(
+							store as unknown as Database,
+							store,
+							project,
+							{
+								id: l.item,
+								owner: l.sid,
+								revision: claim.updated_at,
+								lane: l,
+							},
+						);
+						if (fast.zero) retireDeadLane(store, project, l, fast.why);
 						recovery = attemptRecovery(
 							store,
 							{ project, id: l.item, owner: l.sid, revision: claim.updated_at },
