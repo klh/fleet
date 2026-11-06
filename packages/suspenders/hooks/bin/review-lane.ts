@@ -47,6 +47,7 @@ import {
 	finishReviewRequest,
 	reviewProofParkMarker,
 	reviewRequestKey,
+	reviewWireParkMarker,
 } from "../lib/gates/review-scheduler.ts";
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
@@ -712,7 +713,7 @@ const wireMismatch = protectedWireMismatch({
 	family: familyItem,
 });
 const wireHeadline = wireMismatch
-	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted`
+	? `wire-model mismatch: requested ${wireAudit?.requested} served ${wireAudit?.served} — PASS not trusted${verdict === "PASS" && !familyItem ? " (DEGRADED receipt — content stands, wire untrusted; not merge-authorizing)" : ""}`
 	: "";
 // W1760: an untrusted verdict is never a review ROUND — the round cap counts
 // FAIL receipts only, so a routing-fallback downgrade grades ERROR (the
@@ -808,9 +809,14 @@ if (requestKey && requestToken)
 		// W2754: a PASS-content verdict whose proof failed deterministically
 		// parks on a marker-prefixed finish reason instead of refunding into
 		// an identical re-drive (the scheduler's proof_park_at stamp).
+		// W2792.1: a PASS-content wire-model mismatch parks the same way —
+		// the unchanged routing ladder would re-serve the same fallback
+		// (the scheduler's wire_park_at stamp).
 		effective === "ERROR" && deterministicProofFailure(verdict, proof?.status)
 			? `${reviewProofParkMarker}: ${headline}`
-			: headline,
+			: effective === "ERROR" && verdict === "PASS" && wireMismatch
+				? `${reviewWireParkMarker}: ${headline}`
+				: headline,
 	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,

@@ -656,6 +656,9 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(fact.verdict).toBe("ERROR");
 		expect(fact.wire_match).toBe("mismatch");
 		expect(String(fact.headline)).toContain("wire-model mismatch");
+		// W2792.1: the PASS-content receipt is graded DEGRADED in the headline
+		// (content stands, wire untrusted, never merge-authorizing).
+		expect(String(fact.headline)).toContain("DEGRADED receipt");
 		const db = new Database(DB_PATH, { readonly: true });
 		const payload = (
 			db

@@ -15,6 +15,8 @@ import {
 	reviewProofParkMs,
 	reviewRateBudget,
 	reviewRequestKey,
+	reviewWireParkMarker,
+	reviewWireParkMs,
 	scheduleReview,
 } from "../hooks/lib/gates/review-scheduler.ts";
 import {
@@ -563,6 +565,79 @@ test("W2754: deterministic-proof park refuses re-drive while fresh, advisory ded
 		"requested through Buckle",
 	);
 	expect(f.launches).toHaveLength(2);
+});
+test("W2792.1 wire-park knobs: unset or junk → 1h default, an integer overrides, conf row wins, 0 disables", () => {
+	expect(reviewWireParkMs({})).toBe(3_600_000);
+	expect(reviewWireParkMs({ SUSPENDERS_REVIEW_WIRE_PARK_MS: "x" })).toBe(
+		3_600_000,
+	);
+	expect(reviewWireParkMs({ SUSPENDERS_REVIEW_WIRE_PARK_MS: "120000" })).toBe(
+		120_000,
+	);
+	expect(reviewWireParkMs({ SUSPENDERS_REVIEW_WIRE_PARK_MS: "0" })).toBe(0);
+	expect(reviewWireParkMs({}, 45)).toBe(45);
+});
+test("W2792.1: a cross-family wire finish stamps wire_park_at, refuses re-drive while fresh, advisory deduped per stamp", () => {
+	const f = capFixture();
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	const request = requestOf(f);
+	finishReviewRequest(
+		f.db,
+		f.key,
+		request.token,
+		true,
+		`${reviewWireParkMarker}: wire-model mismatch: requested claude-opus-5-5 served glm-5.3 — DEGRADED`,
+	);
+	const after = requestOf(f);
+	expect(after.state).toBe("ERROR");
+	expect((after as { wire_park_at?: number }).wire_park_at).toBeGreaterThan(0);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review parked: wire-model fallback",
+	);
+	expect(f.launches).toHaveLength(1);
+	expect(decisions(f)).toHaveLength(1);
+	// second knock while fresh: same refusal, advisory deduped per stamp
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"review parked: wire-model fallback",
+	);
+	expect(decisions(f)).toHaveLength(1);
+});
+test("W2792.1: once the wire-park stamp lapses, the leg re-drives", () => {
+	const f = capFixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	const request = requestOf(f);
+	finishReviewRequest(
+		f.db,
+		f.key,
+		request.token,
+		true,
+		`${reviewWireParkMarker}: wire-model mismatch`,
+	);
+	const stamped = requestOf(f) as { wire_park_at?: number; nextAt: number };
+	stamped.wire_park_at = Date.now() - 3_600_001;
+	stamped.nextAt = 0;
+	f.db
+		.query("UPDATE facts SET value=? WHERE key=?")
+		.run(JSON.stringify(stamped), f.key);
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(2);
+});
+test("W2792.1: a wire-park finish never opens the AIMD pause (routing policy, not a provider outage)", () => {
+	const f = capFixture();
+	scheduleReview({ ...f.options, spawn: f.spawn });
+	const request = requestOf(f);
+	finishReviewRequest(
+		f.db,
+		f.key,
+		request.token,
+		true,
+		`${reviewWireParkMarker}: wire-model mismatch`,
+	);
+	expect(providerPressureOf(f.db).fails).toBe(0);
 });
 test("W2754: transport-class finishes never stamp proof_park_at and still open the AIMD pause", () => {
 	const f = capFixture();

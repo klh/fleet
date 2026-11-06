@@ -73,6 +73,9 @@ export const FleetLoopConfigSchema = z
 		 *  signature delta, one-liner while unchanged, full again once the
 		 *  cap passes; absence = 600. */
 		cycle_report_quiet_s: z.number().int().positive().optional(),
+		/** W2792.1: wire-model fallback park TTL in ms — 0 disables;
+		 *  absence = SUSPENDERS_REVIEW_WIRE_PARK_MS env fallback, then 1h. */
+		review_wire_park_ms: z.number().int().nonnegative().optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 		provider_pools: ProviderPoolsSchema.optional(),
 	})
@@ -106,6 +109,8 @@ export interface FleetLoopSettings {
 	reviewRateBudget?: number;
 	/** W2782: cycle-end lanes-report quiet cap (s) — absence = 600. */
 	cycleReportQuietS?: number;
+	/** W2792.1: conf wire-model fallback park TTL — absence = SUSPENDERS_REVIEW_WIRE_PARK_MS fallback. */
+	reviewWireParkMs?: number;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -642,6 +647,7 @@ export function fleetLoopSettings(
 		reviewBaseSettleMs: block?.review_base_settle_ms,
 		reviewRateBudget: block?.review_rate_budget,
 		cycleReportQuietS: block?.cycle_report_quiet_s,
+		reviewWireParkMs: block?.review_wire_park_ms,
 	};
 }
 
