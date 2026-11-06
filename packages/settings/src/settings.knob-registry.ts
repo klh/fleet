@@ -148,6 +148,8 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_KNOWLEDGE_VERIFY_TIMEOUT_MS", "conf"),
 	k("SUSPENDERS_KNOWLEDGE_VERIFY_TOKEN", "secret"),
 	k("SUSPENDERS_KNOWLEDGE_VERIFY_URL", "conf"),
+	k("SUSPENDERS_KNOWLEDGE_WRITE_TOKEN", "secret"),
+	k("SUSPENDERS_KNOWLEDGE_WRITE_TOKEN_FILE", "conf"),
 	k("SUSPENDERS_LANE_DEADLINE_MS", "conf", "dispatch.lane_deadline_ms"),
 	k("SUSPENDERS_LANE_EFFORT", "conf", "dispatch.lane_effort"),
 	k("SUSPENDERS_LANE_GUARD", "conf"),

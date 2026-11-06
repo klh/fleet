@@ -17,6 +17,7 @@ import { openGovernorDb, openKnowledgeDb } from "../govdb/govdb.ts";
 import { SqliteKnowledgeStore } from "./sqlite-store.ts";
 import type { KnowledgeStore } from "./store-schema.ts";
 import { restrictiveDomain, type DataDomain } from "../lanes/provenance.ts";
+import { settleViaSink } from "./knowledge-sink-client.ts";
 
 export interface SettleResult {
 	sid: string;
@@ -75,9 +76,15 @@ export async function settleSessionWith(
 	// knowledge.db (W166 split), never the governor handle. Its counts are
 	// pre-SELECTs: bun:sqlite `changes` is inflated on trigger-covered
 	// tables (deltas/FTS writes count too), so COUNT first, then stamp.
-	const { queueMarked, rowsBackfilled } = await (
-		opts.store ?? new SqliteKnowledgeStore(openKnowledgeDb(), db)
-	).settleHubEligible(sid, flag);
+	// W2779.3.1 thin-client seam: sink-first — the fk /settle face (install
+	// write token) stamps hub_eligible on fk's copy; the fleet-local store
+	// is the compatibility fallback (seam doc). Fail-open both ways.
+	const sink = await settleViaSink(sid, flag);
+	const { queueMarked, rowsBackfilled } = sink.ok
+		? sink
+		: await (
+				opts.store ?? new SqliteKnowledgeStore(openKnowledgeDb(), db)
+			).settleHubEligible(sid, flag);
 	const result: SettleResult = {
 		sid,
 		domain,
