@@ -6,10 +6,11 @@
 // undeclared = no dataplane service and a byte-clean solo render; declared
 // knobs fall through to the template defaults. The face owns its port — it
 // never rides the LLM gateway front door.
-import { runCli, scratchWorld } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
+
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runCli, scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { parse } from "yaml";
 
 type Svc = Record<string, unknown> & {

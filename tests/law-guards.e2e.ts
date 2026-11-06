@@ -153,7 +153,7 @@ const NEAR_CAP_PINNED = {
 	// carried it below the 1200 band on the merged tree.
 	"packages/belt/bin/router-shim.ts": 1315, // W1238.6.1 decomposition (W2261 re-pin) + W2182 re-land of W960.1 usage reporting + W2258 origin-qualified error details (W2417 merge re-pin to the measured count; debt: decompose)
 	"packages/belt/test/dashboard-topology-model.e2e.ts": 1294,
-	"packages/suspenders/hooks/bin/work.ts": 1268, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2409 folds W2385's 1272 pin; W2441 (W2410), W2445, W2450 (parked/W2438), W2452 (parked/W2440), W2446 (W2435, via W2415) and W2448 (parked/W2421) merges all re-measured 1268 (split-newline convention) on their merged trees (debt: decompose)
+	"packages/suspenders/hooks/bin/work.ts": 1268, // W2299/W2348/W2372/W2337 lineage re-pins to measured count after W2333 fail-verb decomposition; W2409 folds W2385's 1272 pin; W2441 (W2410), W2445, W2450 (parked/W2438), W2452 (parked/W2440), W2446 (W2435, via W2415), W2448 (parked/W2421) and W2449 (parked/W2433 lineage) merges all re-measured 1268 (split-newline convention) on their merged trees (debt: decompose)
 	"packages/suspenders/hooks/lib/fleet-loop/lane-launch.ts": 1204, // W2677 kev-chooses (c4650207, 1198→1203) + merge resolution crossed the stop rule — pinned at the measured count (split-newline convention) on main be878110 (debt: decompose)
 	// hubctl.ts pin DROPPED (both lineages): W2381's hub-profiles.ts
 	// extraction carried it out of the band (W2448 lineage measured 1190);
