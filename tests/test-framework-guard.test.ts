@@ -32,10 +32,15 @@ const SELF = "tests/test-framework-guard.test.ts";
 // belt copilot-seat-rows.test.ts); the pin tracks the exact non-decant
 // count measured by THIS guard's own git ls-files counting at the closing
 // sha.
-// W2664 rebase (merged here by W2737): merging suspenders/W2649
-// (parked/W2478 risk-tier merge gate) onto main carries the risk-tier
-// .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635).
-const PIN = 635;
+// W1294.12 sweep-I (2026-10-29, landed via W2651) ports all 35 remaining
+// specs in speedy/local/telemetry/kernel/local-llm/blam — both lineages
+// ported disjoint corpora, so the W2666 merged tree measures 600 under
+// the guard's own git ls-files counting; re-pinned DOWN to that exact
+// count. W2738 rebase: the two lineages BOTH ported risk-tier
+// (.test.ts→.e2e.ts, add/add) — the merged tree still measures 600; pin
+// holds. W2813 rebase (merging suspenders/W2750 onto main bd26c298): the
+// merged tree measures the same 600; pin holds.
+const PIN = 600;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
