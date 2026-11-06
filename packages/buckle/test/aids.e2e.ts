@@ -228,8 +228,8 @@ test.describe({ tag: "@unit" }, () => {
 				fetchFn: async () => {
 					calls++;
 					return Response.json({
-					preamble: "Precedence: the brief's objective always wins (stub).",
-					hits: [
+						preamble: "Precedence: the brief's objective always wins (stub).",
+						hits: [
 							hit({ source_ref: "README.md", source_hash: realHash }),
 							hit({ id: 2, source_ref: "README.md", source_hash: realHash }),
 						],
@@ -256,8 +256,8 @@ test.describe({ tag: "@unit" }, () => {
 				policy: { preseed: { default: "on" } },
 				fetchFn: async () =>
 					Response.json({
-					preamble: "Precedence: the brief's objective always wins (stub).",
-					hits: [
+						preamble: "Precedence: the brief's objective always wins (stub).",
+						hits: [
 							hit({
 								id: 1,
 								fact: "the post-files gate runs qlty-fmt plus fast lint on every write",
