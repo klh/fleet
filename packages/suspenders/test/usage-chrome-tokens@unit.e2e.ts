@@ -2,8 +2,9 @@
 // the shared usage chrome (local /usage + hub federation page) rides the
 // kernel theme scale tokens — no inline style attributes, no literal px
 // where a --klh-text/space/radius token carries the same value.
-import { expect, test } from "@playwright/test";
+
 import { SCALE } from "@klh/kernel/src/kernel.theme.module.ts";
+import { expect, test } from "@playwright/test";
 import { U_CSS, usagePageShell } from "../hooks/bin/usage-chrome.ts";
 
 const page = usagePageShell({ title: "T", body: "<p>b</p>", payload: "{}" });
