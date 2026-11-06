@@ -222,7 +222,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-5.3-codex",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -338,9 +338,6 @@
 		"gpt-5.6-luna": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -348,7 +345,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-5.6-luna",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -356,9 +353,6 @@
 		"gpt-5.6-sol": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -366,7 +360,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-5.6-sol",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -374,9 +368,6 @@
 		"gpt-5.6-terra": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -384,7 +375,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-5.6-terra",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -392,9 +383,6 @@
 		"gpt-6.1-sol": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -402,7 +390,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-6.1-sol",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -410,9 +398,6 @@
 		"gpt-6-astra": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -420,7 +405,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-6-astra",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -428,9 +413,6 @@
 		"gpt-6-luna": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -438,7 +420,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-6-luna",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -446,9 +428,6 @@
 		"gpt-6-sol": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -456,7 +435,7 @@
 				"visibility": "spoke-private",
 				"model": "gpt-6-sol",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -482,9 +461,6 @@
 		"grok-4.6": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -492,7 +468,7 @@
 				"visibility": "spoke-private",
 				"model": "grok-4.6",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -500,9 +476,6 @@
 		"grok-4.7": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -510,7 +483,7 @@
 				"visibility": "spoke-private",
 				"model": "grok-4.7",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
@@ -518,9 +491,6 @@
 		"mai-code-1.1-flash": [
 			{
 				"adapter_config": {
-					"path_rewrite": {
-						"/v1/chat/completions": "/chat/completions"
-					},
 					"headers": {
 						"copilot-integration-id": "vscode-chat"
 					}
@@ -528,7 +498,7 @@
 				"visibility": "spoke-private",
 				"model": "mai-code-1.1-flash",
 				"api_key_env": "GITHUB_COPILOT_PAT",
-				"adapter": "openai-compat",
+				"adapter": "openai-responses",
 				"dialect": "openai",
 				"url": "https://api.githubcopilot.com"
 			}
