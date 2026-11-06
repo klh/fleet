@@ -1,3 +1,4 @@
+// W1294.12 sweep-I: ported from risk-tier.test.ts to @playwright/test.
 import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
@@ -16,9 +17,6 @@ import {
 import { openMemoryStore } from "../hooks/lib/govdb/govdb-store.ts";
 
 const cleanups: (() => void)[] = [];
-test.afterAll(() => {
-	for (const cleanup of cleanups.splice(0)) cleanup();
-});
 
 function gitFixture(name: string) {
 	const repo = realpathSync(mkdtempSync(join(tmpdir(), `fleet-${name}-`)));
@@ -38,7 +36,11 @@ function gitFixture(name: string) {
 	return { repo, git };
 }
 
-test.describe("W1303.5 risk-tier gate", () => {
+test.describe("@unit", () => {
+	test.afterEach(() => {
+		for (const cleanup of cleanups.splice(0)) cleanup();
+	});
+
 	test("docs-only change is low with zero approvals", () => {
 		const risk = classifyRiskTier(["README.md", "docs/guide.md"]);
 		expect(risk.tier).toBe("low");
@@ -123,11 +125,7 @@ test.describe("W1303.5 risk-tier gate", () => {
 		writeFileSync(join(repo, "docs/note.md"), "note\n");
 		git("add", ".");
 		git("commit", "-m", "docs change");
-		const paths = candidatePaths(
-			repo,
-			git("rev-parse", "main"),
-			"suspenders/W1",
-		);
+		const paths = candidatePaths(repo, git("rev-parse", "main"), "suspenders/W1");
 		expect(paths).toEqual(["docs/note.md"]);
 	});
 
