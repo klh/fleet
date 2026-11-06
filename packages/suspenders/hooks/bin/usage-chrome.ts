@@ -190,24 +190,24 @@ export interface UsagePanels {
 // <klh-usage-charts> — the W652.3.1 Lit panels carry shadow-scoped copies of
 // everything else (tiles/tables/bars/chips)
 export const U_CSS = `
-.uback { display:flex; gap:16px; align-items:baseline; margin:12px 0 0; }
+.uback { display:flex; gap:var(--klh-space-5); align-items:baseline; margin:var(--klh-space-4) 0 0; }
 .uwin { font-size:10.5px; color:var(--klh-dim); }
-.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:3px; padding:12px 14px 10px; margin-bottom:14px; }
-.upanel h2 { margin:0 0 6px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
-.upanel .uhead { display:flex; align-items:baseline; gap:12px; }
+.upanel { background:var(--klh-surface); border:1px solid var(--klh-edge-soft); border-radius:var(--klh-radius-lg); padding:var(--klh-space-4) 14px 10px; margin-bottom:14px; }
+.upanel h2 { margin:0 0 6px; font-size:var(--klh-text-sm); font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); }
+.upanel .uhead { display:flex; align-items:baseline; gap:var(--klh-space-4); }
 .upanel .uhead .ufoot { margin:0; }
-.ulegend { display:flex; gap:14px; font-size:11px; color:var(--klh-ink-2); margin:0 0 8px; flex-wrap:wrap; }
-.ulegend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px; }
+.ulegend { display:flex; gap:14px; font-size:var(--klh-text-sm); color:var(--klh-ink-2); margin:0 0 var(--klh-space-3); flex-wrap:wrap; }
+.ulegend i { display:inline-block; width:10px; height:10px; border-radius:var(--klh-radius); margin-right:5px; vertical-align:-1px; }
 .ufilters { display:flex; gap:18px; align-items:center; margin:0 0 14px; flex-wrap:wrap; }
 .ufgroup { display:flex; gap:6px; align-items:center; }
 .ufgroup::before { content:attr(data-label); font-size:9.5px; color:var(--klh-dim); text-transform:uppercase; letter-spacing:.06em; }
-.ufilter, .ufchip { font-size:11px; color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:2px; padding:2px 9px; }
+.ufilter, .ufchip { font-size:var(--klh-text-sm); color:var(--klh-dim); text-decoration:none; border:1px solid var(--klh-edge); border-radius:var(--klh-radius); padding:var(--klh-space-1) 9px; }
 .ufilter.on, .ufchip.on { color:var(--klh-accent); border-color:var(--klh-accent); }
 .uon { font-size:10.5px; color:var(--klh-accent); }
-.ufoot { font-size:10.5px; color:var(--klh-dim); margin:2px 0 8px; }
+.ufoot { font-size:10.5px; color:var(--klh-dim); margin:var(--klh-space-1) 0 var(--klh-space-3); }
 .uchart { width:100%; }
-.usage-jump { display:flex; gap:4px; flex-wrap:wrap; position:sticky; top:0; z-index:2; margin:0 0 16px; padding:7px 0; background:var(--klh-bg); border-bottom:1px solid var(--klh-edge); }
-.usage-jump a { padding:5px 10px; color:var(--klh-ink-2); text-decoration:none; font-size:11px; border-radius:2px; }
+.usage-jump { display:flex; gap:var(--klh-space-2); flex-wrap:wrap; position:sticky; top:0; z-index:2; margin:0 0 var(--klh-space-5); padding:7px 0; background:var(--klh-bg); border-bottom:1px solid var(--klh-edge); }
+.usage-jump a { padding:5px 10px; color:var(--klh-ink-2); text-decoration:none; font-size:var(--klh-text-sm); border-radius:var(--klh-radius); }
 .usage-jump a:hover, .usage-jump a:focus-visible { color:var(--klh-accent); background:var(--klh-surface); outline-color:var(--klh-accent); }
 .usage-section { scroll-margin-top:58px; }
 .usage-section + .usage-section { margin-top:22px; padding-top:18px; border-top:1px solid var(--klh-edge); }
@@ -219,8 +219,8 @@ export const U_CSS = `
 .uplot .u-legend { font: 10.5px/1.7 var(--klh-font-mono); color:var(--klh-ink-2); text-transform:uppercase; letter-spacing:.04em; }
 .uplot .u-legend .u-value { font-variant-numeric:tabular-nums; color:var(--klh-ink); }
 .uplot .u-legend .u-series.u-off { opacity:.4; }
-.uplot .u-marker { width:9px; height:9px; border-radius:2px; }
-.uplot text { font-size:10px; }
+.uplot .u-marker { width:9px; height:9px; border-radius:var(--klh-radius); }
+.uplot text { font-size:var(--klh-text-xs); }
 `;
 
 // page shell: doctype + theme + the u* chrome + topbar + centered main +
@@ -234,5 +234,5 @@ export function usagePageShell(cfg: {
 	// script block (W695.3.5: the degraded reason now rides the payload)
 	const safePayload = cfg.payload.replace(/</g, "\\u003c");
 	const scripts = `<style>${UPLOT_CSS}</style><script type="application/json" id="usage-data">${safePayload}</script><script type="module" src="/vendor/klh-topbar.js"></script><script type="module" src="/vendor/usage-panels.js"></script>`;
-	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:13px/1.45 var(--klh-font-sans);margin:0;padding:0 20px 28px;}a{color:var(--klh-accent)}.utitle{font-size:14px;letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "usage")}<klh-topbar></klh-topbar><main style="max-width:1260px;margin:0 auto">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><title>${cfg.title}</title>${THEME_HEAD}<style>body{background:var(--klh-bg);color:var(--klh-ink);font:var(--klh-text-lg)/1.45 var(--klh-font-sans);margin:0;padding:0 var(--klh-space-6) var(--klh-space-7);}a{color:var(--klh-accent)}.umain{max-width:1260px;margin:0 auto}.utitle{font-size:var(--klh-text-xl);letter-spacing:.08em;margin:14px 0 10px;color:var(--klh-ink)}${U_CSS}${FLEET_NAV_CSS}</style></head><body>${fleetNav("suspenders", "usage")}<klh-topbar></klh-topbar><main class="umain">${cfg.body}</main><script>${UPLOT_SRC}</script>${scripts}</body></html>`;
 }
