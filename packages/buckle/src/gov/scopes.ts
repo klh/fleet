@@ -2,6 +2,11 @@
 // where the role segment carries the coarse READ_/WRITE_ prefix. WRITE_
 // implies READ_ (same resource); READ_ implies nothing. Root principals
 // get the explicit full list — no wildcard magic, inspectable strings only.
+// W2791: the open-ended MCP method-level family lives in mcp-scopes.ts;
+// parseScope/scopeImplies below delegate to it so storage and mint treat
+// both grammars as ONE engine.
+
+import { mcpScopeImplies, parseMcpScope } from "./mcp-scopes.ts";
 
 export const SCOPE_RE = /^buckle:[a-z_]+:(READ_|WRITE_|QUERY_)$/;
 
@@ -39,10 +44,13 @@ export const ALL_SCOPES: readonly string[] = [
 	"buckle:dataplane:WRITE_",
 ];
 
-/** Normalize+validate one scope string; null when not buckle-shaped. */
+/** Normalize+validate one scope string; null when not buckle-shaped.
+ *  W2791: MCP method-level scopes (buckle:mcp:<server>:<role>[:glob])
+ *  validate through their own parser — one engine, two grammars. */
 export function parseScope(raw: string): string | null {
 	const s = raw.trim();
-	return SCOPE_RE.test(s) ? s : null;
+	if (SCOPE_RE.test(s)) return s;
+	return parseMcpScope(s) === null ? null : s;
 }
 
 /** Scope list from the storage form (space-separated): invalid entries are
@@ -62,12 +70,16 @@ export function scopesFromStorage(raw: string | null): {
 	return { scopes, dropped };
 }
 
-/** WRITE_ implies READ_ on the same resource; exact match always passes. */
+/** WRITE_ implies READ_ on the same resource; exact match always passes.
+ *  W2791: MCP-family pairs delegate to the glob-aware lattice — a plain
+ *  split(":") would miscount the glob segment. */
 export function scopeImplies(holder: string, needed: string): boolean {
 	const h = parseScope(holder);
 	const n = parseScope(needed);
 	if (h === null || n === null) return false;
 	if (h === n) return true;
+	if (h.startsWith("buckle:mcp:") || n.startsWith("buckle:mcp:"))
+		return mcpScopeImplies(h, n);
 	const hp = h.split(":");
 	const np = n.split(":");
 	if (hp[1] !== np[1]) return false;
