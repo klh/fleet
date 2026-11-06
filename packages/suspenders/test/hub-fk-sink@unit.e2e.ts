@@ -38,13 +38,14 @@ const compose = parse(
 	{ merge: true, maxAliasCount: 500 },
 ) as { services: Record<string, Svc>; volumes: Record<string, unknown> };
 
-function render(hub: Record<string, unknown>, stack: Record<string, unknown>): string {
+function render(
+	hub: Record<string, unknown>,
+	stack: Record<string, unknown>,
+): string {
 	const path = join(dir, "stack.json");
-	writeFileSync(
-		path,
-		JSON.stringify({ hubs: { nas: hub }, ...stack }),
-		{ mode: 0o600 },
-	);
+	writeFileSync(path, JSON.stringify({ hubs: { nas: hub }, ...stack }), {
+		mode: 0o600,
+	});
 	const p = Bun.spawnSync(
 		[
 			process.execPath,
@@ -146,9 +147,10 @@ test("fk-repo one-shot: git pull at the pin, skips when mode off", () => {
 	expect(cmd).toContain("git -C /srv/fk fetch --depth 1 origin");
 	expect(cmd).toContain("$HUB_KNOWLEDGE_VERSION");
 	// the mode guard: a fleet-mode knowledge hub pulls nothing
-	expect(cmd.startsWith("if [ \"$HUB_KNOWLEDGE_MODE\" != \"fk\" ]")).toBe(true);
+	expect(cmd.startsWith('if [ "$HUB_KNOWLEDGE_MODE" != "fk" ]')).toBe(true);
+	// compose interpolation placeholder; the dollar is escaped so the lint sees no ${...}
 	expect(repo.environment.HUB_FK_REPO_URL).toBe(
-		"${HUB_FK_REPO_URL:-https://github.com/icomdev/fleet-knowledge.git}",
+		"\x24{HUB_FK_REPO_URL:-https://github.com/icomdev/fleet-knowledge.git}",
 	);
 	// BUILD profile posture (W697): caps dropped, never a serving surface
 	expect(repo.cap_drop).toEqual(["ALL"]);
@@ -211,7 +213,9 @@ test("activation preflight resolves the fk pin against the public fk origin", ()
 test("a dead fk pin fails closed with the repin remedy", () => {
 	expect(() =>
 		assertDeployRefsExist(
-			{ knowledge: { mode: "fk", version: "fk-dead" } } as unknown as HubProfile,
+			{
+				knowledge: { mode: "fk", version: "fk-dead" },
+			} as unknown as HubProfile,
 			"zai",
 			"v1",
 			(argv) =>
