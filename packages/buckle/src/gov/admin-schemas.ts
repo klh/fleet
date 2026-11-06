@@ -27,7 +27,7 @@ export const AdminVerifySchema = z.object({
 });
 
 // W141 POST /v1/admin/keys {name, scopes?, team?, rpm_limit?, tpm_limit?,
-// expires_in_s?} — scopes default to [] when absent; a non-string entry
+// expires_in_s?, actor?} — W2789 actor = the human claim; scopes default to [] when absent; a non-string entry
 // REJECTS (400) where the old hand-parse silently dropped it: fail loud
 // is the law, silent coercion was the hazard.
 export const AdminIssueKeySchema = z.object({
@@ -37,6 +37,15 @@ export const AdminIssueKeySchema = z.object({
 	rpm_limit: finite.optional(),
 	tpm_limit: finite.optional(),
 	expires_in_s: finite.optional(),
+	actor: z
+		.object({
+			sub: nonEmpty,
+			oid: nonEmpty.optional(),
+			email: nonEmpty.optional(),
+			source: nonEmpty.optional(),
+		})
+		.strict()
+		.optional(),
 });
 
 // W173 POST /v1/admin/spokes/enroll {spoke_id, ttl_s?}
@@ -58,6 +67,7 @@ export const AdminTeamSchema = z.object({
 
 export type AdminDrainBody = z.infer<typeof AdminDrainSchema>;
 export type AdminVerifyBody = z.infer<typeof AdminVerifySchema>;
+export type AdminActorClaim = NonNullable<AdminIssueKeyBody["actor"]>;
 export type AdminIssueKeyBody = z.infer<typeof AdminIssueKeySchema>;
 export type AdminEnrollBody = z.infer<typeof AdminEnrollSchema>;
 export type AdminTeamBody = z.infer<typeof AdminTeamSchema>;

@@ -183,6 +183,15 @@ export function applyGovernanceSchema(db: Database): void {
 	// ALTER, idempotent per open; NULL = unbounded)
 	if (!cols.includes("spend_ceiling"))
 		db.run("ALTER TABLE teams ADD COLUMN spend_ceiling INTEGER");
+	// W2789 RFC 8693-style actor claim — JSON {sub, oid?, email?, source?} of
+	// the human a key was minted for (guarded ALTER; NULL = no claim)
+	const keyCols = (
+		db.query("SELECT name FROM pragma_table_info('api_keys')").all() as Array<{
+			name: string;
+		}>
+	).map((r) => r.name);
+	if (!keyCols.includes("actor_claim"))
+		db.run("ALTER TABLE api_keys ADD COLUMN actor_claim TEXT");
 	// W457 cache telemetry — guarded ALTERs (pre-cache budget_state heals)
 	const budgetCols = (
 		db

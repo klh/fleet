@@ -21,6 +21,7 @@ import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
 import type { RequestReadQuery } from "../ledger.ts";
 import { exportObservations } from "../observation-export.ts";
 import { verifyAuthChain } from "./audit-chain.ts";
+import { parseActorClaim } from "./keys.ts";
 import { reconcileRequest } from "./reconcile-route.ts";
 import type { Governance, Principal } from "./middleware.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
@@ -121,6 +122,7 @@ async function verifyKey(req: Request, gov: Governance): Promise<Response> {
 		team: v.key.team,
 		scopes: scopesFromStorage(v.key.scopes).scopes,
 		revoked: false,
+		actor: parseActorClaim(v.key.actor_claim),
 	});
 }
 
@@ -136,7 +138,11 @@ export async function handleAdmin(
 		return issueKey(req, p, gov);
 	}
 	if (method === "GET" && path === "/v1/admin/keys") {
-		return ok({ keys: gov.keys.listKeys() });
+		return ok({
+			keys: gov.keys
+				.listKeys()
+				.map((k) => ({ ...k, actor_claim: parseActorClaim(k.actor_claim) })),
+		});
 	}
 	if (method === "POST" && path === "/v1/admin/keys/verify") {
 		return verifyKey(req, gov);
@@ -292,6 +298,7 @@ async function issueKey(
 		tpmLimit: body.value.tpm_limit ?? null,
 		expiresInS: body.value.expires_in_s ?? null,
 		actor: p.actor ?? p.keyId,
+		actorClaim: body.value.actor ?? null,
 	});
 	gov.keys.recordAuthEvent(
 		p.actor ?? p.keyId,
@@ -309,6 +316,7 @@ async function issueKey(
 			rpm_limit: issued.row.rpm_limit,
 			tpm_limit: issued.row.tpm_limit,
 			expires_at: issued.row.expires_at,
+			actor: parseActorClaim(issued.row.actor_claim),
 		},
 		201,
 	);

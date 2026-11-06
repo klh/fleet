@@ -11,7 +11,8 @@ import {
 	windowRemainderS,
 } from "../src/gov/budgets.ts";
 import { createJwtValidator } from "../src/gov/jwt.ts";
-import { hashKey, KeyStore } from "../src/gov/keys.ts";
+import { hashKey, KeyStore, parseActorClaim } from "../src/gov/keys.ts";
+import { AdminIssueKeySchema } from "../src/gov/admin-schemas.ts";
 import { applyGovernanceSchema } from "../src/gov/schema.ts";
 import {
 	ALL_SCOPES,
@@ -108,6 +109,30 @@ test.describe("@unit", () => {
 			const dead = ks.verify(key);
 			expect(dead.ok).toBe(false);
 			if (!dead.ok) expect(dead.code).toBe("buckle.key_expired");
+		});
+
+		test("W2789 actor claim rides the key record through verify + list", () => {
+			const ks = new KeyStore(govDb());
+			const actor = { sub: "u-1", email: "a@example.com", source: "entra" };
+			const { key } = ks.issue({
+				name: "t",
+				team: null,
+				scopes: ["buckle:proxy:READ_"],
+				rpmLimit: null,
+				tpmLimit: null,
+				expiresInS: null,
+				actor: "tester",
+				actorClaim: actor,
+			});
+			const v = ks.verify(key);
+			expect(v.ok && parseActorClaim(v.key.actor_claim)).toEqual(actor);
+			expect(parseActorClaim(ks.listKeys()[0]?.actor_claim ?? null)).toEqual(
+				actor,
+			);
+			expect(
+				AdminIssueKeySchema.safeParse({ name: "n", actor: {} }).success,
+			).toBe(false);
+			expect(parseActorClaim("not json")).toBeNull();
 		});
 
 		test("the deltas path: issue + revoke land in the deltas log", () => {

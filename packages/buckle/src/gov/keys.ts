@@ -13,6 +13,8 @@ export interface KeyRow {
 	name: string | null;
 	team: string | null;
 	actor: string | null;
+	/** W2789 JSON actor claim — the human the key was minted for. */
+	actor_claim: string | null;
 	token_type: string;
 	parent_key_id: string | null;
 	scopes: string | null;
@@ -32,6 +34,26 @@ export interface IssueSpec {
 	tpmLimit: number | null;
 	expiresInS: number | null;
 	actor: string;
+	actorClaim?: ActorClaim | null;
+}
+
+/** W2789 RFC 8693-style actor claim carried on the key record. */
+export interface ActorClaim {
+	sub: string;
+	oid?: string;
+	email?: string;
+	source?: string;
+}
+
+/** Stored JSON → claim; absent or malformed rows read as null. */
+export function parseActorClaim(raw: string | null): ActorClaim | null {
+	if (raw === null) return null;
+	try {
+		const v = JSON.parse(raw) as ActorClaim | null;
+		return typeof v?.sub === "string" ? v : null;
+	} catch {
+		return null;
+	}
 }
 
 export interface VerifyOk {
@@ -54,8 +76,9 @@ export function hashKey(raw: string): string {
 
 const INSERT_KEY = `INSERT INTO api_keys (
   key_id, key_hash, jti, name, team, actor, token_type, parent_key_id,
-  scopes, rpm_limit, tpm_limit, expires_at, rotated_at, revoked_at, created_at
-) VALUES (?, ?, ?, ?, ?, ?, 'access', NULL, ?, ?, ?, ?, NULL, NULL, ?)`;
+  scopes, rpm_limit, tpm_limit, expires_at, rotated_at, revoked_at, created_at,
+  actor_claim
+) VALUES (?, ?, ?, ?, ?, ?, 'access', NULL, ?, ?, ?, ?, NULL, NULL, ?, ?)`;
 
 export class KeyStore {
 	private readonly db: Database;
@@ -91,6 +114,7 @@ export class KeyStore {
 				spec.tpmLimit,
 				expiresAt,
 				now,
+				spec.actorClaim ? JSON.stringify(spec.actorClaim) : null,
 			);
 		return { keyId, key: raw, row: this.byHash.get(h) as KeyRow };
 	}
@@ -135,7 +159,7 @@ export class KeyStore {
 	listKeys(): Array<Omit<KeyRow, "key_hash">> {
 		return this.db
 			.query(
-				"SELECT key_id, jti, name, team, actor, token_type, parent_key_id, scopes, rpm_limit, tpm_limit, expires_at, rotated_at, revoked_at, created_at FROM api_keys ORDER BY created_at",
+				"SELECT key_id, jti, name, team, actor, token_type, parent_key_id, scopes, rpm_limit, tpm_limit, expires_at, rotated_at, revoked_at, created_at, actor_claim FROM api_keys ORDER BY created_at",
 			)
 			.all() as Array<Omit<KeyRow, "key_hash">>;
 	}
