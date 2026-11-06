@@ -205,6 +205,17 @@ export const HubProfileSchema = z
 			.loose()
 			.optional(),
 		buckle_port: z.number().optional(),
+		/** W2618 hub admission caps — per-user/per-model/hub-total concurrent
+		 *  admission limits the hub's buckle enforces at ingress. Rendered as
+		 *  JSON into BUCKLE_ADMISSION_CAPS; absent = disabled (inert). */
+		admission_caps: z
+			.object({
+				hub_total: z.number().int().positive().optional(),
+				user_default: z.number().int().positive().optional(),
+				users: z.record(z.string(), z.number().int().positive()).optional(),
+				models: z.record(z.string(), z.number().int().positive()).optional(),
+			})
+			.optional(),
 		board_port: z.number().optional(),
 		store_port: z.number().optional(),
 		belt_port: z.number().optional(),

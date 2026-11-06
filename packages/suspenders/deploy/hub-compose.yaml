@@ -211,6 +211,10 @@ services:
       BUCKLE_DB: /state/buckle/buckle.db
       # Stable routing identity for relay baggage and per-hop audit rows.
       BUCKLE_HUB_ID: ${HUB_NAME:-desktop}
+      # W2618 hub admission caps — the machine stack.json hub profile
+      # (hubs.<label>.admission_caps) rendered as JSON by hubctl; absent =
+      # disabled (buckle logs inert, zero throttling).
+      BUCKLE_ADMISSION_CAPS: ${HUB_BUCKLE_ADMISSION_CAPS:-}
       # W858.10.3: lane-observation outbox → projection db at <path>.db
       # (server.ts W461 stage 2; the network read model resolves the same
       # chain) — hubs project per-hub request edges for the Network overview
