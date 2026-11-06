@@ -31,6 +31,7 @@ W2779 boundary: what moves, what stays, and the wire contract between.
 | KEV typed-decision GATE logic                                   | fleet                     | stays      |
 | peer-SID routing + interrupts                                   | fleet                     | stays      |
 | governor.db operational state (sessions/work/claims/provenance) | fleet                     | stays      |
+| hub deployment: fk sink compose service + pin + front          | fleet                     | W2779.5    |
 
 DRY targets across the boundary are W2779.1's list (precedence preamble,
 SQL guardrails, scrub rule DATA — shared format, never shared code; the
@@ -61,6 +62,19 @@ Consult (W2779.4, new):
   `buckle:knowledge:CONSULT_` for fleet callers; loopback anonymous
   stays for human UI.
 - `GET /api/consults?surface=` and `GET /api/consult/<id>` — history.
+- LANDED (fk branch `suspenders/W2779.4`, fk src/consult/): one pipeline
+  — secret-filter ingress (withheld question = refusal, never reaches
+  the LLM), retrieve+hops fused evidence labeled [Kn], the guarded plan
+  leg as empty-evidence fallback, the answer leg under the claim
+  contract (uncited lines dropped, deterministic confidence stamp —
+  bands high ≥0.7 / medium ≥0.4, zero on abstention). Consults persist
+  to the fk-local consults store (conf `consult.store` path, default
+  `<db>-consults.db`; `FLEET_KNOWLEDGE_CONSULT_STORE` env overrides —
+  fk-owned knob, not SUSPENDERS_*). Auth detail: a presented key MUST
+  verify — a bad key never downgrades to anonymous (fail closed);
+  absent verify conf (no buckle front) = keyed callers 503, loopback
+  anonymous still served. Buckle-side CONSULT_ scope row landed in
+  fleet (buckle src/gov/scopes.ts W2779.4; mint + verify e2e).
 
 Curation / lifecycle (existing verbs, retargeted fleet-side in W2779.3):
 
@@ -82,7 +96,6 @@ Session-settle face (W2779.3.1, additive):
   sink miss falls back to the fleet-local store stamping (compatibility
   law). The session-start lesson push needs NO new face — it rides the
   existing `/knowledge/sql` over `knowledge_facts` (bksk_ READ_ key).
-
 Roll / graph / anti-entropy (machine-to-machine, unchanged):
 
 - `POST /roll` (machine TTL roll key header or write token + body.machine)
@@ -172,6 +185,38 @@ list). Fleet tests pin fk behavior through the seam only.
   (coord CLI, board ingest, gates triggers, sink client) STAY fleet.
 - Provenance stamps: computed fleet-side at trigger time, stored verbatim
   via the fk API — governor.db keeps the operational linkage only.
+
+## Hub serving (W2779.5 — how fk runs ON a hub)
+
+The fk sink is a compose service, never a bare in-process fleet service.
+Config-over-code from the hub profile (`hubs.<label>.knowledge`):
+
+- `mode: "fk"` retargets the knowledge sink at the PUBLIC fleet-knowledge
+  repo (icomdev, BSL 1.1): an fk-repo one-shot (alpine/git, fleet-repo
+  posture) git-pulls it into the `fk-repo` volume at the pinned ref; the
+  fk-sink service (oven/bun, runtime-hardening, host network) runs
+  `bun src/knowledge/bin/knowledge-api.ts` from that mount — the
+  entrypoint holding the ONE rw store handle (gap-c pick). The fk services
+  ride their own `knowledge-fk` compose profile (one sink family per hub —
+  both default to :7802/:7803, so they can never co-run). Absent mode =
+  the fleet-local knowledge-sink stands unchanged (the compatibility law
+  window).
+- One-version: `knowledge_version` (stack-wide) is the 4th pinned
+  component; `hubs.<label>.knowledge.version` overrides per hub. The
+  hub-ref preflight resolves it against the public fk origin before
+  up/deploy; branch pins and unpinned fk modes refuse.
+- Health: outside-process (owner law) — the fk-health sidecar polls
+  fk's `/health` on the sink port and serves the verdict on its own;
+  compose health hits the sidecar, never fk.
+- Conf: `hubs.<label>.knowledge.conf` is a PATH on the hub naming the
+  0600 fk conf JSON; hubctl push stages it beside the compose and the
+  fk-sink mounts it ro as `FLEET_KNOWLEDGE_CONFIG` (fk never reads
+  SUSPENDERS_* env — seam law). Store/write-token/roll keys live in the
+  fk-state named volume, never env, never the image.
+- Front: the seam faces ride the existing hub front under the host guard
+  (loopback + `*.local`) — an operator `klh-local register` (or the hub's
+  Caddy site) routes `/search*`, `/knowledge/*`, `/verify*`, `/api/consult*`
+  to the sink port; `SUSPENDERS_ALLOWED_HOSTS` stays the allowlist gate.
 
 ## Compatibility law
 

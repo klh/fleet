@@ -17,6 +17,12 @@ import type { HubProfile } from "../hooks/lib/stack-config.ts";
  *  version), and the deploy origin itself for a public-origin hub. */
 export const FLEET_ORIGIN = "https://github.com/klh/fleet.git";
 
+/** W2779.5: the public fleet-knowledge repo (BSL 1.1) — the 4th pinned
+ *  component. fk hubs pull it at the `knowledge_version:` ref into a
+ *  git-pulled volume; no image build from fleet code (no host-path
+ *  deploys law carries). */
+export const FK_ORIGIN = "https://github.com/icomdev/fleet-knowledge.git";
+
 export type RefProbe = (argv: string[]) => {
 	status: number | null;
 	stdout: string;
@@ -93,7 +99,38 @@ function deployRefLegs(hub: HubProfile, version: string | undefined): RefLeg[] {
 		{ label: "stack version", origin: FLEET_ORIGIN, ref: versionRef },
 	];
 	if (overlay) legs.push({ label: "overlay repos.ref", origin, ref });
+	// W2779.5: a hub running the fk sink pulls fleet-knowledge at the
+	// knowledge_version pin — that ref must resolve against the public fk
+	// origin before activation (the fk-repo fetch needs the same network leg).
+	const fkRef = knowledgeVersionRef(hub);
+	if (fkRef)
+		legs.push({ label: "knowledge_version", origin: FK_ORIGIN, ref: fkRef });
 	return legs;
+}
+
+/** The fk ref a hub's fk-repo will fetch — the per-hub knowledge.version
+ *  override; hubctl materializes the stack-wide knowledge_version pin onto
+ *  the profile before any verb reads it. Null when the hub runs no fk sink
+ *  (or nothing is pinned anywhere). */
+export function knowledgeVersionRef(hub: HubProfile): string | null {
+	return hub.knowledge?.version ?? null;
+}
+
+/** W2779.5 shape gate for the fk pin itself: an fk-mode hub with NO pin
+ *  anywhere refuses (a floating fk ref violates the one-version law) and
+ *  branch names refuse exactly like the stack version (a hub must pull a
+ *  reviewed ref, never main). */
+export function assertKnowledgeVersionShape(hub: HubProfile): void {
+	if (hub.knowledge?.mode !== "fk") return;
+	const ref = hub.knowledge?.version;
+	if (!ref)
+		throw new Error(
+			"hub deploy requires a pinned fleet-knowledge ref — set knowledge_version (stack-wide) or hubs.<label>.knowledge.version",
+		);
+	if (ref === "main" || ref === "master")
+		throw new Error(
+			"hub deploy requires a pinned fleet-knowledge ref (reviewed SHA, tag or branch pin — never main)",
+		);
 }
 
 /** One ls-remote probe's verdict: the ref is served, definitively absent
@@ -135,7 +172,10 @@ function probeLeg(leg: RefLeg, probe: RefProbe): LegVerdict {
 }
 
 /** W1302.3 gate: every pin the activation depends on must exist on its
- *  origin before hubctl touches the hub (probe-injectable for tests). */
+ *  origin before hubctl touches the hub (probe-injectable for tests).
+ *  W2779.5: a hub with knowledge.version materialized (hubctl folds the
+ *  stack-wide knowledge_version pin onto the profile) additionally
+ *  resolves it against the public fk origin. */
 export function assertDeployRefsExist(
 	hub: HubProfile,
 	name: string,
@@ -153,14 +193,15 @@ export function assertDeployRefsExist(
 		};
 	},
 ): void {
+	assertKnowledgeVersionShape(hub);
 	for (const leg of deployRefLegs(hub, version)) {
 		const v = probeLeg(leg, probe);
 		if (v.verdict === "served") continue;
 		const where = redactCreds(leg.origin);
 		const detail =
 			v.verdict === "absent"
-				? `repin stack.json (${leg.label === "stack version" ? "version" : "repos.ref"}) to a ref the origin serves, then re-run`
-				: `the origin could not be consulted (${firstLine(redactCreds(v.stderr)) || `git exit ${v.status ?? "?"}`}) — the hub's fleet-repo fetch needs the same network leg; fix connectivity, then re-run`;
+				? `repin stack.json (${leg.label === "stack version" ? "version" : leg.label === "knowledge_version" ? "knowledge_version" : "repos.ref"}) to a ref the origin serves, then re-run`
+				: `the origin could not be consulted (${firstLine(redactCreds(v.stderr)) || `git exit ${v.status ?? "?"}`}) — the hub's ${leg.label === "knowledge_version" ? "fk-repo" : "fleet-repo"} fetch needs the same network leg; fix connectivity, then re-run`;
 		throw new Error(
 			`hubctl ${name} refused: ${leg.label} "${leg.ref}" ${v.verdict === "absent" ? "does not exist in" : "could not be resolved against"} ${where} — ${detail}`,
 		);

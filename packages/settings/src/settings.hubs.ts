@@ -114,6 +114,15 @@ export const HubSchema = z
 			.object({
 				port: port("Knowledge sink port"),
 				health_port: port("Sink health"),
+				mode: z
+					.enum(["fk"])
+					.optional()
+					.describe(
+						"fk = run the public fleet-knowledge repo at the knowledge_version pin (W2779.5)",
+					),
+				version: opt("Per-hub fleet-knowledge ref pin (overrides knowledge_version)"),
+				conf: opt("PATH of the 0600 fk conf JSON on the hub (FLEET_KNOWLEDGE_CONFIG)"),
+				bind: opt("fk sink bind inside the hub (host guard still applies)"),
 			})
 			.strict()
 			.optional(),

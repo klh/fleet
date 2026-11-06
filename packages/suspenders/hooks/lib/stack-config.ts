@@ -243,11 +243,28 @@ export const HubProfileSchema = z
 		model_store_port: z.number().optional(),
 		model_store_health_port: z.number().optional(),
 		/** W1217: the hub knowledge sink (aggregated claim store; declaring it
-		 *  enables the `knowledge` compose profile — sink + health probe). */
+		 *  enables the `knowledge` compose profile — sink + health probe).
+		 *  W2779.5: `mode: "fk"` retargets the sink service at the public
+		 *  fleet-knowledge repo (git-pulled volume at knowledge_version) —
+		 *  the default stays the fleet-local knowledge-api bin. */
 		knowledge: z
 			.object({
 				port: z.number().optional(),
 				health_port: z.number().optional(),
+				/** fk = pull icomdev/fleet-knowledge at the pinned ref and run
+				 *  its sink entrypoint (src/knowledge/bin/knowledge-api.ts);
+				 *  absent = the fleet-local sink stands unchanged. */
+				mode: z.enum(["fk"]).optional(),
+				/** Per-hub fk pin override (defaults to the stack-wide
+				 *  knowledge_version — the 4th pinned component). */
+				version: z.string().optional(),
+				/** PATH of the fk conf JSON on the hub (0600; placeholders in
+				 *  repos only) — mounted read-only, exported as
+				 *  FLEET_KNOWLEDGE_CONFIG inside the container. */
+				conf: z.string().optional(),
+				/** fk bind inside the hub (host-guarded either way: loopback +
+				 *  *.local allowlist; the Caddy front carries the seam faces). */
+				bind: z.string().optional(),
 			})
 			.loose()
 			.optional(),
@@ -434,6 +451,10 @@ export const StackConfigSchema = z
 		/** The stack version: ONE string pins buckle+suspenders+belt — the
 		 *  ref every repo sidecar pulls. Absent = main (dev posture). */
 		version: z.string().optional(),
+		/** W2779.5: the fk pin — ONE string pins fleet-knowledge (icomdev,
+		 *  BSL, public) for every hub running the fk sink. Absent = no fk
+		 *  pull (the fleet-local sink stands). */
+		knowledge_version: z.string().optional(),
 		/** The controller's release reconciliation. Manual is the default;
 		 * latest opts into the scheduled, all-hub upgrade path. */
 		updates: z
@@ -544,6 +565,7 @@ function stackFromSettings(): StackConfig | null {
 	} = s.fleet_loop;
 	const parsed = StackConfigSchema.safeParse({
 		version: s.version,
+		knowledge_version: s.knowledge_version,
 		updates: s.updates,
 		auth: s.auth,
 		postures: s.postures,

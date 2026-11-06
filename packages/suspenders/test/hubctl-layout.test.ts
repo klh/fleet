@@ -108,9 +108,13 @@ test("LiteLLM engine is an optional outside-probed hub service (W2595)", () => {
 });
 
 test("all hub services share one pinned monorepo with prepared dependencies", () => {
+	// W2779.5: fk-repo is the second pinned repo one-shot — the PUBLIC
+	// fleet-knowledge repo at knowledge_version (its own origin), not a
+	// Fleet monorepo member; it mounts no fleet-repo and carries no
+	// FLEET_VERSION.
 	expect(
 		Object.keys(compose.services).filter((name) => name.endsWith("-repo")),
-	).toEqual(["fleet-repo"]);
+	).toEqual(["fleet-repo", "fk-repo"]);
 	expect(compose.services["fleet-repo"].environment.HUB_FLEET_REF).toContain(
 		"HUB_FLEET_REF:?",
 	);
@@ -121,9 +125,15 @@ test("all hub services share one pinned monorepo with prepared dependencies", ()
 	// Changing the pinned source must recreate both preparation and runtime
 	// containers; dependency ordering alone does not restart an existing app.
 	// (litellm-hub is the official third-party image — it carries no
-	// FLEET_VERSION knob; W2595.)
+	// FLEET_VERSION knob; W2595. fk-repo pulls fleet-knowledge, not fleet —
+	// W2779.5.)
 	for (const [name, service] of Object.entries(compose.services)) {
-		if (name !== "fleet-repo" && name !== "hub-init" && name !== "litellm-hub")
+		if (
+			name !== "fleet-repo" &&
+			name !== "hub-init" &&
+			name !== "litellm-hub" &&
+			name !== "fk-repo"
+		)
 			expect(
 				(service as { environment: Record<string, string> }).environment
 					.FLEET_VERSION,

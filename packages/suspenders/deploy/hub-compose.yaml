@@ -87,7 +87,7 @@ services:
           pids: 64
     entrypoint: ["sh", "-c"]
     command:
-      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done; chmod -R u+w /state/buckle /state/hub-home /state/belt-home
+      - for d in /state/buckle /state/hub-home /state/secrets /state/belt-home /state/model-store /state/fk; do find "$$d" ! -user "$$HUB_RUN_UID" -exec chown "$$HUB_RUN_UID:$$HUB_RUN_GID" {} + ; done; chmod -R u+w /state/buckle /state/hub-home /state/belt-home
     environment:
       HUB_RUN_UID: ${HUB_RUN_UID:-1000}
       HUB_RUN_GID: ${HUB_RUN_GID:-1000}
@@ -102,6 +102,7 @@ services:
       - hub-secrets:/state/secrets
       - belt-state:/state/belt-home
       - model-store:/state/model-store
+      - fk-state:/state/fk
 
   # One pinned Fleet checkout shared by every package. Existing state and
   # secret volumes retain their names; only the code volume is replaced.
@@ -127,6 +128,35 @@ services:
       HUB_FLEET_REPO_URL: ${HUB_FLEET_REPO_URL:-https://github.com/klh/fleet.git}
     volumes:
       - fleet-repo:/srv/repo
+
+  # W2779.5: the pinned fleet-knowledge checkout (public repo, BSL 1.1 —
+  # hubs pull it, no image build from fleet code; the no-host-path deploys
+  # law carries). Only runs under the fk knowledge mode; same BUILD-profile
+  # posture as fleet-repo (root owns the code volume, caps dropped, never
+  # a serving surface — it exits).
+  fk-repo:
+    profiles: [knowledge-fk]
+    image: alpine/git@sha256:a4bb51f1a3553df194ce679fc1db721d8bfba2046fa1a88fe9d4ac551ffbce25
+    container_name: ${HUB_NAME:-desktop}-fk-repo
+    logging: *default-logging
+    cap_drop: *cap-drop
+    security_opt: *no-new-privs
+    pids_limit: 128
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          pids: 128
+    entrypoint: ["sh", "-c"]
+    command:
+      - if [ "$HUB_KNOWLEDGE_MODE" != "fk" ]; then echo "fk mode off — nothing to pull"; exit 0; fi; if [ ! -d /srv/fk/.git ]; then git init /srv/fk && git -C /srv/fk remote add origin "$HUB_FK_REPO_URL"; fi; git -C /srv/fk remote set-url origin "$HUB_FK_REPO_URL" && git -C /srv/fk fetch --depth 1 origin "$HUB_KNOWLEDGE_VERSION" && git -C /srv/fk reset --hard FETCH_HEAD
+    environment:
+      HUB_KNOWLEDGE_MODE: ${HUB_KNOWLEDGE_MODE:-fleet}
+      HUB_KNOWLEDGE_VERSION: ${HUB_KNOWLEDGE_VERSION:?pin a reviewed fleet-knowledge ref (knowledge_version)}
+      HUB_FK_REPO_URL: ${HUB_FK_REPO_URL:-https://github.com/icomdev/fleet-knowledge.git}
+    volumes:
+      - fk-repo:/srv/fk
 
   # W443: oven/bun:1 is the ARTIFACT runtime — every service below runs its
   # embedded SQLite (vendored amalgamation on Linux). CI (runtime-sqlite job)
@@ -792,6 +822,81 @@ services:
       - fleet-repo:/src/fleet:ro
       - hub-state:/state/hub-home
 
+  # W2779.5: the fk knowledge sink — knowledge.mode=fk retargets the sink
+  # face at the PUBLIC fleet-knowledge repo (git-pulled at knowledge_version,
+  # the 4th pinned component; the fk api bin holds the ONE rw store handle —
+  # gap-c pick). See the fk-sink tail below for the env law detail.
+  fk-sink:
+    profiles: [knowledge-fk]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-fk-sink
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    working_dir: /srv/fk
+    command: bun src/knowledge/bin/knowledge-api.ts
+    depends_on:
+      fk-repo:
+        condition: service_completed_successfully
+      hub-init:
+        condition: service_completed_successfully
+    environment:
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      # fk sees only its OWN knobs (seam law: fk never reads SUSPENDERS_*):
+      # port/bind + FLEET_KNOWLEDGE_CONFIG (0600 conf staged beside the
+      # compose, mounted ro at the fixed path); the write token + roll keys
+      # live INSIDE the fk-state volume, never env.
+      KNOWLEDGE_API_PORT: ${HUB_KNOWLEDGE_SINK_PORT:-7802}
+      KNOWLEDGE_API_BIND: ${HUB_KNOWLEDGE_BIND:-127.0.0.1}
+      FLEET_KNOWLEDGE_CONFIG: /etc/klh/fk-conf.json
+      HUB_KNOWLEDGE_SINK_PORT: ${HUB_KNOWLEDGE_SINK_PORT:-7802}
+    volumes:
+      - fk-repo:/srv/fk:ro
+      - fk-state:/state/fk
+      - ./fk-conf.json:/etc/klh/fk-conf.json:ro
+
+  # W2779.5: outside-process health verdict for the fk sink (owner law) —
+  # polls fk's /health face (the seam contract; servicemon also serves
+  # /status + /metrics on the same port), degrades on consecutive misses.
+  # Compose health hits THIS sidecar, never the served process.
+  fk-health:
+    profiles: [knowledge-fk]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-fk-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      fk-sink:
+        condition: service_started
+    command: bun ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts --target http://127.0.0.1:${HUB_KNOWLEDGE_SINK_PORT:-7802}/health --listen ${HUB_KNOWLEDGE_SINK_HEALTH_PORT:-7803}
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+      HUB_KNOWLEDGE_SINK_HEALTH_PORT: ${HUB_KNOWLEDGE_SINK_HEALTH_PORT:-7803}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_KNOWLEDGE_SINK_HEALTH_PORT ?? "7803") + "/healthz"); if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # Health rides a probe sidecar (owner law): poll the sink's /status over
   # the network, serve the verdict, degrade on consecutive misses.
   knowledge-health:
@@ -1009,6 +1114,8 @@ services:
 
 volumes:
   fleet-repo:
+  fk-repo:
+  fk-state:
   buckle-state:
   hub-state:
   hub-secrets:

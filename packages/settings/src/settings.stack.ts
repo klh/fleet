@@ -65,6 +65,12 @@ export const RepoPolicySchema = z
 
 export const StackSections = {
 	version: opt("THE stack version: one string pins buckle+suspenders+belt"),
+	/** W2779.5: fk is the 4th pinned component — hubs running the fk sink
+	 *  pull the public fleet-knowledge repo at this ref (branch/tag/SHA,
+	 *  resolved by the hub-ref preflight like the stack version). */
+	knowledge_version: opt(
+		"THE fleet-knowledge ref every fk sink hub pulls (4th pinned component)",
+	),
 	updates: UpdatesSchema,
 	auth: AuthSchema,
 	providers: z

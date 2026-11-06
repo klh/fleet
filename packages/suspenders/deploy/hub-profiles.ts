@@ -30,10 +30,22 @@ export function pushProfileEnv(hub: HubProfile, kv: EnvSink): void {
 	// W1217: the knowledge sink — declaring `knowledge:` enables the profile
 	// (knowledge-api container + its health probe sidecar); undeclared knobs
 	// fall through to the template defaults, solo posture stays unchanged.
+	// W2779.5: `mode: "fk"` retargets the sink at the public fleet-knowledge
+	// repo (git-pulled at the knowledge_version pin) — the fk services ride
+	// their OWN `knowledge-fk` profile so exactly one sink family runs per
+	// hub (both default to :7802/:7803 — starting both is a port conflict).
 	if (hub.knowledge) {
-		profiles.push("knowledge");
+		profiles.push(hub.knowledge.mode === "fk" ? "knowledge-fk" : "knowledge");
 		kv("HUB_KNOWLEDGE_SINK_PORT", hub.knowledge.port);
 		kv("HUB_KNOWLEDGE_SINK_HEALTH_PORT", hub.knowledge.health_port);
+		if (hub.knowledge.mode) {
+			kv("HUB_KNOWLEDGE_MODE", hub.knowledge.mode);
+			kv("HUB_KNOWLEDGE_VERSION", hub.knowledge.version);
+			// the 0600 fk conf staged beside the compose (mounted ro at the
+			// fixed container path; FLEET_KNOWLEDGE_CONFIG inside)
+			if (hub.knowledge.conf) kv("HUB_KNOWLEDGE_CONF", hub.knowledge.conf);
+			kv("HUB_KNOWLEDGE_BIND", hub.knowledge.bind);
+		}
 	}
 	// W2595: litellm behind every buckle — declaring `litellm:` enables the
 	// profile (engine container + health sidecar); the operator-maintained
