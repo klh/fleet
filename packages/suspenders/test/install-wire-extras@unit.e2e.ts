@@ -3,7 +3,7 @@
 // the baked hook paths survive checkout deletion (the W893 worktree
 // deletion broke every copilot hook on this machine). The checkout copy
 // stays the fallback for prefix-less installs.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -74,7 +74,7 @@ const cleanup = (dirs: string[]): void => {
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 };
 
-describe("runWireExtras prefix-face preference (W918.5)", () => {
+test.describe("runWireExtras prefix-face preference (W918.5)", () => {
 	test("dialect wires run from the installed face when present", async () => {
 		const { ctx, home, repo, prefix } = fixture(true);
 		const marker = join(home, "marker.log");

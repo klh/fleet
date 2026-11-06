@@ -2,7 +2,7 @@
 // enterprise entrypoint are machine config (stack.yaml), materialized by
 // hubctl: render carries the entry/egress knobs, push writes the ladder file
 // and builds the 0600 upstream.env ON the hub from key-file PATHS.
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "fleet-hub-ladder-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const deployDir = join(dir, "hub");
 const keyFile = join(dir, "engine.key");
 writeFileSync(keyFile, "sk-fixture-ladder-key\n");

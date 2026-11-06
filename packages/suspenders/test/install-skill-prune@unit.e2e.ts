@@ -1,7 +1,7 @@
 // test/install-skill-prune.test.ts — W2177: the clean-install prune selects
 // only skills a fleet catalog installed (current, older checkouts, item
 // worktrees, the pre-monorepo suspenders repo) — never other sources.
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	fleetSkillNames,
 	isFleetCatalogSource,
@@ -9,7 +9,7 @@ import {
 
 const catalog = "/repos/klh/fleet/skills";
 
-describe("W2177 fleet skill prune selection", () => {
+test.describe("W2177 fleet skill prune selection", () => {
 	test("current, older and worktree fleet catalogs are fleet-owned", () => {
 		expect(isFleetCatalogSource(catalog, catalog)).toBe(true);
 		expect(isFleetCatalogSource("/old/clone/fleet/skills", catalog)).toBe(true);
