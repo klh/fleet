@@ -206,11 +206,12 @@ describe("route preflight before activation", () => {
 		const result = await checkRoutePreflight(source, async () => true);
 		expect(result.ok).toBe(true);
 		expect(result.findings).toEqual([]);
+		// W2657: belt_model.upstream IS the declared terminal — deleting the
+		// duplicate route_preflight row stays green; only an undeclared local
+		// target (e.g. a second ollama port) still trips the finding.
 		delete (source.stack as { route_preflight?: unknown }).route_preflight;
-		const missingLeaf = await checkRoutePreflight(source, async () => true);
-		expect(missingLeaf.findings.map((finding) => finding.code)).toContain(
-			"unmapped_local_target",
-		);
+		const stillMapped = await checkRoutePreflight(source, async () => true);
+		expect(stillMapped.findings).toEqual([]);
 	});
 
 	test("hub-level route_preflight.terminal_origins declare the hub's own leaves (settings projection shape)", async () => {

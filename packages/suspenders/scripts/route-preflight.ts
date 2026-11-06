@@ -140,6 +140,11 @@ export function routeInputs(source: RoutePreflightSources): RouteLadderInputs {
 			const upstream = string(model.upstream);
 			if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || !upstream)
 				throw new Error(`hub ${name} has an invalid belt_model route`);
+			// W2657: the belt_model row is the hub's own machine-local
+			// inventory — its upstream is a declared terminal by
+			// construction, so a hub needs no duplicate
+			// route_preflight.terminal_origins entry to map its ollama.
+			terminals.push(upstream);
 			const outside = new URL(hubOrigin(name, hub));
 			outside.port = String(port);
 			beltModels.push({
