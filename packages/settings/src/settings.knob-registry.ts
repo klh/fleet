@@ -154,6 +154,12 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_LANE_KEY_TIMEOUT_MS", "conf", "dispatch.lane_key_timeout_ms"),
 	k("SUSPENDERS_LANE_MAX_ATTEMPTS", "conf", "dispatch.lane_max_attempts"),
 	k("SUSPENDERS_LANE_STARTER", "conf"),
+	k("SUSPENDERS_LANE_RUNG_BREAKER_K", "conf", "dispatch.rung_breaker_failures"),
+	k(
+		"SUSPENDERS_LANE_RUNG_BREAKER_WINDOW_MS",
+		"conf",
+		"dispatch.rung_breaker_window_ms",
+	),
 	k("SUSPENDERS_LEGACY", "conf"),
 	k("SUSPENDERS_LLM_HOME", "model-plane"),
 	k("SUSPENDERS_LLM_KEY", "secret"),

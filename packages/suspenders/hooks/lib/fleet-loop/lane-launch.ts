@@ -9,7 +9,6 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { hostname } from "node:os";
@@ -58,11 +57,18 @@ import {
 	unknownEndpoints,
 } from "../../../scripts/lib/lane-wire.ts";
 import {
+	launchLogAppended,
 	launchLogSize,
 	parkExhaustedLaunch,
 	readLaunchBackoff,
 	rearmLaunchHold,
 } from "../../../scripts/lib/launch-backoff.ts";
+import {
+	clearRung,
+	laneRungOf,
+	recordRungFailure,
+	resolveLaunchPick,
+} from "../../../scripts/lib/rung-breaker.ts";
 import { launchCleanup } from "../../../scripts/lib/launch-cleanup.ts";
 import {
 	assertLaunchClaim,
@@ -125,8 +131,8 @@ import {
 	nextLaneAttempt,
 } from "../lanes/lane-retry-budget.ts";
 import { laneSid as sidOf } from "../lanes/laneslug.ts";
+import { mintCompletionContext } from "../lanes/lane-context-mint.ts";
 import { launchParent } from "../lanes/launch-parent.ts";
-import { restorableBaseline } from "../lanes/original-baseline.ts";
 import { verifiedContextContinuation } from "../lanes/reclaim-context.ts";
 import {
 	PLAID_CATALOG_UNAVAILABLE,
@@ -385,7 +391,12 @@ export const dispatchLane = async (
 		store.close();
 		return null;
 	}
-	let pick = execPick(attempt, CALLER_REPO, cv, quota);
+	let pick = resolveLaunchPick(
+		store,
+		(i) => execPick(i, CALLER_REPO, cv, quota),
+		attempt,
+		(m) => console.log(m),
+	);
 	let bin = resolveLaneExecutor(pick.bin);
 	/** W911: the plaid route this lane rides — null in steady posture. */
 	let routeName: string | null = null;
@@ -446,7 +457,12 @@ export const dispatchLane = async (
 			);
 			return null;
 		}
-		pick = execPick(attempt, CALLER_REPO, cv, quota);
+		pick = resolveLaunchPick(
+			store,
+			(i) => execPick(i, CALLER_REPO, cv, quota),
+			attempt,
+			(m) => console.log(m),
+		);
 		bin = resolveLaneExecutor(pick.bin);
 		if (!bin && POSTURE !== "plaid") {
 			governanceRefusals.push(item);
@@ -1030,53 +1046,9 @@ export const dispatchLane = async (
 				`model ride ${item}: ${pick.model} via ${ride.ride.base}\n`,
 			);
 		}
-		// Immutable evidence base survives resumes and later main-branch merges.
-		const completionContext = `${wt}/.fleet/lane-context.json`;
-		mkdirSync(`${wt}/.fleet`, { recursive: true });
-		// W1730: a fresh context over the item's own earlier product (a released
-		// manual take, a re-minted tree) starts at its registered original base
-		// — HEAD when none verifies or its span holds no own commits
-		const freshBaseline = () => {
-			const head = sh(["git", "-C", wt, "rev-parse", "HEAD"]);
-			return (
-				restorableBaseline(store, { project, item, tree: wt }, head)?.sha ??
-				head
-			);
-		};
-		if (takeToken) {
-			// W643: merge the fresh take token into the activation context —
-			// create-with-baseline when absent, token-only merge when it exists
-			// (a re-take after a reclaim refreshes the token, never the baseline).
-			const prior = existsSync(completionContext)
-				? (JSON.parse(readFileSync(completionContext, "utf8")) as Record<
-						string,
-						unknown
-					>)
-				: null;
-			writeFileSync(
-				completionContext,
-				JSON.stringify(
-					prior
-						? { ...prior, claimToken: takeToken }
-						: {
-								sid,
-								item,
-								baseline: freshBaseline(),
-								launchedAt: Date.now(),
-								claimToken: takeToken,
-							},
-				),
-			);
-		} else if (!existsSync(completionContext))
-			writeFileSync(
-				completionContext,
-				JSON.stringify({
-					sid,
-					item,
-					baseline: freshBaseline(),
-					launchedAt: Date.now(),
-				}),
-			);
+		// Immutable evidence base survives resumes and later main-branch merges
+		// (mint extracted to lanes/lane-context-mint.ts — W2786 decomposition).
+		mintCompletionContext(store, { sid, item, wt, project }, takeToken, sh);
 		if (
 			!store
 				.query(
@@ -1150,6 +1122,7 @@ export const dispatchLane = async (
 		saveLanes([entry]);
 		lanes.push(entry);
 		committedLaunch = true;
+		clearRung(store, laneRungOf(pick.bin, pick.model, resolvedHub ?? pick.hub));
 		log(
 			`DISPATCHED ${item} → ${sid} (pid ${proc.pid}, ${branch}, slab ${jobslabTag(slab, js)})${hubNote}`,
 		);
@@ -1170,6 +1143,16 @@ export const dispatchLane = async (
 		return `${item}→${sid}(pid ${proc.pid})`;
 	} catch (error) {
 		governanceRefusals.push(item);
+		// W2786: a launched attempt that died classifying rate-limit/upstream/
+		// transport is rung evidence — the breaker trips after K in a row and
+		// the next launch walks past this rung. Refusals before spawn (fence,
+		// claim, brief) are not rung failures — the rung never ran.
+		if (launchedProc && logAtSpawn > 0)
+			recordRungFailure(
+				store,
+				laneRungOf(pick.bin, pick.model, resolvedHub ?? pick.hub),
+				launchLogAppended(laneLog, logAtSpawn),
+			);
 		// W2317: the ONE refusal seam — Transient backoff vs Permanent
 		// FAILED+NEED_DECISION; the unwind (W1165 evidence + effects) lives in
 		// scripts/lib/launch-refusal.ts, keeping this file inside the 1200 stop.

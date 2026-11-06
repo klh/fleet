@@ -47,6 +47,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"hub-port-heal": "W2309",
 	"gov-gc": "W2274",
 	"lost-hub-sweep": "W2321.4",
+	"intent-hygiene": "W2786",
 	"knowledge-distill": "6cec9094 — fork G knowledge distiller",
 	"hold-drain": "W2318 — born on the heartbeat (drain-mode dispatch hold)",
 };

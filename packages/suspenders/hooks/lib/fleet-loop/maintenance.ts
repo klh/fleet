@@ -511,6 +511,23 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		timeoutMs: 240_000,
 		argv: (root) => [join(root, "hooks/bin/model-health-sweep.ts")],
 	},
+	{
+		// W2786: the launch-intent hygiene sweep — REGISTERED intents whose
+		// pid is PROVABLY dead (process-table proof, never unknown) and whose
+		// claim revision is older than 24h fail through the operator door's
+		// own machinery (failIntent: liveness-guarded, evidence-banked). Dozens
+		// of stale October intents wedged dispatch; live/unknown rows keep.
+		name: "intent-hygiene",
+		everySeconds: 3600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/intent-hygiene.ts"),
+			"--repo",
+			repo,
+			"--act",
+		],
+	},
 ];
 
 // the suspenders package root, identical in the repo worktree
