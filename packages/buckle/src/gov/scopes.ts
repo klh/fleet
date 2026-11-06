@@ -8,7 +8,8 @@
 
 import { mcpScopeImplies, parseMcpScope } from "./mcp-scopes.ts";
 
-export const SCOPE_RE = /^buckle:[a-z_]+:(READ_|WRITE_|QUERY_)$/;
+export const SCOPE_RE =
+	/^buckle:[a-z_]+:(READ_|WRITE_|QUERY_|CONSULT_)$/;
 
 export type BuckleResource =
 	| "proxy"
@@ -26,6 +27,9 @@ export type BuckleResource =
  *  W1218 adds the knowledge pair: READ_ = the /knowledge/sql direct
  *  read-only face; QUERY_ = the /knowledge/query NL translator face
  *  (implies nothing — a query key burns LLM tokens, minted deliberately).
+ *  W2779.4 adds CONSULT_: the fk sink's POST /api/consult face (fleet
+ *  callers; the string matches the seam-doc auth table verbatim —
+ *  implies nothing, consults burn LLM tokens, minted deliberately).
  *  W2329 adds the dataplane pair: READ_ = List/Get on the dataplane
  *  resource face; WRITE_ = Create/Update/Delete + custom methods
  *  (docs/design/dataplane-api.md). */
@@ -40,6 +44,7 @@ export const ALL_SCOPES: readonly string[] = [
 	"buckle:store:WRITE_",
 	"buckle:knowledge:READ_",
 	"buckle:knowledge:QUERY_",
+	"buckle:knowledge:CONSULT_",
 	"buckle:dataplane:READ_",
 	"buckle:dataplane:WRITE_",
 ];
