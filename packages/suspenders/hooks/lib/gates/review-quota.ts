@@ -53,6 +53,11 @@ export interface WalkOptions {
 	 * spent after ONE attempt, no backoff, walk to the next rung. Default
 	 * 1000ms; 0 disables. */
 	fastFailMs?: number;
+	/** W2785: max empty-content redrive legs across the whole walk — after
+	 * this many reasoning-budget-exhaustion failures the walk stops (each
+	 * one burned a full budget). Default 2; the failure carries the
+	 * transport_error marker. */
+	maxEmptyRedrives?: number;
 	request: (legIndex: number, attempt: number) => Promise<string>;
 }
 
@@ -68,6 +73,15 @@ export const isTransportFailure = (reason: string): boolean => {
 		reason,
 	);
 };
+
+/** W2785: an HTTP-200 leg that burned its whole reasoning budget and
+ *  returned ZERO content (finish_reason=length, content_len=0) is a
+ *  TRANSPORT failure, not a review outcome — the identical payload
+ *  re-drives identically on the same leg, so the leg is spent after one
+ *  attempt and the walk steps down to the next rung (redrive ladder).
+ *  Capped separately from review rounds: rounds count FAIL receipts only. */
+export const isEmptyContentFailure = (reason: string): boolean =>
+	/review leg returned empty content.*finish_reason=length\b/.test(reason);
 
 /** 2s doubling to an 8s ceiling — enough to ride out a burst window, small
  * enough that the 25-minute scheduler lease stays the real bound. */
@@ -95,8 +109,14 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 	const texts: string[] = [];
 	const trail: LegAttempt[] = [];
 	let failure: string | null = null;
+	// W2785: walk-level empty-content redrive counter — capped independently
+	// of per-leg retries and of review rounds.
+	let emptyRedrives = 0;
+	let exhausted = false;
+	const maxEmptyRedrives = o.maxEmptyRedrives ?? 2;
 	const t0 = Date.now();
 	for (const legIndex of o.legLabels.keys()) {
+		if (exhausted) break;
 		let legSpent = false;
 		let transportTries = 0;
 		let verdictTries = 0;
@@ -128,6 +148,21 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 					ms: Date.now() - at,
 				});
 				failure = reason;
+				// W2785: a reasoning-budget exhaustion (finish_reason=length,
+				// zero content) is a TRANSPORT failure — never a review round.
+				// The identical payload re-drives identically here, so spend the
+				// leg after one attempt and step down; after maxEmptyRedrives
+				// burned budgets the walk stops, failure marked transport_error.
+				if (isEmptyContentFailure(reason)) {
+					failure = `transport_error (empty-content): ${reason}`;
+					emptyRedrives += 1;
+					if (emptyRedrives >= maxEmptyRedrives) {
+						exhausted = true;
+						break;
+					}
+					legSpent = true;
+					continue;
+				}
 				if (!transport) break; // terminal on this leg — walk to the next
 				// W2344: a near-instant 5xx is deterministic (context overflow —
 				// upstream 503 no_route'd the payload before generation); the

@@ -7,6 +7,7 @@ import { expect, test } from "@playwright/test";
 import {
 	type WalkOptions,
 	defaultBackoffMs,
+	isEmptyContentFailure,
 	isTransportFailure,
 	parseFallbackModels,
 	renderTrail,
@@ -273,6 +274,90 @@ test.describe("walkLegs", () => {
 		expect(walk.texts).toEqual([]);
 		expect(walk.failure).toBe("Review LLM HTTP 503");
 		expect(walk.trail).toHaveLength(2);
+	});
+});
+
+// W2785: a reasoning-budget exhaustion (HTTP 200, finish_reason=length,
+// content_len=0) is a TRANSPORT failure, not a review round — the leg is
+// spent after one attempt and the walk redrives on the NEXT model rung,
+// capped separately from review rounds.
+test.describe("empty-content redrive (W2785)", () => {
+	const EMPTY =
+		"review leg returned empty content (model=glm-5.3 finish_reason=length, completion_tokens=16000, content_len=0, reasoning_len=0)";
+
+	test("isEmptyContentFailure matches the length-exhaustion shape only", () => {
+		expect(isEmptyContentFailure(EMPTY)).toBe(true);
+		expect(isEmptyContentFailure("Review LLM HTTP 429")).toBe(false);
+		expect(
+			isEmptyContentFailure(
+				"review leg returned empty content (model=x finish_reason=stop, content_len=0)",
+			),
+		).toBe(false);
+	});
+
+	test("empty-content primary redrives on another leg, one attempt, no backoff", async () => {
+		const stub = stubSequencer({
+			"0": [new Error(EMPTY)],
+			"1": [`redrive findings\n${VERDICT}`],
+		});
+		const sleeps: number[] = [];
+		const walk = await walkLegs({
+			legLabels: ["glm-5.3", "glm-5.3-flash"],
+			request: stub.request,
+			sleep: (ms) => {
+				sleeps.push(ms);
+				return Promise.resolve();
+			},
+			satisfied: (text) => text.includes("VERDICT:"),
+		});
+		expect(stub.calls).toEqual([
+			{ leg: 0, attempt: 1 },
+			{ leg: 1, attempt: 1 },
+		]);
+		expect(sleeps).toEqual([]);
+		expect(walk.texts).toEqual([`redrive findings\n${VERDICT}`]);
+		expect(walk.failure).toBeNull();
+	});
+
+	test("two burned budgets stop the walk: transport_error marker, later legs never fired", async () => {
+		const stub = stubSequencer({
+			"0": [new Error(EMPTY)],
+			"1": [new Error(EMPTY)],
+			// leg 2 exists but must never be called — the cap spent the walk
+			"2": [`should never run\n${VERDICT}`],
+		});
+		const walk = await walkLegs({
+			legLabels: ["glm-5.3", "glm-5.3-flash", "local-reason"],
+			request: stub.request,
+			sleep: noSleep,
+			satisfied: (text) => text.includes("VERDICT:"),
+		});
+		expect(stub.calls).toEqual([
+			{ leg: 0, attempt: 1 },
+			{ leg: 1, attempt: 1 },
+		]);
+		expect(walk.texts).toEqual([]);
+		expect(walk.failure).toContain("transport_error (empty-content)");
+		expect(walk.failure).toContain("finish_reason=length");
+	});
+
+	test("mixed ladder: one empty burn then a healthy rung still completes", async () => {
+		const stub = stubSequencer({
+			"0": [new Error(EMPTY)],
+			"1": [new Error("Review LLM HTTP 429"), `late findings\n${VERDICT}`],
+		});
+		const walk = await walkLegs({
+			legLabels: ["glm-5.3", "glm-5.3-flash"],
+			request: stub.request,
+			sleep: noSleep,
+			satisfied: (text) => text.includes("VERDICT:"),
+		});
+		expect(stub.calls).toEqual([
+			{ leg: 0, attempt: 1 },
+			{ leg: 1, attempt: 1 },
+			{ leg: 1, attempt: 2 },
+		]);
+		expect(walk.failure).toBeNull();
 	});
 });
 
