@@ -43,7 +43,9 @@ import {
 	reviewFindingIds,
 } from "../lib/gates/review-receipt.ts";
 import {
+	deterministicProofFailure,
 	finishReviewRequest,
+	reviewProofParkMarker,
 	reviewRequestKey,
 } from "../lib/gates/review-scheduler.ts";
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
@@ -803,7 +805,12 @@ if (requestKey && requestToken)
 		requestKey,
 		requestToken,
 		effective === "ERROR",
-		headline,
+		// W2754: a PASS-content verdict whose proof failed deterministically
+		// parks on a marker-prefixed finish reason instead of refunding into
+		// an identical re-drive (the scheduler's proof_park_at stamp).
+		effective === "ERROR" && deterministicProofFailure(verdict, proof?.status)
+			? `${reviewProofParkMarker}: ${headline}`
+			: headline,
 	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,

@@ -60,6 +60,15 @@ export const FleetLoopConfigSchema = z
 		review_round_cap: z.number().int().min(0).optional(),
 		review_leg_timeout_ms: z.number().int().nonnegative().optional(),
 		review_leg_max_tokens: z.number().int().nonnegative().optional(),
+		/** W2754: proof-park TTL in ms — 0 disables; absence =
+		 *  SUSPENDERS_REVIEW_PROOF_PARK_MS env fallback, then 6h. */
+		review_proof_park_ms: z.number().int().nonnegative().optional(),
+		/** W2754: base-move settle window in ms — 0 disables; absence =
+		 *  SUSPENDERS_REVIEW_BASE_SETTLE_MS env fallback, then 10m. */
+		review_base_settle_ms: z.number().int().nonnegative().optional(),
+		/** W2754: per-minute review-start budget — 0 = unbounded; absence =
+		 *  SUSPENDERS_REVIEW_RATE_BUDGET env fallback, then 30. */
+		review_rate_budget: z.number().int().min(0).optional(),
 		projects: z.array(FleetLoopProjectSchema).optional(),
 		provider_pools: ProviderPoolsSchema.optional(),
 	})
@@ -85,6 +94,12 @@ export interface FleetLoopSettings {
 	reviewRoundCap?: number;
 	reviewLegTimeoutMs?: number;
 	reviewLegMaxTokens?: number;
+	/** W2754: conf proof-park TTL — absence = SUSPENDERS_REVIEW_PROOF_PARK_MS fallback. */
+	reviewProofParkMs?: number;
+	/** W2754: conf base-move settle window — absence = SUSPENDERS_REVIEW_BASE_SETTLE_MS fallback. */
+	reviewBaseSettleMs?: number;
+	/** W2754: conf per-minute review-start budget — absence = SUSPENDERS_REVIEW_RATE_BUDGET fallback. */
+	reviewRateBudget?: number;
 }
 
 export const FLEET_LOOP_DEFAULTS: FleetLoopSettings = {
@@ -597,6 +612,9 @@ export function fleetLoopSettings(
 		reviewRoundCap: block?.review_round_cap,
 		reviewLegTimeoutMs: block?.review_leg_timeout_ms,
 		reviewLegMaxTokens: block?.review_leg_max_tokens,
+		reviewProofParkMs: block?.review_proof_park_ms,
+		reviewBaseSettleMs: block?.review_base_settle_ms,
+		reviewRateBudget: block?.review_rate_budget,
 	};
 }
 
