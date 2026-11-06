@@ -61,6 +61,19 @@ Consult (W2779.4, new):
   `buckle:knowledge:CONSULT_` for fleet callers; loopback anonymous
   stays for human UI.
 - `GET /api/consults?surface=` and `GET /api/consult/<id>` — history.
+- LANDED (fk branch `suspenders/W2779.4`, fk src/consult/): one pipeline
+  — secret-filter ingress (withheld question = refusal, never reaches
+  the LLM), retrieve+hops fused evidence labeled [Kn], the guarded plan
+  leg as empty-evidence fallback, the answer leg under the claim
+  contract (uncited lines dropped, deterministic confidence stamp —
+  bands high ≥0.7 / medium ≥0.4, zero on abstention). Consults persist
+  to the fk-local consults store (conf `consult.store` path, default
+  `<db>-consults.db`; `FLEET_KNOWLEDGE_CONSULT_STORE` env overrides —
+  fk-owned knob, not SUSPENDERS_*). Auth detail: a presented key MUST
+  verify — a bad key never downgrades to anonymous (fail closed);
+  absent verify conf (no buckle front) = keyed callers 503, loopback
+  anonymous still served. Buckle-side CONSULT_ scope row landed in
+  fleet (buckle src/gov/scopes.ts W2779.4; mint + verify e2e).
 
 Curation / lifecycle (existing verbs, retargeted fleet-side in W2779.3):
 
