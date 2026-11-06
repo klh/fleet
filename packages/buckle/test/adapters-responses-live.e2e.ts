@@ -29,7 +29,9 @@ try {
 const PAT = PAT_ENV || patFile;
 
 test.describe("@api live copilot seat (skips without a PAT)", () => {
-	test.skip(!PAT, "no GITHUB_COPILOT_PAT and no spoke env file — hermetic");
+	// Hermetic default: every test below first checks the PAT and marks
+	// itself skipped — test.info().skip, never a gated describe-level call.
+	const noPat = "no GITHUB_COPILOT_PAT and no spoke env file — hermetic";
 
 	const ORIGIN = "https://api.githubcopilot.com";
 	const GROUP = "gpt-6-luna";
@@ -40,6 +42,7 @@ test.describe("@api live copilot seat (skips without a PAT)", () => {
 	};
 
 	test("origin serves BOTH /responses and /v1/responses (the W2583 path literal is wire-valid)", async () => {
+		if (!PAT) test.info().skip(true, noPat);
 		const body = JSON.stringify({
 			model: GROUP,
 			input: "Reply with the single word: ping",
@@ -62,6 +65,7 @@ test.describe("@api live copilot seat (skips without a PAT)", () => {
 	});
 
 	test("chat client through the openai-responses rung reaches the live seat", async () => {
+		if (!PAT) test.info().skip(true, noPat);
 		// The rung's bearerHeaders resolves api_key_env from process.env —
 		// the production auth path. Restored at the end of this test.
 		const hadPat = "GITHUB_COPILOT_PAT" in process.env;
