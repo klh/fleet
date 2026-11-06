@@ -35,7 +35,6 @@ import {
 	kevModelNote,
 	kevModelPick,
 } from "./kev-model-pick.ts";
-import { kevPlacement } from "./kev-placement.ts";
 
 // W2677: lane-launch imports the brief renderer through this module (one
 // import line there — 1200-line stop rule); it composes from the same pick.
