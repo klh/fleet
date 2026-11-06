@@ -29,6 +29,7 @@ import {
 	vendoredEntries,
 	violationKey,
 	verifyVendorHeaders,
+	verifyVendorFreshness,
 	violationsOf,
 	walkLicenses,
 } from "../hooks/lib/fleet-loop/license-audit.ts";
@@ -238,6 +239,58 @@ describe("vendored banners + model licenses", () => {
 					},
 				])[0]?.header,
 			).toBe("present");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("verifyVendorFreshness: every vendored Lit copy tracks the bun.lock lit versions (N2)", () => {
+		// the real repo root — proves BOTH committed Lit bundles (belt's
+		// vendor/lit.js and local's vendor/lit-shared.js) were built from the
+		// SAME lit/lit-html/lit-element/@lit/reactive-element versions
+		// bun.lock currently pins — a non-vacuous cross-copy check: two
+		// vendored copies silently drifting to different versions fails this,
+		// not just "a banner is present somewhere".
+		const root = join(import.meta.dir, "..", "..", "..");
+		const rows = verifyVendorFreshness(root);
+		expect(rows).toHaveLength(6);
+		const byVersion = new Set(rows.map((r) => r.bundled));
+		expect(byVersion.size).toBe(3); // one version per lit sub-package
+		for (const r of rows) {
+			expect(r.lockVersion).not.toBeNull();
+			expect(r.bundled).toBe(r.lockVersion);
+			expect(r.fresh).toBe(true);
+		}
+	});
+
+	test("verifyVendorFreshness: a stale bundle (version mismatch) is flagged, not vacuously true", () => {
+		const root = mkdtempSync(join(tmpdir(), "lic-fresh-"));
+		try {
+			writeFileSync(
+				join(root, "bun.lock"),
+				'{"packages":{"lit-html":["lit-html@9.9.9","",{}]}}',
+			);
+			mkdirSync(join(root, "vendor"), { recursive: true });
+			writeFileSync(
+				join(root, "vendor", "bundle.js"),
+				'(litHtmlVersions??=[]).push("3.3.3");',
+			);
+			const rows = verifyVendorFreshness(root, [
+				{
+					path: join("vendor", "bundle.js"),
+					lockPackage: "lit-html",
+					versionMarker: "litHtmlVersions??=[]).push(" + '"',
+				},
+			]);
+			expect(rows).toEqual([
+				{
+					path: join("vendor", "bundle.js"),
+					lockPackage: "lit-html",
+					lockVersion: "9.9.9",
+					bundled: "3.3.3",
+					fresh: false,
+				},
+			]);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

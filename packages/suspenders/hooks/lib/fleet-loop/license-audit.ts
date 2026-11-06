@@ -297,6 +297,67 @@ export interface VendoredRow {
 	header: "present" | "missing";
 }
 
+// ─── vendor-bundle freshness (N2) ──────────────────────────────────
+// Hand-bundled vendor files (built once, committed, then forgotten) drift
+// silently from the bun.lock version they were built from — the banner
+// stays "present" forever even when the bundle is stale. Each entry names
+// the embedded runtime-version push string the Lit build stamps in, and
+// the bun.lock package it must match; a new vendored bundle (e.g. the
+// local-board extraction's fleet-local-board.js) adds its own rows here.
+export interface VendorFreshnessEntry {
+	path: string;
+	lockPackage: string;
+	versionMarker: string;
+}
+
+export const VENDOR_FRESHNESS: VendorFreshnessEntry[] = [
+	{
+		path: "packages/belt/bin/vendor/lit.js",
+		lockPackage: "lit-html",
+		versionMarker: "litHtmlVersions??=[]).push(" + '"',
+	},
+	{
+		path: "packages/belt/bin/vendor/lit.js",
+		lockPackage: "lit-element",
+		versionMarker: "litElementVersions??=[]).push(" + '"',
+	},
+	{
+		path: "packages/belt/bin/vendor/lit.js",
+		lockPackage: "@lit/reactive-element",
+		versionMarker: "reactiveElementVersions??=[]).push(" + '"',
+	},
+	{
+		path: "packages/local/bin/vendor/lit-shared.js",
+		lockPackage: "lit-html",
+		versionMarker: "litHtmlVersions??=[]).push(" + '"',
+	},
+	{
+		path: "packages/local/bin/vendor/lit-shared.js",
+		lockPackage: "lit-element",
+		versionMarker: "litElementVersions??=[]).push(" + '"',
+	},
+	{
+		path: "packages/local/bin/vendor/lit-shared.js",
+		lockPackage: "@lit/reactive-element",
+		versionMarker: "reactiveElementVersions??=[]).push(" + '"',
+	},
+];
+
+export function lockPackageVersion(root: string, name: string): string | null {
+	let lock: string;
+	try {
+		lock = readFileSync(join(root, "bun.lock"), "utf8");
+	} catch {
+		return null;
+	}
+	const marker = '"' + name + "@";
+	const idx = lock.indexOf(marker);
+	if (idx === -1) return null;
+	const rest = lock.slice(idx + marker.length);
+	const end = rest.indexOf('"');
+	return end === -1 ? null : rest.slice(0, end);
+}
+
 export function verifyVendorHeaders(
 	root: string,
 	vendored?: VendoredEntry[],
@@ -314,6 +375,42 @@ export function verifyVendorHeaders(
 			path: v.path,
 			license: v.license,
 			header: ok ? "present" : "missing",
+		};
+	});
+}
+
+export interface VendorFreshnessRow {
+	path: string;
+	lockPackage: string;
+	lockVersion: string | null;
+	bundled: string | null;
+	fresh: boolean;
+}
+
+export function verifyVendorFreshness(
+	root: string,
+	entries: VendorFreshnessEntry[] = VENDOR_FRESHNESS,
+): VendorFreshnessRow[] {
+	return entries.map((e) => {
+		const lockVersion = lockPackageVersion(root, e.lockPackage);
+		let bundled: string | null = null;
+		try {
+			const text = readFileSync(join(root, e.path), "utf8");
+			const idx = text.indexOf(e.versionMarker);
+			if (idx !== -1) {
+				const rest = text.slice(idx + e.versionMarker.length);
+				const end = rest.indexOf('"');
+				if (end !== -1) bundled = rest.slice(0, end);
+			}
+		} catch {
+			bundled = null;
+		}
+		return {
+			path: e.path,
+			lockPackage: e.lockPackage,
+			lockVersion,
+			bundled,
+			fresh: lockVersion !== null && lockVersion === bundled,
 		};
 	});
 }
