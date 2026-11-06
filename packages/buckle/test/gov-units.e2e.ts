@@ -52,13 +52,14 @@ test.describe("@unit", () => {
 					"junk",
 				]),
 			).toBe("buckle:admin:WRITE_ buckle:proxy:WRITE_");
-			expect(ALL_SCOPES).toHaveLength(12);
+			expect(ALL_SCOPES).toHaveLength(13);
 			expect(ALL_SCOPES).toContain("buckle:spoke:READ_");
 			expect(ALL_SCOPES).toContain("buckle:spoke:WRITE_");
 			expect(ALL_SCOPES).toContain("buckle:store:READ_");
 			expect(ALL_SCOPES).toContain("buckle:store:WRITE_");
 			expect(ALL_SCOPES).toContain("buckle:knowledge:READ_");
 			expect(ALL_SCOPES).toContain("buckle:knowledge:QUERY_");
+			expect(ALL_SCOPES).toContain("buckle:knowledge:CONSULT_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:READ_");
 			expect(ALL_SCOPES).toContain("buckle:dataplane:WRITE_");
 			expect(
