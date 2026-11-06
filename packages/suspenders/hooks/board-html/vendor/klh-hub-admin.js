@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let o=String(a??"").toLowerCase();return g.includes(o)?o:"dim"};class m extends n{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let s=String(a??"").toLowerCase();return g.includes(s)?s:"dim"};class k extends n{static properties={tone:{type:String,reflect:!0}};static styles=r`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);
@@ -31,7 +31,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-accent, #d8900f);
 			border-color: var(--klh-accent, #d8900f);
 		}
-	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",m);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),f=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class k extends n{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,o,s]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=o.home!==void 0?{home:o.home,files:o.files??[],keys:o.keys??[]}:null,this.peers=s.peers??null,this.fedme=s.me??null,this.fedidle=s.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let o=new FormData(a);this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:o.get("actor"),label:o.get("label"),team:o.get("team"),token_class:o.get("token_class"),scopes:String(o.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(o.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(o.get("refresh_ttl_days")??0)||null})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let o=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(o))return;this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}static styles=[r`
+	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",k);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),v=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class m extends n{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,s,o]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=s.home!==void 0?{home:s.home,files:s.files??[],keys:s.keys??[]}:null,this.peers=o.peers??null,this.fedme=o.me??null,this.fedidle=o.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let s=new FormData(a);this.busy=!0,this.err=null;try{let o=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:s.get("actor"),label:s.get("label"),team:s.get("team"),token_class:s.get("token_class"),scopes:String(s.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(s.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(s.get("refresh_ttl_days")??0)||null})}),l=await o.json();if(!o.ok||!l.ok)throw Error(l.error??`HTTP ${String(o.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let s=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(s))return;this.busy=!0,this.err=null;try{let o=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await o.json();if(!o.ok||!l.ok)throw Error(l.error??`HTTP ${String(o.status)}`);await this.refresh()}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}}static styles=[r`
 		:host {
 			display: block;
 			max-width: 1000px;
@@ -39,11 +39,11 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-ink, #e8e4da);
 		}
 		h2 {
-			font: 600 11px/1.6 var(--klh-font-mono);
+			font: 600 var(--klh-text-sm)/1.6 var(--klh-font-mono);
 			text-transform: uppercase;
 			letter-spacing: 0.08em;
 			color: var(--klh-dim, #98958e);
-			margin: 18px 0 8px;
+			margin: 18px 0 var(--klh-space-3);
 		}
 		table {
 			width: 100%;
@@ -52,12 +52,12 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 		}
 		th,
 		td {
-			padding: 4px 8px;
+			padding: var(--klh-space-2) var(--klh-space-3);
 			text-align: left;
 			vertical-align: top;
 		}
 		th {
-			font: 600 10px/1.6 var(--klh-font-mono);
+			font: 600 var(--klh-text-xs)/1.6 var(--klh-font-mono);
 			text-transform: uppercase;
 			letter-spacing: 0.08em;
 			color: var(--klh-dim, #98958e);
@@ -68,16 +68,16 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 		}
 	`,r`
 		.mono {
-			font: 11px/1.5 var(--klh-font-mono);
+			font: var(--klh-text-sm)/1.5 var(--klh-font-mono);
 		}
 		.dim {
 			color: var(--klh-dim, #98958e);
 		}
 		button {
-			font: 600 11px/1.6 var(--klh-font-mono);
-			padding: 3px 12px;
+			font: 600 var(--klh-text-sm)/1.6 var(--klh-font-mono);
+			padding: 3px var(--klh-space-4);
 			cursor: pointer;
-			border-radius: 2px;
+			border-radius: var(--klh-radius);
 			background: var(--klh-bg, #16150f);
 			color: var(--klh-ink, #e8e4da);
 			border: 1px solid var(--klh-edge-strong, rgba(255, 255, 255, 0.24));
@@ -88,10 +88,10 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 		}
 	`,r`
 		button {
-			font: 600 11px/1.6 var(--klh-font-mono);
-			padding: 3px 12px;
+			font: 600 var(--klh-text-sm)/1.6 var(--klh-font-mono);
+			padding: 3px var(--klh-space-4);
 			cursor: pointer;
-			border-radius: 2px;
+			border-radius: var(--klh-radius);
 			background: var(--klh-bg, #16150f);
 			color: var(--klh-ink, #e8e4da);
 			border: 1px solid var(--klh-edge-strong, rgba(255, 255, 255, 0.24));
@@ -103,67 +103,67 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 		input,
 		select {
 			font: 12px var(--klh-font-mono);
-			padding: 4px 8px;
-			border-radius: 2px;
+			padding: var(--klh-space-2) var(--klh-space-3);
+			border-radius: var(--klh-radius);
 			background: var(--klh-bg, #16150f);
 			color: var(--klh-ink, #e8e4da);
 			border: 1px solid var(--klh-edge, #8a8577);
 		}
 		label.k {
 			display: block;
-			font: 600 10px/1.6 var(--klh-font-mono);
+			font: 600 var(--klh-text-xs)/1.6 var(--klh-font-mono);
 			text-transform: uppercase;
 			letter-spacing: 0.06em;
 			color: var(--klh-dim, #98958e);
-			margin: 8px 0 2px;
+			margin: var(--klh-space-3) 0 var(--klh-space-1);
 		}
 		.token-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
-		.token-controls label { display:flex; align-items:center; gap:6px; color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-controls label { display:flex; align-items:center; gap:6px; color:var(--klh-dim); font:var(--klh-text-sm) var(--klh-font-mono); }
 		.token-controls input { min-width:180px; }
-		.token-count { color:var(--klh-dim); font:11px var(--klh-font-mono); }
-		.token-pages { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:8px 0; color:var(--klh-dim); font:11px var(--klh-font-mono); }
+		.token-count { color:var(--klh-dim); font:var(--klh-text-sm) var(--klh-font-mono); }
+		.token-pages { display:flex; align-items:center; justify-content:flex-end; gap:var(--klh-space-3); margin:var(--klh-space-3) 0; color:var(--klh-dim); font:var(--klh-text-sm) var(--klh-font-mono); }
 		.token-pages button:disabled { opacity:.4; cursor:default; }
 		details {
 			border: 1px solid var(--klh-edge-soft, rgba(255, 255, 255, 0.1));
-			border-radius: 3px;
-			padding: 8px 12px;
+			border-radius: var(--klh-radius-lg);
+			padding: var(--klh-space-3) var(--klh-space-4);
 			margin: 0 0 14px;
 			background: var(--klh-surface, #23211d);
 		}
 		summary {
 			cursor: pointer;
-			font: 600 11px/1.6 var(--klh-font-mono);
+			font: 600 var(--klh-text-sm)/1.6 var(--klh-font-mono);
 			text-transform: uppercase;
 			letter-spacing: 0.06em;
 		}
 		.grid {
 			display: grid;
 			grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-			gap: 0 16px;
+			gap: 0 var(--klh-space-5);
 		}
 		.once {
 			border: 1px solid var(--klh-accent, #d8900f);
 			background: var(--klh-bg, #16150f);
-			border-radius: 2px;
-			padding: 8px 10px;
-			margin: 8px 0;
+			border-radius: var(--klh-radius);
+			padding: var(--klh-space-3) 10px;
+			margin: var(--klh-space-3) 0;
 		}
 		.once code {
-			font: 11px/1.5 var(--klh-font-mono);
+			font: var(--klh-text-sm)/1.5 var(--klh-font-mono);
 			word-break: break-all;
 		}
 		.err {
 			border: 1px solid var(--klh-danger, #af2f12);
 			color: var(--klh-danger-ink, #c96a4f);
-			border-radius: 2px;
+			border-radius: var(--klh-radius);
 			padding: 6px 10px;
 			font-size: 12px;
-			margin: 8px 0;
+			margin: var(--klh-space-3) 0;
 		}
 		.foot,
 		.dim,
 		.mono {
-			font-size: 11px;
+			font-size: var(--klh-text-sm);
 			color: var(--klh-dim, #98958e);
 		}
 		.mono {
@@ -177,7 +177,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			</p>
 			${this.err===null?t:e`<div class="err" role="alert">${this.err}</div>`}
 			${this.renderTokens()} ${this.renderKeys()} ${this.renderFederation()}
-		`}renderTokens(){let a=this.tokens??[],o=a.filter((i)=>i.state==="active").length,s=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!s||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(s))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
+		`}renderTokens(){let a=this.tokens??[],s=a.filter((i)=>i.state==="active").length,o=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!o||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(o))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
 			<details>
 				<summary>Issue a token</summary>
 				<form @submit=${this.onIssue}>
@@ -228,7 +228,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				<label>find
 					<input type="search" aria-label="find token" placeholder="actor, team, scope, ID" .value=${this.tokenSearch} @input=${(i)=>{this.tokenSearch=i.target.value,this.tokenPage=0}} />
 				</label>
-				<span class="token-count">${o} active · ${a.length-o} inactive · ${l.length?d*12+1:0}–${d*12+h.length} of ${l.length}</span>
+				<span class="token-count">${s} active · ${a.length-s} inactive · ${l.length?d*12+1:0}–${d*12+h.length} of ${l.length}</span>
 			</div>
 			<table>
 				<thead>
@@ -256,7 +256,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				Listing is masked (8-char id, no material). Every issue/revoke lands
 				in the console audit trail (governor.db).
 			</p>
-		`}tokenRow(a){let o=a.state==="active";return e`
+		`}tokenRow(a){let s=a.state==="active";return e`
 			<tr>
 				<td class="mono">${a.key_id}</td>
 				<td>${a.actor??"—"}</td>
@@ -266,12 +266,12 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				<td class="mono" title=${a.expires_at===null?"":new Date(a.expires_at).toISOString()}>${u(a.expires_at)}</td>
 				<td>
 					<klh-tag
-						tone=${p(o?"ok":a.state==="revoked"?"bad":"dim")}
+						tone=${p(s?"ok":a.state==="revoked"?"bad":"dim")}
 						>${a.state}</klh-tag
 					>
 				</td>
 				<td>
-					${o?e`<button
+					${s?e`<button
 								class="danger"
 								@click=${()=>this.revoke(a.actor??"")}
 							>revoke actor</button>`:t}
@@ -295,10 +295,10 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 								<tr><th>env name</th><th>source</th><th>value</th></tr>
 							</thead>
 							<tbody>
-								${a.keys.length===0?e`<tr><td colspan="3" class="dim">no provider keys found</td></tr>`:a.keys.map((o)=>e`<tr>
-												<td class="mono">${o.name}</td>
-												<td>${o.source}</td>
-												<td class="mono">${o.masked??"—"}</td>
+								${a.keys.length===0?e`<tr><td colspan="3" class="dim">no provider keys found</td></tr>`:a.keys.map((s)=>e`<tr>
+												<td class="mono">${s.name}</td>
+												<td>${s.source}</td>
+												<td class="mono">${s.masked??"—"}</td>
 											</tr>`)}
 							</tbody>
 						</table>
@@ -318,17 +318,17 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 								</tr>
 							</thead>
 							<tbody>
-								${a.map((o)=>e`<tr>
-										<td>${o.label}</td>
+								${a.map((s)=>e`<tr>
+										<td>${s.label}</td>
 										<td>
 											<klh-tag
-												tone=${p(o.state==="live"?"ok":o.state==="stale"?"warn":"bad")}
-												>${o.state}</klh-tag
+												tone=${p(s.state==="live"?"ok":s.state==="stale"?"warn":"bad")}
+												>${s.state}</klh-tag
 											>
 										</td>
-										<td class="mono">${o.version??"—"}</td>
-										<td class="mono">${f(o.pulled_at)}</td>
-										<td class="dim mono">${o.via??"—"}</td>
+										<td class="mono">${s.version??"—"}</td>
+										<td class="mono">${v(s.pulled_at)}</td>
+										<td class="dim mono">${s.via??"—"}</td>
 									</tr>`)}
 							</tbody>
 						</table>
@@ -337,4 +337,4 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				Peer edges propagate the hub policy manifest peer-to-peer; last-known
 				stays in force when a peer degrades.
 			</p>
-		`}onIssue(a){a.preventDefault(),this.issue(a.target)}}customElements.define("klh-hub-admin",k);
+		`}onIssue(a){a.preventDefault(),this.issue(a.target)}}customElements.define("klh-hub-admin",m);
