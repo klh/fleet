@@ -30,11 +30,6 @@ export interface SinkConf {
 	timeoutMs: number;
 }
 
-const envStr = (v: string | undefined): string | null => {
-	const t = (v ?? "").trim();
-	return t.length > 0 ? t : null;
-};
-
 /** Read the configured key file (single-line 0600). Missing/unreadable →
  *  null — a missing key file degrades to anonymous, never throws. */
 export const readSinkKey = (conf: SinkConf = sinkConf()): string | null => {
@@ -179,4 +174,163 @@ export async function querySink(
 	} catch (e) {
 		return queryRefused(0, e instanceof Error ? e.message : String(e));
 	}
+}
+
+const upperBound = (p: string): string => `${p}${String.fromCharCode(0xffff)}`;
+
+/** Write-face conf = the read conf + the install write token. The token
+ *  rides SUSPENDERS_KNOWLEDGE_WRITE_TOKEN, or the 0600 file form
+ *  SUSPENDERS_KNOWLEDGE_WRITE_TOKEN_FILE (secrets are files law) — both
+ *  knobs get registry rows in packages/settings (knob ratchet: row lands
+ *  with the reader, same commit). */
+export interface FkWriteConf {
+	conf: SinkConf;
+	/** install write token; null = write faces unavailable (read-only). */
+	writeToken: string | null;
+}
+
+export function fkWriteConf(env: NodeJS.ProcessEnv = process.env): FkWriteConf {
+	return {
+		conf: sinkConf(env),
+		writeToken: envStr(env.SUSPENDERS_KNOWLEDGE_WRITE_TOKEN) ?? tokenFile(env),
+	};
+}
+
+const envStr = (v: string | undefined): string | null => {
+	const t = (v ?? "").trim();
+	return t.length > 0 ? t : null;
+};
+
+/** 0600-file form of the write token. Missing/unreadable → null. */
+function tokenFile(env: NodeJS.ProcessEnv): string | null {
+	const f = envStr(env.SUSPENDERS_KNOWLEDGE_WRITE_TOKEN_FILE);
+	if (!f) return null;
+	try {
+		return envStr(readFileSync(f, "utf8"));
+	} catch {
+		return null;
+	}
+}
+
+export interface SinkSettleOutcome {
+	ok: boolean;
+	queueMarked: number;
+	rowsBackfilled: number;
+	error?: string;
+}
+
+const settleMiss = (error: string): SinkSettleOutcome => ({
+	ok: false,
+	queueMarked: 0,
+	rowsBackfilled: 0,
+	error,
+});
+
+/** POST {url}/settle — the settle face (install write token). Body
+ *  {sid, hub} → {queueMarked, rowsBackfilled}; any failure returns
+ *  ok:false (the caller falls back to the local store). */
+export async function settleViaSink(
+	sid: string,
+	hub: 0 | 1,
+	writeConf: FkWriteConf = fkWriteConf(),
+	fetchFn: typeof fetch = fetch,
+): Promise<SinkSettleOutcome> {
+	if (!writeConf.conf.url) return settleMiss("sink not configured");
+	if (!writeConf.writeToken) return settleMiss("no write token");
+	try {
+		const res = await fetchFn(`${writeConf.conf.url.replace(/\/$/, "")}/settle`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${writeConf.writeToken}`,
+			},
+			body: JSON.stringify({ sid, hub }),
+			signal: AbortSignal.timeout(writeConf.conf.timeoutMs),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			queueMarked?: number;
+			rowsBackfilled?: number;
+			error?: string;
+		};
+		if (!res.ok) return settleMiss(data.error ?? `HTTP ${res.status}`);
+		return {
+			ok: true,
+			queueMarked: Number(data.queueMarked ?? 0),
+			rowsBackfilled: Number(data.rowsBackfilled ?? 0),
+		};
+	} catch (e) {
+		return settleMiss(e instanceof Error ? e.message : String(e));
+	}
+}
+
+export interface SinkLessonRow {
+	key: string;
+	value: string;
+	ts: number;
+}
+
+export interface SinkLessonsOutcome {
+	ok: boolean;
+	rows: SinkLessonRow[];
+	error?: string;
+}
+
+const lessonsMiss = (error: string): SinkLessonsOutcome => ({
+	ok: false,
+	rows: [],
+	error,
+});
+
+/** POST {url}/knowledge/sql — lesson.* rows for the session-start push (bksk_
+ *  READ_ key). SQL pinned client-side; params ride the face's params field
+ *  (fk's SELECT/WITH lint + LIMIT cap still guard). Fail-open. */
+export async function lessonsViaSink(
+	opts: { since?: number; limit?: number } = {},
+	conf: SinkConf = sinkConf(),
+	fetchFn: typeof fetch = fetch,
+): Promise<SinkLessonsOutcome> {
+	if (!conf.url) return lessonsMiss("sink not configured");
+	const key = readSinkKey(conf);
+	if (!key) return lessonsMiss("no sink key");
+	const since = Number(opts.since ?? 0) || 0;
+	const limit = Math.min(Math.max(Number(opts.limit ?? 5) || 5, 1), 50);
+	const sql = `SELECT key, value, ts FROM knowledge_facts WHERE key >= ? AND key < ? AND ts > ? ORDER BY ts LIMIT ${limit}`;
+	const p = "lesson.";
+	try {
+		const res = await fetchFn(`${conf.url.replace(/\/$/, "")}/knowledge/sql`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${key}`,
+			},
+			body: JSON.stringify({
+				sql,
+				params: [p, upperBound(p), since],
+			}),
+			signal: AbortSignal.timeout(conf.timeoutMs + 5_000),
+		});
+		const data = (await res.json().catch(() => ({}))) as {
+			rows?: Record<string, unknown>[];
+			error?: string;
+		};
+		if (!res.ok) return lessonsMiss(data.error ?? `HTTP ${res.status}`);
+		return { ok: true, rows: coerceLessonRows(data.rows) };
+	} catch (e) {
+		return lessonsMiss(e instanceof Error ? e.message : String(e));
+	}
+}
+
+function coerceLessonRows(
+	rows: Record<string, unknown>[] | undefined,
+): SinkLessonRow[] {
+	return (rows ?? []).flatMap((r) => {
+		const k = r.key;
+		const v = r.value;
+		const t = r.ts;
+		return typeof k === "string" &&
+			(typeof v === "string" || v === null) &&
+			typeof t === "number"
+			? [{ key: k, value: v ?? "", ts: t }]
+			: [];
+	});
 }

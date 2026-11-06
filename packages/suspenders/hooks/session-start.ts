@@ -5,9 +5,9 @@
 // (SESSION / REBIND / OWNED / READY / INBOX / HEAD). Stdout is injected as
 // session context. CLAUDE_FLEET_BOOTSTRAP=0 opts out entirely.
 import {
-	listKnowledgeFacts,
-	withKnowledgeFacts,
-} from "./lib/knowledge/knowledge-facts.ts";
+	lessonPushLines,
+	lessonsForPush,
+} from "./lib/knowledge/lesson-push.ts";
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -506,27 +506,14 @@ if (!isSubagent && input.cwd) {
 	const wm = db
 		.query("SELECT value FROM facts WHERE key = ?")
 		.get(`lesson.seen.${sid}`) as { value: string } | null;
-	// hub design phase 3: lessons live in the knowledge store (knowledge.db);
-	// the seen-watermark stays session bookkeeping in governor facts
-	let rows: { key: string; value: string; ts: number }[] = [];
-	try {
-		rows = withKnowledgeFacts((kb) =>
-			listKnowledgeFacts(kb, {
-				prefixes: ["lesson."],
-				since: Number(wm?.value ?? 0),
-				order: "ts",
-				limit: 5,
-			}),
-		).map((r) => ({ key: r.key, value: r.value ?? "", ts: r.ts }));
-	} catch {} // knowledge store unreadable: no lesson push this session
+	// hub design phase 3: lessons live in the knowledge store — W2779.3.1:
+	// sink-first thin client (fk /knowledge/sql), local knowledge.db is the
+	// compatibility fallback; the seen-watermark stays session bookkeeping
+	// in governor facts
+	const push = await lessonsForPush({ since: Number(wm?.value ?? 0) });
+	const rows = push.rows;
 	if (rows.length) {
-		for (const r of rows) {
-			const v =
-				r.value.length > 200
-					? `${r.value.slice(0, 200)}… (coord fact get ${r.key})`
-					: r.value;
-			out.push(`LESSON ${r.key.slice("lesson.".length)}: ${v}`);
-		}
+		for (const line of lessonPushLines(rows)) out.push(line);
 		db.query(
 			"INSERT INTO facts (key, value, ts) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
 		).run(
