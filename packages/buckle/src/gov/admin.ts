@@ -4,26 +4,33 @@
 // READ_ for GET, WRITE_ for mutations); raw key material appears exactly
 // once — the issue response — and verify answers valid/revoked/expired
 // without echoing hashes.
-import { beginDrain, drainInfo } from "../drain.ts";
-import { inflightIndex } from "./inflight.ts";
-import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
-import { readBoundedJson } from "../ingress-body.ts";
+
+import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
+import { readBeltTrace } from "@klh/telemetry/src/trace-log.ts";
 import { z } from "zod";
+import { allowOf, methodNotAllowed, problem } from "../citizenship.ts";
+import { beginDrain, drainInfo } from "../drain.ts";
+import { readBoundedJson } from "../ingress-body.ts";
+import type { RequestReadQuery } from "../ledger.ts";
+import { exportObservations } from "../observation-export.ts";
 import {
 	AdminDrainSchema,
 	AdminEnrollSchema,
 	AdminIssueKeySchema,
 	AdminTeamSchema,
+	AdminTokenBudgetSchema,
 	AdminVerifySchema,
 } from "./admin-schemas.ts";
-import { readBeltTrace } from "@klh/telemetry/src/trace-log.ts";
-import { readRemoteTraces } from "@klh/telemetry/src/remote-traces.ts";
-import type { RequestReadQuery } from "../ledger.ts";
-import { exportObservations } from "../observation-export.ts";
 import { verifyAuthChain } from "./audit-chain.ts";
-import { reconcileRequest } from "./reconcile-route.ts";
+import { inflightIndex } from "./inflight.ts";
 import type { Governance, Principal } from "./middleware.ts";
+import { reconcileRequest } from "./reconcile-route.ts";
 import { parseScope, scopesFromStorage } from "./scopes.ts";
+import {
+	deleteTokenBudget,
+	listTokenBudgets,
+	setTokenBudget,
+} from "./token-budgets.ts";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -161,6 +168,18 @@ export async function handleAdmin(
 	}
 	if (method === "GET" && path === "/v1/admin/teams") {
 		return ok({ teams: gov.keys.listTeams() });
+	}
+	// W2790 per-key monthly token budgets: set/list/drop. Mutations demand
+	// admin WRITE_ (the gate class for POST/DELETE); the list joins the
+	// current month's usage so the warn state is readable in one read.
+	if (method === "POST" && path === "/v1/admin/token-budgets") {
+		return upsertTokenBudget(req, gov);
+	}
+	if (method === "GET" && path === "/v1/admin/token-budgets") {
+		return ok({ budgets: listTokenBudgets() });
+	}
+	if (method === "DELETE" && path === "/v1/admin/token-budgets") {
+		return dropTokenBudget(url.searchParams.get("subject") ?? "");
 	}
 	// W843 readable per-team report: ceilings + members + minute windows +
 	// the lifetime spend book, one object per team (spend null when the
@@ -435,6 +454,36 @@ function listRequests(gov: Governance, url: URL): Response {
 			return { ...r, key_name: k?.name ?? null, key_team: k?.team ?? null };
 		}),
 	});
+}
+
+/** W2790 POST /v1/admin/token-budgets — upsert one budget row. */
+async function upsertTokenBudget(
+	req: Request,
+	gov: Governance,
+): Promise<Response> {
+	const read = await readBoundedJson(req, gov.ingressBodyTimeoutMs);
+	if (!read.ok) return bad(read.status, read.code, read.why);
+	const body = adminBody(read.body, AdminTokenBudgetSchema);
+	if (!body.ok) return body.error;
+	setTokenBudget({
+		subject: body.value.subject,
+		monthlyTokens: body.value.monthly_tokens,
+		weights: body.value.weights ?? {},
+	});
+	return ok({ subject: body.value.subject, set: true }, 201);
+}
+
+/** W2790 DELETE /v1/admin/token-budgets?subject=<s> — back to unlimited. */
+function dropTokenBudget(subject: string): Response {
+	if (subject.length === 0)
+		return bad(
+			400,
+			"buckle.bad_subject",
+			"subject query parameter is required",
+		);
+	if (!deleteTokenBudget(subject))
+		return bad(404, "buckle.unknown_budget", `no budget for '${subject}'`);
+	return ok({ subject, deleted: true });
 }
 
 async function upsertTeam(req: Request, gov: Governance): Promise<Response> {

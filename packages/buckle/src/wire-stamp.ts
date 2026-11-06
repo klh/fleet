@@ -1,9 +1,9 @@
 // src/wire-stamp.ts — W136 wire-header stamping on responses
 // (x-belt-rid/route/error) + hop headers; SSE header pass-through.
 
-import type { TransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
 import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
+import type { TransportEvidence } from "@klh/telemetry/src/transport-evidence.ts";
 import type { CandidateRow } from "./candidates.ts";
 import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
@@ -117,6 +117,16 @@ export function stamped(
 	);
 	resp.headers.delete(PREFER_HEADER);
 	if (ctx.preference) resp.headers.set(PREFER_HEADER, ctx.preference);
+	// W2790: a budgeted request carries its month utilization on every
+	// response — warn=true (≥80%) is the operator's fair-use signal. The
+	// shape is fixed: subject;used/ceiling;pct;warn.
+	if (ctx.tokenBudget) {
+		const b = ctx.tokenBudget;
+		resp.headers.set(
+			"x-klh-budget",
+			`${b.subject};${String(b.used)}/${String(b.ceiling)};${String(b.pct)}%;${b.warn ? "1" : "0"}`,
+		);
+	}
 	settleInflight(ctx, resp, route); // W1259: hold streams, settle the rest
 	return resp;
 }

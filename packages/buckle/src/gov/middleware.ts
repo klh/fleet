@@ -41,13 +41,14 @@ import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
 import {
-	Slots,
 	type SlotLease,
 	type SlotLimits,
+	Slots,
 	slotsFromEnv,
 } from "./slots.ts";
-import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
+import { configureTokenBudgets } from "./token-budgets.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;
@@ -150,6 +151,10 @@ export class Governance {
 		// wait instead of surfacing SQLITE_BUSY to a request.
 		this.db.exec("PRAGMA busy_timeout = 5000");
 		applyGovernanceSchema(this.db);
+		// W2790: bind the monthly token-budget engine to the authority AFTER
+		// the schema exists (the occupancy.ts precedent — process-global,
+		// configured once per gate; unbudgeted keys pass with zero writes).
+		configureTokenBudgets(this.db);
 		this.keys = new KeyStore(this.db);
 		this.budgets = new Budgets(this.db);
 		this.slots = new Slots(

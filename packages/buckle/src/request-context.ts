@@ -109,6 +109,15 @@ export interface Ctx {
 	/** W461 stage 2: set once the admitted observation is published —
 	 *  ended events only ride admitted requests. */
 	admitted?: boolean;
+	/** W2790: the passing monthly token-budget verdict (budgeted subject,
+	 *  under ceiling). null = unlimited — nothing stashed, nothing stamped. */
+	tokenBudget?: {
+		subject: string;
+		used: number;
+		ceiling: number;
+		pct: number;
+		warn: boolean;
+	} | null;
 }
 
 /** W461 stage 2: publish one lane observation for this request. Inert
