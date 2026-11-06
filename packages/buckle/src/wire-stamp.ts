@@ -9,6 +9,7 @@ import { latencyClass } from "./decide.ts";
 import { settleInflight } from "./gov/inflight.ts";
 import { releaseOccupancy } from "./gov/occupancy.ts";
 import type { Ctx } from "./request-context.ts";
+import { exportProxySpan } from "./otlp-request-spans.ts";
 import { stampServedIdentity } from "./served-identity.ts";
 
 export const SSE_HEADERS = (h: Headers): Headers => {
@@ -122,5 +123,6 @@ export function stamped(
 	// W2618: the admission frees at the real settle — a streaming response
 	// keeps its occupancy until the stream finish seam (proxy-stream).
 	if (route.streaming !== true) releaseOccupancy(ctx.rid);
+	exportProxySpan(ctx, { ...route, status: resp.status }); // W2788
 	return resp;
 }

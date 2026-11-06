@@ -52,4 +52,10 @@ export function pushProfileEnv(hub: HubProfile, kv: EnvSink): void {
 		kv("HUB_DATAPLANE_HEALTH_PORT", hub.dataplane.health_port);
 	}
 	if (profiles.length > 0) kv("COMPOSE_PROFILES", profiles.join(","));
+	// W2788: buckle OTLP trace export — env-only (no compose profile); an
+	// undeclared `otel:` renders nothing and buckle stays export-off.
+	if (hub.otel) {
+		kv("HUB_BUCKLE_OTLP_ENDPOINT", hub.otel.endpoint);
+		kv("HUB_BUCKLE_OTLP_SAMPLE", hub.otel.sample_rate);
+	}
 }

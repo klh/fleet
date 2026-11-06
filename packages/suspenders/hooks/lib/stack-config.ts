@@ -285,6 +285,15 @@ export const HubProfileSchema = z
 			})
 			.loose()
 			.optional(),
+		/** W2788: buckle out-of-band OTLP trace export. Declaring `otel:` turns
+		 *  per-request span export on (collector URL + trace sample rate). */
+		otel: z
+			.object({
+				endpoint: z.url(),
+				sample_rate: z.number().min(0).max(1).optional(),
+			})
+			.loose()
+			.optional(),
 		/** W467 synthetic readiness: the buckle-ready sidecar's completion-leg
 		 *  verdict port; ready_model must be one the ladder serves. */
 		buckle_ready_port: z.number().optional(),
