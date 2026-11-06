@@ -37,6 +37,7 @@ export type { GovernanceDecision } from "./lib/governance-decide.ts";
 export { hubAttributionDecision } from "./lib/governance-decide.ts";
 export { laneKeyDecision, parseGovernanceMode, probeFrontDecision };
 
+import { versionLine } from "../hooks/lib/cli-version.ts";
 import { danglingFixHolds } from "../hooks/lib/fleet-loop/dangling-rejudge.ts";
 // THEN.D (W1255.6): the per-lane launch machine rides hooks/lib/fleet-loop and
 // the refill face declares through the verb kit (CLI Toolkit Law, W651).
@@ -59,7 +60,6 @@ import { laneSid } from "../hooks/lib/lanes/laneslug.ts";
 import { plaidProbeHealth, readPosture } from "../hooks/lib/plaid/plaid.ts";
 import { fleetLoopSettings } from "../hooks/lib/stack-config.ts";
 import { forecastPush } from "../hooks/lib/usage/credit-forecast.ts";
-import { versionLine } from "../hooks/lib/cli-version.ts";
 import { parseVerb, renderRegistryHelp } from "../hooks/lib/verb-kit.ts";
 // W1295: the agent-rules role library rides the launch path
 import { loadAgentRules } from "./lib/agent-rules.ts";
@@ -658,7 +658,7 @@ const main = async (): Promise<void> => {
 		(id) => sidOf(id, projectIdentity(REPO)),
 	);
 	for (const s of skips) console.log(s);
-	// W1762: repairs frozen by a merged-but-uninstalled classifier fix never
+	// W2189: repairs frozen by a merged-but-uninstalled classifier fix never
 	// launch from the pool (explicit --item stays operator-explicit).
 	const fixHolds = capStore
 		? danglingFixHolds(
