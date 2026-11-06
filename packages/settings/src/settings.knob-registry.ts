@@ -201,6 +201,7 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_REPORT_LINK_BASE", "conf", "telemetry.report_link_base"),
 	k("SUSPENDERS_REPORT_STALL_MS", "conf", "board.report_stall_ms"),
 	k("SUSPENDERS_REPORT_STATE_DIR", "internal"),
+	k("SUSPENDERS_RISK_TIERS", "plumbing"),
 	k(
 		"SUSPENDERS_REPO_POLICY_CONFIG",
 		"machine-conf",
