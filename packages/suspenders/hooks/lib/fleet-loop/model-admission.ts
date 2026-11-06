@@ -30,15 +30,16 @@ import { kevPlacement } from "./kev-placement.ts";
 // the real model BEFORE every other gate (they validate what it sets).
 import { kevModelGate } from "./kev-model.ts";
 import {
+	type KevModelPick,
 	kevModelBriefLines,
 	kevModelNote,
 	kevModelPick,
-	type KevModelPick,
 } from "./kev-model-pick.ts";
 
 // W2677: lane-launch imports the brief renderer through this module (one
 // import line there — 1200-line stop rule); it composes from the same pick.
 export { kevModelBriefLines };
+
 import {
 	poolOccupancy,
 	recordPlacementReason,
