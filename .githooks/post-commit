@@ -56,6 +56,9 @@ const gateTimeout = String(Number(process.env.SUSPENDERS_GATE_TIMEOUT_MS ?? 15_0
 const run = Bun.spawnSync(
 	[
 		process.execPath,
+		// W2799: --bun pins the bun runtime — bare `bun x playwright` rides the
+		// bin's node shebang and import.meta.dir is undefined corpus-wide
+		"--bun",
 		"x",
 		"playwright",
 		"test",
