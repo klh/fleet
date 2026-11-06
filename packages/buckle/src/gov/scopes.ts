@@ -8,8 +8,7 @@
 
 import { mcpScopeImplies, parseMcpScope } from "./mcp-scopes.ts";
 
-export const SCOPE_RE =
-	/^buckle:[a-z_]+:(READ_|WRITE_|QUERY_|CONSULT_)$/;
+export const SCOPE_RE = /^buckle:[a-z_]+:(READ_|WRITE_|QUERY_|CONSULT_)$/;
 
 export type BuckleResource =
 	| "proxy"
