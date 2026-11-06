@@ -3,6 +3,12 @@
 Fleet integration notes for the vendored dosu-ai/decant engine. This file is
 fleet-authored; everything else at the top level is upstream-owned bytes.
 
+Twin snapshot: `fleet-knowledge/decant/` (icomdev, BSL) carries the SAME
+W950 snapshot byte-pure (W2779.1 disposition row 6 —
+`docs/knowledge-dry-disposition-w2779.md`). No code DRY across the repo
+boundary: re-sync at a new upstream tag happens independently per repo;
+after any re-pin here, check the twin's `decant/FLEET.md` stays aligned.
+
 ## What this is
 
 - Vendored source snapshot of [dosu-ai/decant](https://github.com/dosu-ai/decant)

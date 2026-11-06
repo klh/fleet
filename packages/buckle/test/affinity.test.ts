@@ -48,17 +48,21 @@ const packetBody = (
 	],
 });
 
-const PKT = renderPacket("gaps", [
-	{
-		kind: "knowledge",
-		id: 7,
-		topic: "t",
-		fact: "a stable fleet fact",
-		state: "active",
-		trust: "verified",
-		source_ref: "README.md",
-	},
-]);
+const PKT = renderPacket(
+	"gaps",
+	[
+		{
+			kind: "knowledge",
+			id: 7,
+			topic: "t",
+			fact: "a stable fleet fact",
+			state: "active",
+			trust: "verified",
+			source_ref: "README.md",
+		},
+	],
+	"Precedence: stub.",
+);
 
 describe("layout: system → packet → volatile", () => {
 	test("packet after volatile content relocates to the prefix", () => {
@@ -92,16 +96,20 @@ describe("affKeyOf", () => {
 		expect(affKeyOf(a)).toBe(affKeyOf(b));
 	});
 	test("different packet bytes → different key", () => {
-		const pkt2 = renderPacket("other", [
-			{
-				kind: "knowledge",
-				id: 9,
-				topic: "u",
-				fact: "another fact",
-				state: "active",
-				trust: "verified",
-			},
-		]);
+		const pkt2 = renderPacket(
+			"other",
+			[
+				{
+					kind: "knowledge",
+					id: 9,
+					topic: "u",
+					fact: "another fact",
+					state: "active",
+					trust: "verified",
+				},
+			],
+			"Precedence: stub.",
+		);
 		const a = packetBody(PKT);
 		const b = packetBody(pkt2);
 		expect(affKeyOf(a)).not.toBe(affKeyOf(b));
