@@ -160,7 +160,8 @@ export function launchSchema(store: GovernorStore): void {
  * never be live again — stamp FORGOTTEN once, guarded by a facts marker so
  * the sweep cost is one indexed SELECT on steady state. */
 const FORGET_SWEEP_KEY = "launch-intent.forget-sweep-v1";
-const TERMINAL_WORK_STATES = "('DONE','FAILED','CANCELLED','SUPERSEDED','SHATTERED')";
+const TERMINAL_WORK_STATES_SQL =
+	"('DONE','FAILED','CANCELLED','SUPERSEDED','SHATTERED')";
 export function forgetTerminalIntents(store: GovernorStore): void {
 	const have = store
 		.query(
@@ -171,7 +172,7 @@ export function forgetTerminalIntents(store: GovernorStore): void {
 	if (store.query("SELECT value FROM facts WHERE key=?").get(FORGET_SWEEP_KEY))
 		return;
 	store.run(
-		`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE state NOT IN ('FAILED','FORGOTTEN') AND EXISTS (SELECT 1 FROM work_items w WHERE w.project=${TABLE}.project AND w.id=${TABLE}.item AND w.state IN ${TERMINAL_WORK_STATES})`,
+		`UPDATE ${TABLE} SET state='FORGOTTEN' WHERE state NOT IN ('FAILED','FORGOTTEN') AND EXISTS (SELECT 1 FROM work_items w WHERE w.project=${TABLE}.project AND w.id=${TABLE}.item AND w.state IN ${TERMINAL_WORK_STATES_SQL})`,
 	);
 	store
 		.query(
@@ -189,9 +190,7 @@ export function forgetLaunchIntent(
 ): void {
 	if (
 		!store
-			.query(
-				"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-			)
+			.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
 			.get(TABLE)
 	)
 		return;
