@@ -354,6 +354,16 @@ export const HubProfileSchema = z
 		 *  is enforced downstream (served-models gate, the ladder itself),
 		 *  never wire dialect — any client may ride any model here. */
 		default_models: z.array(z.string().min(1)).optional(),
+		/** W2321.5: hub-exec lane orphan GC — repo_root is the hub-side
+		 *  fleet clone lanes' worktrees mint under; presence opts the hub
+		 *  into the origin-marked, authority-gated GC fire. */
+		lane_gc: z
+			.object({
+				repo_root: z.string(),
+				connect_timeout: z.number().optional(),
+			})
+			.loose()
+			.optional(),
 		/** W688.7.1: the hub's REAL upstream ladder (config-over-code) —
 		 *  inline groups rows merge over the committed placeholder ladder;
 		 *  keys ride env vars named per-row, never values here. */
