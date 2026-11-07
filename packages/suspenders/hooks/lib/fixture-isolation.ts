@@ -50,6 +50,16 @@ export function stripGitEnv(base: Env = process.env): Env {
 	return clean;
 }
 
+// W2573: the shared OFFLINE pin for fixture-spawned CLIs. A scratch HOME
+// does not de-network a child — kevUrl() resolves :8912 by default even
+// with no settings file, and capsule set / work done each await the full
+// 8s curation timeout against it (the completion-native-transcript
+// failures). Port 9 (discard) refuses instantly on loopback; "" is NOT an
+// off switch (the settings reader ignores empty env values and falls back
+// to the default URL). Suites that WANT live-kev curation override this
+// via their own env — opts.env / opts.base still ride last over the pin.
+export const FIXTURE_KEV_URL = "http://127.0.0.1:9";
+
 // temp HOME + clean Git context + local store binding, from one object.
 // Refuses to build against the real user home — a fixture whose HOME
 // resolves to the real home is not a fixture.
@@ -77,6 +87,10 @@ export function fixtureEnv(opts: {
 		// resolves under HOME → the fixture's own governor.db, never a
 		// machine-level store.url binding or the production store.
 		GOVERNOR_STORE_URL: "",
+		// advisory binding (W2573): offline by default — see FIXTURE_KEV_URL.
+		// Unlike HOME/GIT_*, an explicit caller value for the advisory pin is
+		// an intentional live/stub endpoint, not a leak: it rides LAST.
+		SUSPENDERS_KEV_URL: opts.base?.SUSPENDERS_KEV_URL ?? FIXTURE_KEV_URL,
 	};
 	if (opts.identity) {
 		// identity rides env, not config: git never touches any config file to
