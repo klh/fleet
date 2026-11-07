@@ -225,6 +225,7 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_REVIEW_ROUND_CAP", "conf"),
 	k("SUSPENDERS_REVIEW_STEPDOWN_CLASSES", "conf"),
 	k("SUSPENDERS_REVIEW_TRANSPORT_PARK", "conf", "review.transport_park"),
+	k("SUSPENDERS_REVIEW_WIRE_PARK_MS", "conf", "review.wire_park"),
 	k("SUSPENDERS_ROLL_KEYS_FILE", "conf"),
 	k("SUSPENDERS_RUNAWAY", "conf"),
 	k("SUSPENDERS_RUNAWAY_FAIL_STREAK", "conf"),

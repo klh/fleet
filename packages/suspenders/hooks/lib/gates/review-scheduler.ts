@@ -51,6 +51,10 @@ interface Request {
 	 *  carried the reviewProofParkMarker reason); admission refuses while
 	 *  now - stamp < SUSPENDERS_REVIEW_PROOF_PARK_MS. */
 	proof_park_at?: number;
+	/** W2792.1: wire-model fallback park stamp (Date.now() at the finish that
+	 *  carried the reviewWireParkMarker reason); admission refuses while
+	 *  now - stamp < SUSPENDERS_REVIEW_WIRE_PARK_MS. */
+	wire_park_at?: number;
 }
 /** W1243: capped transport backoff — 1m doubling to a 15m ceiling. */
 const backoffMs = (deferred: number): number =>
@@ -138,6 +142,33 @@ export function reviewProofParkMs(
 		env.SUSPENDERS_REVIEW_PROOF_PARK_MS?.trim(),
 	);
 	return parsed.success ? Number(parsed.data) : 21_600_000;
+}
+
+/** W2792.1: a PASS-content verdict served by a cross-family wire model (the
+ *  2026-11-06 W2779.4 loop — opus requested, glm served via the routing
+ *  gateway's fallback map) is DETERMINISTIC while the serving ladder is
+ *  unchanged: every re-drive walks the same ladder and distrusts the same
+ *  receipt, refund-then-readmit style, until transport park. The finish
+ *  stamps wire_park_at; admission refuses while the stamp is fresh. The gate
+ *  stays fail-closed (the receipt banks ERROR, never a clean PASS) — the
+ *  park only bounds the re-drive churn. */
+export const reviewWireParkMarker = "wire-model fallback";
+
+/** W2792.1 knob (conf row wins, env fills, default 1h; 0 disables):
+ *  SUSPENDERS_REVIEW_WIRE_PARK_MS. */
+const WireParkKnobSchema = z.union([
+	z.literal("0"),
+	z.string().regex(/^\d+$/),
+]);
+export function reviewWireParkMs(
+	env: NodeJS.ProcessEnv,
+	confVal?: number,
+): number {
+	if (typeof confVal === "number") return confVal;
+	const parsed = WireParkKnobSchema.safeParse(
+		env.SUSPENDERS_REVIEW_WIRE_PARK_MS?.trim(),
+	);
+	return parsed.success ? Number(parsed.data) : 3_600_000;
 }
 
 /** Newest bound receipt ts for this commit whose base differs from `base`,
@@ -240,6 +271,36 @@ function emitProofParkDecision(
 	});
 }
 
+/** W2792.1: one NEED_DECISION per wire-park stamp — the completion author
+ *  learns the routing fallback is the blocker and the receipt is graded
+ *  DEGRADED (PASS content, untrusted wire): no re-drive while the window is
+ *  fresh; remedies are a same-class re-review after the window, a wire-stable
+ *  review pin, or removing the cross-family fallback for review legs. */
+function emitWireParkDecision(
+	db: GovernorStore,
+	project: string,
+	item: string,
+	author: string,
+	stamp: number,
+): void {
+	const prior = db
+		.query(
+			"SELECT id FROM events WHERE kind = 'NEED_DECISION' AND json_extract(payload, '$.project') = ? AND json_extract(payload, '$.work') = ? AND json_extract(payload, '$.review_wire_park') = ? LIMIT 1",
+		)
+		.get(project, item, String(stamp));
+	if (prior) return;
+	emitStoredEvent(db, project, {
+		kind: "NEED_DECISION",
+		source: "review-scheduler",
+		scope: item,
+		to: author,
+		note:
+			item +
+			": review served by a cross-family wire model (content PASS banked, receipt graded DEGRADED — not merge-authorizing). No model re-drive while the park window is fresh (W2792.1); the ladder would re-serve the same mismatch. Remedy: wait out SUSPENDERS_REVIEW_WIRE_PARK_MS (default 1h) and let a same-class leg confirm, pin the review to a wire-stable model, or drop the cross-family fallback for review legs in routing-policy.json.",
+		extra: { work: item, review_wire_park: String(stamp) },
+	});
+}
+
 export function providerPressureOf(db: GovernorStore): Pressure {
 	try {
 		const row = db
@@ -334,6 +395,13 @@ export function finishReviewRequest(
 			failed && request.error?.startsWith(reviewProofParkMarker),
 		);
 		if (proofPark) request.proof_park_at = Date.now();
+		// W2792.1: the wire-model fallback class parks the same way — the
+		// serving ladder is unchanged, so an identical re-drive re-serves the
+		// mismatch deterministically (never provider pressure, never AIMD).
+		const wirePark = Boolean(
+			failed && request.error?.startsWith(reviewWireParkMarker),
+		);
+		if (wirePark) request.wire_park_at = Date.now();
 		// W1243: a transport failure refunds its reservation attempt and
 		// defers instead — the 3-attempt budget is verdicts-only, so a 429/503
 		// wave or a dead leg can never exhaust it. Backoff grows on the
@@ -347,7 +415,10 @@ export function finishReviewRequest(
 			Date.now() + backoffMs(request.deferred ?? request.attempts);
 		// W2754: deterministic-proof parks never open the global AIMD pause —
 		// one lane's local proof blocker is not the provider account failing.
-		if (!proofPark) applyPressure(db, failed);
+		// W2792.1: the wire-model fallback park is the same class — the
+		// provider served a verdict; the mismatch is routing policy, not a
+		// provider outage.
+		if (!proofPark && !wirePark) applyPressure(db, failed);
 		db.query(
 			"UPDATE facts SET value = ?, version = version + 1, ts = ? WHERE key = ?",
 		).run(JSON.stringify(request), Date.now(), key);
@@ -683,6 +754,31 @@ export function scheduleReview(o: {
 			).toISOString()}) — no model re-drive until ${new Date(
 				old.proof_park_at + proofParkMs,
 			).toISOString()} (SUSPENDERS_REVIEW_PROOF_PARK_MS)`;
+		}
+		// W2792.1: the wire-model fallback park — a cross-family-served PASS
+		// re-drives identically while the routing ladder is unchanged, so the
+		// refund path must not re-drive a full model leg for nothing (the
+		// W2779.4 specimen: opus requested, glm served, twice, ERROR both).
+		const wireParkMs = reviewWireParkMs(env, o.settings?.().reviewWireParkMs);
+		if (
+			wireParkMs > 0 &&
+			old &&
+			old.state === "ERROR" &&
+			typeof old.wire_park_at === "number" &&
+			now - old.wire_park_at < wireParkMs
+		) {
+			emitWireParkDecision(
+				o.db,
+				o.project,
+				o.item,
+				author.completed_by,
+				old.wire_park_at,
+			);
+			return `review parked: wire-model fallback (stamped ${new Date(
+				old.wire_park_at,
+			).toISOString()}) — no model re-drive until ${new Date(
+				old.wire_park_at + wireParkMs,
+			).toISOString()} (SUSPENDERS_REVIEW_WIRE_PARK_MS)`;
 		}
 		// W2548: the transport-park bound on W1243's unbounded retry — an
 		// ERROR request whose consecutive deferrals reached the threshold
