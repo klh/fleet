@@ -35,7 +35,11 @@ const SELF = "tests/test-framework-guard.test.ts";
 // W2664 rebase (merged here by W2737): merging suspenders/W2649
 // (parked/W2478 risk-tier merge gate) onto main carries the risk-tier
 // .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635).
-const PIN = 635;
+// W1294.9.5 sweep-G slice-5 (17 session-*/usage-* specs, merged via
+// W2656, rebased W2736) re-pins DOWN (635 → 619) — the pin tracks the
+// landing tree's net count, verified by THIS guard's own git ls-files
+// counting at the closing sha (W2816 merge of parked/W2736).
+const PIN = 619;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

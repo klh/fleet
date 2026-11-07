@@ -1,18 +1,19 @@
 // usage-api.test.ts — W127: golden JSON shape of buildUsageReport on a seeded
 // fixture. Deterministic: fixed nowMs, TZ-agnostic hour-of-day expectations
 // (computed with the same getHours() conversion the builder uses).
-import { describe, test, expect, afterAll } from "bun:test";
+
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-api-"));
 const { buildUsageReport } = await import(
 	`../hooks/lib/usage/usage.ts?home=${encodeURIComponent(HOME)}`
 );
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
@@ -57,7 +58,7 @@ function seed(db: Database): void {
 	sess.run("s3", 0, 0, "bob", '{"team":"old"}');
 }
 
-describe("buildUsageReport", () => {
+test.describe("buildUsageReport", () => {
 	test("golden shape on the seeded fixture", () => {
 		const db = freshDb();
 		seed(db);
