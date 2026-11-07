@@ -7,7 +7,7 @@ import { TransportObservation } from "@klh/telemetry/src/transport-evidence.ts";
 import { bridgeRequest } from "./bridge.ts";
 import { type CandidateRow, candIdOf } from "./candidates.ts";
 import { mayEscalate, type RouteSelection } from "./decide.ts";
-import { FLASHX } from "./policy.ts";
+import { FLASHX, streamIdleS } from "./policy.ts";
 import { providerPoolIdOf, resilienceOf, tryOnce } from "./router-attempt.ts";
 import {
 	coldMarkedDeps,
@@ -44,10 +44,13 @@ export async function attemptTier(
 	const perAttemptMs = (host.policy.request_timeout_s ?? 120) * 1000;
 	// W450: streaming bodies get idle+total guards; non-streaming keeps
 	// request_timeout_s as its whole-exchange cap (the wire applies it).
+	// W2579: the idle budget is per-request model-group scoped — an
+	// operator override for groups whose legs legitimately out-think the
+	// global default; the total cap stays global and absolute.
 	const stream =
 		req.body.stream === true
 			? {
-					idleMs: (host.policy.stream_idle_timeout_s ?? 60) * 1000,
+					idleMs: streamIdleS(host.policy, req.group) * 1000,
 					totalMs: (host.policy.stream_total_timeout_s ?? 900) * 1000,
 				}
 			: undefined;

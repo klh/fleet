@@ -10,9 +10,13 @@
 //   semantic  — at least one NON-keepalive SSE data frame arrived
 //   ping_only — frames arrived but ALL were transport keepalives
 //   none      — not even keepalives (a true no-byte stall)
+// W2579 adds the fourth class the C235 incident needed: a stream whose
+// data frames never carried usable output (headers + role/message_start,
+// zero content or reasoning text) reads role_only, not semantic — so a
+// deadline kill on it stops tracing as a generic mid-content stall.
 import { safeCorrelationId } from "@klh/telemetry/src/http-trace.ts";
 
-export type StreamActivity = "semantic" | "ping_only" | "none";
+export type StreamActivity = "semantic" | "role_only" | "ping_only" | "none";
 
 /** Bounded correlation ids carried by a streamed upstream response. */
 export interface HopCorrelation {
@@ -35,9 +39,10 @@ export interface StreamReceipt {
 	/** ms from request start to the last upstream chunk (null = none). */
 	last_chunk_ms: number | null;
 	/** W2260: semantic = non-keepalive frames arrived; ping_only = only
-	 *  transport keepalives; none = a true no-byte stall. null = unknown
+	 *  transport keepalives; none = a true no-byte stall. W2579: role_only =
+	 *  frames arrived but none carried usable output. null = unknown
 	 *  (rows banked before W2260). */
-	activity?: "semantic" | "ping_only" | "none" | null;
+	activity?: "semantic" | "role_only" | "ping_only" | "none" | null;
 	/** W2260: a failed/truncated stream with zero client-visible semantic
 	 *  output could be retried without duplicating output. false on a
 	 *  completed stream (n/a) and on pre-W2260 rows (absent). */
@@ -56,8 +61,7 @@ export function hopCorrelationOf(headers: Headers): HopCorrelation {
 	return {
 		upstreamRequestId:
 			safeCorrelationId(
-				headers.get("x-klh-upstream-request-id") ??
-					headers.get("x-request-id"),
+				headers.get("x-klh-upstream-request-id") ?? headers.get("x-request-id"),
 			) ?? null,
 		litellmCallId: safeCorrelationId(headers.get("x-litellm-call-id")) ?? null,
 	};
@@ -65,7 +69,24 @@ export function hopCorrelationOf(headers: Headers): HopCorrelation {
 
 /** Classify what a finished stream actually carried. `frames` counts
  *  non-keepalive data frames (SseSniffer.framesSeen), `pings` counts
- *  reframer ping drops. */
-export function streamActivityOf(frames: number, pings: number): StreamActivity {
-	return frames > 0 ? "semantic" : pings > 0 ? "ping_only" : "none";
+ *  reframer ping drops. W2579: when the live evidence split is handed in
+ *  (SseSniffer.outputEvidence), a frames>0 stream whose frames carried
+ *  NEITHER usable output NOR reasoning text (the role/message scaffold
+ *  only — the C235 shape: role frame, then silence) classes role_only.
+ *  A reasoning-bearing stall stays semantic (real model activity, stalled
+ *  mid-content). Absent evidence (legacy callers) keeps the pre-W2579
+ *  reading. */
+export function streamActivityOf(
+	frames: number,
+	pings: number,
+	evidence?: { outputFrames: number; roleFrames: number },
+): StreamActivity {
+	if (frames <= 0) return pings > 0 ? "ping_only" : "none";
+	if (
+		evidence !== undefined &&
+		evidence.outputFrames === 0 &&
+		evidence.roleFrames === 0
+	)
+		return "role_only";
+	return "semantic";
 }
