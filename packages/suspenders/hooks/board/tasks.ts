@@ -138,6 +138,25 @@ export function taskShape(
 	};
 }
 
+// W2267.5: this item's direct split children (parent_id = this id) for the
+// drawer's dependency-graph section — id/title/state, the graph shape.
+export function childrenOf(
+	project: string,
+	id: string,
+): { id: string; title: string; state: string }[] {
+	return (
+		db
+			.query(
+				"SELECT id, title, state FROM work_items WHERE project = ? AND parent_id = ? ORDER BY created_at, id",
+			)
+			.all(project, id) as {
+			id: string;
+			title: string;
+			state: string;
+		}[]
+	);
+}
+
 // W214 dependency splines: per-item unmet work_deps edges (dep state IS NOT
 // DONE — NULL-safe so an orphaned dep row still reads blocked) plus
 // SHATTERED parents' unfinished required children (rollUp's wait set).

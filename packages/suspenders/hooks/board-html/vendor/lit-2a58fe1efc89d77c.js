@@ -183,14 +183,14 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{k,F,O,Z,q}from"./lit-12b
 				>${t.hasData?`${i} · ${y(t.slotMs)} bins`:"no activity"}</span
 			>
 			<span>${t.hasData?g(t.windowEnd??0):""}</span>
-		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),i=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(i/60)).padStart(2,"0")}:${String(i%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,i){let a=()=>{let o=this.renderRoot.querySelector(".tip");if(!o)return;let l=Math.min(t+10,window.innerWidth-o.offsetWidth-8),p=i-o.offsetHeight-10;o.style.left=`${Math.max(8,l)}px`,o.style.top=`${p>=8?p:i+12}px`};if(this.renderRoot.querySelector(".tip")){a();return}this.updateComplete.then(a).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?U(this.attempt):this.wallMs}get _stripHost(){return{setTip:(t,i,a)=>{this._tip=t,this._slot=i,this._tipRef=a??null,this.requestUpdate()},placeTip:(t,i)=>this._placeTip(t,i),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=X(this._stripHost);_renderAttempt(){let t=this.attempt,i=this._width||240;if(!t)return e`<div class="attempt-empty" role="img">
+		</div>`}_tzLabel(){let t=-new Date().getTimezoneOffset(),i=Math.abs(t);return`UTC${t>=0?"+":"-"}${String(Math.floor(i/60)).padStart(2,"0")}:${String(i%60).padStart(2,"0")}`}_tipHtml(){return e`<div class="tip" role="tooltip">${this._tip}</div>`}_placeTip(t,i){let a=()=>{let o=this.renderRoot.querySelector(".tip");if(!o)return;let l=Math.min(t+10,window.innerWidth-o.offsetWidth-8),p=i-o.offsetHeight-10;o.style.left=`${Math.max(8,l)}px`,o.style.top=`${p>=8?p:i+12}px`};if(this.renderRoot.querySelector(".tip")){a();return}this.updateComplete.then(a).catch(()=>{return})}_hairWallMs(){return this.mode==="attempt"&&this.attempt?U(this.attempt):this.wallMs}get _stripHost(){return{setTip:(t,i,a)=>{this._tip=t,this._slot=i,this._tipRef=a??null,this.requestUpdate()},placeTip:(t,i)=>this._placeTip(t,i),hide:()=>{this._hideTip(),this.requestUpdate()},slot:()=>this._slot}}_attemptHandlers=X(this._stripHost);_renderAttempt(){let t=this.attempt,i=this._width||240;if(!t){if(this._spec.hasData)return this._renderSpend();return e`<div class="attempt-empty" role="img">
 					no attempt in the fixed 90-minute window
-				</div>`;return e`
+				</div>`}return e`
 			${K(t,i,this._attemptHandlers,this._barsSvg(V(this.points,t.windowStart,t.windowEnd,i)))}
 			${this._hairlineHtml()}
 			${z(t,this._tzLabel())}
 			${this._tip?this._tipHtml():null}
-		`}render(){if(this.mode==="attempt")return this._renderAttempt();let t=this._spec;return e`
+		`}_renderSpend(){let t=this._spec;return e`
 			<svg
 				class="plot"
 				viewBox="0 0 ${this._width||240} 40"
@@ -207,5 +207,5 @@ import{h,r,e,E,n}from"./lit-b59bf30faa0b21f8.js";import{k,F,O,Z,q}from"./lit-12b
 			${this._hairlineHtml()}
 			${this._axisHtml(t)}
 			${this._tip?this._tipHtml():null}
-		`}}
+		`}render(){if(this.mode==="attempt")return this._renderAttempt();return this._renderSpend()}}
 export{R};

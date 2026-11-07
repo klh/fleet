@@ -1,4 +1,4 @@
-import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc763ae.js";import{o,u,M,b,a,i,x,A,s,p}from"./lit-41f576601b74fc5b.js";import{m,I}from"./lit-abee8ae562874fb2.js";import{c}from"./lit-05d02c13d2fb5953.js";var re=new Set,L=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);re.add(l),customElements.define(l,d)};var U=r`${h(`@charset "UTF-8";
+import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-2a58fe1efc89d77c.js";import{o,u,M,b,a,i,x,A,s,p}from"./lit-41f576601b74fc5b.js";import{m,I}from"./lit-abee8ae562874fb2.js";import{c}from"./lit-05d02c13d2fb5953.js";var re=new Set,L=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);re.add(l),customElements.define(l,d)};var U=r`${h(`@charset "UTF-8";
 /* tone → color, self-contained: the page maps data-tone on .kcard/
    .kcol only, so the card owns its own --state-color token map. */
 :host([data-tone=ready]) {
@@ -103,13 +103,14 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 }
 
 .tid {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   padding: 0;
   border: 0;
   background: none;
   color: var(--klh-ink);
-  /* #101242: prominent own-line mono ID — 20px readable at 380 too */
-  font: 600 var(--klh-typo-size-3xl, 20px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  /* W2267.5 owner density correction: prominent own-line mono ID —
+     18px reads at the ~300–320px compact column */
+  font: 600 var(--klh-typo-size-2xl, 18px) var(--klh-font-mono, var(--klh-typo-mono-stack));
   text-align: left;
   cursor: pointer;
   overflow-wrap: anywhere;
@@ -122,8 +123,9 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 .title {
   margin: 2px 0 0;
   font-weight: 650;
-  font-size: var(--klh-typo-size-2xl, 16px);
-  line-height: 1.35;
+  /* W2267.5: 14px readable title at compact density */
+  font-size: var(--klh-typo-size-xl, 14px);
+  line-height: 1.32;
   /* long text truncates visually, full text stays accessible on hover */
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -132,9 +134,10 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 }
 
 .ctx {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: var(--klh-dim);
-  font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  /* W2267.5: 11px context at compact density */
+  font: var(--klh-typo-size-s, 11px) var(--klh-font-mono, var(--klh-typo-mono-stack));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -143,13 +146,13 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 .rule {
   border: 0;
   border-top: 1px solid var(--klh-edge-faint);
-  margin: 7px 0 0;
+  margin: 6px 0 0;
 }
 
 .cols {
   display: flex;
   gap: 0;
-  margin-top: 5px;
+  margin-top: 4px;
   /* model/host values sit in the spec's 12–13px band (#100618) */
   font: var(--klh-typo-size-m, 12px) var(--klh-font-mono, var(--klh-typo-mono-stack));
 }
@@ -160,7 +163,8 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 10px;
+  /* W2267.5: 8px gutters fit the compact column */
+  padding: 0 8px;
 }
 
 .col:first-child {
@@ -211,13 +215,13 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 
 .metrics {
   display: flex;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .m {
   flex: 1 1 0;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 8px;
   /* #103117: reference 09 card left-aligns every metric cell */
   text-align: left;
 }
@@ -231,7 +235,8 @@ import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-a5fbec0d7dc
 }
 
 .mv {
-  font: 600 var(--klh-typo-size-2xl, 16px) var(--klh-font-mono, var(--klh-typo-mono-stack));
+  /* W2267.5: compact metrics value — 13px keeps 4 cells in ~300px */
+  font: 600 var(--klh-typo-size-l, 13px) var(--klh-font-mono, var(--klh-typo-mono-stack));
   font-variant-numeric: tabular-nums;
   color: var(--klh-ink);
 }
@@ -345,7 +350,7 @@ footer button.seg:focus-visible,
 .seg select:focus-visible {
   outline: 2px solid var(--klh-accent);
   outline-offset: -2px;
-}`)}`;class q extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,g,v){super(q.eventName);this.action=l,this.id=d,this.project=g,this.executor=v?.executor,this.effort=v?.effort}}class D extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,g){super(D.eventName);this.id=l,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class W extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(W.eventName);this.id=l,this.project=d}}function V(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function G(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Y(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function J(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var E=s(p(o())),T=s(p(u())),se=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(M())}),oe=i({tokens:T,wallMs:T,tokPerMin:T,cachePct:T}),ie=i({mode:A(["spend","attempt"]),windowStartMs:T,windowEndMs:T,binMs:T,elapsedMs:T,scaleMs:T}),Q=i({id:o(),project:E,title:E,state:o(),ageS:T,contextLines:s(a(o())),parentRef:E,model:E,host:E,warn:E,metrics:s(oe),activity:s(ie),nested:s(M()),preferColor:E,executors:s(a(se)),executorPick:E,effortOptions:s(a(o())),effortPick:E,pendingAction:E});function X(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Z(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function ee(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function te(l){if(l==null)return"—";return`${Math.round(l)}%`}var H="—";class B extends n{static properties={card:{attribute:!1}};static styles=U;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return V(this.card.state)}open(){this.dispatchEvent(new W(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new q(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new D(this.card.id,this.card.project??null,l))}statusWord(){return G(this.card.state)}render(){let l=this.card,d=this.tone(),g=l.metrics??null,v=l.ageS==null?H:I(l.ageS),z=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,k=l.executors??[],w=l.executorPick??"",j=l.effortOptions??[],N=l.effortPick??"",P=l.pendingAction??"",S=(f,F)=>P===f?`${F}…`:F,K=(f)=>P===f,_=(f)=>P===f?"true":"false";return e`
+}`)}`;class q extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,g,v){super(q.eventName);this.action=l,this.id=d,this.project=g,this.executor=v?.executor,this.effort=v?.effort}}class W extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,g){super(W.eventName);this.id=l,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class D extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(D.eventName);this.id=l,this.project=d}}function V(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function G(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Y(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function J(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var E=s(p(o())),T=s(p(u())),se=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(M())}),oe=i({tokens:T,wallMs:T,tokPerMin:T,cachePct:T}),ie=i({mode:A(["spend","attempt"]),windowStartMs:T,windowEndMs:T,binMs:T,elapsedMs:T,scaleMs:T}),Q=i({id:o(),project:E,title:E,state:o(),ageS:T,contextLines:s(a(o())),parentRef:E,model:E,host:E,warn:E,metrics:s(oe),activity:s(ie),nested:s(M()),preferColor:E,executors:s(a(se)),executorPick:E,effortOptions:s(a(o())),effortPick:E,pendingAction:E});function X(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Z(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function ee(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function te(l){if(l==null)return"—";return`${Math.round(l)}%`}var H="—";class B extends n{static properties={card:{attribute:!1}};static styles=U;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return V(this.card.state)}open(){this.dispatchEvent(new D(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new q(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new W(this.card.id,this.card.project??null,l))}statusWord(){return G(this.card.state)}render(){let l=this.card,d=this.tone(),g=l.metrics??null,v=l.ageS==null?H:I(l.ageS),z=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,k=l.executors??[],w=l.executorPick??"",j=l.effortOptions??[],N=l.effortPick??"",P=l.pendingAction??"",S=(f,F)=>P===f?`${F}…`:F,K=(f)=>P===f,_=(f)=>P===f?"true":"false";return e`
 			${l.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
 				<div class="pad">

@@ -512,11 +512,15 @@ export class KlhCardActivity extends LitElement {
 	/** attempt-mode render: same plot band + hairline + axis assembly.
 	 *  W2701 (owner #108724): the REAL spend spikes stay — the attempt marks
 	 *  ride as a translucent band over the SAME spectral field, so the fine
-	 *  token signal is never substituted by broad state blocks. */
+	 *  token signal is never substituted by broad state blocks.
+	 *  W2267.5: no attempt payload → the SPEND truth view stays (the toggle
+	 *  applies where an attempt exists; a grey empty band must never replace
+	 *  the visible fine-token signal). */
 	private _renderAttempt(): TemplateResult {
 		const a = this.attempt;
 		const w = this._width || 240;
 		if (!a) {
+			if (this._spec.hasData) return this._renderSpend();
 			// explicit empty state — never a zero-valued success trace
 			return html`<div class="attempt-empty" role="img">
 					no attempt in the fixed 90-minute window
@@ -537,8 +541,9 @@ export class KlhCardActivity extends LitElement {
 		`;
 	}
 
-	protected override render() {
-		if (this.mode === "attempt") return this._renderAttempt();
+	/** spend-mode render (also the attempt-mode fallback when no attempt
+	 *  payload exists but real spend points do — W2267.5). */
+	private _renderSpend(): TemplateResult {
 		const spec = this._spec;
 		return html`
 			<svg
@@ -558,5 +563,10 @@ export class KlhCardActivity extends LitElement {
 			${this._axisHtml(spec)}
 			${this._tip ? this._tipHtml() : null}
 		`;
+	}
+
+	protected override render() {
+		if (this.mode === "attempt") return this._renderAttempt();
+		return this._renderSpend();
 	}
 }
