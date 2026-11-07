@@ -1,9 +1,9 @@
-import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
-const f = await boardFixture(0, afterAll);
+const f = await boardFixture(0, test.afterAll);
 test("usage HTTP API defaults to real provenance; explicit opt-in includes seeds", async () => {
 	const db = new Database(join(f.HOME, ".cache/claude-governor/governor.db"));
 	try {

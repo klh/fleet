@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
+import { expect, test } from "@playwright/test";
 import { usagePage } from "../hooks/bin/usage-page-html.ts";
+import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
 
 test("demo provenance is excluded across series; names never hide real traffic", () => {
 	const db = new Database(":memory:");

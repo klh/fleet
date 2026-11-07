@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { seedUsage } from "../hooks/lib/usage/usage-seed.ts";
+import { expect, test } from "@playwright/test";
+import { probePathFor } from "@klh/belt/bin/inventory-probe.ts";
 import { buildUsageReport } from "../hooks/lib/usage/usage.ts";
-import { probePathFor } from "../../belt/bin/inventory-probe.ts";
+import { seedUsage } from "../hooks/lib/usage/usage-seed.ts";
 
 function seeded() {
 	const db = new Database(":memory:");

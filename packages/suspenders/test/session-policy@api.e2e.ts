@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
@@ -12,18 +11,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
-	checkSessionPolicies,
 	boundedPolicyEvaluation,
+	checkSessionPolicies,
 	evaluateSessionPolicy,
 	policyAuthority,
 } from "../hooks/lib/policy/session-policy.ts";
+import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import {
-	proposeRemediation,
 	decideRemediation,
 	getRemediationById,
+	proposeRemediation,
 } from "../hooks/lib/policy-workflow/store.ts";
-import { HEALTH_POLICY_ID } from "../hooks/lib/policy-workflow/health-policy.ts";
 import { boardFixture } from "./helpers/board-fixture.ts";
 
 const fixture = await boardFixture(0, test.afterAll);
