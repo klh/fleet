@@ -20,6 +20,13 @@ import {
 	releaseClaudeWake,
 	waitForManagedClaudeWakeClaim,
 } from "../lib/executors/claude-wake.ts";
+import {
+	bankTransientAbandonment,
+	classifyTransientResult,
+	parseTransientKnobs,
+	transientBackoffMs,
+	transientContinuationPrompt,
+} from "../lib/executors/claude-transient.ts";
 // W1035.1: interrupt results are internal turn boundaries — never terminal.
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 import { restartBootstrap } from "../lib/executors/claude-restart.ts";
@@ -65,6 +72,94 @@ async function run(args: string[]): Promise<number> {
 	let pauseCheckpoint: string | null = restart?.checkpoint ?? null;
 	let verifyingPause: Promise<void> | undefined;
 	let finishTimer: ReturnType<typeof setTimeout> | undefined;
+	// W2545: a transient transport terminal result (gateway 503/429) holds the
+	// native open with ONE bounded retry owner here — never the normal close.
+	const transient = parseTransientKnobs(process.env);
+	let transientAttempt = 0;
+	let transientTimer: ReturnType<typeof setTimeout> | undefined;
+	// One serialized injection path: wake deliveries and transient-retry
+	// continuations queue instead of racing on control.steer's busy guard.
+	let injectChain: Promise<unknown> = Promise.resolve();
+	const injectTurn = (prompt: string): Promise<void> => {
+		const next = injectChain.then(
+			() => control.steer(prompt),
+			() => control.steer(prompt),
+		);
+		injectChain = next.catch(() => {});
+		return next;
+	};
+	// W2545 episode state: pending verdict, the retry-in-flight marker (set
+	// exactly when the retry injection starts, inside the serialized chain —
+	// it attributes the next result to the retry turn), the exit override
+	// after budget exhaustion, and the capsule-write receipt promise.
+	let transientPending: ReturnType<typeof classifyTransientResult> = null;
+	let transientRetryLive = false;
+	let transientExit: number | null = null;
+	let transientDone: Promise<void> = Promise.resolve();
+	/** Budget exhausted: persist the resumable disposition (capsule via the
+	 * coord CLI — no model call) and mark the exit EX_TEMPFAIL. */
+	const abandonTransient = (detail: string, attempt: number) => {
+		clearTimeout(transientTimer);
+		transientTimer = undefined;
+		transientExit = 75;
+		transientDone = bankTransientAbandonment(
+			sid,
+			detail,
+			attempt,
+			{ cwd: process.cwd(), env: process.env },
+			new URL("./coord.ts", import.meta.url).pathname,
+		).then((receipt) => {
+			emit({
+				type: "fleet.claude.transient",
+				sid,
+				state: "abandoned",
+				attempt,
+				...receipt,
+				detail,
+			});
+			// Shutdown only after the receipt landed: the native closes, the
+			// wrapper exits EX_TEMPFAIL — preserved, retryable, never silently
+			// RUNNING and never a product failure.
+			closing = true;
+			abort.abort();
+			child.stdin.end();
+		});
+	};
+	/** Arm the one bounded retry owner. Fenced by pause/resume: a paused or
+	 * closing runtime never injects; resume re-arms the pending episode. */
+	const armTransientRetry = () => {
+		const verdict = transientPending;
+		if (!verdict || closing || pauseMode !== "running") return;
+		const delayMs = transientBackoffMs(
+			transientAttempt,
+			transient,
+			verdict.retryAfterMs,
+		);
+		emit({
+			type: "fleet.claude.transient",
+			sid,
+			state: "waiting",
+			attempt: transientAttempt,
+			maxAttempts: transient.maxAttempts,
+			delayMs,
+			...verdict,
+		});
+		transientTimer = setTimeout(() => {
+			transientTimer = undefined;
+			// Fire-time fence: a pause/stop that arrived mid-backoff wins — the
+			// pending episode survives and resume re-arms it.
+			if (closing || pauseMode !== "running") return;
+			// Attribute the NEXT result to this retry turn: its recovery clears
+			// the episode; a new transient verdict re-arms the next one.
+			transientRetryLive = true;
+			injectTurn(
+				transientContinuationPrompt(transientAttempt, transient, verdict),
+			).catch(() => {
+				transientRetryLive = false;
+				abandonTransient(verdict.detail, transientAttempt);
+			});
+		}, delayMs);
+	};
 	const finishWhenIdle = () => {
 		clearTimeout(finishTimer);
 		finishTimer = setTimeout(() => {
@@ -123,7 +218,11 @@ async function run(args: string[]): Promise<number> {
 					const resumed = (await claudeLaneState(sid)) === "RUNNING";
 					if (resumed) {
 						pauseMode = "running";
-						finishWhenIdle();
+						// W2545: a transient episode fenced by the pause re-arms
+						// now — the retry injects into the resumed conversation
+						// (and the idle close stays off until it resolves).
+						if (transientPending) armTransientRetry();
+						else finishWhenIdle();
 					}
 					emit({
 						type: "fleet.claude.pause",
@@ -141,7 +240,28 @@ async function run(args: string[]): Promise<number> {
 				!control.busy &&
 				!control.interruptBoundaryResult
 			) {
-				finishWhenIdle();
+				// W2545: classify BEFORE the normal idle finish — a transient
+				// transport terminal (gateway 503/429, is_error) holds the native
+				// open with ONE bounded retry owner instead of closing.
+				const verdict = classifyTransientResult(frame);
+				if (verdict) {
+					transientPending = verdict;
+					transientAttempt += 1;
+					if (transientAttempt > transient.maxAttempts)
+						abandonTransient(verdict.detail, transientAttempt);
+					else armTransientRetry();
+				} else {
+					// A non-transient result ends the episode ONLY when it is
+					// the retry turn's own recovery (transientRetryLive). An
+					// interleaved note turn landing during the backoff window
+					// never cancels a pending episode — the armed retry still
+					// owns the close.
+					if (transientRetryLive) {
+						transientRetryLive = false;
+						transientPending = null;
+						finishWhenIdle();
+					} else if (!transientPending) finishWhenIdle();
+				}
 			}
 		} catch {
 			// Non-JSON diagnostics remain visible, never become protocol input.
@@ -151,6 +271,7 @@ async function run(args: string[]): Promise<number> {
 	const stop = () => {
 		closing = true;
 		abort.abort();
+		clearTimeout(transientTimer);
 		child.kill("SIGTERM");
 	};
 	process.on("SIGTERM", stop);
@@ -236,7 +357,9 @@ async function run(args: string[]): Promise<number> {
 					}
 				}
 				if (kind === "pause_requested") pauseMode = "checkpointing";
-				await control.steer(
+				// W2545: ride the serialized injection chain — a transient-retry
+				// continuation in flight must never race a wake delivery.
+				await injectTurn(
 					kind === "pause_requested"
 						? claudePausePrompt(sid, text)
 						: kind === "resume_ready"
@@ -323,11 +446,15 @@ async function run(args: string[]): Promise<number> {
 	abort.abort();
 	control.close();
 	clearTimeout(finishTimer);
+	clearTimeout(transientTimer);
 	await delivery;
+	// W2545: a transport-abandoned episode overrides the native's exit code
+	// with EX_TEMPFAIL once its capsule receipt landed.
+	await transientDone;
 	process.off("SIGTERM", stop);
 	process.off("SIGINT", stop);
 	lines.close();
-	return code;
+	return transientExit ?? code;
 }
 
 if (import.meta.main)
