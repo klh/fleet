@@ -104,13 +104,9 @@ export const BODY = String.raw`
   <div class="feed"><div id="actBody"><div class="r"><span class="dim">loading activity...</span></div></div></div>
 </section>
 <section id="tab-report" hidden>
-  <div class="taskbar">
-    <span id="reportStamp" class="dim" role="status"></span>
-  </div>
-  <klh-err-banner id="reportErr" class="taberr" feed="report" hidden></klh-err-banner>
-  <pre id="reportTable" class="rpttable">loading the work report...</pre>
-  <nav id="reportRows" class="rptstrip" aria-label="Expand a report row for its live lane detail"></nav>
-  <div id="reportDetail" class="rptdetail"></div>
+  <klh-report-mediator>
+    <klh-report></klh-report>
+  </klh-report-mediator>
 </section>
 <section id="tab-governor" hidden>
   <div class="taskbar">
@@ -145,9 +141,9 @@ export const BODY = String.raw`
   <details class="sec govpanel"><summary>Event stream</summary><div class="feed"><div class="filters" id="filters"></div><div id="events"></div></div></details>
 </section>
 <section id="tab-setup" hidden>
-  <klh-err-banner id="setupErr" class="taberr" feed="setup" hidden></klh-err-banner>
-  <p id="setupSummary" class="setupsummary dim" aria-live="polite"></p>
-  <div class="grid" id="setupBody"><div class="state dim">loading setup checks...</div></div>
+  <klh-setup-mediator>
+    <klh-setup></klh-setup>
+  </klh-setup-mediator>
 </section>
 <section id="tab-usage" hidden>
   <div id="usageState" class="state dim" role="status">loading usage...</div>
@@ -185,7 +181,8 @@ var curTab = 'decisions';
 var tasksData = null; var tasksOkAt = 0; var tasksErr = null; var tasksBusy = false; var tasksLoaded = false;
 var actData = null; var actOkAt = 0; var actErr = null; var actBusy = false; var actLoaded = false;
 var actDrill = null; // W858.7.4.2 {start,end} ms — the histogram bar drilled into (null = whole feed)
-var setupData = window.__SETUP__ || null; var setupOkAt = setupData ? (setupData.ts || 1) : 0; var setupErr = null; var setupBusy = false; var setupLoaded = !!setupData;
+// setup checklist state lives in <klh-setup-mediator>; work-report state
+// in <klh-report-mediator> (W2550.3 Lit carrier)
 var task = { id: null, proj: null, data: null, err: null, busy: false, okAt: 0, trigger: null }; // open drawer state
 // W55 per-item diff + line comments (state outlives the drawer's 5s rebuilds;
 // the drawer body sig-changes every poll, #taskDiff keeps its own sig)

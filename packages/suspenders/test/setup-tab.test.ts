@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { runInNewContext } from "node:vm";
+// W858.7.21: the Setup family — grouped checklist (KlhSetup leaf pins) +
+// the tab shell's setup kick (the feed is mediator-defined now; the shell
+// kicks it by name, the decisions-hist precedent).
+import { setupGroups } from "../hooks/board-html/klh-setup.ts";
+import type { SetupCheck } from "../hooks/board-html/setup-slice.ts";
 import { TABS } from "../hooks/board-html/tabs.ts";
-// W858.7.21: the Setup client chunk — grouped checklist rendering.
-import { SETUP } from "../hooks/board-html/setup.ts";
 
 describe("setup activation", () => {
 	test("direct setup hash and returning to Setup request fresh checks", () => {
@@ -23,11 +26,18 @@ describe("setup activation", () => {
 			document: {
 				querySelector: () => ({ querySelectorAll: () => [] }),
 			},
+			window: { scrollTo: () => {} },
 			byId: (id: string) => {
-				if (!sections.has(id)) sections.set(id, { hidden: true });
+				if (!sections.has(id))
+					// parentElement: setTab toggles the search label's wrapper
+					sections.set(id, { hidden: true, parentElement: { hidden: true } });
 				return sections.get(id);
 			},
-			pollSetup: () => requests++,
+			feeds: {
+				kick: (name: string) => {
+					if (name === "setup") requests++;
+				},
+			},
 			pollHist: () => {},
 			renderSetup: () => {},
 			renderHist: () => {},
@@ -46,28 +56,9 @@ describe("setup activation", () => {
 	});
 });
 
-// W858.7.21 harness: run the SETUP client chunk against DOM stubs and
-// capture the sigSet payload renderSetup builds.
-function runSetupRender(checks: Record<string, unknown>[]): string {
-	const captured: { html?: string } = {};
-	runInNewContext(`${SETUP}\nrenderSetup();`, {
-		esc: (s: unknown) => String(s),
-		byId: () => ({}),
-		setText: () => {},
-		sigSet: (_el: unknown, _sig: unknown, html: string) => {
-			captured.html = html;
-		},
-		setupData: { checks },
-		setupOkAt: 123,
-		setupLoaded: true,
-		setupErr: null,
-	});
-	return captured.html ?? "";
-}
-
 describe("W858.7.21 setup checklist grouping", () => {
 	test("local wiring vs remote reachability, no check hidden", () => {
-		const html = runSetupRender([
+		const checks: SetupCheck[] = [
 			{
 				id: "llm",
 				label: "Advice LLM endpoint",
@@ -96,23 +87,20 @@ describe("W858.7.21 setup checklist grouping", () => {
 				detail: "127.0.0.1",
 				fix: null,
 			},
-		]);
-		expect(html).toContain('sgroup">Local wiring <span class="dim">(2)</span>');
-		expect(html).toContain(
-			'sgroup">Remote reachability <span class="dim">(2)</span>',
-		);
-		// every check renders exactly once — none hidden, none duplicated
-		for (const label of [
-			"Advice LLM endpoint",
+		];
+		const { local, remote } = setupGroups(checks);
+		expect(local.map((c) => c.label)).toEqual([
 			"Control-plane database",
-			"Hub reachability",
 			"LAN binding",
-		]) {
-			const first = html.indexOf(label);
-			expect(first).toBeGreaterThanOrEqual(0);
-			expect(html.indexOf(label, first + 1)).toBe(-1);
-		}
+		]);
+		expect(remote.map((c) => c.label)).toEqual([
+			"Advice LLM endpoint",
+			"Hub reachability",
+		]);
+		// every check renders exactly once — none hidden, none duplicated
+		expect(local.length + remote.length).toBe(checks.length);
 		// the failed hub card carries the concrete recovery command
-		expect(html).toContain("bun deploy/hubctl.ts status nas");
+		const hubs = remote.find((c) => c.label === "Hub reachability");
+		expect(hubs?.fix).toBe("bun deploy/hubctl.ts status nas");
 	});
 });

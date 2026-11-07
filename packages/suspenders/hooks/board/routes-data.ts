@@ -169,6 +169,12 @@ export async function handleData(
 				vf === "klh-card-activity.js" ||
 				vf === "klh-decisions.js" ||
 				vf === "klh-decisions-mediator.js" ||
+				// W2550.3: the report + setup Lit families (family 3 of the
+				// W2550 residual carrier)
+				vf === "klh-report.js" ||
+				vf === "klh-report-mediator.js" ||
+				vf === "klh-setup.js" ||
+				vf === "klh-setup-mediator.js" ||
 				// W2267.4.2.2 (#103176): the ONE registration entry — the
 				// card/activity/host class modules export definitions only
 				vf === "klh-board-register.js" ||

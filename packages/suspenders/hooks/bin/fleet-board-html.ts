@@ -33,8 +33,6 @@ import { DIFF } from "../board-html/diff.ts";
 import { LAUNCH } from "../board-html/launch.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
-import { REPORT } from "../board-html/report.ts";
-import { SETUP } from "../board-html/setup.ts";
 import { SHIP } from "../board-html/ship.ts";
 import { ACTIONS_RETRY } from "../board-html/actions-retry.ts";
 import { TABS } from "../board-html/tabs.ts";
@@ -495,7 +493,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
@@ -505,5 +503,9 @@ ${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPOR
 <script type="module" src="/vendor/klh-board-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions.js"></script>
+<script type="module" src="/vendor/klh-report-mediator.js"></script>
+<script type="module" src="/vendor/klh-report.js"></script>
+<script type="module" src="/vendor/klh-setup-mediator.js"></script>
+<script type="module" src="/vendor/klh-setup.js"></script>
 <script type="module" src="/vendor/klh-card-activity.js"></script>
 <script type="module" src="/vendor/klh-board-register.js"></script>`);
