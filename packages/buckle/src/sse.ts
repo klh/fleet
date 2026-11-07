@@ -204,6 +204,13 @@ export class SseSniffer {
 		return this.frames;
 	}
 
+	/** W2579: the live usable-output vs reasoning-only frame split — the
+	 *  receipt's role-only classification for an idle-deadline kill, which
+	 *  never reaches the terminal reduction. */
+	outputEvidence(): { outputFrames: number; roleFrames: number } {
+		return this.semantics.outputEvidence();
+	}
+
 	/** W1106 (#55446/#55461): an in-band failure arrived — non-success even
 	 *  when a terminal marker follows it. The empty-stream guard rides the
 	 *  same verdict: a protocol terminal WITHOUT usable output is also a
