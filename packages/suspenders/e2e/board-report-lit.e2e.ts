@@ -92,3 +92,38 @@ test("a lane spawn lands in the open table within the poll cycle", async ({
 		timeout: 15_000,
 	});
 });
+
+test("switching rows shows the loading window, never the previous row", async ({
+	page,
+	board,
+}) => {
+	await page.goto(`${board.BASE}/#report`);
+	const detail = page.locator("#reportDetail");
+	// expand w1 for real — its lane detail lands
+	const a = page.locator(`.rptrow[data-rid="${w1}"]`);
+	await expect(a).toBeVisible({ timeout: 15_000 });
+	await a.click();
+	await expect(detail).toContainText(w1);
+	// hold the NEXT row's fetch (W2847): the swap clears the store's
+	// reportRow state, so w1's landed payload can never render under w2
+	let release: (() => void) | null = null;
+	await page.route(
+		"**/api/report-row*",
+		async (route) =>
+			new Promise<void>((resolve) => {
+				release = () => {
+					void route.fallback();
+					resolve();
+				};
+			}),
+	);
+	try {
+		await page.locator(`.rptrow[data-rid="${w2}"]`).click();
+		await expect(detail).toContainText("loading row detail...");
+		await expect(detail).not.toContainText("autow25503-e2e-lane");
+	} finally {
+		release?.();
+	}
+	// route released: the real endpoint answers, w2's own detail lands
+	await expect(detail).toContainText(w2, { timeout: 15_000 });
+});

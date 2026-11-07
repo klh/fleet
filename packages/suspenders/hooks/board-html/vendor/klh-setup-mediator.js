@@ -1,4 +1,4 @@
-import{r,e,n}from"./lit-f18bcbfe556b7350.js";import{w}from"./lit-dc60aaafb4061444.js";import{p}from"./lit-8bb1c1d0712ecae7.js";var a=(t)=>{let s=t;if(!s||s.ok===!1||!Array.isArray(s.checks))throw Error("bad /api/setup payload")};class o extends n{static styles=r`
+import{r,e,n}from"./lit-f18bcbfe556b7350.js";import{w}from"./lit-dc60aaafb4061444.js";import{p}from"./lit-032b27a86ffe7dd0.js";var a=(t)=>{let s=t;if(!s||s.ok===!1||!Array.isArray(s.checks))throw Error("bad /api/setup payload")};class o extends n{static styles=r`
 		:host {
 			display: contents;
 		}

@@ -134,7 +134,10 @@ export class KlhReportMediator extends LitElement {
 		this.ticker = null;
 	}
 
-	/** Toggle contract: the same chip closes; a new chip swaps + refetches. */
+	/** Toggle contract: the same chip closes; a new chip swaps + refetches.
+	 * A swap also CLEARS the store's reportRow state — push() would
+	 * otherwise fall back to the previous row's landed payload and render
+	 * it under the new chip until the fetch lands. */
 	private onToggle(e: ReportRowToggleRequestedEvent): void {
 		e.stopPropagation();
 		if (this.open === e.id) {
@@ -147,6 +150,7 @@ export class KlhReportMediator extends LitElement {
 		this.open = e.id;
 		this.detail = null;
 		this.detailErr = null;
+		this.store.clear("reportRow");
 		this.store.kick("reportRow", true);
 		this.push();
 	}

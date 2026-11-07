@@ -207,6 +207,20 @@ export class FeedStore {
 		const f = this.feeds[name];
 		return f ? f.state : null;
 	}
+	/** Drop a feed's landed payload + error (a row/drawer switch renders the
+	 * loading window until the new scope lands — the previous scope's data
+	 * must never leak into it). Cadence, queues and any in-flight request
+	 * are untouched; the store stays the one writer. */
+	clear(name: string) {
+		const f = this.feeds[name];
+		if (!f) return;
+		f.state.data = null;
+		f.state.err = null;
+		f.state.loaded = false;
+		f.key = undefined;
+		f.keyUrl = null;
+		f.etag = null;
+	}
 	names() {
 		return Object.keys(this.feeds).filter((n) => !this.feeds[n].shadowOf);
 	}
