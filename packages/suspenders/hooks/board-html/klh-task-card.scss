@@ -86,8 +86,8 @@
 			background: none;
 			color: var(--klh-ink);
 			/* W2267.5 owner density correction: prominent own-line mono ID —
-			   18px reads at the ~300–320px compact column */
-			font: 600 var(--klh-typo-size-2xl, 18px)
+			   3xl (18px in the canonical scale) reads at the compact column */
+			font: 600 var(--klh-typo-size-3xl, 18px)
 				var(--klh-font-mono, var(--klh-typo-mono-stack));
 			text-align: left;
 			cursor: pointer;
@@ -253,6 +253,11 @@
 		}
 		.seg {
 			flex: 1 1 0;
+			/* W2267.5: flex children must shrink inside the ~300px card —
+			   min-width:auto (the default) let long labels overflow the rail */
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
 			min-height: 32px;
 			display: flex;
 			align-items: center;
@@ -283,7 +288,12 @@
 		.seg.prompt {
 			color: var(--klh-accent);
 		}
-		.seg select {
+		select.seg {
+			/* W2267.5: the selects carry .seg THEMSELVES (direct rail
+			   children) — `.seg select` matched nothing, so they rendered
+			   unbounded and pushed the rail past the ~300px card. Equal-share
+			   flex + min-width:0 bounds them; the visible label truncates,
+			   options keep their full text. */
 			flex: 1 1 0;
 			min-width: 0;
 			height: 32px;
@@ -297,7 +307,7 @@
 		}
 		footer button.seg:focus-visible,
 		.tid:focus-visible,
-		.seg select:focus-visible {
+		select.seg:focus-visible {
 			outline: 2px solid var(--klh-accent);
 			outline-offset: -2px;
 		}
