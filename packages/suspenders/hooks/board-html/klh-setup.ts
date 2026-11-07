@@ -18,6 +18,19 @@ import type { SetupCheck, SetupSlice } from "./setup-slice.ts";
 /** W858.7.21: ids whose check verifies the far end, not this machine. */
 const REMOTE_CHECKS: Record<string, 1> = { llm: 1, hubs: 1 };
 
+/** Split the checklist into its two groups — this machine's wiring vs
+ * network probes. REMOTE_CHECKS pins the minority; unmapped ids default
+ * to local (never hidden, worst case a future remote check shows under
+ * local until the map grows). Exported pure: the unit grouping pins. */
+export const setupGroups = (
+	checks: SetupCheck[],
+): { local: SetupCheck[]; remote: SetupCheck[] } => {
+	const local: SetupCheck[] = [];
+	const remote: SetupCheck[] = [];
+	for (const c of checks) (REMOTE_CHECKS[c.id || ""] ? remote : local).push(c);
+	return { local, remote };
+};
+
 export class KlhSetup extends LitElement {
 	static properties = {
 		slice: { attribute: false },
@@ -113,9 +126,7 @@ export class KlhSetup extends LitElement {
 		if (!s.loaded && !s.err)
 			return html`<div class="state dim">loading setup checks...</div>`;
 		const cs = s.data?.checks ?? [];
-		const local: SetupCheck[] = [];
-		const remote: SetupCheck[] = [];
-		for (const c of cs) (REMOTE_CHECKS[c.id || ""] ? remote : local).push(c);
+		const { local, remote } = setupGroups(cs);
 		return html`
 			<klh-err-banner
 				id="setupErr"

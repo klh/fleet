@@ -8,9 +8,9 @@ function pollActiveTab(){
   if (curTab === 'tasks' || curTab === 'lanes') pollTasks();
   else if (curTab === 'activity') pollAct();
   else if (curTab === 'decisions') { if (feeds && feeds.kick) feeds.kick('hist', true); } // no-op while history is collapsed (url() gates)
-  else if (curTab === 'setup') pollSetup();
+  else if (curTab === 'setup') { if (feeds && feeds.kick) feeds.kick('setup', true); } // the setup family's feed (mediator-defined; url() gates)
   else if (curTab === 'usage') pollUsage();
-  else if (curTab === 'report') pollReport(); // W1198 live work-report pane
+  else if (curTab === 'report') { if (feeds && feeds.kick) feeds.kick('report', true); } // W1198 live work-report pane (mediator-defined)
   // governor rides /api/data
 }
 function renderTab(){
@@ -18,8 +18,8 @@ function renderTab(){
   else if (curTab === 'lanes') renderKanban();
   else if (curTab === 'activity') renderAct();
   else if (curTab === 'usage') pollUsage();
-  else if (curTab === 'report') renderReport(); // W1198 live work-report pane
-  else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderFacts(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }  else if (curTab === 'setup') renderSetup();
+  else if (curTab === 'governor') { if (lastData) { renderFleet(); renderClaims(lastData); renderFacts(lastData); renderDone(lastData); renderEvents(lastData); renderLlm(lastData); } }
+  // report + setup render themselves (<klh-report>/<klh-setup> own their DOM)
 }
 var nav = byId('boardTabs'); // <klh-board-tabs> (W695.3.6): owns the buttons, emits tab-select
 function setTab(id, fromHash){
@@ -267,12 +267,6 @@ tailEl.addEventListener('input', function(e){
 });
 tailEl.addEventListener('keydown', function(e){
   if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('lanemsg')) { e.preventDefault(); sendLaneMsg(); }
-});
-byId('setupBody').addEventListener('click', function(e){
-  var b = e.target.closest && e.target.closest('.copyfix');
-  if (!b) return;
-  var fix = b.getAttribute('data-fix') || '';
-  navigator.clipboard.writeText(fix).then(function(){ toast('copied to clipboard'); }, function(){ toast('copy failed — select the command text'); });
 });
 byId('needsn').addEventListener('click', function(){
   setTab('decisions');

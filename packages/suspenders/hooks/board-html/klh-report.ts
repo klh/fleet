@@ -96,7 +96,7 @@ export class KlhReport extends LitElement {
 					(r) => html`
 						<button
 							type="button"
-							class="rptrow${s.open === r.id ? " on" : nothing}"
+							class=${s.open === r.id ? "rptrow on" : "rptrow"}
 							data-rid=${r.id}
 							title=${r.title}
 							@click=${() =>
