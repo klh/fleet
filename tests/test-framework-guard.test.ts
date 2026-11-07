@@ -38,7 +38,12 @@ const SELF = "tests/test-framework-guard.test.ts";
 // parked/W2654, carried by W2739's rebase) re-pins DOWN on top
 // (635 → 605 at the W2812 rebase integration — this tree carries both
 // waves, re-pinned at its own measured landing count).
-const PIN = 605;
+// W1294.9.5 sweep-G slice-5 (17 session-*/usage-* specs, merged via
+// W2656, rebased W2736) re-pins DOWN further (605 → 589; its 17-file
+// wave nets −16, one rename was already e2e) — the pin tracks the
+// landing tree's net count, verified by THIS guard's own git ls-files
+// counting at the closing sha (W2823 merge of parked/W2816).
+const PIN = 589;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });

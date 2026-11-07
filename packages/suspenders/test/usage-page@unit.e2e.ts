@@ -6,10 +6,10 @@
 // client-side, so tests assert payload shape + static hosts, not panel HTML.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-usage-page-"));
 const { buildUsageReport } = await import(
@@ -19,7 +19,7 @@ const { usagePage } = await import(
 	`../hooks/bin/usage-page-html.ts?home=${encodeURIComponent(HOME)}`
 );
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 });
 
@@ -100,7 +100,7 @@ function seed(db: Database): void {
 	sess.run("s2", 2, 2, "bob", '{"team":"apps","department":"product"}');
 }
 
-describe("buildUsageReport filters (W152)", () => {
+test.describe("buildUsageReport filters (W152)", () => {
 	test("one-hour drilldown keeps actor, model and tag attribution", () => {
 		const db = freshDb();
 		seed(db);
@@ -175,7 +175,7 @@ describe("buildUsageReport filters (W152)", () => {
 	});
 });
 
-describe("usagePage render contract (W152)", () => {
+test.describe("usagePage render contract (W152)", () => {
 	test("embeds payload, chips, vendored uPlot, shell; LOCAL-ONLY", () => {
 		const db = freshDb();
 		seed(db);
@@ -253,7 +253,7 @@ describe("usagePage render contract (W152)", () => {
 	});
 });
 
-describe("usagePage chips + LOCAL-ONLY (W152)", () => {
+test.describe("usagePage chips + LOCAL-ONLY (W152)", () => {
 	test("chips compose, actor table pre-filtered, no home paths leak", () => {
 		const db = freshDb();
 		seed(db);
@@ -281,7 +281,7 @@ describe("usagePage chips + LOCAL-ONLY (W152)", () => {
 	});
 });
 
-describe("usagePage aids seam (W152)", () => {
+test.describe("usagePage aids seam (W152)", () => {
 	test("degrades honestly when empty, lights up when aids exist", () => {
 		const db = freshDb();
 		seed(db);
@@ -331,7 +331,7 @@ describe("usagePage aids seam (W152)", () => {
 	});
 });
 
-describe("usagePage coverage evidence (W858.11)", () => {
+test.describe("usagePage coverage evidence (W858.11)", () => {
 	type CoverageSlice = {
 		from: string;
 		to: string;

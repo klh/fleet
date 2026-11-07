@@ -6,7 +6,6 @@
 // + repo, spawns the real hook.
 
 import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -16,6 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-worker-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-worker-repo-"));
@@ -69,12 +69,12 @@ function seedReady(): void {
 	db.close();
 }
 
-afterAll(() => {
+test.afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
 });
 
-describe("worker-role lane bootstrap (W1124.12)", () => {
+test.describe("worker-role lane bootstrap (W1124.12)", () => {
 	test("registers as a top-level session and stays coordination-live", () => {
 		const r = runHook();
 		expect(r.code).toBe(0);
