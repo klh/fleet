@@ -88,9 +88,12 @@ async function run(args: string[]): Promise<number> {
 		injectChain = next.catch(() => {});
 		return next;
 	};
-	// W2545 episode state: pending verdict, the exit override after budget
-	// exhaustion, and its capsule-write receipt promise.
+	// W2545 episode state: pending verdict, the retry-in-flight marker (set
+	// exactly when the retry injection starts, inside the serialized chain —
+	// it attributes the next result to the retry turn), the exit override
+	// after budget exhaustion, and the capsule-write receipt promise.
 	let transientPending: ReturnType<typeof classifyTransientResult> = null;
+	let transientRetryLive = false;
 	let transientExit: number | null = null;
 	let transientDone: Promise<void> = Promise.resolve();
 	/** Budget exhausted: persist the resumable disposition (capsule via the
@@ -146,9 +149,15 @@ async function run(args: string[]): Promise<number> {
 			// Fire-time fence: a pause/stop that arrived mid-backoff wins — the
 			// pending episode survives and resume re-arms it.
 			if (closing || pauseMode !== "running") return;
+			// Attribute the NEXT result to this retry turn: its recovery clears
+			// the episode; a new transient verdict re-arms the next one.
+			transientRetryLive = true;
 			injectTurn(
 				transientContinuationPrompt(transientAttempt, transient, verdict),
-			).catch(() => abandonTransient(verdict.detail, transientAttempt));
+			).catch(() => {
+				transientRetryLive = false;
+				abandonTransient(verdict.detail, transientAttempt);
+			});
 		}, delayMs);
 	};
 	const finishWhenIdle = () => {
@@ -242,8 +251,16 @@ async function run(args: string[]): Promise<number> {
 						abandonTransient(verdict.detail, transientAttempt);
 					else armTransientRetry();
 				} else {
-					transientPending = null;
-					finishWhenIdle();
+					// A non-transient result ends the episode ONLY when it is
+					// the retry turn's own recovery (transientRetryLive). An
+					// interleaved note turn landing during the backoff window
+					// never cancels a pending episode — the armed retry still
+					// owns the close.
+					if (transientRetryLive) {
+						transientRetryLive = false;
+						transientPending = null;
+						finishWhenIdle();
+					} else if (!transientPending) finishWhenIdle();
 				}
 			}
 		} catch {

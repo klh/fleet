@@ -299,6 +299,55 @@ test("child exit during an episode never masquerades as success", async () => {
 	}
 });
 
+test("a wake note delivered mid-backoff never cancels the pending episode", async () => {
+	const home = mkdtempSync(join(tmpdir(), "fleet-transient-note-"));
+	const sid = "transient-note-interleave";
+	try {
+		// long window so the note genuinely lands mid-backoff (a 10ms
+		// window lets the retry win the race and hides the regression)
+		const spawn = spawnRuntime(
+			sid,
+			home,
+			{
+				...fastKnobs,
+				SUSPENDERS_CLAUDE_TRANSIENT_BASE_MS: "1500",
+				SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "1500",
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+				// one 503, then recovery on the retry turn
+				SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503",
+			},
+			12000,
+		);
+		// urgent note lands DURING the backoff window
+		const waiting = new Promise<void>((resolve) => {
+			const t = setInterval(() => {
+				if (
+					spawn.frames.some(
+						(f) => f.type === "fleet.claude.transient" && f.state === "waiting",
+					)
+				) {
+					clearInterval(t);
+					resolve();
+				}
+			}, 20);
+		});
+		await waiting;
+		expect(spawn.signal(20, "NOTE", { urgent: "1" })).toBe(true);
+		const code = await spawn.child.exited;
+		await spawn.read;
+		// the note turn delivered AND the episode still recovered
+		expect(spawn.frames.some((f) => f.result === "DIRECT_DELIVERED")).toBe(
+			true,
+		);
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			true,
+		);
+		expect(code).toBe(0);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
 test("pause during backoff fences the retry; resume re-arms and recovers", async () => {
 	const { home, cwd, sid, env: fixtureEnv } = pausedLaneFixture();
 	try {
