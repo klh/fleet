@@ -1,12 +1,11 @@
-// <threads-mark> — the Dynamic Identity stitch as an embeddable badge.
-// Dependency-free twin of the generator on threads.dk (src/lib/mark.ts):
-// same mulberry32 PRNG, same generateMark, same drawing rules. Keep the
-// two files in sync if the mark's rules change.
+// <threads-mark> — the Dynamic Identity stitch as an embeddable badge, a
+// Lit element since W2269.1.2. Dependency-free twin of the generator on
+// threads.dk (src/lib/mark.ts): same mulberry32 PRNG, same generateMark,
+// same drawing rules. Keep the two files in sync if the mark's rules change.
 //
-// Usage (classic script — no CORS needed, works cross-origin):
-//   <script src="https://threads.dk/embed/threads-mark.js"></script>
+// Usage (module script, served as /threads-mark.js — same-origin):
+//   <script type="module" src="/threads-mark.js"></script>
 //   <threads-mark size="28"></threads-mark>
-// (Also valid as <script type="module"> same-origin.)
 // Attributes:
 //   size     — rendered edge in px (default 28)
 //   cadence  — ms between fresh generations (default 500)
@@ -15,8 +14,10 @@
 //   transparent — the stitch alone: no card fill, no edge (for badges that
 //     sit on a page's own background)
 // Reduced motion: one frozen generation (seed 77), no cycle.
-
 // Page tokens cross the shadow boundary; same defaults as <dynamic-mark>.
+import { defineElement } from "./register.js";
+import { LitElement } from "./vendor/lit.js";
+
 const FALLBACKS = {
 	paper: "#faf8f4",
 	thread: "#af2f12",
@@ -33,7 +34,7 @@ function colorsFrom(host) {
 }
 
 function mulberry32(a) {
-	return function () {
+	return () => {
 		a |= 0;
 		a = (a + 0x6d2b79f5) | 0;
 		let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -84,7 +85,7 @@ function generateMark(seed) {
 	return { points, tailFrom };
 }
 
-class ThreadsMark extends HTMLElement {
+class ThreadsMark extends LitElement {
 	static get observedAttributes() {
 		return ["size", "cadence", "seed"];
 	}
@@ -142,8 +143,8 @@ class ThreadsMark extends HTMLElement {
 		const cv = this._cv;
 		cv.width = px;
 		cv.height = px;
-		cv.style.width = size + "px";
-		cv.style.height = size + "px";
+		cv.style.width = `${size}px`;
+		cv.style.height = `${size}px`;
 		const ctx = cv.getContext("2d");
 		if (!ctx) return;
 		const r = px * 0.16;
@@ -187,6 +188,4 @@ class ThreadsMark extends HTMLElement {
 	}
 }
 
-if (!customElements.get("threads-mark")) {
-	customElements.define("threads-mark", ThreadsMark);
-}
+defineElement("threads-mark", ThreadsMark);

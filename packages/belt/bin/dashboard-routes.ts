@@ -26,6 +26,8 @@ export const ROUTES: RouteMethods = {
 	"/api/route": ["POST"],
 	"/llms.txt": ["GET", "HEAD"],
 	"/threads-mark.js": ["GET", "HEAD"],
+	"/register.js": ["GET", "HEAD"],
+	"/dashboard-fleet.js": ["GET", "HEAD"],
 	"/dashboard-observability.js": ["GET", "HEAD"],
 	"/dashboard-model-access.js": ["GET", "HEAD"],
 	"/dashboard-topology.js": ["GET", "HEAD"],

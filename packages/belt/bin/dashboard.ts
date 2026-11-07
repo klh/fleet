@@ -486,7 +486,7 @@ ${fleetNav("belt", "models")}
 <h2>Local model health</h2>
 <div class="scroll">
 <div class="fhead"><span>location</span><span>endpoint</span><span>state</span><span>protocol</span><span>model</span><span class="w">engine</span><span class="w">ram</span><span class="w">latency</span><span class="w">good at</span></div>
-<div id="fleet"></div>
+<belt-fleet-table id="fleet"></belt-fleet-table>
 </div>
 <div id="fleetmeta" class="mut">—</div>
 </section>
@@ -514,7 +514,8 @@ ${fleetNav("belt", "models")}
 </main>
 <footer><span>a <threads-mark size="20" transparent></threads-mark> Threads thing</span>
   <span class="right">belt.local:7791 · refresh 3s</span></footer>
-<script src="/threads-mark.js"></script>
+<script type="module" src="/dashboard-fleet.js"></script>
+<script type="module" src="/threads-mark.js"></script>
 <script>
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 // UI law: never HTML-string DOM writes — strings are parsed by DOMParser and
@@ -526,66 +527,13 @@ function mount(el,html){
 }
 function short(m){return String(m||'').replace('mlx-community/','');}
 var statusData=null,remoteRows=[];
-var openRows={};
-fleet.addEventListener('toggle',function(e){
-  var d=e.target; if(!d||d.tagName!=='DETAILS')return;
-  var k=d.getAttribute('data-key');
-  if(d.open)openRows[k]=1; else delete openRows[k];
-},true);
 var LOCAL_NAME=${JSON.stringify(LOCAL_NAME)};
 function renderFleet(){
   if(!statusData)return;
-  var now=Date.parse(statusData.ts);
-  var last={};
-  statusData.routing_tail.slice().reverse().forEach(function(l){
-    try{var e=JSON.parse(l); if(e.port!=null&&!(e.port in last))last[e.port]=e.ts;}catch(_){}
-  });
-  // single source header: the static .fhead div above #fleet — never emit one here
-  var html='';
-  var R=statusData.router;
-  [Object.assign({engine:'bun',ram_gb:null},R)]
-    .concat(statusData.specialists)
-    .forEach(function(x){
-      var st='<span class="'+(x.up?'ok':'mut')+'">'+esc(x.state_label||'unknown')+'</span>';
-      var load=(x.load_5m||0)>0?'<em class="load">'+x.load_5m+'/5m</em>':'';
-      var modelFull=x.model_served||x.model||'';
-      var mem=x.up&&x.ram_gb!=null
-        ?'<div class="mrow"><span>'+esc(short(modelFull))+'</span><span class="n">'+x.ram_gb+' GB</span></div>'
-          +'<div class="bar"><i style="width:'+(x.ram_gb/128*100)+'%"></i></div>'
-        :'';
-      var bits=['engine '+esc(x.engine||'—')];
-      if(x.tier)bits.push('tier '+esc(x.tier));
-      if(x.ram_gb!=null)bits.push(x.ram_gb+' GB ram');
-      bits.push('last used '+(x.last_used?age(x.last_used,now):'—'));
-      bits.push((x.calls||0)+' calls');
-      bits.push('avg '+(x.avg_ms!=null?x.avg_ms+'ms':'—'));
-      bits.push((x.errors||0)+' errors');
-      if(x.last_error)bits.push('<span class="mut">last error: '+esc(x.last_error)+'</span>');
-      var k='L'+x.port;
-      html+='<details class="frow" data-key="'+k+'"'+(openRows[k]?' open':'')+'><summary>'
-        +'<span>'+esc(LOCAL_NAME)+' <span class="u">(local)</span></span>'
-        +'<span>:'+x.port+'</span>'
-        +'<span class="cstate">'+st+load+'</span>'
-        +'<span><span class="badge '+esc(x.protocol||'')+'">'+esc(x.protocol||'—')+'</span></span>'
-        +'<span class="cmodel" title="'+esc(modelFull)+'">'+esc(short(modelFull)||'—')+'</span>'
-        +'<span class="w">'+esc(x.engine||'—')+'</span>'
-        +'<span class="w">'+(x.ram_gb!=null?x.ram_gb+' GB':'—')+'</span>'
-        +'<span class="w">'+(x.avg_ms!=null?x.avg_ms+'ms':'—')+'</span>'
-        +'<span class="w cgood">'+esc(x.good_at||'—')+'</span>'
-        +'</summary><div class="panel">'
-        +'<p><span class="mut">good at:</span> '+esc(x.good_at||'—')+'</p>'
-        +mem
-        +'<p class="mut">'+bits.join(' · ')+'</p>'
-        +'</div></details>';
-    });
-  mount(fleet,html);
-}
-function age(iso,now){
-  if(!iso)return '—';
-  var t=Math.max(0,(now-Date.parse(iso))/1000);
-  if(t<3600)return Math.max(1,Math.round(t/60))+'m';
-  if(t<86400)return Math.round(t/3600)+'h';
-  return Math.round(t/86400)+'d';
+  // W2269.1.2: rows render through the belt-fleet-table Lit element — the
+  // element owns disclosure state across polls; this script only feeds it.
+  var table=document.getElementById('fleet');
+  if(table){table.status=statusData;table.localName=LOCAL_NAME;table.remoteRows=remoteRows;}
 }
 function hhmmss(ts){
   var d=new Date(ts),p=function(n){return (n<10?'0':'')+n;};
@@ -1067,8 +1015,12 @@ Bun.serve({
 			return new Response(llmsText(), {
 				headers: { "content-type": "text/plain; charset=utf-8" },
 			});
-		if (path === "/threads-mark.js")
-			return new Response(Bun.file(`${import.meta.dir}/threads-mark.js`), {
+		if (
+			path === "/threads-mark.js" ||
+			path === "/register.js" ||
+			path === "/dashboard-fleet.js"
+		)
+			return new Response(Bun.file(`${import.meta.dir}${path}`), {
 				headers: { "content-type": "text/javascript; charset=utf-8" },
 			});
 		if (path === "/dashboard-observability.js")

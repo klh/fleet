@@ -174,6 +174,7 @@ const serveFile = async (
 		"/dashboard-topology-model.js",
 		"/dashboard-topology-hubs.js",
 		"/dashboard-topology-hubs-model.js",
+		"/dashboard-wallclock.js",
 		"/vendor/lit.js",
 		"/vendor/uPlot.iife.min.js",
 		"/vendor/uPlot.min.css",
