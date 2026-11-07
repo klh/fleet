@@ -24,6 +24,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"quota-lift-retry": "W804",
 	"usage-mining": "W826",
 	"rogue-reap": "W827",
+	"ghost-sweep": "W2842",
 	"license-audit": "W828",
 	"metrics-alert": "W782.2.1",
 	"cache-sla": "W1139.1",
