@@ -13,6 +13,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Board } from "../test/helpers/board-harness";
+import { spectralBins } from "../hooks/lib/board/activity-scale.ts";
 import { expect, test } from "./fixtures";
 import { measureSpark, measureStrip } from "./spark-geom";
 
@@ -60,7 +61,7 @@ test("api: spend-series attributes the claimed item's ledger row", {
 	const r = await (await api.get("/api/spend-series")).json();
 	expect(r.ok).toBe(true);
 	const hit = Object.entries(
-		r.series as Record<string, [number, number, number, number][]>,
+		r.series as Record<string, [number, number, number, number, number?][]>,
 	).find(([k]) => k.endsWith(`\u0000${wId}`));
 	expect(hit, `no series entry for ${wId}`).toBeDefined();
 	const pts = hit?.[1] ?? [];
@@ -68,6 +69,9 @@ test("api: spend-series attributes the claimed item's ledger row", {
 	expect(pts[0][1]).toBe(500); // fresh (in_tok)
 	expect(pts[0][2]).toBe(60); // cached (cache_r + cache_c)
 	expect(pts[0][3]).toBe(100); // out
+	// W2591: every point carries its OWN grain (#103978) — a fresh-window
+	// route_audit point is 30s-binned, never inferred from ts gaps
+	expect(pts[0][4]).toBe(30_000);
 });
 
 test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
@@ -139,49 +143,91 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 	// edge-to-edge) carry over
 	const card = await measureStrip(page, `.kcard[data-kid="${wId}"]`);
 	expect(Math.abs(card.viewBoxW - card.trackW)).toBeLessThanOrEqual(0.6);
-	expect(card.barCount).toBe(Math.floor(card.trackW / 6));
+	// W2591: the rung adapts to the measured track — the fixture is
+	// request-precise (no 5th tuple element), so the strip bins at the
+	// finest ≥1px rung the width supports (~30s at card widths): many
+	// more REAL bins in the same horizon, bars fill their slots
+	const cardSpec = spectralBins(
+		pts as [number, number, number, number, number?][],
+		card.trackW,
+	);
+	const cardStep = card.trackW / cardSpec.count;
+	const cardBarPx = Math.max(0.5, Math.min(1.5, cardStep));
+	expect(card.barCount).toBe(cardSpec.bins.filter((b) => b !== null).length);
 	for (const w of card.barWidths)
-		expect(Math.abs(w - 1.5)).toBeLessThanOrEqual(0.6); // thin strokes #103177
-	// 1.5px bars center in their 6px cells: first stroke left = (6-1.5)/2
-	expect(card.firstLeft).toBeGreaterThanOrEqual(2);
-	expect(card.firstLeft).toBeLessThanOrEqual(2.5);
-	// the last painted bar sits in the LAST cell — its right edge lands
-	// within one cell-width (6px) of the track end (empty trailing bins
-	// inside the window paint nothing, the newest point rides the last bin)
-	expect(card.trackW - card.lastRight).toBeGreaterThanOrEqual(0.75);
-	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(6);
+		expect(Math.abs(w - cardBarPx)).toBeLessThanOrEqual(0.15);
+	// slot-filling bars tile edge-to-edge: the first occupied slot is the
+	// window start (± one slot), the newest rides the last slot
+	expect(card.firstLeft).toBeLessThanOrEqual(cardStep + 0.3);
+	expect(card.trackW - card.lastRight).toBeLessThanOrEqual(cardStep + 0.3);
 	await page.locator(`.kcard[data-kid="${wId}"] klh-task-card .tid`).click();
 	await expect(
 		page.locator("#drawerBody .kspend-drawer .kspark svg rect").first(),
 	).toBeVisible();
 	const drawer = await measureSpark(page, "#drawerBody");
-	expect(drawer.barCount).toBe(Math.floor(drawer.spanW / 6));
+	// the drawer spark rides the same adaptive law (sparkBinMs in the
+	// chunk): expected count/step derive from the lib's own rung pick
+	const drawerSpec = spectralBins(
+		pts as [number, number, number, number, number?][],
+		drawer.spanW,
+	);
+	const drawerStep = drawer.spanW / drawerSpec.count;
+	const drawerBarPx = Math.max(0.5, Math.min(5, drawerStep));
+	expect(drawer.barCount).toBe(
+		drawerSpec.bins.filter((b) => b !== null).length,
+	);
 	for (const w of drawer.barWidths)
-		expect(Math.abs(w - 5)).toBeLessThanOrEqual(0.6); // fixed 5px in drawer
-	expect(drawer.firstLeft).toBeGreaterThanOrEqual(0.5);
-	expect(drawer.trackW - drawer.lastRight).toBeGreaterThanOrEqual(0.5);
-	expect(drawer.trackW - drawer.lastRight).toBeLessThanOrEqual(2);
+		expect(Math.abs(w - drawerBarPx)).toBeLessThanOrEqual(0.2);
+	expect(drawer.firstLeft).toBeLessThanOrEqual(drawerStep + 0.3);
+	expect(drawer.trackW - drawer.lastRight).toBeLessThanOrEqual(
+		drawerStep + 0.3,
+	);
 	expect(drawer.axisLabel).toBe(drawer.axisExpected);
 	const wideDrawerTrack = drawer.trackW;
 	// narrow/mobile: the drawer re-derives its window from the shrunken panel.
 	// Poll on BAR WIDTH: a not-yet-repainted svg CSS-squeezes (max-width:100%)
 	// and would pass a width-equality poll — fixed pixels are the contract.
 	await page.setViewportSize({ width: 320, height: 800 });
+	// expected narrow geometry derives from the shrunken span the poll
+	// itself measures (the chunk re-bins at its own sparkBinMs rung)
 	await expect
 		.poll(async () => {
 			const g = await measureSpark(page, "#drawerBody");
-			return g.barWidths.length > 0 ? Math.abs(g.barWidths[0] - 5) : 99;
+			if (g.barWidths.length === 0) return 99;
+			const spec = spectralBins(
+				pts as [number, number, number, number, number?][],
+				g.spanW,
+			);
+			const step = g.spanW / spec.count;
+			return Math.abs(g.barWidths[0] - Math.max(0.5, Math.min(5, step)));
 		})
-		.toBeLessThanOrEqual(0.6);
+		.toBeLessThanOrEqual(0.2);
 	const narrow = await measureSpark(page, "#drawerBody");
+	const narrowSpec = spectralBins(
+		pts as [number, number, number, number, number?][],
+		narrow.spanW,
+	);
+	const narrowStep = narrow.spanW / narrowSpec.count;
 	expect(narrow.trackW).toBeLessThan(wideDrawerTrack - 10);
-	expect(narrow.barCount).toBe(Math.floor(narrow.spanW / 6));
+	expect(narrow.barCount).toBe(
+		narrowSpec.bins.filter((b) => b !== null).length,
+	);
 	for (const w of narrow.barWidths)
-		expect(Math.abs(w - 5)).toBeLessThanOrEqual(0.6); // bars never stretch
+		expect(
+			Math.abs(w - Math.max(0.5, Math.min(5, narrowStep))),
+		).toBeLessThanOrEqual(0.2); // bars never stretch
 	// the card tiles edge-to-edge too, whatever its track did at 320px
 	const cardNarrow = await measureStrip(page, `.kcard[data-kid="${wId}"]`);
+	const cnSpec = spectralBins(
+		pts as [number, number, number, number, number?][],
+		cardNarrow.trackW,
+	);
+	const cnStep = cardNarrow.trackW / cnSpec.count;
+	const cnBarPx = Math.max(0.5, Math.min(1.5, cnStep));
 	for (const w of cardNarrow.barWidths)
-		expect(Math.abs(w - 1.5)).toBeLessThanOrEqual(0.6);
-	expect(cardNarrow.firstLeft).toBeGreaterThanOrEqual(2);
-	expect(cardNarrow.trackW - cardNarrow.lastRight).toBeLessThanOrEqual(4);
+		expect(Math.abs(w - cnBarPx)).toBeLessThanOrEqual(0.15);
+	expect(cardNarrow.firstLeft).toBeLessThanOrEqual(cnStep + 0.3);
+	expect(cardNarrow.trackW - cardNarrow.lastRight).toBeLessThanOrEqual(
+		cnStep + 0.3,
+	);
 });
