@@ -75,6 +75,40 @@ test("stackFromSettings: review_round_cap survives the StackConfig projection", 
 	}
 });
 
+// ── seam 1d: the W2582 sections ride the projection whole ───────────────────
+test("stackFromSettings: route_preflight/admin/knowledge ride the projection (W2582)", async () => {
+	// the defect: stackFromSettings projected only schema-known sections,
+	// so a settings.json install silently masked route_preflight (hubctl
+	// deploy preflight unmapped_local_target), admin and knowledge (the
+	// distiller real config). The projection now carries them.
+	const dir = tmpConf();
+	const file = join(dir, "settings.json");
+	writeFileSync(
+		file,
+		JSON.stringify({
+			version: "w2582",
+			route_preflight: { terminal_origins: ["http://127.0.0.1:11434"] },
+			admin: { gui: true },
+			knowledge: { distill: { enabled: true, model_group: "glm-5.3" } },
+		}),
+	);
+	process.env.KLH_SETTINGS = file;
+	try {
+		const { loadStack, stackConfIssues } = await import(
+			"../hooks/lib/stack-config.ts"
+		);
+		const stack = loadStack();
+		expect(stack?.route_preflight?.terminal_origins).toEqual([
+			"http://127.0.0.1:11434",
+		]);
+		expect(stack?.admin).toEqual({ gui: true });
+		expect(stack?.knowledge?.distill?.model_group).toBe("glm-5.3");
+		expect(stackConfIssues().length).toBe(0);
+	} finally {
+		delete process.env.KLH_SETTINGS;
+	}
+});
+
 // ── seam 1b: the round-cap precedence ───────────────────────────────────────
 test("reviewRoundCap: conf row wins (0 disables), env stays the fallback, junk → 3", () => {
 	// conf row wins over the env — including 0, the explicit disable

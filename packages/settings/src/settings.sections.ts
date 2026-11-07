@@ -5,6 +5,7 @@
 // = loud failure). Defaults mirror the code defaults the env knobs fell back
 // to, so an empty settings.json changes nothing on install.
 import { z } from "zod";
+import { DistillConfigSchema } from "./settings.distill.ts";
 import {
 	bool,
 	int,
@@ -135,41 +136,11 @@ export const ConsultSchema = section(
 	"Consult routing, interrupts and feedback",
 );
 
-export const DistillSchema = section(
-	{
-		enabled: bool(false, "Run the idle-time knowledge distiller on this hub"),
-		idle_lanes_max: int(
-			0,
-			64,
-			1,
-			"Max live lanes for the hub to count as idle",
-		),
-		quiet_minutes: int(1, 1440, 15, "Minutes of quiet before a run starts"),
-		window: z
-			.string()
-			.regex(/^\d{1,2}:\d{2}-\d{1,2}:\d{2}$/)
-			.optional()
-			.describe("Optional HH:MM-HH:MM window the distiller may run in"),
-		model_group: str(
-			"distill",
-			"Buckle model group the distiller asks (map it in routing policy)",
-		),
-		token_budget_per_day: int(
-			0,
-			100_000_000,
-			200_000,
-			"Daily token budget for distillation",
-		),
-		max_job_ms: int(1000, 3_600_000, 600_000, "Max wall time per job (ms)"),
-		max_visit_age_days: int(
-			1,
-			365,
-			30,
-			"Every entry is revisited within this many days (else overdue)",
-		),
-	},
-	"Idle-time knowledge walker/distiller",
-);
+// W2582: knowledge.distill is the DISTILLER's real schema, moved verbatim
+// from its one consumer (suspenders hooks/lib/knowledge/distill/config.ts)
+// so a settings.json row IS the config the runner reads — the lookalike
+// here silently masked the machine's distiller rows (W2582 defect 1).
+const DistillSchema = DistillConfigSchema;
 
 export const KnowledgeSchema = section(
 	{

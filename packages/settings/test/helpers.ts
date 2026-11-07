@@ -161,6 +161,13 @@ export function writeMigrateFixtures(w: SettingsHome): {
 				candidates: ["https://nas-a.example:4101"],
 			},
 		},
+		// W2582: the sections that must NOT be refused as unknown keys —
+		// route_preflight/admin/knowledge land whole; legacy top-level lane
+		// knobs fold into fleet_loop.
+		route_preflight: { terminal_origins: ["http://127.0.0.1:11434"] },
+		admin: { gui: true },
+		knowledge: { distill: { enabled: true, model_group: "glm-5.3" } },
+		lane_target: 20,
 	};
 	writeFileSync(stackPath, `${JSON.stringify(stack, null, 2)}\n`);
 	const registry = {

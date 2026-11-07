@@ -63,10 +63,31 @@ export const RepoPolicySchema = z
 	})
 	.strict();
 
+export const RoutePreflightSchema = z
+	.object({
+		terminal_origins: z
+			.array(z.string().min(1))
+			.max(256)
+			.optional()
+			.describe(
+				"Hub-machine terminal endpoints (model engines etc.) the route preflight gate treats as mapped leaves (W1094.1)",
+			),
+	})
+	.strict()
+	.optional()
+	.describe("Route preflight");
+
 export const StackSections = {
 	version: opt("THE stack version: one string pins buckle+suspenders+belt"),
 	updates: UpdatesSchema,
 	auth: AuthSchema,
+	// W2582: the stack.json sections that had no settings home — a partial
+	// settings.json silently masked them (projection dropped every row).
+	route_preflight: RoutePreflightSchema,
+	admin: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe("Admin posture (owner-validated; stack.json carries admin.gui)"),
 	providers: z
 		.record(z.string(), ProviderSchema)
 		.default({})
