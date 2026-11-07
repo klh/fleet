@@ -19,6 +19,7 @@ export const JOBS = [
 	"dedupe",
 	"contradiction",
 	"distill",
+	"verify",
 ] as const;
 export type Job = (typeof JOBS)[number];
 
@@ -31,6 +32,7 @@ export const JOB_KINDS: Record<Job, NodeKind[]> = {
 	dedupe: ["entry"],
 	contradiction: ["entry"],
 	distill: ["entry"],
+	verify: ["entry"],
 };
 
 export type Picked = NodeRow & { score: number; visited_at: number | null };

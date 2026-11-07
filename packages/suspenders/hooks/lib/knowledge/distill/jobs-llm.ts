@@ -11,7 +11,13 @@ import { z } from "zod";
 import { jsonObject } from "./clients.ts";
 import type { JobContext, Unit } from "./context.ts";
 import { nodeById, type NodeRow, upsertEdge, upsertNode } from "./graph.ts";
-import { type KnowledgeRow, knowledgeIdOf, knowledgeRow, sha } from "./sink.ts";
+import {
+	isIkeaLocal,
+	type KnowledgeRow,
+	knowledgeIdOf,
+	knowledgeRow,
+	sha,
+} from "./sink.ts";
 
 export const ContradictionVerdictSchema = z
 	.object({
@@ -72,13 +78,14 @@ const rankOf = (r: KnowledgeRow): number =>
 export const contradictionUnit: Unit = async (ctx, node) => {
 	const me = memberOf(ctx, node.id);
 	if (!me) return { outcome: "missing" };
+	if (isIkeaLocal(me.row)) return { outcome: "skip:local-only" };
 	let tokens = 0;
 	let flagged = 0;
 	let judged = 0;
 	for (const p of relatedOf(ctx, node.id, ctx.cfg.related_min)) {
 		if (judged >= ctx.cfg.contradiction_pairs) break;
 		const other = memberOf(ctx, p.other);
-		if (!other) continue;
+		if (!other || isIkeaLocal(other.row)) continue;
 		const [a, b] = me.node.id < other.node.id ? [me, other] : [other, me];
 		const sig = sha(`${a.node.hash ?? ""}\0${b.node.hash ?? ""}`);
 		const prior = ctx.db
@@ -217,12 +224,14 @@ export const distillUnit: Unit = async (ctx, node) => {
 	const me = memberOf(ctx, node.id);
 	if (!me) return { outcome: "missing" };
 	if (me.row.origin_kind === "distilled") return { outcome: "skip:distilled" };
+	if (isIkeaLocal(me.row)) return { outcome: "skip:local-only" };
 	const c = ctx.cfg;
 	const members: Member[] = [me];
 	for (const p of relatedOf(ctx, node.id, c.cluster_min)) {
 		if (members.length >= c.cluster_size_max) break;
 		const m = memberOf(ctx, p.other);
-		if (m && m.row.origin_kind !== "distilled") members.push(m);
+		if (m && m.row.origin_kind !== "distilled" && !isIkeaLocal(m.row))
+			members.push(m);
 	}
 	if (members.length < c.cluster_size_min) return { outcome: "cluster:small" };
 	members.sort((x, y) => x.node.id - y.node.id);

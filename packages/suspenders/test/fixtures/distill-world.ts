@@ -258,3 +258,28 @@ export function addDecantSession(db: Database, s: DecantSessionSeed): number {
 		).run(id, JSON.stringify({ command: c }));
 	return id;
 }
+
+/** One `message` + its `text` blocks for a decant session (transcript
+ *  excerpt fixture — the `verify` job's only session-content reader). */
+export function addDecantMessage(
+	db: Database,
+	sessionId: number,
+	role: string,
+	texts: string[],
+	seq: number,
+): void {
+	const mid = Number(
+		db
+			.query(
+				"INSERT INTO message (session_id, seq, role, raw) VALUES (?, ?, ?, '{}')",
+			)
+			.run(sessionId, seq, role).lastInsertRowid,
+	);
+	texts.forEach((t, i) =>
+		db
+			.query(
+				"INSERT INTO block (message_id, session_id, ordinal, type, text) VALUES (?, ?, ?, 'text', ?)",
+			)
+			.run(mid, sessionId, i, t),
+	);
+}
