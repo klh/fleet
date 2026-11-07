@@ -38,6 +38,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"review-rescore": "W1476",
 	"cred-gap-scan": "W1211",
 	"knowledge-consolidate": "W1227",
+	"knowledge-retention": "W2845",
 	"zai-catalog-refresh": "W1029.1",
 	"cost-alert": "W1132",
 	"model-health-sweep": "W2194",

@@ -136,6 +136,7 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_KEV_CURATION_TIMEOUT_MS", "model-plane"),
 	k("SUSPENDERS_KEV_URL", "conf", "knowledge.kev_url"),
 	k("SUSPENDERS_KNOWLEDGE_DISTILL", "conf"),
+	k("SUSPENDERS_KNOWLEDGE_CONF", "conf", "knowledge.conf_path"),
 	k("SUSPENDERS_KNOWLEDGE_KEY", "secret"),
 	k("SUSPENDERS_KNOWLEDGE_KEY_FILE", "conf", "knowledge.sink.key_file"),
 	k(

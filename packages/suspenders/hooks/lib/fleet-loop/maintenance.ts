@@ -284,6 +284,27 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/coord.ts"), "knowledge-consolidate"],
 	},
 	{
+		// W2845: the knowledge retention watermark — prunes TERMINAL
+		// (retired|graveyard) knowledge rows past the retention_days window
+		// (~/.config/klh/knowledge.json, default 90) by flipping them to
+		// state='archived' (the read-side watermark: recall excludes it,
+		// confidence + provenance stay on the row, append-only intact — never
+		// DELETE). Never touches live rows; one summary event per pruning pass
+		// (ids + count, no fact text). `.fleet/knowledge-retention-paused`
+		// pauses; retention_days=0 disables.
+		name: "knowledge-retention",
+		everySeconds: 21_600,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/knowledge-retention.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// Machine-local inference key + opted-in hub gate the catalog fetch.
 		// A changed route set regenerates LiteLLM and reloads Buckle; failures
 		// retain the previous applied marker for the next cadence.
