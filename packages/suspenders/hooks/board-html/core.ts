@@ -65,6 +65,7 @@ var ST_HUES = {
   blocked: 'danger',
   paused: 'danger',
   zombie: 'danger',
+  ghosted: 'dim',
   'waiting for you': 'danger',
   working: 'accent',
   'rate-limited': 'accent'
@@ -102,7 +103,7 @@ function zombieFor(sid, zombies){
   return false;
 }
 // named lane states — raw jargon never rendered as visible text
-var STATES = { RUNNING: 'working', WAITING: 'waiting for you', PAUSED: 'paused', RATE_LIMITED: 'rate-limited', ZOMBIE: 'zombie', CLOSED: 'quiet', IDLE: 'quiet' };
+var STATES = { RUNNING: 'working', WAITING: 'waiting for you', PAUSED: 'paused', RATE_LIMITED: 'rate-limited', ZOMBIE: 'zombie', GHOSTED: 'ghosted', CLOSED: 'quiet', IDLE: 'quiet' };
 function stateLabel(state, flagged){
   if (flagged) return 'waiting for you'; // pending decisions beat the raw state
   var raw = String(state == null ? '' : state).toUpperCase();
