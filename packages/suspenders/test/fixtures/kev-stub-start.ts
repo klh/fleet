@@ -1,9 +1,10 @@
 // test/fixtures/kev-stub-start.ts — spawn kev-stub.ts and resolve its URL.
 // D7 made a missing Kev verdict defer instead of store, so suites asserting
 // a harvested answer need a Kev that answers (see kev-stub.ts).
-// The stub reports its port on stdout AND (when KEV_STUB_PORT_FILE is set)
-// to an env-named file — the file is the reliable channel: playwright
-// workers swallow child stdout through every fd form tried.
+// The stub reports its port to an env-named file (KEV_STUB_PORT_FILE) —
+// the file is the reliable channel: playwright workers swallow child
+// stdout through every fd form tried (W2224). The child env carries
+// NO_COLOR: a colored port line turns the Number() parse into NaN.
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +20,7 @@ export async function startKevStub(
 			...process.env,
 			KEV_STUB_CHOICE: choice,
 			KEV_STUB_PORT_FILE: portFile,
+			NO_COLOR: "1",
 		},
 		stdio: ["ignore", "ignore", "ignore"],
 	});
@@ -31,10 +33,16 @@ export async function startKevStub(
 			// not written yet
 		}
 	}
-	rmSync(dir, { recursive: true, force: true });
 	if (!port) {
 		proc.kill();
+		rmSync(dir, { recursive: true, force: true });
 		throw new Error("kev stub did not report a port");
 	}
-	return { url: `http://127.0.0.1:${port}`, stop: () => proc.kill() };
+	return {
+		url: `http://127.0.0.1:${port}`,
+		stop: () => {
+			proc.kill();
+			rmSync(dir, { recursive: true, force: true });
+		},
+	};
 }
