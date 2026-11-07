@@ -36,21 +36,21 @@ import {
 } from "@klh/belt/bin/litellm-target.ts";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
+	type OpenRouterStaleResult,
+	refreshStaleOpenRouterSnapshot,
+} from "../../deploy/openrouter-free.ts";
+import {
 	refreshStaleZaiSnapshot,
 	type ZaiStaleResult,
 } from "../../deploy/zai-catalog.ts";
-import {
-	refreshStaleOpenRouterSnapshot,
-	type OpenRouterStaleResult,
-} from "../../deploy/openrouter-free.ts";
 import { scrubRules } from "../../hooks/lib/gates/scrub.ts";
 import { writeHubRegistry } from "../../hooks/lib/hub/hub-registry.ts";
 import { refreshFlatHome, smokeRouter } from "../belt-bin-overlay.ts";
 import {
-	ensureBeltUpstreamKey,
-	wireBeltRow,
-	wireBuckleUpstreamsEnv,
-} from "../lib/belt-upstream-key.ts";
+	retireBuckleUpstreamsEnv,
+	wireBeltRowSettings,
+} from "../lib/belt-row-settings.ts";
+import { ensureBeltUpstreamKey } from "../lib/belt-upstream-key.ts";
 import {
 	freshWiredGuardGb,
 	validateBeltWiredGuard,
@@ -452,18 +452,32 @@ export async function seedLocalLlm(
 	if (peer.status === "failed")
 		return { status: "failed", note: `belt peer key: ${peer.note}` };
 	log(`+ ${peer.note}`);
-	// W1124.2: the Buckle Belt-row (machine BUCKLE_UPSTREAMS override) names
-	// the same var via api_key_env; BUCKLE_UPSTREAMS in belt.env makes the
-	// plist-sourced spoke load the override.
-	const override = join(ctx.llmHome, "upstreams.yaml");
-	const row = wireBeltRow(override);
+	// W1124.2/W2760: the Buckle Belt-row names the same var via api_key_env
+	// and now lives in the settings.json law home (`upstreams.groups.belt`);
+	// the legacy BUCKLE_UPSTREAMS pins (belt.env spoke wiring, spoke env)
+	// retire so the spoke resolves settings.json directly.
+	// settings.json law home: <home>/.config/klh. The real install maps
+	// llmHome = <home>/.claude/local-llm; when llmHome already carries that
+	// canonical suffix the home root is two levels up, else llmHome IS the
+	// home root (fixture shape).
+	const homeRoot = ctx.llmHome.endsWith(join(".claude", "local-llm"))
+		? join(ctx.llmHome, "..", "..")
+		: ctx.llmHome;
+	const settings = join(homeRoot, ".config", "klh", "settings.json");
+	mkdirSync(join(homeRoot, ".config", "klh"), { recursive: true });
+	const row = wireBeltRowSettings(settings);
 	if (row.status === "failed")
 		return { status: "failed", note: `belt peer row: ${row.note}` };
 	log(`+ ${row.note}`);
-	const upEnv = wireBuckleUpstreamsEnv(beltEnv, override);
-	if (upEnv.status === "failed")
-		return { status: "failed", note: `belt peer override env: ${upEnv.note}` };
-	if (upEnv.status === "wired") log(`+ ${upEnv.note}`);
+	for (const envFile of [beltEnv, join(ctx.llmHome, "buckle-spoke.env")]) {
+		const retired = retireBuckleUpstreamsEnv(envFile);
+		if (retired.status === "failed")
+			return {
+				status: "failed",
+				note: `belt peer override env: ${retired.note}`,
+			};
+		if (retired.status === "wired") log(`+ ${retired.note}`);
+	}
 	if (ctx.llmHome === join(process.env.HOME ?? "", ".claude", "local-llm")) {
 		try {
 			const state = await ensureLiteLlmMetricsDependency();

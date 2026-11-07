@@ -193,6 +193,7 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_PUSH_TAIL", "conf"),
 	k("SUSPENDERS_QUOTA_ZAI_CLASSES", "conf"),
 	k("SUSPENDERS_RACE_POLICY", "conf"),
+	k("SUSPENDERS_RISK_TIERS", "conf"),
 	k("SUSPENDERS_REINFORCEMENT_CLASS", "conf"),
 	k("SUSPENDERS_RENAME_SYNC", "conf"),
 	k("SUSPENDERS_REPO", "plumbing"),
