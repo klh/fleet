@@ -36,9 +36,19 @@ const SELF = "tests/test-framework-guard.test.ts";
 // .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635). W1294.9.3
 // sweep-G slice-3 (30 install/hubctl files, merged via W2668 from
 // parked/W2654, carried by W2739's rebase) re-pins DOWN on top
-// (635 → 605 at the W2812 rebase integration — this tree carries both
-// waves, re-pinned at its own measured landing count).
-const PIN = 605;
+// (635 → 605 at the W2812 rebase integration).
+// W1294.12 sweep-I (2026-10-29, landed via W2651) ports all 35 remaining
+// specs in speedy/local/telemetry/kernel/local-llm/blam — both lineages
+// ported disjoint corpora, so the W2666 merged tree measures 600 under
+// the guard's own git ls-files counting; re-pinned DOWN to that exact
+// count. W2738 rebase: the two lineages BOTH ported risk-tier
+// (.test.ts→.e2e.ts, add/add) — the merged tree still measures 600; pin
+// holds. W2813 rebase (merging suspenders/W2750 onto main bd26c298): the
+// merged tree measures the same 600; pin holds. W2817 rebase (merging
+// suspenders/W2813 onto the W2812 ladder): the merged tree carries both
+// sides' ports; measured at the landing sha and re-pinned to that exact
+// count — re-pinned DOWN (600 → 570) at the merged tree's own measurement.
+const PIN = 570;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
