@@ -4,6 +4,10 @@
 // fleet keeps — write the .json law name 0600 atomically, move the original
 // to .yaml.bak); this step maps it over the machine conf set. Idempotent: a
 // present .json is "kept", so re-runs and fresh machines are no-ops.
+// W2582: the step also cuts machine conf over to settings.json itself
+// (install-settings-cutover.ts) — the yaml legs run first, then the stack
+// document folds into the per-install settings.json so no install leaves a
+// partial settings.json shadowing a fuller stack.json.
 import {
 	existsSync,
 	readFileSync,
@@ -15,6 +19,7 @@ import {
 import { join } from "node:path";
 import { migrateYamlConf } from "../../hooks/lib/kernel-conf.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
+import { cutOverSettings } from "./install-settings-cutover.ts";
 
 /** The machine conf set, as extension-less base paths under the user home.
  *  Hub-side files (upstreams.hub, routing-policy.hub) are NOT here — hubctl
@@ -104,6 +109,16 @@ export async function migrateConf(ctx: StepContext): Promise<StepResult> {
 	if (kept.length > 0) parts.push(`kept ${kept.length} json`);
 	if (absent.length > 0) parts.push(`${absent.length} absent`);
 	if (spokeRepointed) parts.push("repointed buckle-spoke.env");
+	// W2582: after the yaml legs, cut machine conf over to settings.json —
+	// the install owns the cutover (an un-run `coord settings migrate` no
+	// longer strands a stack.json the settings file would mask).
+	const cutover = cutOverSettings(ctx.home);
+	if (cutover.status === "failed")
+		return {
+			status: "failed",
+			note: `conf migrate failed — settings cutover: ${cutover.note}`,
+		};
+	parts.push(cutover.note);
 	return {
 		status: "ok",
 		note: `W1253 conf migrate: ${parts.join("; ") || "nothing to do"}`,

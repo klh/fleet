@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
 import {
+	DistillConfigSchema,
 	resolveSettings,
 	settingsPath,
 	toLegacyProfile,
@@ -493,6 +494,22 @@ export const StackConfigSchema = z
 		/** W2264: the model-health block — the capability-class taxonomy the
 		 *  pin-layer fallback may re-pin within. */
 		model_health: ModelHealthConfigSchema.optional(),
+		/** W2582: stack-level route preflight terminals — the settings.json
+		 *  home projects 1:1 (RoutePreflightSchema); hub-level rows live in
+		 *  each HubProfileSchema.route_preflight. */
+		route_preflight: z
+			.object({ terminal_origins: z.array(z.string()).optional() })
+			.loose()
+			.optional(),
+		/** W2582: admin posture (owner-validated opaque rows, e.g. admin.gui). */
+		admin: z.record(z.string(), z.unknown()).optional(),
+		/** W2582: the knowledge block — distill is the real distiller config
+		 *  (DistillConfigSchema, owned by @klh/settings); malformed rows fail
+		 *  loud through stackConfIssues. */
+		knowledge: z
+			.object({ distill: DistillConfigSchema.optional() })
+			.loose()
+			.optional(),
 	})
 	.loose();
 
@@ -582,6 +599,14 @@ function stackFromSettings(): StackConfig | null {
 		executors: s.executors,
 		policies: s.policies,
 		cache_unsupported_models: s.cache_unsupported_models,
+		// W2582: the stack.json sections that now have settings homes ride
+		// the projection whole — a settings.json install must not mask
+		// route_preflight (hubctl deploy preflight), admin or knowledge
+		// (the distiller's real config) the way the incident's partial
+		// file did.
+		route_preflight: s.route_preflight,
+		admin: s.admin,
+		knowledge: s.knowledge,
 		fleet_loop: {
 			lane_target,
 			dispatch_target,

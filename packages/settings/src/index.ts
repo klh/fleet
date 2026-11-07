@@ -10,6 +10,14 @@ export {
 } from "./settings.env-map.ts";
 export { type Hub, HubSchema } from "./settings.hubs.ts";
 export {
+	type DistillConfig,
+	DistillConfigSchema,
+	distillDefaults,
+	DistillWeightsSchema,
+	DistillWindowSchema,
+	PressureProbeSchema,
+} from "./settings.distill.ts";
+export {
 	type KnobHome,
 	type KnobHomeKind,
 	knobHome,
@@ -18,12 +26,14 @@ export {
 } from "./settings.knob-registry.ts";
 export { SCHEMA_FILE, settingsJsonSchemaText } from "./settings.jsonschema.ts";
 export {
+	FOLD_INTO_FLEET_LOOP,
 	migrate,
 	type MigrateInput,
 	type MigrateResult,
 } from "./settings.migrate.ts";
 export { renderHubSettings, stripOverlays } from "./settings.overlay.ts";
 export { fromLegacyProfile, toLegacyProfile } from "./settings.project.ts";
+export { RoutePreflightSchema } from "./settings.stack.ts";
 export {
 	expandHome,
 	type Origin,

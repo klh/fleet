@@ -110,6 +110,17 @@ test("migrate round-trips stack.json + hubs.json under the same label", () => {
 		// env knob migrated into the doc; stack.json kept as .bak
 		expect(doc.fleet_loop.maintenance).toBe(false);
 		expect(existsSync(`${fx.stack}.bak`)).toBe(true);
+		// W2582: the incident's refused sections migrate whole (no "no
+		// settings section — not migrated" refusal), and the legacy
+		// top-level lane knob folds into its canonical home
+		expect(doc.route_preflight).toEqual({
+			terminal_origins: ["http://127.0.0.1:11434"],
+		});
+		expect(doc.admin).toEqual({ gui: true });
+		expect(doc.knowledge.distill).toEqual(
+			expect.objectContaining({ enabled: true, model_group: "glm-5.3" }),
+		);
+		expect(doc.fleet_loop.lane_target).toBe(20);
 	} finally {
 		w.clean();
 		envRestore(snap);

@@ -45,7 +45,19 @@ const STACK_COPY = [
 	"postures",
 	"cache_unsupported_models",
 	"fleet_loop",
+	"route_preflight",
+	"admin",
+	"knowledge",
 ] as const;
+
+/** Legacy stack.json knobs that lived TOP-LEVEL (pre-fleet_loop) — folded
+ *  into their canonical home; nothing reads them at the top level.
+ *  Exported for the install cutover's masking guard (W2582): a stack key
+ *  that folds is covered when fleet_loop carries the canonical knob. */
+export const FOLD_INTO_FLEET_LOOP: Partial<Record<string, string>> = {
+	lane_target: "lane_target",
+	dispatch_target: "dispatch_target",
+};
 
 const slug = (s: string): string => s.replace(/[^A-Za-z0-9_.-]/g, "_");
 
@@ -140,9 +152,26 @@ export function migrate(input: MigrateInput): MigrateResult {
 	const stack = input.stack ?? {};
 	for (const key of STACK_COPY)
 		if (stack[key] !== undefined) doc[key] = structuredClone(stack[key]);
+	// W2582: legacy top-level lane knobs fold into fleet_loop (their
+	// canonical home; nothing reads them at the top level) — a stack.json
+	// carrying them must not strand them as an unknown-key refusal.
+	for (const [legacy, canonical] of Object.entries(FOLD_INTO_FLEET_LOOP)) {
+		const raw = stack[legacy];
+		if (raw === undefined) continue;
+		const fleet = isPlainObject(doc.fleet_loop) ? doc.fleet_loop : {};
+		if (fleet[canonical] === undefined && typeof raw === "number")
+			fleet[canonical] = raw;
+		doc.fleet_loop = fleet;
+		out.report.push(`stack.json ${legacy}: folded into fleet_loop.${canonical}`);
+	}
 	if (isPlainObject(stack.providers))
 		doc.providers = migrateProviders(stack.providers, input.secretsDir, out);
-	const known = new Set<string>([...STACK_COPY, "providers", "hubs"]);
+	const known = new Set<string>([
+		...STACK_COPY,
+		...Object.keys(FOLD_INTO_FLEET_LOOP),
+		"providers",
+		"hubs",
+	]);
 	for (const key of Object.keys(stack))
 		if (!known.has(key))
 			out.issues.push(`stack.json ${key}: no settings section — not migrated`);
