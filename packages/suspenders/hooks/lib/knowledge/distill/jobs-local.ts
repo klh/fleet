@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { consolidateTokens, jaccardOverlap } from "../knowledge-consolidate.ts";
 import { trustOf } from "../knowledge.ts";
+import { trustPriorOf } from "../trust-prior.ts";
 import type { JobContext, Prepare, Unit } from "./context.ts";
 import { extractEntities, refPath, relationFor } from "./extract.ts";
 import { type NodeRow, nodeById, upsertEdge, upsertNode } from "./graph.ts";
@@ -149,9 +150,9 @@ export const stalenessUnit: Unit = async (ctx, node) => {
 				"UPDATE knowledge SET stale_at = NULL, stale_reason = NULL WHERE id = ?",
 			)
 			.run(row.id);
-		return { outcome: "verified:cleared" };
+		return { outcome: `verified:cleared:${trustPriorOf(row)}` };
 	}
-	return { outcome: trust };
+	return { outcome: `${trust}:${trustPriorOf(row)}` };
 };
 
 /** One batched embeddings call for every batch entry whose vector is stale. */

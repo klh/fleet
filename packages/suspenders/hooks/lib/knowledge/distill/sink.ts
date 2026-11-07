@@ -15,6 +15,7 @@ import {
 } from "../../gates/scrub.ts";
 import type { CurationInput, KevCuration } from "../kev-curation.ts";
 import { redactSecrets } from "../knowledge.ts";
+import { trustPriorOf } from "../trust-prior.ts";
 import type { KnowledgeUpsert } from "../store-schema.ts";
 import { upsertNode } from "./graph.ts";
 import { getState, setState } from "./schema.ts";
@@ -80,7 +81,13 @@ export function syncEntries(db: Database, now: number = Date.now()): number {
 					label: r.topic,
 					ref: `knowledge:${String(r.id)}`,
 					hash: sha(`${r.topic}\0${r.fact}\0${r.source_hash ?? ""}`),
-					props: { kstate: r.state, origin_kind: r.origin_kind },
+					// W2846: the per-origin trust prior rides the node props
+					// (0..1) — the scheduler's origin_prior_h boost reads it
+					props: {
+						kstate: r.state,
+						origin_kind: r.origin_kind,
+						trust_prior: trustPriorOf(r),
+					},
 					state: LIVE.has(r.state) ? "active" : "retired",
 				},
 				now,

@@ -68,9 +68,16 @@ const HOUR = 3_600_000;
 /** Scheduler weights in milliseconds (age is the base score). */
 export const weightsMs = (
 	c: DistillConfig,
-): { hash: number; usage: number; neighbours: number; minRevisit: number } => ({
+): {
+	hash: number;
+	usage: number;
+	neighbours: number;
+	origin: number;
+	minRevisit: number;
+} => ({
 	hash: c.weights.hash_changed_h * HOUR,
 	usage: c.weights.usage_rose_h * HOUR,
 	neighbours: c.weights.neighbours_changed_h * HOUR,
+	origin: c.weights.origin_prior_h * HOUR,
 	minRevisit: c.min_revisit_h * HOUR,
 });

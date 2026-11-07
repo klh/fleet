@@ -42,8 +42,9 @@ const scored = (kinds: NodeKind[]): string => `
 		+ CASE WHEN v.entry_id IS NOT NULL AND COALESCE(n.hash, '') != COALESCE(v.last_hash, '') THEN ?2 ELSE 0 END
 		+ CASE WHEN v.entry_id IS NOT NULL AND n.usage > v.last_usage THEN ?3 ELSE 0 END
 		+ CASE WHEN v.entry_id IS NOT NULL AND n.edge_at > v.last_visited_at THEN ?4 ELSE 0 END
+		+ CASE WHEN v.entry_id IS NOT NULL THEN ROUND(?5 * COALESCE(json_extract(n.props, '$.trust_prior'), 0)) ELSE 0 END
 		AS score
-	FROM kg_nodes n LEFT JOIN distill_visits v ON v.entry_id = n.id AND v.job = ?5
+	FROM kg_nodes n LEFT JOIN distill_visits v ON v.entry_id = n.id AND v.job = ?6
 	WHERE n.kind IN (${kinds.map((k) => `'${k}'`).join(",")}) AND n.state = 'active'`;
 
 const params = (
@@ -52,7 +53,7 @@ const params = (
 	now: number,
 ): (number | string)[] => {
 	const w = weightsMs(c);
-	return [now, w.hash, w.usage, w.neighbours, job];
+	return [now, w.hash, w.usage, w.neighbours, w.origin, job];
 };
 
 /** The next `n` nodes for `job`, stalest-first, above the revisit floor. */
@@ -65,7 +66,7 @@ export function pickBatch(
 ): Picked[] {
 	return db
 		.query(
-			`SELECT * FROM (${scored(JOB_KINDS[job])}) WHERE score >= ?6 ORDER BY score DESC, id LIMIT ?7`,
+			`SELECT * FROM (${scored(JOB_KINDS[job])}) WHERE score >= ?7 ORDER BY score DESC, id LIMIT ?8`,
 		)
 		.all(...params(c, job, now), weightsMs(c).minRevisit, n) as Picked[];
 }
@@ -108,10 +109,10 @@ export function jobCoverage(
 	const row = db
 		.query(
 			`SELECT COUNT(*) AS eligible,
-				SUM(CASE WHEN visited_at IS NOT NULL AND ?1 - visited_at <= ?6 THEN 1 ELSE 0 END) AS fresh,
+				SUM(CASE WHEN visited_at IS NOT NULL AND ?1 - visited_at <= ?7 THEN 1 ELSE 0 END) AS fresh,
 				SUM(CASE WHEN visited_at IS NULL THEN 1 ELSE 0 END) AS never,
-				SUM(CASE WHEN score >= ?7 THEN 1 ELSE 0 END) AS queue,
-				SUM(CASE WHEN ?1 - COALESCE(visited_at, first_seen) > ?6 THEN 1 ELSE 0 END) AS overdue,
+				SUM(CASE WHEN score >= ?8 THEN 1 ELSE 0 END) AS queue,
+				SUM(CASE WHEN ?1 - COALESCE(visited_at, first_seen) > ?7 THEN 1 ELSE 0 END) AS overdue,
 				MAX(?1 - COALESCE(visited_at, first_seen)) AS oldest
 			FROM (${scored(JOB_KINDS[job])})`,
 		)

@@ -39,6 +39,10 @@ export const DistillWeightsSchema = z
 		usage_rose_h: z.number().min(0).default(24),
 		/** hours added when an edge touching it was written since the visit */
 		neighbours_changed_h: z.number().min(0).default(12),
+		/** W2846 trust-prior boost: hours added per unit of origin trust
+		 *  above the lowest tier (kg_nodes.props.trust_prior 0..1) — trusted
+		 *  origins surface for refresh sooner */
+		origin_prior_h: z.number().min(0).default(24),
 	})
 	.strict();
 
