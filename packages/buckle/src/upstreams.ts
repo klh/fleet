@@ -6,10 +6,11 @@
 // request time.
 
 import { existsSync, readFileSync } from "node:fs";
+import { resolveUpstreamsDoc } from "@klh/settings";
 import { validateDeploymentEgress } from "./adapters/egress.ts";
-import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
+import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 
 export type Dialect = "openai" | "anthropic";
 
@@ -156,15 +157,17 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 const jsonSiblingOf = (path: string): string =>
 	path.replace(/\.ya?ml$/i, ".json");
 
-/** Resolution: explicit path → BUCKLE_UPSTREAMS → committed default (the
- *  override file merges over the default; groups it declares win). W1123
- *  fail-forward: a CONFIGURED override that cannot load is startup fatal —
- *  a hub with a broken mount must never silently fall back to the committed
- *  Mac ladder (:890x). Unset env = base-only, as always. */
+/** Resolution (W2760): explicit path → BUCKLE_UPSTREAMS pin → the settings
+ *  plane (@klh/settings: settings.json `upstreams` section, then the legacy
+ *  local-llm side files read-only) → committed default (the override merges
+ *  over the default; groups it declares win). W1123 fail-forward: a
+ *  CONFIGURED override that cannot load is startup fatal — a hub with a
+ *  broken mount must never silently fall back to the committed Mac ladder
+ *  (:890x). Unset env + no settings doc = base-only, as always. */
 export function loadUpstreams(explicitPath?: string): UpstreamPool {
 	const basePath = explicitPath ?? DEFAULT_UPSTREAMS;
 	let doc = parseUpstreams(readFileSync(basePath, "utf8"), basePath);
-	const overPath = process.env.BUCKLE_UPSTREAMS;
+	const overPath = explicitPath ?? process.env.BUCKLE_UPSTREAMS;
 	if (overPath) {
 		// read-both (W1253): hubctl writes the .json twin, so a rolling deploy
 		// where the env still names the legacy .yaml resolves the twin on disk.
@@ -180,6 +183,12 @@ export function loadUpstreams(explicitPath?: string): UpstreamPool {
 			doc,
 			parseUpstreams(readFileSync(resolved, "utf8"), resolved),
 		);
+		return poolFrom(doc);
 	}
+	// W2760: no pin — the settings plane owns the chain (settings.json
+	// upstreams section first, legacy side files read-only, JSON only).
+	const settingsDoc = resolveUpstreamsDoc(undefined);
+	if (settingsDoc.text !== null)
+		doc = mergeUpstreams(doc, parseUpstreams(settingsDoc.text, "settings"));
 	return poolFrom(doc);
 }

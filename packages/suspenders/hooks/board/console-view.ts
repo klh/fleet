@@ -3,6 +3,7 @@
 // sibling modules and the route modules import them.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { resolveUpstreamsDoc } from "@klh/settings";
 import type {
 	BeltView,
 	ConsoleMe,
@@ -54,16 +55,23 @@ export const consoleMe = (): ConsoleMe => {
 	};
 };
 
-// buckle upstreams.json (read-only display): group name == wire id; an empty
+/** W2760: the settings.json `upstreams` section when it carries one, else
+ *  the legacy local-llm side file (display mirrors the reader chain). */
+const settingsUpstreamPath = (): string => {
+	const doc = resolveUpstreamsDoc(undefined);
+	return doc.path ?? `${process.env.HOME}/.claude/local-llm/upstreams.json`;
+};
+
+// buckle upstreams (read-only display): group name == wire id; an empty
 // group is DORMANT — in the ladder but resolving to zero deployments.
+// W2760: the override doc resolves through the settings plane (settings.json
+// `upstreams` section first, legacy local-llm side files read-only).
 const upstreamSnapshot = () =>
 	readEffectiveUpstreams({
 		basePath: process.env.BUCKLE_REPO
 			? `${process.env.BUCKLE_REPO}/upstreams.json`
 			: new URL("../../../buckle/upstreams.json", import.meta.url).pathname,
-		overridePath:
-			process.env.BUCKLE_UPSTREAMS ??
-			`${process.env.HOME}/.claude/local-llm/upstreams.json`,
+		overridePath: process.env.BUCKLE_UPSTREAMS ?? settingsUpstreamPath(),
 	});
 export const readUpstreams = (): UpstreamGroup[] | null =>
 	upstreamSnapshot()?.groups ?? null;
