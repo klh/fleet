@@ -76,6 +76,23 @@ describe("maintenance/legacyLabels drift contract (W1256.1)", () => {
 		]);
 	});
 
+	test("ghost sweep runs on the heartbeat, acting, at a bounded cadence (W2842)", () => {
+		const sweeper = MAINTENANCE_TASKS.find(
+			(task) => task.name === "ghost-sweep",
+		);
+		// the sweep IS the W2842 change: without it this task is undefined and
+		// the pass below fails — the discriminating assertion the coverage
+		// proof runs against the reverted tree
+		expect(sweeper).toBeDefined();
+		expect(sweeper?.everySeconds).toBe(1800);
+		expect(sweeper?.argv("/suspenders", "/fleet")).toEqual([
+			"/suspenders/hooks/bin/ghost-sweep.ts",
+			"--act",
+			"--repo",
+			"/fleet",
+		]);
+	});
+
 	test("every task is exactly one partition: folded (label covered) or heartbeat-born", () => {
 		for (const name of tasks) {
 			const covered = stripped.has(name);

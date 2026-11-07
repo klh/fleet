@@ -53,6 +53,17 @@ test.describe("@unit ghost sweep", () => {
 	test("unregistered stale session past 24h ghosts (dry-run reports the verdict); inside the 24h floor it keeps", () => {
 		stale("ghost-a", 25 * 3_600_000);
 		stale("ghost-b", 2 * 3_600_000);
+		// pre-state: both rows sit RUNNING — the sweep is what flips them, so
+		// a tree without the change leaves them RUNNING (coverage-proof)
+		const pre = store
+			.query(
+				"SELECT sid, state FROM sessions WHERE sid IN ('ghost-a', 'ghost-b')",
+			)
+			.all() as { sid: string; state: string }[];
+		expect(pre.map((r) => `${r.sid}=${r.state}`).sort()).toEqual([
+			"ghost-a=RUNNING",
+			"ghost-b=RUNNING",
+		]);
 		const rows = ghostSweep(store, {
 			registryDir: world.repo,
 			now,
@@ -63,9 +74,24 @@ test.describe("@unit ghost sweep", () => {
 		expect(a?.action).toBe("ghosted"); // dry-run: the report names it, no flip
 		expect(b?.action).toBe("kept");
 		expect(b?.why).toContain("24h floor");
+		// dry-run wrote nothing: the named row is still RUNNING on disk
+		const afterDry = store
+			.query("SELECT state FROM sessions WHERE sid = 'ghost-a'")
+			.get() as { state: string };
+		expect(afterDry.state).toBe("RUNNING");
 	});
 	test("act flips the state + emits one session.ghosted event per flip", () => {
 		stale("ghost-c", 25 * 3_600_000);
+		// pre-state: RUNNING before the act pass (coverage-proof anchor)
+		expect(
+			(
+				store
+					.query("SELECT state FROM sessions WHERE sid = 'ghost-c'")
+					.get() as {
+					state: string;
+				}
+			).state,
+		).toBe("RUNNING");
 		const rows = ghostSweep(store, {
 			registryDir: world.repo,
 			now,
@@ -172,10 +198,19 @@ test.describe("@unit ghost sweep", () => {
 				sid: "ghost-1",
 				state: "GHOSTED",
 				project: "p",
-				hbAgo: 4000,
+				hbAgo: 10,
 				verdict: "dead",
 			},
 		];
+		// pre-state: the identical row RUNNING sits in current — its exclusion
+		// below is attributable ONLY to the GHOSTED terminal entry (the W2842
+		// board face), not to heartbeat age, so without the change this pair
+		// of assertions cannot both hold
+		const before = selectGovernorLanes(
+			[{ ...lanes[1], state: "RUNNING" }],
+			"p",
+		);
+		expect(before.current.some((s) => s.sid === "ghost-1")).toBe(true);
 		const view = selectGovernorLanes(lanes, "p");
 		expect(view.current.some((s) => s.sid === "ghost-1")).toBe(false);
 		expect(view.current.some((s) => s.sid === "live-1")).toBe(true);
