@@ -83,20 +83,43 @@ export async function bankTransientAbandonment(
 	sid: string,
 	detail: string,
 	attempt: number,
-	opts: { cwd: string; env: Record<string, string | undefined> },
+	opts: {
+		cwd: string;
+		env: Record<string, string | undefined>;
+		/** N3: per-child bound so a hung coord capsule (or git) child can
+		 * never block the runtime's SIGTERM handling. */
+		timeoutMs?: number;
+	},
 	coordCli: string,
 	execPath = process.execPath,
 	spawnSync: typeof Bun.spawnSync = Bun.spawnSync,
 ): Promise<TransientAbandonReceipt> {
+	// One bounded child pass: a refused/killed/timeout child degrades to
+	// capsule "unavailable" (the truthful receipt) instead of hanging the
+	// exit path.
+	const run = (
+		cmd: string[],
+		o: {
+			cwd: string;
+			env?: Record<string, string | undefined>;
+			stderr?: "ignore";
+		},
+	) =>
+		spawnSync(cmd, {
+			cwd: o.cwd,
+			...(o.env !== undefined ? { env: o.env } : {}),
+			stdout: "pipe",
+			stderr: o.stderr ?? "pipe",
+			...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+		});
 	let checkpoint = "none";
-	const git = spawnSync(["git", "rev-parse", "HEAD"], {
+	const git = run(["git", "rev-parse", "HEAD"], {
 		cwd: opts.cwd,
-		stdout: "pipe",
 		stderr: "ignore",
 	});
 	const head = git.stdout.toString().trim();
 	if (git.exitCode === 0 && /^[a-f0-9]{40}$/.test(head)) checkpoint = head;
-	const write = spawnSync(
+	const write = run(
 		[
 			execPath,
 			coordCli,
@@ -108,7 +131,7 @@ export async function bankTransientAbandonment(
 			`--done=transport-blocked after ${attempt} attempt(s): ${detail}`,
 			"--next=lane preserved mid-item; native conversation and worktree intact; re-dispatch or resume when the gateway recovers",
 		],
-		{ cwd: opts.cwd, env: opts.env, stdout: "ignore", stderr: "ignore" },
+		{ cwd: opts.cwd, env: opts.env },
 	);
 	return {
 		checkpoint,

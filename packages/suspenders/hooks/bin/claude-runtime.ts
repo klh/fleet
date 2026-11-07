@@ -106,7 +106,14 @@ async function run(args: string[]): Promise<number> {
 			sid,
 			detail,
 			attempt,
-			{ cwd: process.cwd(), env: process.env },
+			{
+				cwd: process.cwd(),
+				env: process.env,
+				// N3: a hung coord capsule child must never block the exit
+				// path (SIGTERM handling) — bounded, degrading to the truthful
+				// "unavailable" receipt.
+				timeoutMs: 10_000,
+			},
 			new URL("./coord.ts", import.meta.url).pathname,
 		).then((receipt) => {
 			emit({
@@ -246,6 +253,11 @@ async function run(args: string[]): Promise<number> {
 				const verdict = classifyTransientResult(frame);
 				if (verdict) {
 					transientPending = verdict;
+					// The retry-live marker was consumed by THIS result — it is
+					// the retry turn's own outcome. A second transient arms a
+					// fresh window; an interleaved note landing inside it must
+					// never inherit the stale marker and close mid-episode.
+					transientRetryLive = false;
 					transientAttempt += 1;
 					if (transientAttempt > transient.maxAttempts)
 						abandonTransient(verdict.detail, transientAttempt);

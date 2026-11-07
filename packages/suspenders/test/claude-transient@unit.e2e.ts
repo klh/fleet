@@ -1,7 +1,7 @@
 // W2545: transient transport-terminal recovery in the managed Claude
 // runtime. Hermetic: isolated HOME, GOVERNOR_STORE_URL=local, a controlled
 // fake native executable — never a guessed protocol, never a live store.
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -82,6 +82,27 @@ const fastKnobs = {
 	SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "50",
 	SUSPENDERS_CLAUDE_TRANSIENT_MAX_ATTEMPTS: "3",
 };
+
+/** Resolve once the runtime emitted `count` transient waiting frames — the
+ * frame array fills asynchronously off the runtime's stdout, so assertions
+ * arm before the frames exist. */
+function waitForTransientWaiting(
+	frames: Record<string, unknown>[],
+	count = 1,
+): Promise<void> {
+	return new Promise((resolve) => {
+		const t = setInterval(() => {
+			if (
+				frames.filter(
+					(f) => f.type === "fleet.claude.transient" && f.state === "waiting",
+				).length >= count
+			) {
+				clearInterval(t);
+				resolve();
+			}
+		}, 20);
+	});
+}
 
 test.describe("classifier", () => {
 	test("503 with subtype success and is_error is transient — evidence shape W2267.3", () => {
@@ -348,6 +369,43 @@ test("a wake note delivered mid-backoff never cancels the pending episode", asyn
 	}
 });
 
+test("B1: a note in backoff window 2 never closes the runtime mid-episode", async () => {
+	const home = mkdtempSync(join(tmpdir(), "fleet-transient-marker-"));
+	const sid = "transient-marker-race";
+	try {
+		// 503, retry-turn 503 (window 2 arms), then recovery on retry 2; both
+		// windows are long enough for an urgent note to genuinely interleave
+		const spawn = spawnRuntime(
+			sid,
+			home,
+			{
+				...fastKnobs,
+				SUSPENDERS_CLAUDE_TRANSIENT_BASE_MS: "1500",
+				SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "1500",
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+				SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503,503",
+			},
+			15000,
+		);
+		// window 1 fires the retry, which hits the second 503 and arms window 2
+		await waitForTransientWaiting(spawn.frames, 2);
+		// urgent note lands INSIDE window 2: its non-transient result must not
+		// close the runtime while the armed retry still owns the episode
+		expect(spawn.signal(21, "NOTE", { urgent: "1" })).toBe(true);
+		const code = await spawn.child.exited;
+		await spawn.read;
+		expect(spawn.frames.some((f) => f.result === "DIRECT_DELIVERED")).toBe(
+			true,
+		);
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			true,
+		);
+		expect(code).toBe(0);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
 test("pause during backoff fences the retry; resume re-arms and recovers", async () => {
 	const { home, cwd, sid, env: fixtureEnv } = pausedLaneFixture();
 	try {
@@ -427,6 +485,203 @@ test("pause during backoff fences the retry; resume re-arms and recovers", async
 			if (spawn.child.exitCode === null) spawn.child.kill();
 			await spawn.child.exited;
 		}
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("stop during backoff (SIGTERM with the retry timer armed) exits promptly and preserved", async () => {
+	const home = mkdtempSync(join(tmpdir(), "fleet-transient-sigterm-"));
+	const sid = "transient-sigterm-backoff";
+	try {
+		// long backoff so SIGTERM genuinely lands with the timer armed
+		const spawn = spawnRuntime(
+			sid,
+			home,
+			{
+				...fastKnobs,
+				SUSPENDERS_CLAUDE_TRANSIENT_BASE_MS: "5000",
+				SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "5000",
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+				SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503",
+			},
+			20000,
+		);
+		await waitForTransientWaiting(spawn.frames, 1);
+		const t0 = Date.now();
+		spawn.child.kill("SIGTERM");
+		const code = await spawn.child.exited;
+		await spawn.read;
+		// prompt stop (bounded well under the armed 5s window) with a
+		// non-zero exit — never a masquerading success
+		expect(Date.now() - t0).toBeLessThan(3000);
+		expect(code).not.toBe(0);
+		// no retry fired, no recovery claimed
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			false,
+		);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("duplicate wake signal during an episode delivers exactly once (wake-once)", async () => {
+	const home = mkdtempSync(join(tmpdir(), "fleet-transient-dupwake-"));
+	const sid = "transient-duplicate-wake";
+	try {
+		const spawn = spawnRuntime(
+			sid,
+			home,
+			{
+				...fastKnobs,
+				SUSPENDERS_CLAUDE_TRANSIENT_BASE_MS: "1500",
+				SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "1500",
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+				SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503",
+			},
+			15000,
+		);
+		await waitForTransientWaiting(spawn.frames, 1);
+		const deliveredEvents = () =>
+			spawn.frames
+				.filter(
+					(f) => f.type === "fleet.claude.delivery" && f.state === "delivered",
+				)
+				.map((f) => String(f.event));
+		// wake 30 delivers inside the backoff window; only after its proof
+		// may a further signal land (the pending slot is one deep)
+		expect(spawn.signal(30, "NOTE", { urgent: "1" })).toBe(true);
+		await new Promise<void>((resolve) => {
+			const t = setInterval(() => {
+				if (deliveredEvents().includes("30")) {
+					clearInterval(t);
+					resolve();
+				}
+			}, 20);
+		});
+		// duplicate wake: re-signaling the SAME event id is refused at the
+		// queue (id <= prev) — a proven delivery can never replay
+		expect(spawn.signal(30, "NOTE", { urgent: "1" })).toBe(false);
+		expect(deliveredEvents()).toEqual(["30"]);
+		// a genuinely new id delivers normally, exactly once
+		expect(spawn.signal(31, "NOTE", { urgent: "1" })).toBe(true);
+		const code = await spawn.child.exited;
+		await spawn.read;
+		expect(deliveredEvents()).toEqual(["30", "31"]);
+		// the runtime still recovered through its own retry turn
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			true,
+		);
+		expect(code).toBe(0);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("claim/worktree identity is preserved across a transient episode", async () => {
+	const { home, cwd, sid, env: fixtureEnv, id, sha } = pausedLaneFixture();
+	try {
+		const spawn = spawnRuntime(sid, home, {
+			...fixtureEnv,
+			...fastKnobs,
+			SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+			SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503",
+		});
+		const code = await spawn.child.exited;
+		await spawn.read;
+		expect(code).toBe(0);
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			true,
+		);
+		// the work graph still holds the claim untouched: same item, same
+		// owner sid, same CLAIMED state — the episode never released it
+		const p = Bun.spawnSync(
+			[
+				process.execPath,
+				join(import.meta.dir, "../hooks/bin/work.ts"),
+				"show",
+				id,
+				"--json",
+			],
+			{
+				cwd,
+				env: { ...fixtureEnv, HOME: home },
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		const item = JSON.parse(p.stdout.toString()) as {
+			state?: string;
+			owner_sid?: string;
+		};
+		expect(item.state).toBe("CLAIMED");
+		expect(item.owner_sid).toBe(sid);
+		// worktree HEAD unmoved by the episode (baseline immutable)
+		const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+			cwd,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(head.stdout.toString().trim()).toBe(sha);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("runtime retryAfterMs path: server-directed cooldown replaces the backoff", async () => {
+	const home = mkdtempSync(join(tmpdir(), "fleet-transient-retryafter-"));
+	const sid = "transient-retry-after";
+	try {
+		const spawn = spawnRuntime(
+			sid,
+			home,
+			{
+				...fastKnobs,
+				// computed backoff would be 10-50ms; Retry-After 1s wins
+				SUSPENDERS_CLAUDE_TRANSIENT_BASE_MS: "10",
+				SUSPENDERS_CLAUDE_TRANSIENT_MAX_MS: "5000",
+				SUSPENDERS_CLAUDE_NATIVE_BIN: fixture,
+				SUSPENDERS_FIXTURE_TRANSIENT_EPISODE: "503",
+				SUSPENDERS_FIXTURE_TRANSIENT_RETRY_AFTER: "1",
+			},
+			15000,
+		);
+		const code = await spawn.child.exited;
+		await spawn.read;
+		expect(code).toBe(0);
+		const waiting = spawn.frames.find(
+			(f) => f.type === "fleet.claude.transient" && f.state === "waiting",
+		);
+		// the armed window honored the server cooldown: >= 1000ms, capped
+		// well under maxMs, and the episode recovered on that retry turn
+		expect(waiting?.retryAfterMs).toBe(1000);
+		expect(waiting?.delayMs).toBe(1000);
+		expect(spawn.frames.some((f) => f.result === "RECOVERED_COMPLETE")).toBe(
+			true,
+		);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("N3: a hung coord-capsule child is bounded — the receipt degrades, never blocks", async () => {
+	const { home, cwd, sid, env } = pausedLaneFixture();
+	try {
+		// a fake coord CLI that never exits: without the bound the call
+		// would hang the runtime's exit path past any SIGTERM window
+		const hung = join(home, "hung-coord.ts");
+		writeFileSync(hung, "await new Promise(() => {});\n");
+		const t0 = Date.now();
+		const receipt = await bankTransientAbandonment(
+			sid,
+			"api_error status 503: fixture",
+			2,
+			{ cwd, env: { ...env, HOME: home }, timeoutMs: 500 },
+			hung,
+		);
+		// bounded well under an unbounded hang, receipt truthful
+		expect(Date.now() - t0).toBeLessThan(5000);
+		expect(receipt.capsule).toBe("unavailable");
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
