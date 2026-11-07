@@ -29,9 +29,10 @@ const KEV_ANSWER = () =>
 		latency_ms: 1,
 	});
 
-// A poisoning URL that must NEVER receive a request: unroutable, and any
-// attempt would hang until timeout — a hit both fails the zero-contact
-// assert and blows the test's own time budget.
+// A poisoning URL that must NEVER receive a request: TEST-NET-1 is
+// unroutable, so any contact attempt would hang until the fetch timeout —
+// a hit therefore blows the sub-5s budget assert below (the timing bound
+// IS the zero-contact guard; the offline pin refuses in milliseconds).
 const POISON = "http://192.0.2.1:8912";
 
 test("fixture capsule set: poisoned ambient kev never contacted; default pin refuses instantly", async () => {

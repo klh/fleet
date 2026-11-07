@@ -121,6 +121,13 @@ describe("fixtureEnv", () => {
 				base: { ...process.env, SUSPENDERS_KEV_URL: "http://127.0.0.1:18912" },
 			});
 			expect(overridden.SUSPENDERS_KEV_URL).toBe("http://127.0.0.1:18912");
+			// "" is NOT an override — the reader ignores empty and would fall
+			// back to the live default; emptiness keeps the offline pin
+			const emptied = fixtureEnv({
+				home: join(tmpdir(), "w2573-kev-empty"),
+				base: { ...process.env, SUSPENDERS_KEV_URL: "" },
+			});
+			expect(emptied.SUSPENDERS_KEV_URL).toBe(FIXTURE_KEV_URL);
 		} finally {
 			if (saved === undefined) delete process.env.SUSPENDERS_KEV_URL;
 			else process.env.SUSPENDERS_KEV_URL = saved;

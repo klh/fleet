@@ -89,8 +89,10 @@ export function fixtureEnv(opts: {
 		GOVERNOR_STORE_URL: "",
 		// advisory binding (W2573): offline by default — see FIXTURE_KEV_URL.
 		// Unlike HOME/GIT_*, an explicit caller value for the advisory pin is
-		// an intentional live/stub endpoint, not a leak: it rides LAST.
-		SUSPENDERS_KEV_URL: opts.base?.SUSPENDERS_KEV_URL ?? FIXTURE_KEV_URL,
+		// an intentional live/stub endpoint, not a leak: it rides LAST. An
+		// EMPTY string is not an override (the reader ignores it and would
+		// fall back to the live default) — emptiness keeps the offline pin.
+		SUSPENDERS_KEV_URL: opts.base?.SUSPENDERS_KEV_URL || FIXTURE_KEV_URL,
 	};
 	if (opts.identity) {
 		// identity rides env, not config: git never touches any config file to
