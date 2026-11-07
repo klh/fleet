@@ -13,7 +13,10 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stripGitEnv } from "../../hooks/lib/fixture-isolation.ts";
+import {
+	FIXTURE_KEV_URL,
+	stripGitEnv,
+} from "../../hooks/lib/fixture-isolation.ts";
 
 export interface CliResult {
 	code: number;
@@ -60,7 +63,16 @@ export function cliFixture(
 	const HOME = mkdtempSync(join(tmpdir(), `w932-${label}-home-`));
 	const REPO = mkdtempSync(join(tmpdir(), `w932-${label}-repo-`));
 	mkdirSync(REPO, { recursive: true });
-	const env = { ...stripGitEnv(process.env), HOME, ...(opts.env ?? {}) };
+	// W2573: kev pinned OFFLINE in the base (before opts.env) — spawned
+	// coord/work CLIs otherwise await the full 8s curation timeout against
+	// the live :8912 kev (capsule set + work done = ~16s per test); a suite
+	// that wants live or stubbed kev passes SUSPENDERS_KEV_URL via opts.env.
+	const env = {
+		...stripGitEnv(process.env),
+		HOME,
+		SUSPENDERS_KEV_URL: FIXTURE_KEV_URL,
+		...(opts.env ?? {}),
+	};
 	const spawn = (cwd: string, file: string, args: string[]): CliResult => {
 		const p = spawnSync("bun", [file, ...args], {
 			cwd,

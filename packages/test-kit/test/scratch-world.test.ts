@@ -43,3 +43,25 @@ test("scratchWorld: clean() tears both dirs down", () => {
 	// idempotent — a second clean() must not throw
 	w.clean();
 });
+
+// W2573: advisory isolation. The ambient env may carry a poisoned kev pin
+// (or the machine's live :8912 default applies once HOME moves); the world
+// must pin it OFFLINE regardless — the pin rides AFTER the process.env
+// spread. Caller overrides are a plain spread over w.env (by construction)
+// and are proven against a real stub in the suspenders e2e
+// (fixture-kev-isolation.e2e.ts), not re-asserted here.
+test("scratchWorld: kev advisory pinned offline, immune to ambient poisoning", () => {
+	const saved = process.env.SUSPENDERS_KEV_URL;
+	process.env.SUSPENDERS_KEV_URL = "http://192.0.2.1:8912"; // TEST-NET-1 poison
+	try {
+		const w = scratchWorld();
+		try {
+			expect(w.env.SUSPENDERS_KEV_URL).toBe("http://127.0.0.1:9");
+		} finally {
+			w.clean();
+		}
+	} finally {
+		if (saved === undefined) delete process.env.SUSPENDERS_KEV_URL;
+		else process.env.SUSPENDERS_KEV_URL = saved;
+	}
+});

@@ -16,11 +16,12 @@
 // touches a real governor.db.
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	assertGitScope,
 	createGitFixture,
+	FIXTURE_KEV_URL,
 	fixtureEnv,
 	stripGitEnv,
 } from "../hooks/lib/fixture-isolation.ts";
@@ -97,6 +98,40 @@ describe("fixtureEnv", () => {
 
 	test("refuses the real user home", () => {
 		expect(() => fixtureEnv({ home: homedir() })).toThrow(/real user home/);
+	});
+
+	// W2573: advisory isolation. A poisoned ambient SUSPENDERS_KEV_URL (or
+	// the machine's live :8912 default once HOME moves) must not reach
+	// fixture-spawned CLIs — capsule set / work done would await the full
+	// 8s curation timeout against it. The pin rides the BASE; an explicit
+	// opts.base value (a stubbed kev a suite HOSTS) still wins.
+	test("pins kev offline: immune to ambient poison, base override wins", () => {
+		const saved = process.env.SUSPENDERS_KEV_URL;
+		process.env.SUSPENDERS_KEV_URL = "http://192.0.2.1:8912";
+		try {
+			const fx = createGitFixture("kev-pin", { identity });
+			try {
+				expect(FIXTURE_KEV_URL).toBe("http://127.0.0.1:9");
+				expect(fx.env.SUSPENDERS_KEV_URL).toBe(FIXTURE_KEV_URL);
+			} finally {
+				fx.dispose();
+			}
+			const overridden = fixtureEnv({
+				home: join(tmpdir(), "w2573-kev-override"),
+				base: { ...process.env, SUSPENDERS_KEV_URL: "http://127.0.0.1:18912" },
+			});
+			expect(overridden.SUSPENDERS_KEV_URL).toBe("http://127.0.0.1:18912");
+			// "" is NOT an override — the reader ignores empty and would fall
+			// back to the live default; emptiness keeps the offline pin
+			const emptied = fixtureEnv({
+				home: join(tmpdir(), "w2573-kev-empty"),
+				base: { ...process.env, SUSPENDERS_KEV_URL: "" },
+			});
+			expect(emptied.SUSPENDERS_KEV_URL).toBe(FIXTURE_KEV_URL);
+		} finally {
+			if (saved === undefined) delete process.env.SUSPENDERS_KEV_URL;
+			else process.env.SUSPENDERS_KEV_URL = saved;
+		}
 	});
 });
 
