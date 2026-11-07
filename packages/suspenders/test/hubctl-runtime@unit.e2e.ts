@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	chmodSync,
 	mkdirSync,
@@ -49,7 +49,7 @@ writeFileSync(
 		},
 	}),
 );
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function status(overrides: Record<string, string> = {}) {
 	const result = Bun.spawnSync(

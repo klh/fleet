@@ -4,8 +4,8 @@
 // specifiers rewritten `../x` → `./x`, bun build proves resolution.
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	flatExternals,
 	isPureReexportShim,
@@ -95,7 +95,7 @@ describe("W778 flat externals", () => {
 		expect(ext.get(join(dir, "lib", "x.ts"))).toBe("x.ts");
 	});
 
-	test("flatExternals fails closed on a basename collision", async () => {
+	test("flatExternals unique-ifies a basename collision deterministically", async () => {
 		const c = join(dir, "collision");
 		mkdirSync(join(c, "bin"), { recursive: true });
 		mkdirSync(join(c, "o1"), { recursive: true });
@@ -106,9 +106,11 @@ describe("W778 flat externals", () => {
 		);
 		writeFileSync(join(c, "o1", "x.ts"), "export const a = 1;\n");
 		writeFileSync(join(c, "o2", "x.ts"), "export const b = 2;\n");
-		await expect(flatExternals(join(c, "bin", "e.ts"))).rejects.toThrow(
-			"collision",
-		);
+		const ext = await flatExternals(join(c, "bin", "e.ts"));
+		expect(ext.size).toBe(2);
+		const names = [...ext.values()].sort();
+		expect(names[0]).toBe("collision-o2-x.ts");
+		expect(names[1]).toBe("x.ts");
 	});
 
 	test("refreshFlatHome heals members+externals and bun build resolves", async () => {

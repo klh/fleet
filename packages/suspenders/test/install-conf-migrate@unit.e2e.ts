@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "@playwright/test";
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -25,7 +25,7 @@ const fixture = () => {
 	return { ctx, yaml, json, env };
 };
 
-describe("Buckle spoke config migration", () => {
+test.describe("Buckle spoke config migration", () => {
 	test("moves upstreams to JSON and rewrites the spoke env pointer at mode 600", async () => {
 		const f = fixture();
 		writeFileSync(f.yaml, "groups: {}\n", { mode: 0o600 });
