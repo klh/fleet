@@ -14,6 +14,23 @@ model bump.
 
 ---
 
+## Pi runner workspace preparation (W2870, 2026-11-08; infrastructure smoke)
+
+AC-powered macOS arm64, Bun 1.4.4, resident 128-file local Git fixture,
+12 sequential alternating-order pairs, exact content validation 24/24.
+Baseline: `git clone --no-hardlinks`; candidate: detached worktree sharing
+Git objects. Ready latency p50/p95: **48.36/54.27 ms → 23.02/30.25 ms**.
+First validated file read p50/p95: **48.39/54.30 ms → 23.05/30.28 ms**.
+Reproduce: `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12`.
+Receipt SHA256 `43bab36fc57b4e261bebe0bec92af835730447b84c35dd9eb3249c05f13933ea`;
+report SHA256 `6b44ae074608512e1097e5d4b6d372ae90b2eb076cfa96c0fa0f70199ed92104`.
+Raw evidence retained by the experiment owner outside the repo.
+Decision: prepared shared Git objects are worth including in the runner
+pilot. This is NOT a container/VM isolation test, agent-quality study,
+true-cold image-pull measurement or token-saving result. No model ran;
+RAM, disk and isolation outcomes are unmeasured/null. OS page caches were
+not controlled. Remote runtime and live model comparisons remain separate.
+
 ## Review-skill effectiveness — matched held-out agent eval (W1172; harness landed 2026-10-23, matched batches PENDING)
 
 Decision the row will support once run: does the W1144 review-skill change
