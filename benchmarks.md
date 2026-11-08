@@ -1,5 +1,17 @@
 # fleet benchmarks
 
+## Durable runner correctness prerequisite (W2869.1, 2026-11-08)
+
+Pi Durable/pi-ai/Chord pinned 1.5.0: twelve deterministic cases cover real
+Node reopen, per-job writer exclusion and SIGKILL release, mid-tool SIGKILL
+without unsafe replay, stable request IDs, reader cancellation, private storage,
+execution fencing and active/new-job registry versions. Provider responses and
+usage are synthetic fixtures. No throughput, token savings, sandbox isolation
+or model-quality result is measured here. Model fencing asserts zero actual
+HTTP requests when revoked before dispatch; revocation before the tool permits
+one preceding model request and zero tool side effects. These checks gate a
+future matched BLAM run; they do not qualify a remote runner for deployment.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
