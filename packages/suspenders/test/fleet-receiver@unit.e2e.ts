@@ -5,7 +5,8 @@
 // ps argv regex). Rides the kit (W1135.1.3).
 import { expect, test } from "@playwright/test";
 import { scratchWorld } from "@klh/test-kit";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	composeInjection,
@@ -15,6 +16,7 @@ import {
 	parseFeedLine,
 	readNewFeedLines,
 } from "../pi-extensions/fleet-receiver/index.ts";
+import fleetReceiver from "../pi-extensions/fleet-receiver/index.ts";
 
 const world = scratchWorld({ prefix: "fleet-rcv-" });
 const CONSULT_LINE =
@@ -99,6 +101,175 @@ test.describe("@unit", () => {
 		proc.kill();
 		await proc.exited;
 		expect(machineSubscriberLive(h)).toBe(false);
+	});
+
+	// W2863.1 — the Pi 1.5 SDK hands session_start (event, ctx); the receiver
+	// must attach on the 2-arg call, await bootstrap BEFORE the subscriber
+	// decision, and run with globalThis.Bun deleted (managed pi launcher =
+	// Node).
+	test("session_start (event, ctx) attaches; bootstrap precedes subscribe spawn", async () => {
+		const bin = join(world.home, "bin");
+		mkdirSync(bin, { recursive: true });
+		const log = join(bin, "invocations.jsonl");
+		writeFileSync(
+			join(bin, "coord"),
+			'#!/usr/bin/env bun\nimport { appendFileSync } from "node:fs";\n' +
+				`appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + "\\n");\n`,
+			{ mode: 0o755 },
+		);
+		const prevPath = process.env.PATH;
+		const prevHome = process.env.HOME;
+		process.env.PATH = `${bin}:${prevPath ?? ""}`;
+		const home = join(world.home, "rcv-order-home");
+		mkdirSync(join(home, ".claude-insights"), { recursive: true });
+		process.env.HOME = home;
+		const handlers: Record<string, (...a: unknown[]) => void> = {};
+		const pi = {
+			on: (k: string, h: (...a: unknown[]) => void) => {
+				handlers[k] = h;
+			},
+			sendUserMessage: async () => {},
+		};
+		fleetReceiver(pi as never);
+		expect(typeof handlers.session_start).toBe("function");
+		handlers.session_start(
+			{},
+			{
+				sessionManager: { getSessionId: () => "witness9" },
+				cwd: world.home,
+				isIdle: () => true,
+				hasUI: false,
+			},
+		);
+		const sidFile = join(home, ".claude-insights/fleet-receiver-witness9.sid");
+		let sid = "";
+		let invs: string[][] = [];
+		for (let i = 0; i < 100 && (!sid || invs.length < 2); i++) {
+			await new Promise((r) => setTimeout(r, 50));
+			try {
+				sid = readFileSync(sidFile, "utf8").trim();
+			} catch {}
+			try {
+				invs = readFileSync(log, "utf8")
+					.trim()
+					.split("\n")
+					.map((l) => JSON.parse(l) as string[]);
+			} catch {}
+		}
+		process.env.PATH = prevPath;
+		process.env.HOME = prevHome;
+		expect(sid).toBe("pi-witness9");
+		expect(invs[0]?.[0]).toBe("bootstrap");
+		expect(invs[1]?.[0]).toBe("subscribe");
+		expect(invs[1]).toContain("pi-witness9");
+		handlers.session_shutdown();
+	});
+
+	test("live machine subscriber → attach spawns no per-session subscribe", async () => {
+		const bin = join(world.home, "bin");
+		const log = join(bin, "invocations.jsonl");
+		const subs = () => {
+			try {
+				return readFileSync(log, "utf8")
+					.trim()
+					.split("\n")
+					.map((l) => JSON.parse(l) as string[])
+					.filter((a) => a[0] === "subscribe").length;
+			} catch {
+				return 0;
+			}
+		};
+		const home = join(world.home, "rcv-live-home");
+		mkdirSync(join(home, ".claude-insights"), { recursive: true });
+		const script = join(home, "fake-coord.ts");
+		writeFileSync(script, "await new Promise((r) => setTimeout(r, 30000));\n");
+		const proc = Bun.spawn(["bun", script, "subscribe", "--machine"], {
+			stdin: "ignore",
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		writeFileSync(
+			join(home, ".claude-insights/coord-subscribe-machine.pid"),
+			String(proc.pid),
+		);
+		const prevPath = process.env.PATH;
+		const prevHome = process.env.HOME;
+		process.env.PATH = `${bin}:${prevPath ?? ""}`;
+		process.env.HOME = home;
+		const before = subs();
+		const handlers: Record<string, (...a: unknown[]) => void> = {};
+		fleetReceiver({
+			on: (k: string, h: (...a: unknown[]) => void) => {
+				handlers[k] = h;
+			},
+			sendUserMessage: async () => {},
+		} as never);
+		handlers.session_start(
+			{},
+			{
+				sessionManager: { getSessionId: () => "witness10" },
+				cwd: world.home,
+				isIdle: () => true,
+				hasUI: false,
+			},
+		);
+		const sidFile = join(home, ".claude-insights/fleet-receiver-witness10.sid");
+		let sid = "";
+		for (let i = 0; i < 100 && !sid; i++) {
+			await new Promise((r) => setTimeout(r, 50));
+			try {
+				sid = readFileSync(sidFile, "utf8").trim();
+			} catch {}
+		}
+		process.env.PATH = prevPath;
+		process.env.HOME = prevHome;
+		expect(sid).toBe("pi-witness10");
+		expect(subs()).toBe(before);
+		handlers.session_shutdown();
+		proc.kill();
+		await proc.exited;
+	});
+
+	test("receiver module loads + helpers run under real Node (Bun never loaded)", () => {
+		const receiverPath = join(
+			import.meta.dir,
+			"../pi-extensions/fleet-receiver/index.ts",
+		);
+		const probe = join(world.home, "node-probe.ts");
+		writeFileSync(
+			probe,
+			[
+				`import { parseFeedLine, machineSubscriberLive } from ${JSON.stringify(receiverPath)};`,
+				`import { mkdirSync, writeFileSync } from "node:fs";`,
+				`import { join } from "node:path";`,
+				`const dir = ${JSON.stringify(join(world.home, "rcv-nobun-home"))};`,
+				"mkdirSync(join(dir, '.claude-insights'), { recursive: true });",
+				"writeFileSync(join(dir, '.claude-insights/coord-subscribe-machine.pid'), '999999999');",
+				"if (globalThis.Bun !== undefined) throw new Error('Bun global present execPath=' + process.execPath + ' PATH=' + (process.env.PATH ?? '').split(':').filter((d) => /node|nvm/.test(d)).join(':'));",
+				`if (parseFeedLine(${JSON.stringify(CONSULT_LINE)}).id !== 117283) throw new Error('parseFeedLine broke');`,
+				`if (machineSubscriberLive(dir) !== false) throw new Error('liveness probe broke');`,
+				"console.log('NODE-WITNESS-OK');",
+			].join("\n"),
+		);
+		// bun --bun prepends a tmp dir holding node→bun to PATH — skip it so
+		// the witness rides the REAL node (Bun-undefined environment)
+		const realNode = (process.env.PATH ?? "")
+			.split(":")
+			.filter((d) => d && !/bun-node/.test(d))
+			.map((d) => join(d, "node"))
+			.find((p) => {
+				try {
+					return spawnSync(p, ["--version"], { encoding: "utf8" }).stdout.startsWith(
+						"v",
+					);
+				} catch {
+					return false;
+				}
+			});
+		if (!realNode) throw new Error("no real node on PATH");
+		const r = spawnSync(realNode, [probe], { encoding: "utf8" });
+		expect(r.status, `node probe: ${r.stderr || r.stdout}`).toBe(0);
+		expect(r.stdout).toContain("NODE-WITNESS-OK");
 	});
 
 	test.afterAll(() => {

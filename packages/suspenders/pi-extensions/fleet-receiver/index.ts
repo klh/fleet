@@ -8,8 +8,15 @@
 // (idle) via pi.sendUserMessage — the injection pi's tabula-rasa witness
 // run never got. Self-contained: node builtins + type-only pi imports, so
 // the installed copy runs anywhere.
-import { execFile } from "node:child_process";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { execFile, spawn, spawnSync } from "node:child_process";
+import {
+	closeSync,
+	openSync,
+	readFileSync,
+	readSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { promisify } from "node:util";
 import type {
 	ExtensionAPI,
@@ -111,13 +118,14 @@ export function machineSubscriberLive(home: string): boolean {
 
 function machinePidAlive(pid: number): boolean {
 	if (!Number.isSafeInteger(pid) || pid < 2) return false;
-	const p = Bun.spawnSync(["/bin/ps", "-o", "command=", "-p", String(pid)], {
+	// node:child_process — the managed pi launcher runs Node, no Bun global
+	const p = spawnSync("/bin/ps", ["-o", "command=", "-p", String(pid)], {
 		stdout: "pipe",
 		stderr: "ignore",
+		encoding: "utf8",
 	});
 	return (
-		p.exitCode === 0 &&
-		/coord[.]ts subscribe --machine/.test(p.stdout.toString())
+		p.status === 0 && /coord[.]ts subscribe --machine/.test(p.stdout ?? "")
 	);
 }
 
@@ -254,34 +262,45 @@ function renderStatus(ctx: ExtensionContext, st: ReceiverState): void {
 }
 
 // No machine subscriber? Spawn THIS session's `coord subscribe --as <sid>`
-// (the CLI self-cleans via the W494 staleness exit).
-function ensureSubscriber(sid: string): ReturnType<typeof Bun.spawn> {
-	return Bun.spawn(["coord", "subscribe", "--as", sid], {
-		stdin: "ignore",
-		stdout: "ignore",
-		stderr: "ignore",
+// (the CLI self-cleans via the W494 staleness exit). node spawn — the
+// managed pi launcher runs Node, no Bun global.
+function ensureSubscriber(sid: string): ReturnType<typeof spawn> {
+	return spawn("coord", ["subscribe", "--as", sid], {
+		stdio: ["ignore", "ignore", "ignore"],
 	});
 }
 
 // session_start body: identity → EOF cursor → register → subscriber ensure
-// → poll loop. Returns the shutdown cleaner.
-function attachReceiver(
+// → poll loop. The bootstrap is AWAITED before the subscriber decision —
+// deciding wsLive on an unawaited probe raced and double-subscribed.
+// Returns the shutdown cleaner.
+async function attachReceiver(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-): (() => void) | null {
+): Promise<(() => void) | null> {
 	const raw = piSessionId(ctx);
 	if (!raw) return null;
 	const st = newReceiverState(`pi-${raw}`);
 	// start at EOF: only events arriving from now on get injected — durable
 	// late-join replay is W2866's mailbox semantics, not ours
 	st.cursor = readNewFeedLines(feedLog(st.sid), 0).cursor;
-	void runCoord(
+	await runCoord(
 		["bootstrap", "--as", st.sid, "--role", "worker"],
 		ctx.cwd,
 		FEED_TIMEOUT_MS,
-	).then(() => {
-		st.wsLive = machineSubscriberLive(process.env.HOME ?? "");
-	});
+	);
+	st.wsLive = machineSubscriberLive(process.env.HOME ?? "");
+	// expose the canonical resolved sid (raw → `pi-<raw>`) so peers stop
+	// guessing between the SDK raw id and the prefixed plane id (W2875)
+	const home = process.env.HOME;
+	if (home) {
+		try {
+			writeFileSync(
+				`${home}/.claude-insights/fleet-receiver-${raw}.sid`,
+				st.sid,
+			);
+		} catch {}
+	}
 	const subProc = st.wsLive ? undefined : ensureSubscriber(st.sid);
 	const timer = setInterval(() => {
 		void receiverTick(pi, ctx, st);
@@ -305,12 +324,19 @@ function newReceiverState(sid: string): ReceiverState {
 
 // The receiver extension: identity → heartbeat → subscriber ensure → poll
 // loop → cleanup. Everything degrades; nothing throws out of a handler.
+// Pi 1.5 SDK hands session_start handlers (event, ctx) — ctx is the SECOND
+// argument; the old single-arg binding never attached.
 export default function fleetReceiver(pi: ExtensionAPI) {
 	let cleanup: (() => void) | null = null;
-	pi.on("session_start", (ctx) => {
-		cleanup = attachReceiver(pi, ctx);
+	let disposed = false;
+	pi.on("session_start", (_event, ctx) => {
+		void attachReceiver(pi, ctx).then((c) => {
+			if (disposed) c?.();
+			else cleanup = c;
+		});
 	});
 	pi.on("session_shutdown", () => {
+		disposed = true;
 		cleanup?.();
 	});
 }
