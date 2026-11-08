@@ -555,7 +555,7 @@ test("renders at narrow width without clipping the footer", {
 	const h = await card
 		.locator("footer .seg.retry")
 		.evaluate((n) => n.getBoundingClientRect().height);
-	expect(h).toBeGreaterThanOrEqual(32);
+	expect(h).toBe(28);
 	await page.screenshot({ path: `${SHOTS}/3-failed-300.png` });
 });
 
@@ -583,6 +583,39 @@ test("rail geometry: every footer control stays inside the card at 300/320px", {
 			ready?.segs.filter((s) => s.tag === "select") ?? [],
 			`READY rail renders its selects (${width}px)`,
 		).toHaveLength(2);
+	}
+});
+
+test("footer uses one compact control scale with inset labels", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/`);
+	await mount(page, [fx(0), fx(1), fx(3)], { width: 300 });
+	const controls = await page
+		.locator(`#${HOST_ID} klh-task-card`)
+		.evaluateAll((cards) =>
+			cards.flatMap((card) =>
+				[...(card.shadowRoot?.querySelectorAll("footer .seg") ?? [])].map(
+					(control) => {
+						const style = getComputedStyle(control);
+						return {
+							height: control.getBoundingClientRect().height,
+							font: style.fontSize,
+							padding: style.paddingLeft,
+							top: style.borderTopWidth,
+							bottom: style.borderBottomWidth,
+						};
+					},
+				),
+			),
+		);
+	expect(controls.length).toBeGreaterThan(5);
+	for (const control of controls) {
+		expect(control.height).toBe(28);
+		expect(parseFloat(control.font)).toBeLessThanOrEqual(10.5);
+		expect(control.padding).toBe("8px");
+		expect(control.top).toBe("0px");
+		expect(control.bottom).toBe("0px");
 	}
 });
 
