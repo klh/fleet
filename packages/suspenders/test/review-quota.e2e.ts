@@ -8,6 +8,7 @@ import {
 	type WalkOptions,
 	defaultBackoffMs,
 	isEmptyContentFailure,
+	isTimeoutFailure,
 	isTransportFailure,
 	parseFallbackModels,
 	renderTrail,
@@ -52,6 +53,15 @@ test.describe("isTransportFailure", () => {
 		expect(isTransportFailure("The operation timed out.")).toBe(true);
 		expect(isTransportFailure("fetch failed")).toBe(true);
 		expect(isTransportFailure("connection ECONNRESET")).toBe(true);
+	});
+});
+
+test.describe("isTimeoutFailure", () => {
+	test("timed-out/abort text matches; plain HTTP status/econnreset does not", () => {
+		expect(isTimeoutFailure("The operation timed out.")).toBe(true);
+		expect(isTimeoutFailure("Request aborted")).toBe(true);
+		expect(isTimeoutFailure("Review LLM HTTP 504")).toBe(false);
+		expect(isTimeoutFailure("connection ECONNRESET")).toBe(false);
 	});
 });
 
@@ -274,6 +284,49 @@ test.describe("walkLegs", () => {
 		expect(walk.texts).toEqual([]);
 		expect(walk.failure).toBe("Review LLM HTTP 503");
 		expect(walk.trail).toHaveLength(2);
+	});
+
+	// W2858: zai/glm review trails burned 3 attempts x 2 legs on timeouts
+	// before reaching a healthy rung — a timeout already ran its full wall
+	// budget, so same-leg retry only multiplies the dead cost.
+	test("timeout-class failure spends the leg after one attempt, no backoff", async () => {
+		const stub = stubSequencer({
+			"0": [new Error("The operation timed out.")],
+			"1": [`stepdown findings\n${VERDICT}`],
+		});
+		const sleeps: number[] = [];
+		const walk = await walkLegs({
+			legLabels: ["zai-glm-5.3-flash", "glm-5.3-flash"],
+			request: stub.request,
+			sleep: (ms) => {
+				sleeps.push(ms);
+				return Promise.resolve();
+			},
+		});
+		expect(stub.calls).toEqual([
+			{ leg: 0, attempt: 1 },
+			{ leg: 1, attempt: 1 },
+		]);
+		expect(sleeps).toEqual([]);
+		expect(walk.texts).toEqual([`stepdown findings\n${VERDICT}`]);
+	});
+
+	test("fastFailTimeouts: false restores the old same-leg retry ladder", async () => {
+		const stub = stubSequencer({
+			"0": [
+				new Error("The operation timed out."),
+				new Error("The operation timed out."),
+				new Error("The operation timed out."),
+			],
+		});
+		const walk = await walkLegs({
+			legLabels: ["zai-glm-5.3-flash"],
+			request: stub.request,
+			fastFailTimeouts: false,
+			sleep: noSleep,
+		});
+		expect(stub.calls).toHaveLength(3);
+		expect(walk.failure).toBe("The operation timed out.");
 	});
 });
 

@@ -58,6 +58,11 @@ export interface WalkOptions {
 	 * one burned a full budget). Default 2; the failure carries the
 	 * transport_error marker. */
 	maxEmptyRedrives?: number;
+	/** W2858: a timeout-class failure already burned its full wall budget —
+	 * same-leg backoff retry (2-8s) cannot help an upstream that is already
+	 * slow/hung, it only multiplies the cost. Default true: spend the leg
+	 * after one attempt, no backoff; false restores the old retry ladder. */
+	fastFailTimeouts?: boolean;
 	request: (legIndex: number, attempt: number) => Promise<string>;
 }
 
@@ -95,6 +100,12 @@ export const defaultBackoffMs = (_legIndex: number, attempt: number): number =>
 export const isContextOverflowCandidate = (reason: string): boolean =>
 	/\bHTTP 5\d\d\b/.test(reason);
 
+/** W2858: a genuine timeout/abort (the request already ran its full wall
+ * budget) — distinct from the broader `isTransportFailure` econnreset/fetch
+ * failed/socket family, which can be a fast transient blip worth retrying. */
+export const isTimeoutFailure = (reason: string): boolean =>
+	/\b(timed? ?out|timeout|abort(ed)?)\b/i.test(reason);
+
 const realSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -105,6 +116,7 @@ const realSleep = (ms: number): Promise<void> =>
 export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 	const attemptsPerLeg = o.attemptsPerLeg ?? 3;
 	const fastFailMs = o.fastFailMs ?? 1000;
+	const fastFailTimeouts = o.fastFailTimeouts ?? true;
 	const sleep = o.sleep ?? realSleep;
 	const texts: string[] = [];
 	const trail: LegAttempt[] = [];
@@ -164,6 +176,13 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 					continue;
 				}
 				if (!transport) break; // terminal on this leg — walk to the next
+				// W2858: a genuine timeout already ran its full wall budget —
+				// same-leg backoff retry cannot help an upstream that is already
+				// slow/hung; spend the leg after one attempt, no backoff.
+				if (fastFailTimeouts && isTimeoutFailure(reason)) {
+					legSpent = true;
+					continue;
+				}
 				// W2344: a near-instant 5xx is deterministic (context overflow —
 				// upstream 503 no_route'd the payload before generation); the
 				// same payload will be rejected identically, so retries +
