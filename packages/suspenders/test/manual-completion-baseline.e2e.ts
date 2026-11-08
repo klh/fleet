@@ -57,7 +57,8 @@ for (const location of ["tree", "root"])
 				const epoch = taken.out.match(/claim epoch: (\d+)/)?.[1] ?? "";
 				let siblingId = "",
 					siblingToken = "",
-					siblingTree = "";
+					siblingTree = "",
+					siblingEpoch = "";
 				if (mode === "shared-sid") {
 					siblingId =
 						work(["add", "same SID concurrent sibling"]).out.match(
@@ -65,6 +66,7 @@ for (const location of ["tree", "root"])
 						)?.[0] ?? "";
 					const sibling = work(["take", siblingId, "--as", "manual-owner"]);
 					expect(sibling.code, sibling.err).toBe(0);
+					siblingEpoch = sibling.out.match(/claim epoch: (\d+)/)?.[1] ?? "";
 					siblingToken =
 						sibling.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
 					siblingTree = sibling.out.match(/worktree: (.+)/)?.[1] ?? "";
@@ -140,7 +142,7 @@ for (const location of ["tree", "root"])
 							"--token",
 							siblingToken,
 							"--claim-epoch",
-							"1",
+							siblingEpoch,
 							"--sha",
 							sha,
 							"--summary",
@@ -149,6 +151,7 @@ for (const location of ["tree", "root"])
 						location === "tree" ? siblingTree : world.repo,
 					);
 					expect(foreign.code, foreign.err).not.toBe(0);
+					expect(foreign.err).toContain("outside its registered item branch");
 					expect(
 						JSON.parse(work(["show", siblingId, "--json"]).out).state,
 					).toBe("CLAIMED");
