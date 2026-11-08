@@ -5,6 +5,47 @@ import { writeFile, symlink, chmod } from "node:fs/promises";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
 import { openRunnerHost } from "../hooks/lib/runners/service/host.ts";
 import { readRunnerProfiles } from "../hooks/lib/runners/service/profiles.ts";
+import { runnerHostConfig } from "../hooks/lib/runners/service/config.ts";
+import { RunnerSettingsSchema } from "@klh/settings";
+
+test("runner host uses only an explicit loopback port and the configured identity authority @unit", async () => {
+	const authority = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch(request) {
+			expect(new URL(request.url).pathname).toBe("/v1/fleet/whoami");
+			expect(request.headers.get("authorization")).toBe("Bearer scoped-key");
+			return Response.json({
+				authenticated: true,
+				kind: "api_key",
+				key_id: "operator",
+				team: null,
+				actor: null,
+				scopes: ["buckle:runner:READ_"],
+			});
+		},
+	});
+	try {
+		const config = RunnerSettingsSchema.parse({
+			control_url: "http://127.0.0.1:7810",
+			identity_url: authority.url.href,
+		});
+		const host = runnerHostConfig(config);
+		expect(host.port).toBe(7810);
+		for (const control_url of ["https://runner.example", "http://127.0.0.1:0"])
+			expect(() => runnerHostConfig({ ...config, control_url })).toThrow(
+				"runner.local_listener_requires_loopback_port",
+			);
+		const identity = await host.identity(
+			new Request(authority.url, {
+				headers: { authorization: "Bearer scoped-key" },
+			}),
+		);
+		expect(identity.keyId).toBe("operator");
+	} finally {
+		await authority.stop(true);
+	}
+});
 
 test("runner host reopens admitted jobs and excludes a second writer @unit", async () => {
 	const world = scratchWorld({ prefix: "runner-service-" });
