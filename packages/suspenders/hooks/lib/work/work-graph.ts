@@ -11,7 +11,12 @@
 
 import { unmergedDeps, unmergedNote } from "../gates/dep-merge-gate.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
-import { openStore, projectIdentity, projectRootOf } from "../govdb/govdb.ts";
+import {
+	openStore,
+	projectIdentity,
+	projectRootOf,
+	resolveStoreHttpBase,
+} from "../govdb/govdb.ts";
 import type { ReclaimReason } from "../lanes/reclaim-sticky.ts";
 import { dieFor } from "../verb-kit.ts";
 import { preferTagFor } from "./prefer.ts";
@@ -33,15 +38,51 @@ export function setWorkVerb(name: string): void {
 	VERB = name;
 }
 let handle: GovernorStore | undefined;
+
+// C296 (C): a configured store that ANSWERS /health is not "offline". Mirror
+// degrade exists for genuinely down stores (fresh clone, launchd gap); a store
+// that is up but failing us must die loudly instead of silently serving stale
+// committed rows. Sync curl probe — db() is sync by contract.
+function storeAlive(base: string): boolean {
+	try {
+		return (
+			Bun.spawnSync(["curl", "-sf", "-m", "2", `${base}/health`], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}).exitCode === 0
+		);
+	} catch {
+		return false;
+	}
+}
+
+function reconcileMirrorFallback(err: unknown): GovernorStore | null {
+	const http = resolveStoreHttpBase();
+	if (http && storeAlive(http.base))
+		die(
+			`store ${http.base} answered /health but the graph read failed (${err instanceof Error ? err.message : String(err)}) — refusing silent mirror degrade; repair the store binding or set GOVERNOR_STORE_URL=local`,
+		);
+	return mirrorOrNull(PROJECT);
+}
+
 export function db(): GovernorStore {
 	if (handle) return handle;
 	const isRead = READ_CMDS.has(VERB);
-	let d: GovernorStore;
+	let d: GovernorStore | undefined;
+	let emptyPartition = false;
 	try {
 		d = openStore();
+		if (isRead) {
+			const n = (
+				d
+					.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?")
+					.get(PROJECT) as { n: number }
+			).n;
+			if (n === 0) emptyPartition = true; // empty partition → mirror eligible
+		}
 	} catch (e) {
 		if (isRead) {
-			const m = mirrorOrNull(PROJECT);
+			const m = reconcileMirrorFallback(e);
 			if (m) {
 				handle = m;
 				return m;
@@ -51,18 +92,11 @@ export function db(): GovernorStore {
 			`governor.db unreachable (${e instanceof Error ? e.message : String(e)}) — mutations need the DB; the committed ${MIRROR_NAME} mirror keeps reads alive`,
 		);
 	}
-	if (isRead) {
-		const n = (
-			d
-				.query("SELECT COUNT(*) AS n FROM work_items WHERE project = ?")
-				.get(PROJECT) as { n: number }
-		).n;
-		if (n === 0) {
-			const m = mirrorOrNull(PROJECT);
-			if (m) {
-				handle = m;
-				return m;
-			}
+	if (isRead && emptyPartition) {
+		const m = mirrorOrNull(PROJECT);
+		if (m) {
+			handle = m;
+			return m;
 		}
 	}
 	handle = d;

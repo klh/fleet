@@ -12,6 +12,8 @@ import {
 	mkdirSync,
 	writeFileSync,
 	realpathSync,
+	existsSync,
+	readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -417,4 +419,74 @@ test("work_sequences resequence to MAX(source, target), never blend (C296 D)", (
 			.get(from),
 	).toEqual({ n: 0 });
 	read.close();
+});
+
+test("configured store answering /health but failing reads refuses mirror degrade (C296 C)", () => {
+	const stubSrc = [
+		"const { writeFileSync } = require('node:fs');",
+		"const s = Bun.serve({ port: 0, fetch(req) {",
+		"	if (new URL(req.url).pathname === '/health') return Response.json({ ok: true });",
+		"	return new Response('stub', { status: 500 });",
+		"}});",
+		"writeFileSync(process.env.PORT_FILE, String(s.port));",
+	];
+	const stub = Bun.spawn([process.execPath, "-e", stubSrc.join("\n")], {
+		env: { ...process.env, PORT_FILE: join(REPO, ".stub-port") },
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	try {
+		let port = "";
+		for (let i = 0; i < 100 && !port; i++) {
+			if (existsSync(join(REPO, '.stub-port')))
+				port = readFileSync(join(REPO, '.stub-port'), 'utf8').trim();
+			else Bun.spawnSync(['/bin/sleep', '0.05']);
+		}
+		const work = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
+		const r = Bun.spawnSync(["bun", work, "list"], {
+			cwd: REPO,
+			env: { ...env, GOVERNOR_STORE_URL: `http://127.0.0.1:${port}` },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(r.exitCode).not.toBe(0);
+		expect(r.stdout.toString() + r.stderr.toString()).toContain(
+			"refusing silent mirror degrade",
+		);
+	} finally {
+		stub.kill();
+	}
+});
+
+test("dead configured store falls back to the committed mirror (C296 C)", () => {
+	const work = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
+	const plain = realpathSync(
+		mkdtempSync(join(tmpdir(), "suspenders-pid-mir-")),
+	);
+	try {
+		const ts = Date.now();
+		const meta = { type: "meta", project: plain, exported_at: ts };
+		const item = {
+			project: plain,
+			id: "WMIR",
+			title: "mirror row",
+			state: "READY",
+			created_at: ts,
+			updated_at: ts,
+		};
+		writeFileSync(
+			join(plain, ".workgraph.jsonl"),
+			`${JSON.stringify(item)}\n${JSON.stringify(meta)}\n`,
+		);
+		const r = Bun.spawnSync(["bun", work, "list"], {
+			cwd: plain,
+			env: { ...env, GOVERNOR_STORE_URL: "http://127.0.0.1:1" },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(r.exitCode).toBe(0);
+		expect(r.stdout.toString() + r.stderr.toString()).toContain("WMIR");
+	} finally {
+		rmSync(plain, { recursive: true, force: true });
+	}
 });
