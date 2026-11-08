@@ -59,7 +59,7 @@ function branchCreation(
  * of the same item, and ancestry of the tree's HEAD. An item that already
  * completed never re-offers its credited product. Any doubt keeps HEAD. */
 export function registeredOriginalBaseline(
-	store: GovernorStore,
+	store: Pick<GovernorStore, "query">,
 	args: { project: string; item: string; tree: string },
 ): OriginalBaseline | null {
 	try {

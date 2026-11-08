@@ -365,3 +365,7 @@ budget artifact, not looping.
   the arms comparable; the zero-out attribution mass still floors
   med_out_per_min (0*) — all floors, never rates. See
   [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
+
+## Manual multi-commit completion window (W2876, 2026-11-08)
+
+Contextless manual claims previously checked only the final commit, falsely rejecting required benchmark ledgers already committed earlier in the same lane. Two real CLI reproductions refused before the repair. Completion now reuses the registered item branch creation and corroborating mint receipt to retain the original baseline; no lane context is invented. Eight focused cases cover tree/root closure, missing receipts and stale claim token/epoch. Legacy root-only single-commit completion and dispatched/cross-repo paths keep their existing contracts. This is an evidence-correctness repair, with no measured performance claim.
