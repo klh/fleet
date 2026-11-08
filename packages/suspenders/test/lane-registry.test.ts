@@ -1,7 +1,10 @@
 import { Database } from "bun:sqlite";
 import { existsSync, realpathSync } from "node:fs";
 import {
+	loadLaneRegistry,
+	mergeLaneRegistry,
 	newerLane,
+	pruneLaneRegistry,
 	readLaneRegistry,
 	safeToRetire,
 } from "../hooks/lib/lanes/lane-registry.ts";
@@ -337,4 +340,62 @@ test("work lanes preserves an explicit custom registry filename", () => {
 	);
 	expect(result.exitCode).toBe(0);
 	expect(JSON.parse(result.stdout.toString())[0]?.sid).toBe("custom-lane");
+});
+
+test("loadLaneRegistry memoizes reads inside the TTL and refreshes after expiry (W2862)", () => {
+	const root = repo();
+	const fleet = join(root, ".fleet");
+	mkdirSync(fleet);
+	const input = root;
+	const resolveRoot = (dir: string) => dir;
+	writeFileSync(
+		join(fleet, "lanes.json"),
+		JSON.stringify([{ sid: "a", pid: 1 }]),
+	);
+	const t0 = 1_000;
+	expect(loadLaneRegistry(input, resolveRoot, t0).map((l) => l.sid)).toEqual([
+		"a",
+	]);
+	writeFileSync(
+		join(fleet, "lanes.json"),
+		JSON.stringify([{ sid: "b", pid: 2 }]),
+	);
+	expect(
+		loadLaneRegistry(input, resolveRoot, t0 + 100).map((l) => l.sid),
+	).toEqual(["a"]);
+	expect(
+		loadLaneRegistry(input, resolveRoot, t0 + 2_100).map((l) => l.sid),
+	).toEqual(["b"]);
+});
+
+test("memo hits return a fresh array so callers cannot poison the cache (W2862)", () => {
+	const root = repo();
+	const fleet = join(root, ".fleet");
+	mkdirSync(fleet);
+	writeFileSync(
+		join(fleet, "lanes.json"),
+		JSON.stringify([{ sid: "a", pid: 1 }]),
+	);
+	const resolveRoot = (dir: string) => dir;
+	const now = 1_000;
+	loadLaneRegistry(root, resolveRoot, now);
+	const hit = loadLaneRegistry(root, resolveRoot, now + 1);
+	hit.push({ sid: "poison", pid: 3 });
+	expect(loadLaneRegistry(root, resolveRoot, now + 2)).toHaveLength(1);
+});
+
+test("merge and prune invalidate the memo inside the TTL window (W2862)", () => {
+	const root = repo();
+	const fleet = join(root, ".fleet");
+	mkdirSync(fleet);
+	const now = 1_000;
+	// Reader rides the default canonical resolver so its memo key matches the
+	// writers' (canonicalProjectRoot realpaths /var → /private/var on macOS).
+	expect(loadLaneRegistry(root, undefined, now)).toEqual([]);
+	mergeLaneRegistry(root, [{ sid: "m", pid: 1 }]);
+	expect(loadLaneRegistry(root, undefined, now + 1).map((l) => l.sid)).toEqual([
+		"m",
+	]);
+	pruneLaneRegistry(root, ["m"], () => true);
+	expect(loadLaneRegistry(root, undefined, now + 2)).toEqual([]);
 });
