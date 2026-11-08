@@ -131,7 +131,12 @@ export const transcriptsAliveBatch = (sids: string[]): Map<string, boolean> => {
 	];
 	let budget = 50_000;
 	try {
-		budget = walkFresh(stack, want, out, floor, budget);
+		// W2864: pop until dry or out of budget — the single-call shape only
+		// ever inspected the root projects dir (all subdirs, no .jsonl), so
+		// every queried sid read transcript-dead (parity test caught it).
+		while (stack.length && budget > 0) {
+			budget = walkFresh(stack, want, out, floor, budget);
+		}
 	} catch {}
 	return out;
 };

@@ -20,6 +20,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { TransactionEvents } from "../lib/govdb/transaction-events.ts";
 import { expireConsults } from "../lib/federation/consult-expiry.ts";
+import { sweepStaleSessions } from "../lib/govdb/govdb-sessions.ts";
 import { consultStoreId } from "../lib/federation/consult-outbox.ts";
 import { storeAdmissionRefusal } from "../lib/knowledge/store-admission.ts";
 import {
@@ -186,6 +187,24 @@ const CONSULT_SWEEP_MS = 5 * 60_000;
 setInterval(() => {
 	expireConsults(db);
 }, CONSULT_SWEEP_MS).unref();
+
+// W2864 — the liveness sweep rides the db's owner: store-enrolled sessions
+// sweep only where the db is local (coord bootstrap/gc/session-start), so
+// rows for sessions riding the HTTP store lingered RUNNING past their hb
+// window until some local session happened to bootstrap. One boot-time sweep
+// plus a tick at the consult-sweep cadence runs it regardless of transport;
+// the batched transcript walk (govdb-sessions.ts) keeps the tick cheap.
+const SESSION_SWEEP_MS = 5 * 60_000;
+setInterval(() => {
+	const swept = sweepStaleSessions(db);
+	if (swept > 0)
+		console.error(`[store] sessions: swept ${swept} stale RUNNING rows`);
+}, SESSION_SWEEP_MS).unref();
+const bootSwept = sweepStaleSessions(db);
+if (bootSwept > 0)
+	console.error(
+		`[store] sessions: swept ${bootSwept} stale RUNNING rows at boot`,
+	);
 
 // W978 — the stale write-txn watchdog: every TXN_SWEEP_MS, abort tracked tx
 // windows older than TXN_STALE_MS (total age, not idle) and probe both
