@@ -4,6 +4,11 @@
 
 import { z } from "zod";
 import { ensureConsultV2 } from "../lib/consult/consult-delivery.ts";
+import {
+	stampReaderSafe,
+	unreadFor,
+	ensureConsultReaders,
+} from "../lib/consult/consult-readers.ts";
 import { answerMark } from "../lib/consult/oracle.ts";
 import { consultDeadline } from "../lib/federation/consult-expiry.ts";
 import {
@@ -71,6 +76,9 @@ const consultsContract = verbContract({
 			question: z.string(),
 			state: z.string(),
 			answer: z.string().nullable(),
+			readerState: z
+				.enum(["unread", "reading", "replied", "declined", "expired"])
+				.optional(),
 		}),
 	),
 });
@@ -623,6 +631,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 		.run(st, decline ? null : text, Date.now(), c.id);
 	if (!won.changes) die(`${cid} was settled first by another answer`);
 	if (!decline) settleAnswer(c.id, as);
+	stampReaderSafe(db, c.id, as, decline ? "declined" : "replied"); // W2866
 	// Store candidates, but only asker-verified outcomes permit automatic reuse.
 	// W618 dedup: a same-project row with the same normalized problem+answer
 	// fingerprint absorbs the reply — hits/last_hit_at bump, a differing answer
@@ -763,35 +772,55 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 }
 
 export async function cmdConsults(_rest: string[]): Promise<void> {
-	// my consult queue: OPEN questions addressed to me + my recent threads
+	// my consult queue: OPEN questions addressed to me + my recent threads;
+	// --unread rides the W2866 per-reader rows (unread/reading still owed)
 	const as = arg("--as");
-	if (!as) die("usage: consults --as <sid> [--json]");
-	const rows = db
-		.query(
-			"SELECT id, asker_sid, question, state, answer FROM consults WHERE expert_sid = ? OR asker_sid = ? ORDER BY id DESC LIMIT 20",
-		)
-		.all(as, as) as {
-		id: number;
-		asker_sid: string;
-		question: string;
-		state: string;
-		answer: string | null;
-	}[];
+	if (!as) die("usage: consults --as <sid> [--json] [--unread]");
+	const unreadOnly = _rest.includes("--unread");
+	const rows = unreadOnly
+		? unreadFor(db, as).map((r) => ({ ...r, answer: null as string | null }))
+		: (db
+				.query(
+					"SELECT id, asker_sid, question, state, answer FROM consults WHERE expert_sid = ? OR asker_sid = ? ORDER BY id DESC LIMIT 20",
+				)
+				.all(as, as) as {
+				id: number;
+				asker_sid: string;
+				question: string;
+				state: string;
+				answer: string | null;
+			}[]);
+	if (unreadOnly) ensureConsultReaders(db);
 	if (wantsJson(_rest)) {
 		consultsContract.emit({
 			schema_version: 1,
 			verb: "consults",
 			as,
 			shown: rows.length,
-			consults: rows.map((r) => ({
-				id: r.id,
-				cid: `C${r.id}`,
-				askerSid: r.asker_sid,
-				question: r.question,
-				state: r.state,
-				answer: r.answer,
-			})),
+			consults: rows.map((r) => {
+				const rs = (r as { reader_state?: string }).reader_state;
+				return {
+					id: r.id,
+					cid: `C${r.id}`,
+					askerSid: r.asker_sid,
+					question: r.question,
+					state: r.state,
+					answer: r.answer,
+					...(rs ? { readerState: rs } : {}),
+				};
+			}),
 		});
+		return;
+	}
+	if (unreadOnly) {
+		console.log(
+			rows
+				.map((r) => {
+					const rs = (r as { reader_state?: string }).reader_state;
+					return `${red("?")} ${cyan(`C${r.id}`)} ${dim(`[${rs}]`)} ← ${dim(`from ${String(r.asker_sid).slice(0, 8)}`)} ${r.question.slice(0, 60)}`;
+				})
+				.join("\n") || dim("(no unread consults)"),
+		);
 		return;
 	}
 	console.log(

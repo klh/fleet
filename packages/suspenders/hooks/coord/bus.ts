@@ -14,6 +14,7 @@ import { hostname } from "node:os";
 // open; re-exports keep the coord modules' import specifiers stable. The
 // liveness term there carries the newer session check (W1261 identity term).
 import { broadcastNote } from "../lib/broadcast-core.ts";
+import { stampConsultRead } from "../lib/consult/consult-readers.ts";
 import { signalClaudeDirectEvent } from "../lib/executors/claude-wake.ts";
 
 export type { LivenessRow } from "../lib/broadcast-core.ts";
@@ -592,6 +593,7 @@ export async function cmdAck(rest: string[]): Promise<void> {
 	db.query(
 		"UPDATE direct_message_receipts SET state = 'ACCEPTED', seen_at = COALESCE(seen_at, ?), accepted_at = COALESCE(accepted_at, ?) WHERE event_id = ? AND sid = ?",
 	).run(Date.now(), Date.now(), eventId, as);
+	stampConsultRead(db, eventId, as); // W2866: ack → per-reader `reading`
 	console.log(`${green("✓")} accepted #${eventId} for ${as}`);
 }
 

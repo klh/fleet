@@ -28,6 +28,14 @@ import {
 	hubCooldownActive,
 	joinPendingHubConsult,
 } from "../hooks/lib/federation/consult-federation-hub.ts";
+import {
+	CONSULT_READER_TTL_MS,
+	expireConsults,
+} from "../hooks/lib/federation/consult-expiry.ts";
+import {
+	fanOutReaders,
+	readersOf,
+} from "../hooks/lib/consult/consult-readers.ts";
 
 const HOME = mkdtempSync(join(tmpdir(), "suspenders-fed-"));
 const REPO = mkdtempSync(join(tmpdir(), "suspenders-fed-repo-"));
@@ -38,7 +46,10 @@ const kev = await startKevStub("store");
 // phase 4: demotion needs knowledge.downvote_threshold distinct lanes
 // (default 2); this suite's single asker proves the one-lane path
 const COORD_CONF = join(HOME, "coord.json");
-writeFileSync(COORD_CONF, JSON.stringify({ knowledge: { downvote_threshold: 1 } }));
+writeFileSync(
+	COORD_CONF,
+	JSON.stringify({ knowledge: { downvote_threshold: 1 } }),
+);
 const env = {
 	...process.env,
 	HOME,
@@ -205,7 +216,7 @@ afterAll(() => {
 function fixtureDb(name: string) {
 	const db = new Database(join(HOME, name));
 	db.run(
-		"CREATE TABLE consults (id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT, asker_sid TEXT, expert_sid TEXT, question TEXT, scope TEXT, state TEXT, answer TEXT, answered_at INTEGER, created_at INTEGER)",
+		"CREATE TABLE consults (id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT, asker_sid TEXT, expert_sid TEXT, question TEXT, scope TEXT, state TEXT, answer TEXT, answered_at INTEGER, deadline_at INTEGER, created_at INTEGER)",
 	);
 	db.run(
 		"CREATE TABLE events (ts INTEGER, source TEXT, kind TEXT, scope TEXT, payload TEXT, target TEXT)",
@@ -375,7 +386,12 @@ test("resolved feedback is audit-only — no demotion", () => {
 });
 
 // phase 4 (owner 2026-10-29): candidates answer, marked unreviewed
-function seedCandidate(topic: string, fact: string, file: string, drift = false) {
+function seedCandidate(
+	topic: string,
+	fact: string,
+	file: string,
+	drift = false,
+) {
 	const id = seedFact(topic, fact, file);
 	const d = new Database(KDB);
 	d.query("UPDATE knowledge SET state = 'candidate' WHERE id = ?").run(id);
@@ -387,19 +403,51 @@ const cidOf = (out: string) => out.match(/\bC(\d+)\b/)?.[0] ?? "";
 const LANE = "deadbeef-lane-33333333";
 
 test("phase 4: a candidate answers via coord ask, marked unreviewed — zero interrupts", () => {
-	seedCandidate("walrus ledger compaction", "compact the walrus ledger after every rotation", "docs/walrus.md");
-	const a = run(["ask", "compact walrus ledger after rotation", "--to", LANE, "--priority", "high", "--as", ASKER]);
+	seedCandidate(
+		"walrus ledger compaction",
+		"compact the walrus ledger after every rotation",
+		"docs/walrus.md",
+	);
+	const a = run([
+		"ask",
+		"compact walrus ledger after rotation",
+		"--to",
+		LANE,
+		"--priority",
+		"high",
+		"--as",
+		ASKER,
+	]);
 	expect(a.code).toBe(0);
 	expect(a.out).toContain("ANSWERED");
 	expect(a.out).toContain("trust: candidate · unreviewed");
-	expect(a.out).toContain(`report: coord consult-reply ${cidOf(a.out)} --feedback`);
-	const steered = rows("SELECT COUNT(*) AS n FROM events WHERE target = ?", LANE)[0] as { n: number };
+	expect(a.out).toContain(
+		`report: coord consult-reply ${cidOf(a.out)} --feedback`,
+	);
+	const steered = rows(
+		"SELECT COUNT(*) AS n FROM events WHERE target = ?",
+		LANE,
+	)[0] as { n: number };
 	expect(steered.n).toBe(0);
 });
 
 test("phase 4: a drifted candidate never answers — normal delivery", () => {
-	seedCandidate("otter cache warmup", "warm the otter cache before the canary", "docs/otter.md", true);
-	const a = run(["ask", "warm otter cache before canary", "--to", LANE, "--priority", "high", "--as", ASKER]);
+	seedCandidate(
+		"otter cache warmup",
+		"warm the otter cache before the canary",
+		"docs/otter.md",
+		true,
+	);
+	const a = run([
+		"ask",
+		"warm otter cache before canary",
+		"--to",
+		LANE,
+		"--priority",
+		"high",
+		"--as",
+		ASKER,
+	]);
 	expect(a.code).toBe(0);
 	expect(a.out).not.toContain("ANSWERED");
 	expect(a.out).toMatch(/INBOX|STEER/);
@@ -409,11 +457,28 @@ test("phase 4: failed from 2 lanes demotes into review + re-delivers; resolved o
 	const two = join(HOME, "coord-two.json");
 	writeFileSync(two, JSON.stringify({ knowledge: { downvote_threshold: 2 } }));
 	const o = { SUSPENDERS_COORD_CONFIG: two };
-	const id = seedCandidate("heron shard rebalance", "rebalance heron shards before the cutover", "docs/heron.md");
+	const id = seedCandidate(
+		"heron shard rebalance",
+		"rebalance heron shards before the cutover",
+		"docs/heron.md",
+	);
 	const Q = "rebalance heron shards before cutover";
-	const ask = (as: string) => run(["ask", Q, "--to", LANE, "--priority", "high", "--as", as], o);
+	const ask = (as: string) =>
+		run(["ask", Q, "--to", LANE, "--priority", "high", "--as", as], o);
 	const fb = (out: string, outcome: string, as: string) =>
-		run(["consult-reply", cidOf(out), "--feedback", outcome, "--evidence", `${outcome} here`, "--as", as], o);
+		run(
+			[
+				"consult-reply",
+				cidOf(out),
+				"--feedback",
+				outcome,
+				"--evidence",
+				`${outcome} here`,
+				"--as",
+				as,
+			],
+			o,
+		);
 	const up = fb(ask("lane-up-1").out, "resolved", "lane-up-1");
 	expect(up.out).toContain("votes up 1 down 0");
 	const a1 = ask("lane-down-1");
@@ -426,8 +491,12 @@ test("phase 4: failed from 2 lanes demotes into review + re-delivers; resolved o
 	const f2 = fb(a2.out, "failed", "lane-down-2");
 	expect(f2.out).toContain("demoted out of answering");
 	const k = new Database(KDB);
-	const rv = k.query("SELECT kind, state, text FROM kev_review WHERE reference = ?").get(`k#${id}`) as { kind: string; state: string; text: string };
-	const st = k.query("SELECT state FROM knowledge WHERE id = ?").get(id) as { state: string };
+	const rv = k
+		.query("SELECT kind, state, text FROM kev_review WHERE reference = ?")
+		.get(`k#${id}`) as { kind: string; state: string; text: string };
+	const st = k.query("SELECT state FROM knowledge WHERE id = ?").get(id) as {
+		state: string;
+	};
 	k.close();
 	expect(rv.kind).toBe("downvote");
 	expect(rv.text).toContain("failed here");
@@ -495,4 +564,155 @@ test("--hub without policy refuses before any write", () => {
 	);
 	expect(ask.code).toBe(2);
 	expect(ask.err).toContain("no consult federation policy");
+});
+
+// ---- W2866 per-reader consult semantics --------------------------------
+type ReaderDb = Parameters<typeof fanOutReaders>[0];
+const asReaderDb = (db: Database): ReaderDb => db as unknown as ReaderDb;
+test("W2866 per-reader: fan-out, ack→reading, --unread pull, reply→replied", () => {
+	const q = `W2866 roundtrip ${Date.now()}`;
+	const ask = run(["ask", q, "--to", EXPT, "--as", ASKER]);
+	expect(ask.code).toBe(0);
+	expect(ask.out).toContain("BTW");
+	const db = new Database(DB);
+	try {
+		const c = db.query("SELECT id FROM consults WHERE question = ?").get(q) as
+			| { id: number }
+			| undefined;
+		if (!c?.id) throw new Error("consult not minted");
+		const rd = db
+			.query(
+				"SELECT state FROM consult_readers WHERE consult_id = ? AND reader_sid = ?",
+			)
+			.get(c.id, EXPT) as { state: string } | undefined;
+		expect(rd?.state).toBe("unread");
+		const ev = db
+			.query(
+				"SELECT id FROM events WHERE target = ? AND kind = 'consult.btw' AND payload LIKE ? ORDER BY id DESC LIMIT 1",
+			)
+			.get(EXPT, `%"consult":"C${c.id}"%`) as { id: number } | undefined;
+		if (!ev?.id) throw new Error("consult.btw event missing");
+		const u1 = run(["consults", "--as", EXPT, "--unread", "--json"]);
+		const j1 = JSON.parse(u1.out) as {
+			shown: number;
+			consults: { readerState?: string }[];
+		};
+		expect(j1.shown).toBe(1);
+		expect(j1.consults[0].readerState).toBe("unread");
+		const a = run(["ack", String(ev.id), "--as", EXPT]);
+		expect(a.code).toBe(0);
+		const rd2 = db
+			.query(
+				"SELECT state FROM consult_readers WHERE consult_id = ? AND reader_sid = ?",
+			)
+			.get(c.id, EXPT) as { state: string } | undefined;
+		expect(rd2?.state).toBe("reading");
+		const u2 = run(["consults", "--as", EXPT, "--unread", "--json"]);
+		const j2 = JSON.parse(u2.out) as {
+			shown: number;
+			consults: { readerState?: string }[];
+		};
+		expect(j2.shown).toBe(1);
+		expect(j2.consults[0].readerState).toBe("reading");
+		const rep = run([
+			"consult-reply",
+			`C${c.id}`,
+			"the answer is 42",
+			"--as",
+			EXPT,
+		]);
+		expect(rep.code).toBe(0);
+		const rd3 = db
+			.query(
+				"SELECT state FROM consult_readers WHERE consult_id = ? AND reader_sid = ?",
+			)
+			.get(c.id, EXPT) as { state: string } | undefined;
+		expect(rd3?.state).toBe("replied");
+		const u3 = run(["consults", "--as", EXPT, "--unread", "--json"]);
+		const j3 = JSON.parse(u3.out) as { shown: number };
+		expect(j3.shown).toBe(0);
+	} finally {
+		db.close();
+	}
+}, 30000);
+
+test("W2866 expiry: reader-set consult survives the 1h legacy sweep", () => {
+	const db = fixtureDb("w2866-live.db");
+	const t0 = Date.now();
+	const ins = db.query(
+		"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at) VALUES (?, ?, ?, ?, null, 'OPEN', ?)",
+	);
+	const legacyId = Number(
+		ins.run(PROJ, ASKER, EXPT, "W2866 legacy probe", t0 - 2 * 3_600_000)
+			.lastInsertRowid,
+	);
+	const survivorId = Number(
+		ins.run(PROJ, ASKER, EXPT, "W2866 survivor probe", t0 - 2 * 3_600_000)
+			.lastInsertRowid,
+	);
+	// only the survivor gets W2866 reader rows — the legacy probe must expire
+	fanOutReaders(asReaderDb(db), survivorId, [EXPT], t0 - 2 * 3_600_000);
+	const n = expireConsults(db, t0);
+	expect(n).toBe(1);
+	const stateOf = (id: number) =>
+		db.query("SELECT state FROM consults WHERE id = ?").get(id) as {
+			state: string;
+		};
+	expect(stateOf(legacyId)?.state).toBe("EXPIRED");
+	expect(stateOf(survivorId)?.state).toBe("OPEN");
+	const rs = readersOf(asReaderDb(db), survivorId);
+	expect(rs).toHaveLength(1);
+	expect(rs[0]?.state).toBe("unread");
+	db.close();
+});
+
+test("W2866 expiry: stale reader flips at 24h, settled consult expires whole", () => {
+	const db = fixtureDb("w2866-stale.db");
+	const t0 = Date.now();
+	const old = t0 - CONSULT_READER_TTL_MS - 3_600_000;
+	const ins = db.query(
+		"INSERT INTO consults (project, asker_sid, expert_sid, question, scope, state, created_at) VALUES (?, ?, ?, ?, null, 'OPEN', ?)",
+	);
+	const aId = Number(
+		ins.run(PROJ, ASKER, EXPT, "W2866 stale reader", old).lastInsertRowid,
+	);
+	fanOutReaders(asReaderDb(db), aId, [EXPT], old);
+	const bId = Number(
+		ins.run(PROJ, ASKER, EXPT, "W2866 mixed readers", old).lastInsertRowid,
+	);
+	fanOutReaders(
+		asReaderDb(db),
+		bId,
+		["reader-old-aaaaaaaa", "reader-new-bbbbbbbb"],
+		old,
+	);
+	db.query(
+		"UPDATE consult_readers SET state = 'replied' WHERE consult_id = ? AND reader_sid = 'reader-old-aaaaaaaa'",
+	).run(bId);
+	db.query(
+		"UPDATE consult_readers SET updated_at = ? WHERE consult_id = ? AND reader_sid = 'reader-new-bbbbbbbb'",
+	).run(t0 - 3_600_000, bId);
+	const n = expireConsults(db, t0);
+	expect(n).toBe(1);
+	const stateOf = (id: number) =>
+		db.query("SELECT state FROM consults WHERE id = ?").get(id) as {
+			state: string;
+		};
+	expect(stateOf(aId)?.state).toBe("EXPIRED");
+	expect(stateOf(bId)?.state).toBe("OPEN");
+	const ra = db
+		.query("SELECT state FROM consult_readers WHERE consult_id = ?")
+		.get(aId) as { state: string } | undefined;
+	expect(ra?.state).toBe("expired");
+	const ev = db
+		.query(
+			"SELECT target, payload FROM events WHERE kind = 'consult.expired' ORDER BY rowid DESC LIMIT 1",
+		)
+		.get() as { target: string; payload: string } | undefined;
+	expect(ev?.target).toBe(ASKER);
+	expect(JSON.parse(ev?.payload ?? "{}").consult).toBe(`C${aId}`);
+	expect(JSON.parse(ev?.payload ?? "{}").reason).toContain(
+		"all readers settled",
+	);
+	db.close();
 });

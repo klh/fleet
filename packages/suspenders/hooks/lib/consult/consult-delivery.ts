@@ -11,6 +11,7 @@
 // user_version bump, idempotent on every open.
 import type { GovernorStore } from "../govdb/govdb-store.ts";
 import type { CoordConfig } from "./consult-config.ts";
+import { fanOutReaders, stampReader } from "./consult-readers.ts";
 import {
 	type ClassifyInput,
 	type ConsultClass,
@@ -301,6 +302,8 @@ export async function submitConsult(
 	};
 	const cls = classify(ci);
 	const id = insert(cls === "interrupt" ? "QUEUED" : "OPEN", cls);
+	if (req.kind === "ask" && req.route.kind === "sid")
+		fanOutReaders(db, id, req.route.sids, now);
 	const cid = `C${id}`;
 	const lessons = deps.lessons?.(req.question) ?? [];
 
@@ -459,7 +462,8 @@ export function tickConsults(
 	}
 	for (const [recipient, rows] of byRecipient) {
 		const ready = rows.filter(
-			(r) => interruptDueAt(interruptWindow(db, recipient, r.asker_sid), cfg) <= now,
+			(r) =>
+				interruptDueAt(interruptWindow(db, recipient, r.asker_sid), cfg) <= now,
 		);
 		if (!ready.length) continue;
 		deliverSteer(db, recipient, ready, deps);
@@ -481,7 +485,10 @@ export function tickConsults(
 		);
 		if (!step) continue;
 		if (step === "re-steer") {
-			if (interruptDueAt(interruptWindow(db, r.expert_sid, r.asker_sid), cfg) > now)
+			if (
+				interruptDueAt(interruptWindow(db, r.expert_sid, r.asker_sid), cfg) >
+				now
+			)
 				continue; // the budget holds re-steers too
 			// chain first: a failed re-steer then jumps straight to the inbox
 			pushJson(db, r.id, "escalation", { step, at: now });
@@ -529,6 +536,7 @@ export function deferConsult(
 	db.query(
 		"UPDATE consults SET state = 'DEFERRED', acked_at = ?, defer_reason = ? WHERE id = ?",
 	).run(deps.now(), reason, id);
+	stampReader(db, id, sid, "declined");
 	deps.emit({
 		kind: "consult.notice",
 		to: r.asker_sid,

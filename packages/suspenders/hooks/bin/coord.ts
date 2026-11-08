@@ -260,7 +260,7 @@ const VERBS: VerbSpec[] = [
 	}),
 	defineVerb({
 		name: "consults",
-		usage: "usage: consults --as <sid> [--json]",
+		usage: "usage: consults --as <sid> [--json] [--unread]",
 		lax: true,
 		run: (p) => cmdConsults(p.rest),
 	}),
