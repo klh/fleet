@@ -1,5 +1,19 @@
 # doesnt_work.md — the negative-results ledger
 
+## Durable hook errors are not transport authorization (W2869.1)
+
+Pinned Durable 1.5.0 swallowed a throwing beforeProviderRequest guard: the
+negative fixture observed two HTTP model requests despite execute denial.
+The tool hook blocked the effect, but the submission still completed. Replace
+provider-hook enforcement with a fenced fetch at actual dispatch; the final
+regression observes zero HTTP requests for pre-dispatch denial. Reject unsupported
+transport APIs, keep key revocation and an abort watchdog as independent backstops.
+Also, ReadOnlySession is a read mode, not a writer lock: the pinned README
+explicitly states no cross-process locking. Use external writer exclusion and
+controller fencing. A Models object has prototype methods: spreading it lost
+getAuth and produced a fault; a bound proxy preserves those methods. Synthetic
+fixture tokens remain test data and never become performance evidence.
+
 Optimizations we actually tried that did not deliver, with the failure
 mechanism and the standing rule that replaced them. Complements
 [benchmarks.md](benchmarks.md) (the winners). Every row must be
