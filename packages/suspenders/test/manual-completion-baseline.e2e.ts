@@ -8,7 +8,14 @@ test.afterEach(() => {
 	while (worlds.length) worlds.pop()?.clean();
 });
 for (const location of ["tree", "root"])
-	for (const mode of ["ok", "missing-receipt", "stale-token", "stale-epoch"])
+	for (const mode of [
+		"ok",
+		"missing-receipt",
+		"stale-token",
+		"stale-epoch",
+		"shared-sid",
+		"split-child",
+	])
 		test(
 			"manual multi-commit completion preserves its original registered baseline from " +
 				location +
@@ -24,9 +31,44 @@ for (const location of ["tree", "root"])
 					runCli(BIN, args, { cwd, env: world.env });
 				const add = work(["add", "benchmark manual completion provenance"]);
 				expect(add.code, add.err).toBe(0);
-				const id = add.out.match(/W\d+/)?.[0] ?? "";
-				const taken = work(["take", id, "--as", "manual-owner"]);
+				let id = add.out.match(/W\d+/)?.[0] ?? "";
+				let taken = work(["take", id, "--as", "manual-owner"]);
 				expect(taken.code, taken.err).toBe(0);
+				if (mode === "split-child") {
+					const split = work([
+						"split",
+						id,
+						"kept benchmark child",
+						"sibling",
+						"--reason",
+						"independent-scopes",
+						"--keep",
+						"1",
+					]);
+					expect(split.code, split.err).toBe(0);
+					id += ".1";
+					expect(JSON.parse(work(["show", id, "--json"]).out).owner_sid).toBe(
+						"manual-owner",
+					);
+					expect(work(["release", id, "--as", "manual-owner"]).code).toBe(0);
+					taken = work(["take", id, "--as", "manual-owner"]);
+					expect(taken.code, taken.err).toBe(0);
+				}
+				const epoch = taken.out.match(/claim epoch: (\d+)/)?.[1] ?? "";
+				let siblingId = "",
+					siblingToken = "",
+					siblingTree = "";
+				if (mode === "shared-sid") {
+					siblingId =
+						work(["add", "same SID concurrent sibling"]).out.match(
+							/W\d+/,
+						)?.[0] ?? "";
+					const sibling = work(["take", siblingId, "--as", "manual-owner"]);
+					expect(sibling.code, sibling.err).toBe(0);
+					siblingToken =
+						sibling.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
+					siblingTree = sibling.out.match(/worktree: (.+)/)?.[1] ?? "";
+				}
 				const tree = taken.out.match(/worktree: (.+)/)?.[1] ?? "";
 				const token = taken.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
 				const git = (...args: string[]) => {
@@ -73,6 +115,44 @@ for (const location of ["tree", "root"])
 					});
 					expect(seeded.code, seeded.err).toBe(0);
 				}
+				if (mode === "shared-sid") {
+					const crossed = work([
+						"done",
+						id,
+						"--as",
+						"manual-owner",
+						"--token",
+						siblingToken,
+						"--claim-epoch",
+						epoch,
+						"--sha",
+						sha,
+						"--summary",
+						"The second live claim must never authorize completion of the first claim.",
+					]);
+					expect(crossed.code, crossed.err).not.toBe(0);
+					const foreign = work(
+						[
+							"done",
+							siblingId,
+							"--as",
+							"manual-owner",
+							"--token",
+							siblingToken,
+							"--claim-epoch",
+							"1",
+							"--sha",
+							sha,
+							"--summary",
+							"A sibling item must not complete using another live item branch product.",
+						],
+						location === "tree" ? siblingTree : world.repo,
+					);
+					expect(foreign.code, foreign.err).not.toBe(0);
+					expect(
+						JSON.parse(work(["show", siblingId, "--json"]).out).state,
+					).toBe("CLAIMED");
+				}
 				const done = work(
 					[
 						"done",
@@ -82,7 +162,7 @@ for (const location of ["tree", "root"])
 						"--token",
 						mode === "stale-token" ? "a".repeat(48) : token,
 						"--claim-epoch",
-						mode === "stale-epoch" ? "99" : "1",
+						mode === "stale-epoch" ? "99" : epoch,
 						"--sha",
 						sha,
 						"--summary",
@@ -90,7 +170,7 @@ for (const location of ["tree", "root"])
 					],
 					location === "tree" ? tree : world.repo,
 				);
-				if (mode !== "ok") {
+				if (["missing-receipt", "stale-token", "stale-epoch"].includes(mode)) {
 					expect(done.code, done.err).not.toBe(0);
 					if (mode === "missing-receipt")
 						expect(done.err).toContain("registered original baseline");
