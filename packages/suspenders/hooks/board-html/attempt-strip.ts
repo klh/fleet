@@ -182,40 +182,50 @@ export function attemptAxis(a: AttemptTimeline, tz: string): TemplateResult {
 }
 
 /** the full attempt-mode plot band. The strip owner composes this inside
- *  its one strip assembly (hairline + axis stay the owner's shared parts). */
+ *  its one strip assembly (hairline + axis stay the owner's shared parts).
+ *  W2701 (owner #108724): `spectral` (the owner's attempt-window spectral
+ *  field) renders BENEATH the attempt marks — the real token spikes stay
+ *  visible in attempt mode; segments/milestones overlay them. */
 export function attemptPlot(
 	a: AttemptTimeline,
 	w: number,
 	handlers: ReturnType<typeof attemptStripHandlers>,
+	spectral?: TemplateResult,
 ): TemplateResult {
 	return html`<svg
 		class="plot"
 		viewBox="0 0 ${w} 40"
 		preserveAspectRatio="none"
 		role="img"
-		aria-label="Current attempt: fixed 90-minute window, ${a.binMs / 60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones"
+		aria-label="Current attempt: fixed 90-minute window, ${a.binMs / 60000}-minute bins; queue, firstbyte, tool, pause, unknown segments plus artifact milestones${spectral ? " over real token activity" : ""}"
 		tabindex="0"
 		@pointermove=${(e: PointerEvent) => handlers.hover(e, a)}
 		@pointerleave=${() => handlers.hide()}
 		@keydown=${(e: KeyboardEvent) => handlers.keydown(e, a)}
 	>
-		${attemptSvg(a, w)}
+		${spectral}${attemptSvg(a, w)}
 	</svg>`;
 }
 
-/** attempt-mode styles — composed into the strip owner's static styles. */
+/** attempt-mode styles — composed into the strip owner's static styles.
+ *  W2701: segment fills ride fill-opacity 0.35 — the spectral spikes stay
+ *  legible beneath the attempt bands (never opaque state blocks). */
 export const attemptStripStyles = css`
 	.plot rect.at-queue {
 		fill: var(--klh-chart-axis, #898781);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-firstbyte {
 		fill: var(--klh-accent, #d8900f);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-tool {
 		fill: var(--klh-ok, #5c7a35);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-pause {
 		fill: var(--klh-warn, #b8860b);
+		fill-opacity: 0.35;
 	}
 	.plot rect.at-unknown {
 		fill: var(--klh-edge, rgba(128, 128, 128, 0.35));

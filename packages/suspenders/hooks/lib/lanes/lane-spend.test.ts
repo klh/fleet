@@ -1,10 +1,14 @@
 // W635 — lane-spend attribution tests: ledger resolution, spend extraction,
 // claim-window join. In-memory/temp ledger, real functions.
+// W2267.9: the on-disk probe dbs live in a test-kit scratchWorld home
+// (outside the checkout) with afterAll cleanup — import.meta.dir probes
+// leaked files into the tree, changing workspaceFingerprint mid-proof.
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { afterAll, describe, expect, test } from "bun:test";
+import { scratchWorld } from "@klh/test-kit";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
 import {
 	itemAttribution,
 	itemRequestSpendSeries,
@@ -17,6 +21,14 @@ import {
 	type LaneSpendRow,
 } from "./lane-spend.ts";
 import type { ClaimWindow } from "../work/work-timing.ts";
+
+// W2267.9: one module-level scratch world hosts every on-disk probe db —
+// files land in os.tmpdir(), never the checkout; afterAll tears it down.
+const world = scratchWorld({ prefix: "lane-spend-probe-" });
+const probeDb = (name: string): string => join(world.home, name);
+afterAll(() => {
+	world.clean();
+});
 
 const T0 = 1_700_000_000_000;
 
@@ -238,24 +250,72 @@ describe("recent request spend series", () => {
 			]);
 			const series = itemRequestSpendSeries(rows, windows);
 			expect(series.get("W1")).toEqual([
-				{ t: base, fresh: 30, cached: 35, out: 3 },
-				{ t: base + 60_000, fresh: 40, cached: 20, out: 4 },
+				{ t: base, fresh: 30, cached: 35, out: 3, binMs: 60_000 },
+				{ t: base + 60_000, fresh: 40, cached: 20, out: 4, binMs: 60_000 },
 			]);
 			expect(series.get("W2")).toEqual([
-				{ t: base + 120_000, fresh: 99, cached: 0, out: 9 },
+				{ t: base + 120_000, fresh: 99, cached: 0, out: 9, binMs: 60_000 },
 			]);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+
+	// W2591: the reduction is resolution-parameterized — at a 15s grain two
+	// requests inside one minute stay DISTINCT points (the card's finer
+	// spikes), and each point carries its own grain.
+	test("itemRequestSpendSeries: 15s grain keeps same-minute requests distinct", () => {
+		// a base aligned to the 15s grid (T0 itself is not: %15s = 10s)
+		const B = Math.floor(T0 / 15_000) * 15_000;
+		const rows: LaneRequestSpendRow[] = [
+			{
+				ts: B + 10_000,
+				sid: "s1",
+				inTok: 20,
+				outTok: 2,
+				cacheR: 30,
+				cacheC: 0,
+				costUsd: null,
+			},
+			{
+				ts: B + 25_000,
+				sid: "s1",
+				inTok: 10,
+				outTok: 1,
+				cacheR: 5,
+				cacheC: 0,
+				costUsd: null,
+			},
+			{
+				ts: B + 70_000,
+				sid: "s1",
+				inTok: 40,
+				outTok: 4,
+				cacheR: 20,
+				cacheC: 0,
+				costUsd: null,
+			},
+		];
+		const windows = new Map<string, ClaimWindow[]>([
+			["W1", [{ sid: "s1", start: B, end: B + 3_600_000 }]],
+		]);
+		const series = itemRequestSpendSeries(
+			rows,
+			windows,
+			Number.MAX_SAFE_INTEGER,
+			15_000,
+		);
+		expect(series.get("W1")).toEqual([
+			{ t: B, fresh: 20, cached: 30, out: 2, binMs: 15_000 },
+			{ t: B + 15_000, fresh: 10, cached: 5, out: 1, binMs: 15_000 },
+			{ t: B + 60_000, fresh: 40, cached: 20, out: 4, binMs: 15_000 },
+		]);
+	});
 });
 
 describe("laneSpendRows + resolveBuckleDb", () => {
 	test("reads hour buckets from a real sqlite ledger", () => {
-		const p = `${import.meta.dir}/w635-ledger-probe.db`;
-		try {
-			unlinkSync(p);
-		} catch {}
+		const p = probeDb("w635-ledger-probe.db");
 		const e = new Database(p);
 		e.run("DROP TABLE IF EXISTS api_keys");
 		e.run("DROP TABLE IF EXISTS router_usage");
@@ -387,10 +447,7 @@ function attrLedgerDb(path = ":memory:"): Database {
 
 describe("itemAttribution", () => {
 	test("joins spend + wall end-to-end from real dbs", () => {
-		const lp = `${import.meta.dir}/w776-ledger-probe.db`;
-		try {
-			unlinkSync(lp);
-		} catch {}
+		const lp = probeDb("w776-ledger-probe.db");
 		attrLedgerDb(lp).close();
 		const now = WT0 + 45 * 60_000;
 		const m = itemAttribution(attrGovDb(), "proj", now, lp);
@@ -409,10 +466,7 @@ describe("itemAttribution", () => {
 	});
 
 	test("W943.1: SUSPENDERS_CACHE_ERA_FIX pins the era (false case)", () => {
-		const lp = `${import.meta.dir}/w9431-era-probe.db`;
-		try {
-			unlinkSync(lp);
-		} catch {}
+		const lp = probeDb("w9431-era-probe.db");
 		attrLedgerDb(lp).close();
 		process.env.SUSPENDERS_CACHE_ERA_FIX = "2023-11-14T19:00";
 		try {
@@ -447,10 +501,7 @@ describe("itemAttribution", () => {
 		expect(a9?.groups["glm-5.3-flash"]?.cacheR).toBe(96_000);
 		expect(a9?.wallMs).toBe(20 * 60_000);
 		// ledger spend wins when it attributes — the stamp never double-counts
-		const lp = `${import.meta.dir}/w1070-ledger-probe.db`;
-		try {
-			unlinkSync(lp);
-		} catch {}
+		const lp = probeDb("w1070-ledger-probe.db");
 		attrLedgerDb(lp).close();
 		const withLedger = itemAttribution(
 			attrSubagentDb(),
