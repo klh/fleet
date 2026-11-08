@@ -128,3 +128,31 @@ test("Codex nonzero process exit contradicts a passing summary @unit", () => {
 		}).ok,
 	).toBe(false);
 });
+
+test("native JSON-quoted argument keys retain own synchronous and async evidence @unit", () => {
+	const source =
+		"text(await tools.exec_command(" +
+		JSON.stringify({
+			cmd: "bun test fixture.test.ts",
+			workdir: "/fixture",
+			yield_time_ms: 10000,
+			max_output_tokens: 1200,
+		}) +
+		"));";
+	const direct = [
+		call("s", source, 1),
+		output("s", { output: "7 pass\n0 fail", exit_code: 0 }, 2),
+	].join("\n");
+	expect(transcriptEventsFromText(direct, "codex").runs).toHaveLength(1);
+	const wait =
+		"text(await tools.write_stdin(" +
+		JSON.stringify({ session_id: 42, chars: "", yield_time_ms: 1000 }) +
+		"));";
+	const asyncText = [
+		call("s", source, 1),
+		output("s", { output: "7 pass\n0 fail", session_id: 42 }, 2),
+		call("w", wait, 3),
+		output("w", { output: "", exit_code: 0 }, 4),
+	].join("\n");
+	expect(transcriptEventsFromText(asyncText, "codex").runs).toHaveLength(1);
+});

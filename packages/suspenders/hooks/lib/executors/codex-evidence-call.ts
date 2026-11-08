@@ -44,14 +44,16 @@ export function evidenceCall(source: string): EvidenceCall | null {
 	if (body === undefined) return null;
 	const fields: Record<string, unknown> = Object.create(null);
 	const field =
-		/\s*([A-Za-z_]\w*)\s*:\s*("(?:\\.|[^"\\])*"|(?:0|[1-9]\d*)|true|false)\s*(,|$)/gy;
+		/\s*("(?:\\.|[^"\\])*"|[A-Za-z_]\w*)\s*:\s*("(?:\\.|[^"\\])*"|(?:0|[1-9]\d*)|true|false)\s*(,|$)/gy;
 	let offset = 0;
 	while (offset < body.length) {
 		field.lastIndex = offset;
 		const match = field.exec(body);
-		if (!match || Object.hasOwn(fields, match[1])) return null;
+		if (!match) return null;
 		try {
-			fields[match[1]] = JSON.parse(match[2]);
+			const key = match[1].startsWith('"') ? JSON.parse(match[1]) : match[1];
+			if (Object.hasOwn(fields, key)) return null;
+			fields[key] = JSON.parse(match[2]);
 		} catch {
 			return null;
 		}
