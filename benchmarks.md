@@ -1,5 +1,21 @@
 # fleet benchmarks
 
+## Pi awareness startup overhead (W2875, 2026-11-08)
+
+Twelve counterbalanced pairs, same host and pinned Pi SDK 1.5.0 under real
+Node v26.3.1; fresh process, warm filesystem, stubbed CLI responses. Off/on
+median SDK ready time: 17.82/31.21 ms; p95: 26.65/47.83 ms. Whole-process
+wall p50: 336.65/339.38 ms; p95: 382.27/386.69 ms. All 24 lifecycle checks
+passed. Candidate performs three snapshot reads and registers Fleet; baseline
+does neither. This measures added startup cost, not equal agent capabilities
+or inference throughput. BLAM reports no measured benefit and no promotion.
+Usage, disk and sandbox isolation are unmeasured, not zero. Ready means
+control registration, not first model output. Extension source abae89f0;
+evaluator 7038e605. Raw receipts and replay artifacts:
+`outputs/pi-awareness-ab-20261108` in the design workspace. Receipt SHA256
+`23494f5c33c092fe18a98aa4cac72e943547b08686da8f2e5964329e07f2b93b`;
+report `7cf8eebd25e0959547b8dd92441ddd93ca9662cae57870a56f8bd4e8f26dc66e`.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
