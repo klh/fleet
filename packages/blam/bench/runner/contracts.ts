@@ -20,15 +20,18 @@ export const RunnerUsageSchema = z
 	.strictObject({
 		// input includes cached input; never add cachedInput to input again.
 		input: count,
-		cachedInput: count,
+		cachedInput: count.nullable(),
 		output: count,
 	})
-	.refine((u) => u.cachedInput <= u.input, "cached input exceeds input");
+	.refine(
+		(u) => u.cachedInput === null || u.cachedInput <= u.input,
+		"cached input exceeds input",
+	);
 export const RunnerReceiptSchema = z
 	.strictObject({
 		version: z.literal(1),
 		experiment: text,
-		track: z.enum(["infrastructure", "agentic"]),
+		track: z.enum(["infrastructure", "inference", "agentic"]),
 		arm: z.enum(["baseline", "candidate"]),
 		rep: count,
 		order: z.union([z.literal(0), z.literal(1)]),
@@ -36,6 +39,7 @@ export const RunnerReceiptSchema = z
 		seedDigest: text,
 		jobId: text,
 		readyMs: metric.nullable(),
+		firstByteMs: metric.nullable().optional(),
 		firstUsefulMs: metric.nullable(),
 		wallMs: metric,
 		rssBytes: metric.nullable(),
@@ -51,6 +55,10 @@ export const RunnerReceiptSchema = z
 	.refine(
 		(r) => r.readyMs === null || r.readyMs <= r.wallMs,
 		"ready exceeds wall",
+	)
+	.refine(
+		(r) => r.firstByteMs == null || r.firstByteMs <= r.wallMs,
+		"first byte exceeds wall",
 	)
 	.refine(
 		(r) => r.firstUsefulMs === null || r.firstUsefulMs <= r.wallMs,

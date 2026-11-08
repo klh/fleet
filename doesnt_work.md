@@ -8,6 +8,8 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## LLM serving
 
+- **Routing gains inferred from identical arms (W2872, 2026-11-08)** - six successful live calls to the same route showed visible-output medians 834 vs 792 ms. There was no changed route. Treat this as calibration noise, never evidence for a policy improvement. The evaluator now labels identical arm digests A/A and refuses promotion. The intended direct-vs-spoke experiment remains blocked by alternate-front credential rejection (401); no substitute route or hidden retries were used.
+
 - **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
   the measured 12-pair local clone/worktree probe performs zero model calls.
   It establishes a workspace-startup delta only; it cannot establish cache

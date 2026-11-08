@@ -1,5 +1,11 @@
 # fleet benchmarks
 
+## W2872 - live routing measurement calibration (2026-11-08; AC)
+
+Six actual GLM-5.3-Flash calls through local Buckle :4101, three alternating A/A pairs, same provider `zai`, strict JSON task. All six matched the ledger's served model/provider and token counts, passed exact response validation and revoked their scoped keys. No retries. First visible output p50/p95: arm A 834/979 ms, arm B 792/878 ms. Request wall p50/p95: A 1004/1025 ms, B 844/930 ms. These differences are **noise calibration, not a routing gain**; both arms used the same URL and policy. Three pairs cannot promote. No coding-quality, decode-throughput or sandbox-isolation claim. Provider cache uncontrolled; measured counters were zero cached tokens.
+
+Owner-held raw evidence: `outputs/blam-route-aa-20261108/run/{receipts.ndjson,report.json}` under the design workspace. SHA256 receipts `f66427a6049321c96be3cdd0f25ec359aaa1f2e6dc8db50ad2f5eb27153a8c43`; report `f0730515e763f07fb24599e3bf4ce619b2a16f99e6914bac0510351d5ce2d1ed`. This initial producer version predates the explicit identical-arm refusal added in W2872; replay now labels it A/A and refuses promotion irrespective of repetition count. Direct-vs-spoke comparison is not yet measured: the alternate front's configured credential was rejected (401), referred to Fleet C306. Do not infer its performance.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.

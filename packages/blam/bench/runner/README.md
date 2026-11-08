@@ -1,5 +1,31 @@
 # Measured Pi/runner comparisons
 
+## Live routing probe
+
+`BLAM_LIVE=1 bun packages/blam/bench/runner/route-live.ts /path/to/manifest.json` runs actual model calls. Without the opt-in it refuses. The strict manifest contains:
+
+```json
+{
+  "baseline": {"url": "http://127.0.0.1:4101", "hub": null},
+  "candidate": {"url": "http://127.0.0.1:4111", "hub": "configured-hub-label"},
+  "model": "glm-5.3-flash",
+  "providerIdentity": "zai",
+  "reps": 12,
+  "timeoutMs": 30000,
+  "cacheCondition": "uncontrolled-provider-cache",
+  "policyDigest": "sha256-of-captured-matched-policy",
+  "outputDir": "/private/unique-run"
+}
+```
+
+Choose actual configured fronts and credential labels. `hub:null` resolves the existing local admin key; a label resolves the existing hub credential. The manifest contains no key. Each call mints a temporary lane key, sends only that key to the model endpoint, revokes it, and checks the unique lane's audit row. Key cleanup failure, missing ledger, different provider/model, malformed/empty/truncated stream or mismatched token totals invalidate the pair. Stop after the first failed pair; retain both observations. No hidden retries. GLM-5.3 keeps thinking enabled with low effort and a 1024-token cap.
+
+This is an **inference** track with a tiny strict JSON acceptance check, not a coding-quality or sandbox test. `readyMs` means response headers, `firstByteMs` first raw response-body byte, `firstUsefulMs` first visible output. `wallMs` includes request queuing and stream completion, excludes key management and ledger lookup. Output tokens / wall seconds is request-inclusive throughput, not decode speed. Provider output counters can include reasoning. Cache usage stays null when unreported. Audit corroboration accepts the inclusive OpenAI input total or the ledger's fresh+cache accounting, without adding cached input twice.
+
+Producer source files are hashed. The owner must capture and verify the actual gateway policy/generation and cache conditions; a declared digest alone does not prove them. An identical arm configuration is A/A calibration and can never promote. Baseline and candidate quality distributions remain visible; candidate quality must be complete and cannot regress. No automatic deployment follows benchmark advice.
+
+## Workspace and external runner probes
+
 This additive BLAM track reuses `pairedLift` and `gatePromotion`; it does not change a seed channel or deploy a runtime. Infrastructure-only runs and agentic runs are explicitly different tracks.
 
 Run `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12` for a local, model-free workspace probe. Both arms use the same resident Git fixture (128 files), alternating clone-first and worktree-first order. Baseline is `git clone --no-hardlinks`; candidate is a detached worktree sharing Git objects. Exact file content is the acceptance check. These are workspace strategies, NOT isolated sandboxes, Pi sessions or token-efficiency evidence. OS page caches are uncontrolled and explicitly labelled. This probe never contacts a model.
