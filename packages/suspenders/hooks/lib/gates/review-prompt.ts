@@ -114,7 +114,10 @@ export async function requestReviewLeg(o: {
 		}),
 		...(o.timeoutMs > 0 ? { signal: AbortSignal.timeout(o.timeoutMs) } : {}),
 	});
-	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
+	if (!response.ok) {
+		const { reviewHttpFailure } = await import("./review-http-error.ts");
+		throw await reviewHttpFailure(response, o.key);
+	}
 	const body = (await response.json()) as {
 		model?: string;
 		choices?: {
