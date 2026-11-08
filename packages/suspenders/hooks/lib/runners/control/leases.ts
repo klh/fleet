@@ -97,12 +97,15 @@ export function fenceCheck(
 			reason: `runner: fenced — live epoch ${row.epoch} ≠ token epoch ${token.epoch}`,
 		};
 	}
-	store.run(
-		"UPDATE runner_leases SET updated_at = ? WHERE run_id = ? AND epoch = ?",
+	const renewed = store.run(
+		"UPDATE runner_leases SET updated_at = ? WHERE run_id = ? AND epoch = ? AND state = 'active'",
 		now,
 		runId,
 		token.epoch,
 	);
+	if (renewed.changes !== 1) {
+		return { ok: false, reason: "runner: fenced — lease changed mid-check" };
+	}
 	return { ok: true };
 }
 

@@ -50,7 +50,10 @@ export interface RunnerAuthorizer {
 /** Default authorizer: runner scopes gate the five control actions; the
  *  execute action validates the executor's CURRENT LEASE TOKEN against
  *  the shared lease table (fenceCheck doubles as the heartbeat). Throws
- *  RunnerAuthError — callers render the denial, never fake success. */
+ *  RunnerAuthError — callers render the denial, never fake success.
+ *  TRUST BOUNDARY: actor.scopes/leaseToken are HOST-RESOLVED (keyring,
+ *  minted lease) — an API adapter must derive them from the authenticated
+ *  credential, never read them from request JSON. */
 export const makeRunnerAuthorizer = (deps: {
 	store: RunnerStore;
 	now?: () => number;

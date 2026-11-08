@@ -226,11 +226,15 @@ test.describe("durable executor flow (W2869.2)", () => {
 			actor: controlActor(),
 		});
 		expect(started).toEqual({ ok: true, state: "running" });
-		expect(durable.calls).toEqual([`start:${spec.runId}`]);
+		expect(durable.calls).toEqual([
+			`start:${spec.runId}`,
+			`submit:${spec.runId}:go`,
+		]);
 		const aborted = await ctl.abort({ runId: spec.runId, actor: controlActor() });
 		expect(aborted).toEqual({ ok: true, state: "stopping" });
 		expect(durable.calls).toEqual([
 			`start:${spec.runId}`,
+			`submit:${spec.runId}:go`,
 			`stop:${spec.runId}`,
 		]);
 	});
@@ -249,7 +253,7 @@ test.describe("durable executor flow (W2869.2)", () => {
 		});
 		expect(res).toEqual({
 			ok: false,
-			reason: "runner: submit from stopping refuses (cold/parked/running)",
+			reason: "runner: submit from stopping refuses",
 		});
 	});
 });
@@ -262,7 +266,6 @@ test.describe("per-reader cursors (W2869.2)", () => {
 		await ctl.admit({ spec, actor: controlActor() });
 		const first = await ctl.attach({
 			runId: spec.runId,
-			readerSid: "board",
 			actor: readOnly(),
 		});
 		expect(first.events.map((e) => e.kind)).toEqual(["admitted"]);
@@ -274,13 +277,11 @@ test.describe("per-reader cursors (W2869.2)", () => {
 		});
 		const again = await ctl.replay({
 			runId: spec.runId,
-			readerSid: "board",
 			actor: readOnly(),
 		});
 		expect(again.events.map((e) => e.kind)).toEqual(["admitted", "tick"]);
 		const empty = await ctl.replay({
 			runId: spec.runId,
-			readerSid: "board",
 			actor: readOnly(),
 		});
 		expect(empty.events).toEqual([]);
@@ -293,18 +294,220 @@ test.describe("per-reader cursors (W2869.2)", () => {
 		await ctl.admit({ spec, actor: controlActor() });
 		await ctl.attach({
 			runId: spec.runId,
-			readerSid: "board",
 			actor: readOnly(),
 		});
-		await ctl.replay({ runId: spec.runId, readerSid: "board", actor: readOnly() });
-		await ctl.detach({ runId: spec.runId, readerSid: "board", actor: readOnly() });
+		await ctl.replay({ runId: spec.runId, actor: readOnly() });
+		await ctl.detach({ runId: spec.runId, actor: readOnly() });
 		const reattach = await ctl.attach({
 			runId: spec.runId,
-			readerSid: "board",
 			actor: readOnly(),
 		});
 		expect(reattach.events).toEqual([]);
 		const { job } = await ctl.read({ runId: spec.runId, actor: controlActor() });
 		expect(job.state).toBe("cold");
 	});
+});
+
+test("repair: submit to a running run delivers text without restarting", async () => {
+	const store = memoryStore();
+	const durable = stubDurable();
+	const ctl = openRunnerController({ store, durable, now });
+	const spec = specInput();
+	await ctl.admit({ spec, actor: controlActor() });
+	await ctl.submit({ runId: spec.runId, text: "go", actor: controlActor() });
+	durable.calls.length = 0;
+	const res = await ctl.submit({
+		runId: spec.runId,
+		text: "more",
+		actor: controlActor(),
+	});
+	expect(res).toEqual({ ok: true, state: "running" });
+	expect(durable.calls).toEqual([`submit:${spec.runId}:more`]);
+});
+
+test("repair: resume drains held interrupts through the durable adapter", async () => {
+	const store = memoryStore();
+	const ctl1 = openRunnerController({ store, now });
+	const spec = specInput();
+	await ctl1.admit({ spec, actor: controlActor() });
+	const parked = await ctl1.park({ runId: spec.runId, actor: controlActor() });
+	expect(parked).toEqual({ ok: true, state: "parked" });
+	await ctl1.submit({ runId: spec.runId, text: "h1", actor: controlActor() });
+	await ctl1.submit({ runId: spec.runId, text: "h2", actor: controlActor() });
+	const durable = stubDurable();
+	const ctl2 = openRunnerController({ store, durable, now });
+	const res = await ctl2.resume({ runId: spec.runId, actor: controlActor() });
+	expect(res).toEqual({ ok: true, state: "running" });
+	expect(durable.calls).toEqual([
+		`resume:${spec.runId}`,
+		`submit:${spec.runId}:h1`,
+		`submit:${spec.runId}:h2`,
+	]);
+	const { job } = await ctl2.read({ runId: spec.runId, actor: controlActor() });
+	expect(job.held_interrupts).toEqual([]);
+});
+
+test("repair: watchdog expiry halts with bounded cleanup at the captured epoch", async () => {
+	let t = 1_000_000;
+	const store = memoryStore();
+	const durable = stubDurable();
+	const revoked: string[] = [];
+	const spec = specInput();
+	const ctl = openRunnerController({
+		store,
+		durable,
+		now: () => t,
+		leaseTtlMs: 5_000,
+		cleanupTimeoutMs: 50,
+		revokeCredential: async (runId, lease) => {
+			revoked.push(`${runId}@${lease.epoch}`);
+		},
+	});
+	await ctl.admit({ spec, actor: controlActor() });
+	await ctl.submit({ runId: spec.runId, text: "go", actor: controlActor() });
+	const watcher = ctl.watch({ runId: spec.runId, intervalMs: 10 });
+	t += 6_000;
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	watcher.stop();
+	expect(revoked).toEqual([`${spec.runId}@1`]);
+	expect(durable.calls).toContain(`stop:${spec.runId}`);
+	const { job, events } = await ctl.read({
+		runId: spec.runId,
+		actor: controlActor(),
+	});
+	expect(job.state).toBe("stopping");
+	expect(events.some((e) => e.kind === "fence-revoked")).toBe(true);
+});
+
+test("repair: watchdog on takeover leaves the winner's lease and state intact", async () => {
+	const t = 1_000_000;
+	const store = memoryStore();
+	const durable = stubDurable();
+	const revoked: string[] = [];
+	const spec = specInput();
+	const ctl = openRunnerController({
+		store,
+		durable,
+		now: () => t,
+		leaseTtlMs: 5_000,
+		cleanupTimeoutMs: 50,
+		revokeCredential: async (runId, lease) => {
+			revoked.push(`${runId}@${lease.epoch}`);
+		},
+	});
+	await ctl.admit({ spec, actor: controlActor() });
+	await ctl.submit({ runId: spec.runId, text: "go", actor: controlActor() });
+	const watcher = ctl.watch({ runId: spec.runId, intervalMs: 10 });
+	admitLease(store, {
+		runId: spec.runId,
+		controllerSid: "controller-b",
+		now: t + 6_000,
+		ttlMs: 5_000,
+	});
+	await new Promise((resolve) => setTimeout(resolve, 60));
+	watcher.stop();
+	expect(revoked).toEqual([`${spec.runId}@1`]);
+	expect(getLease(store, spec.runId)).toMatchObject({
+		state: "active",
+		epoch: 2,
+	});
+	const { job } = await ctl.read({ runId: spec.runId, actor: controlActor() });
+	expect(job.state).toBe("running");
+});
+
+test("repair: stopWithRevocation fences first and bounds a hung executor stop", async () => {
+	const store = memoryStore();
+	const order: string[] = [];
+	const spec = specInput();
+	const ctl = openRunnerController({
+		store,
+		durable: {
+			async start() {},
+			async submit() {},
+			async resume() {},
+			stop: () => new Promise<void>(() => {}),
+		},
+		now,
+		cleanupTimeoutMs: 20,
+		revokeCredential: async () => {
+			const lease = getLease(store, spec.runId);
+			if (!lease) throw new Error("runner: no lease to revoke");
+			order.push(`credential@${lease.epoch}:${lease.state}`);
+		},
+	});
+	await ctl.admit({ spec, actor: controlActor() });
+	await ctl.submit({ runId: spec.runId, text: "go", actor: controlActor() });
+	const res = await ctl.stopWithRevocation({
+		runId: spec.runId,
+		actor: controlActor(),
+	});
+	expect(res).toEqual({ ok: true, state: "stopping" });
+	expect(order).toEqual(["credential@2:revoked"]);
+	expect(getLease(store, spec.runId)?.state).toBe("revoked");
+	const { events } = await ctl.read({
+		runId: spec.runId,
+		actor: controlActor(),
+	});
+	const abort = events.find((e) => e.kind === "abort");
+	if (!abort) throw new Error("runner: no abort event recorded");
+	const payload = JSON.parse(abort.payload_json) as { cleanupErrors: string[] };
+	expect(payload.cleanupErrors).toEqual(["executor stop timed out"]);
+});
+
+test("repair: fenceCheck heartbeat CAS survives a racing revoke", () => {
+	const store = memoryStore();
+	const runId = crypto.randomUUID();
+	admitLease(store, { runId, controllerSid: "c1", now: now(), ttlMs: 60_000 });
+	const racing = {
+		run: (sql: string, ...params: unknown[]) => {
+			if (sql.includes("UPDATE runner_leases SET updated_at")) {
+				revokeLease(store, runId, now());
+			}
+			return store.run(sql, ...params);
+		},
+		get: <T>(sql: string, ...params: unknown[]): T | null =>
+			store.get<T>(sql, ...params),
+		all: <T>(sql: string, ...params: unknown[]): T[] =>
+			store.all<T>(sql, ...params),
+	};
+	expect(fenceCheck(racing, runId, { epoch: 1 }, now())).toEqual({
+		ok: false,
+		reason: "runner: fenced — lease changed mid-check",
+	});
+});
+
+test("repair: crash-reopen re-admits the same spec in place", async () => {
+	let t = 1_000_000;
+	const store = memoryStore();
+	const ctl = openRunnerController({ store, now: () => t, leaseTtlMs: 5_000 });
+	const spec = specInput();
+	const first = await ctl.admit({ spec, actor: controlActor() });
+	expect(first.token.epoch).toBe(1);
+	t += 6_000;
+	const second = await ctl.admit({ spec: { ...spec }, actor: controlActor() });
+	expect(second.token.epoch).toBe(2);
+	const rows = store.all<{ run_id: string }>(
+		"SELECT run_id FROM runner_jobs WHERE run_id = ?",
+		spec.runId,
+	);
+	expect(rows).toHaveLength(1);
+	const { events } = await ctl.read({
+		runId: spec.runId,
+		actor: controlActor(),
+	});
+	expect(events.map((e) => e.kind)).toEqual(["admitted", "readmitted"]);
+});
+
+test("repair: re-admission with a mutated spec refuses and leaves the lease", async () => {
+	let t = 1_000_000;
+	const store = memoryStore();
+	const ctl = openRunnerController({ store, now: () => t, leaseTtlMs: 5_000 });
+	const spec = specInput();
+	await ctl.admit({ spec, actor: controlActor() });
+	t += 6_000;
+	const mutated = { ...spec, model: "claude-sonnet-5.5" };
+	await expect(
+		ctl.admit({ spec: mutated, actor: controlActor() }),
+	).rejects.toThrow("bound to a different immutable spec");
+	expect(getLease(store, spec.runId)?.epoch).toBe(1);
 });
