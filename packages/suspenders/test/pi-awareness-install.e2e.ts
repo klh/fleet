@@ -72,3 +72,26 @@ test("Pi install preserves incompatible SDKs and unmanaged extension files @unit
 		world.clean();
 	}
 });
+
+test("Pi install preserves dangling user symlinks and predicts conflicts in dry-run @unit", async () => {
+	const { symlinkSync, lstatSync } = await import("node:fs");
+	const { installPiAwareness } = await import(
+		"../scripts/install/install-pi-awareness.ts"
+	);
+	const world = scratchWorld({ prefix: "pi-dangling-" });
+	const dir = join(world.home, ".pi/agent/extensions/fleet-awareness"),
+		entry = join(dir, "index.js");
+	try {
+		mkdirSync(dir, { recursive: true });
+		symlinkSync(join(world.home, "missing-user-target"), entry);
+		expect(
+			(await installPiAwareness({ home: world.home, dryRun: true })).status,
+		).toBe("conflict");
+		expect((await installPiAwareness({ home: world.home })).status).toBe(
+			"conflict",
+		);
+		expect(lstatSync(entry).isSymbolicLink()).toBe(true);
+	} finally {
+		world.clean();
+	}
+});

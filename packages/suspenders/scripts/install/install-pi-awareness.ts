@@ -30,20 +30,14 @@ export async function installPiAwareness(
 	const piHome = options.piHome ?? join(options.home ?? homedir(), ".pi/agent");
 	if (!existsSync(piHome))
 		return { status: "skipped", action: "none", note: "Pi agent home absent" };
-	if (options.dryRun)
-		return {
-			status: "planned",
-			action: "none",
-			note: "Would sync Node Pi awareness bundle",
-		};
 	const dir = join(piHome, "extensions/fleet-awareness"),
 		entry = join(dir, "index.js"),
 		metaPath = join(dir, "package.json");
 	if (
-		[dir, entry, metaPath].some(
-			(p) => existsSync(p) && lstatSync(p).isSymbolicLink(),
+		[join(piHome, "extensions"), dir, entry, metaPath].some((p) =>
+			lstatSync(p, { throwIfNoEntry: false })?.isSymbolicLink(),
 		) ||
-		existsSync(join(dir, "index.ts"))
+		lstatSync(join(dir, "index.ts"), { throwIfNoEntry: false })
 	)
 		return conflict();
 	let previous: z.infer<typeof MetadataSchema> | null = null;
@@ -67,6 +61,12 @@ export async function installPiAwareness(
 		readFileSync(versionFile, "utf8").trim() !== "1.5.0"
 	)
 		return conflict();
+	if (options.dryRun)
+		return {
+			status: "planned",
+			action: "none",
+			note: "Would sync Node Pi awareness bundle",
+		};
 	const build = await Bun.build({
 		entrypoints: [
 			fileURLToPath(
