@@ -534,6 +534,9 @@ export class Governance {
 		// principalOf(req) (e.g. GET /v1/fleet/whoami) — stash it here the
 		// same way federationGate does, keyed on the request object.
 		stashPrincipal(req, p);
+		// Identity is control-plane traffic. Authentication, scope and the
+		// enterprise veto above still apply; model slots/budgets do not.
+		if (req.method === "GET" && path === "/v1/fleet/whoami") return inner(req);
 		return this.budget(req, path, rid, p, t0, inner);
 	}
 

@@ -1,0 +1,79 @@
+import { ZodError } from "zod";
+import { runnerRoute } from "./routes.ts";
+import type { RunnerApiDependencies } from "./types.ts";
+import { RunnerAuthError } from "../control/rights.ts";
+
+const statuses: Readonly<Record<string, number>> = {
+	"runner.unauthorized": 401,
+	"runner.forbidden": 403,
+	"runner.not_found": 404,
+	"runner.method_not_allowed": 405,
+	"runner.invalid_profile": 400,
+	"runner.body_too_large": 413,
+	"runner.body_timeout": 408,
+	"runner.invalid_body": 400,
+	"runner.request_conflict": 409,
+};
+export function createRunnerApi(deps: RunnerApiDependencies) {
+	const hosts = new Set(
+		deps.allowedHosts ?? ["localhost:7810", "127.0.0.1:7810"],
+	);
+	return {
+		async fetch(request: Request): Promise<Response> {
+			const headers = {
+				"cache-control": "no-store",
+				"x-content-type-options": "nosniff",
+			};
+			try {
+				if (
+					!hosts.has(new URL(request.url).host) ||
+					request.headers.has("origin") ||
+					(request.headers.has("host") &&
+						!hosts.has(request.headers.get("host") ?? ""))
+				)
+					throw new Error("runner.forbidden");
+				const identity = await deps.identity(request);
+				const result = await runnerRoute(deps, request, identity);
+				if (
+					typeof result.body === "object" &&
+					result.body !== null &&
+					"ok" in result.body &&
+					result.body.ok === false
+				)
+					return Response.json(
+						{ error: "runner.action_refused" },
+						{ status: 409, headers },
+					);
+				const body = JSON.stringify(result.body);
+				if (new TextEncoder().encode(body).byteLength > 1_048_576)
+					throw new Error("runner.response_too_large");
+				return new Response(body, {
+					status: result.status,
+					headers: { ...headers, "content-type": "application/json" },
+				});
+			} catch (error) {
+				const message =
+					error instanceof RunnerAuthError
+						? "runner.forbidden"
+						: error instanceof Error
+							? error.message
+							: "";
+				const status =
+					error instanceof ZodError || error instanceof SyntaxError
+						? 400
+						: (statuses[message] ?? 503);
+				return Response.json(
+					{
+						error:
+							status === 400
+								? "runner.invalid_request"
+								: statuses[message]
+									? message
+									: "runner.unavailable",
+					},
+					{ status, headers },
+				);
+			}
+		},
+	};
+}

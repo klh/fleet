@@ -6,9 +6,9 @@
 // model request and tool boundary. The authorizer is injected so a
 // store-server adapter can swap the default (keyring scopes) without
 // touching this contract.
-import { scopeSatisfies } from "../../auth/auth.ts";
 import { fenceCheck, type LeaseToken } from "./leases.ts";
 import type { RunnerStore } from "./store.ts";
+import { hasScope } from "@klh/buckle/src/gov/scopes.ts";
 
 export type JobAction =
 	| "open"
@@ -23,9 +23,7 @@ export const RUNNER_SCOPES = {
 	read: "buckle:runner:READ_",
 } as const;
 
-const ACTION_SCOPES: Readonly<
-	Record<Exclude<JobAction, "execute">, string>
-> = {
+const ACTION_SCOPES: Readonly<Record<Exclude<JobAction, "execute">, string>> = {
 	open: RUNNER_SCOPES.control,
 	submit: RUNNER_SCOPES.control,
 	resume: RUNNER_SCOPES.control,
@@ -44,7 +42,10 @@ export interface RunnerActor {
 export class RunnerAuthError extends Error {}
 
 export interface RunnerAuthorizer {
-	authorize(action: JobAction, input: { runId: string; actor: RunnerActor }): Promise<void>;
+	authorize(
+		action: JobAction,
+		input: { runId: string; actor: RunnerActor },
+	): Promise<void>;
 }
 
 /** Default authorizer: runner scopes gate the five control actions; the
@@ -74,7 +75,7 @@ export const makeRunnerAuthorizer = (deps: {
 				return;
 			}
 			const required = ACTION_SCOPES[action];
-			if (!scopeSatisfies([...actor.scopes], required)) {
+			if (!hasScope([...actor.scopes], required)) {
 				throw new RunnerAuthError(
 					`runner: denied ${action} — requires ${required} (actor ${actor.sid})`,
 				);

@@ -1,5 +1,16 @@
 # doesnt_work.md — the negative-results ledger
 
+## Runner API identity admission (W2879)
+
+Identity checks consumed inference admission slots and returned 429 while a
+generation was running. Preserve authentication, scope and enterprise veto,
+then exempt only the identity GET from model admission. A real occupied-slot
+regression covers the distinction. The old whoami Bun suite fails in setup
+because it supplies YAML to the JSON-only parser; its assertions are not proof.
+The new Playwright case checks denial and revocation with the canonical kit.
+Docker commit also excludes mounted tmpfs contents: never use that snapshot
+as proof of artifact export. Desktop export requires an actual tmpfs witness.
+
 ## Durable hook errors are not transport authorization (W2869.1)
 
 Pinned Durable 1.5.0 swallowed a throwing beforeProviderRequest guard: the

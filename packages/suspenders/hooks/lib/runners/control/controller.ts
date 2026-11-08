@@ -36,6 +36,8 @@ import {
 	type RunnerAuthorizer,
 } from "./rights.ts";
 import type { RunnerStore } from "./store.ts";
+import { heldSubmissions, RunnerSubmissionSchema } from "./submissions.ts";
+import { readRunnerEvents } from "./feed.ts";
 
 const JOBS_DDL = `
 CREATE TABLE IF NOT EXISTS runner_jobs (
@@ -68,7 +70,11 @@ export const DEFAULT_LEASE_TTL_MS = 60_000;
 
 export interface DurableAdapter {
 	start(spec: RunnerSpec, opts: { signal: AbortSignal }): Promise<void>;
-	submit(runId: string, text: string): Promise<void>;
+	submit(
+		runId: string,
+		text: string,
+		meta?: { requestId?: string },
+	): Promise<void>;
 	resume(runId: string): Promise<void>;
 	stop(runId: string): Promise<void>;
 }
@@ -88,6 +94,7 @@ export interface RunnerController {
 	submit(input: {
 		runId: string;
 		text: string;
+		requestId?: string;
 		actor: RunnerActor;
 	}): Promise<ActionResult>;
 	resume(input: { runId: string; actor: RunnerActor }): Promise<ActionResult>;
@@ -109,10 +116,7 @@ export interface RunnerController {
 		runId: string;
 		actor: RunnerActor;
 	}): Promise<{ cursor: number; events: RunnerEvent[] }>;
-	detach(input: {
-		runId: string;
-		actor: RunnerActor;
-	}): Promise<void>;
+	detach(input: { runId: string; actor: RunnerActor }): Promise<void>;
 	/** The manual revoke-stop: abort + lease revoke + credential backstop. */
 	stopWithRevocation(input: {
 		runId: string;
@@ -174,7 +178,9 @@ export const openRunnerController = (deps: {
 			generation: row.generation,
 			state: row.state,
 			auto_park: row.auto_park === 1,
-			held_interrupts: JSON.parse(row.held_interrupts_json) as string[],
+			held_interrupts: heldSubmissions(row.held_interrupts_json).map(
+				(value) => value.text,
+			),
 			cursor_base: row.cursor_base,
 			created_at: row.created_at,
 			updated_at: row.updated_at,
@@ -242,7 +248,10 @@ export const openRunnerController = (deps: {
 				const racedSpec = raced
 					? RunnerSpecSchema.parse(JSON.parse(raced.spec_json))
 					: null;
-				if (!racedSpec || JSON.stringify(racedSpec) !== JSON.stringify(parsed)) {
+				if (
+					!racedSpec ||
+					JSON.stringify(racedSpec) !== JSON.stringify(parsed)
+				) {
 					revokeLease(deps.store, parsed.runId, at);
 					throw new Error(
 						"runner: concurrent admission bound a different spec — lease released",
@@ -268,8 +277,9 @@ export const openRunnerController = (deps: {
 			});
 			return { token: lease.token };
 		},
-		async submit({ runId, text, actor }) {
+		async submit({ runId, text, requestId, actor }) {
 			await authorizer.authorize("submit", { runId, actor });
+			const submission = RunnerSubmissionSchema.parse({ text, requestId });
 			const row = jobRow(runId);
 			if (!row) return { ok: false, reason: "runner: unknown run" };
 			const state = toControlJob(row).state;
@@ -277,20 +287,32 @@ export const openRunnerController = (deps: {
 				if (!deps.durable) {
 					return {
 						ok: false,
-						reason: "executor-absent: no durable adapter bound — control row unchanged",
+						reason:
+							"executor-absent: no durable adapter bound — control row unchanged",
 					};
 				}
 				const controller = new AbortController();
 				signals.set(runId, controller);
 				await deps.durable.start(specOf(row), { signal: controller.signal });
-				await deps.durable.submit(runId, text);
+				await deps.durable.submit(runId, text, {
+					requestId: submission.requestId,
+				});
 				setState(runId, "running", now());
 				record(runId, "started", { by: actor.sid });
 				return { ok: true, state: "running" };
 			}
 			if (state === "parked") {
-				const held = JSON.parse(row.held_interrupts_json) as string[];
-				held.push(text);
+				const held = heldSubmissions(row.held_interrupts_json);
+				if (requestId && held.some((value) => value.requestId === requestId)) {
+					if (
+						held.some(
+							(value) => value.requestId === requestId && value.text !== text,
+						)
+					)
+						throw new Error("runner.request_conflict");
+					return { ok: true, state: "parked" };
+				}
+				held.push(submission);
 				deps.store.run(
 					"UPDATE runner_jobs SET held_interrupts_json = ?, updated_at = ? WHERE run_id = ?",
 					JSON.stringify(held),
@@ -307,7 +329,9 @@ export const openRunnerController = (deps: {
 						reason: "executor-absent: cannot deliver without a durable adapter",
 					};
 				}
-				await deps.durable.submit(runId, text);
+				await deps.durable.submit(runId, text, {
+					requestId: submission.requestId,
+				});
 				record(runId, "submitted", { by: actor.sid, chars: text.length });
 				return { ok: true, state: "running" };
 			}
@@ -334,27 +358,29 @@ export const openRunnerController = (deps: {
 				};
 			}
 			await deps.durable.resume(runId);
-			const held = JSON.parse(row.held_interrupts_json) as string[];
-			const drained: string[] = [];
+			const held = heldSubmissions(row.held_interrupts_json);
+			const drained = new Set<number>();
 			const drainErrors: string[] = [];
-			for (const text of held) {
+			for (const [index, submission] of held.entries()) {
 				try {
-					await deps.durable.submit(runId, text);
-					drained.push(text);
+					await deps.durable.submit(runId, submission.text, {
+						requestId: submission.requestId,
+					});
+					drained.add(index);
 				} catch (err) {
 					drainErrors.push(err instanceof Error ? err.message : String(err));
 				}
 			}
 			deps.store.run(
 				"UPDATE runner_jobs SET held_interrupts_json = ?, updated_at = ? WHERE run_id = ?",
-				JSON.stringify(held.filter((h) => !drained.includes(h))),
+				JSON.stringify(held.filter((_, index) => !drained.has(index))),
 				now(),
 				runId,
 			);
 			setState(runId, "running", now());
 			record(runId, "resumed", {
 				by: actor.sid,
-				drained: drained.length,
+				drained: drained.size,
 				errors: drainErrors,
 			});
 			return { ok: true, state: "running" };
@@ -402,8 +428,8 @@ export const openRunnerController = (deps: {
 			await authorizer.authorize("read", { runId, actor });
 			const row = jobRow(runId);
 			if (!row) throw new Error("runner: unknown run");
-			const events = deps.store.all<RunnerEvent>(
-				"SELECT * FROM runner_events WHERE run_id = ? AND id > ? ORDER BY id",
+			const events = readRunnerEvents(
+				deps.store,
 				runId,
 				since ?? row.cursor_base,
 			);

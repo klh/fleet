@@ -1,5 +1,14 @@
 # fleet benchmarks
 
+## Runner API prerequisites (W2879, 2026-11-08)
+
+Real scratch Buckle with one occupied model slot: identity was HTTP 429 before
+the change and HTTP 200 after it, while another generation remained HTTP 429.
+Missing, wrong-scope and revoked keys remain 401/403/401. No extra generation
+was observed. Thirty-three focused API/controller cases passed, including
+persisted host bindings and request IDs through held-message recovery. This is
+correctness evidence, not throughput, deployment or model-quality evidence.
+
 ## Durable runner correctness prerequisite (W2869.1, 2026-11-08)
 
 Pi Durable/pi-ai/Chord pinned 1.5.0: twelve deterministic cases cover real

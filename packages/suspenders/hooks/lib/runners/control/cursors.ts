@@ -5,6 +5,7 @@
 // resumes at the reader's own cursor. Detach is a read-only close: it
 // never aborts or parks the job it watched.
 import type { RunnerStore } from "./store.ts";
+import { readRunnerEvents } from "./feed.ts";
 
 const EVENTS_DDL = `
 CREATE TABLE IF NOT EXISTS runner_events (
@@ -84,12 +85,7 @@ const eventsSince = (
 	store: RunnerStore,
 	runId: string,
 	cursor: number,
-): RunnerEvent[] =>
-	store.all<RunnerEvent>(
-		"SELECT * FROM runner_events WHERE run_id = ? AND id > ? ORDER BY id",
-		runId,
-		cursor,
-	);
+): RunnerEvent[] => readRunnerEvents(store, runId, cursor);
 
 /** Attach (or re-attach) a reader. First attach seeds the cursor at
  *  fromCursor (the job's cursor_base — since-last-committed); a
