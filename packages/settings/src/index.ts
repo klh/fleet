@@ -60,3 +60,7 @@ export {
 } from "./settings.schema.ts";
 export { runSettingsCli, type CliIo } from "./settings.cli.ts";
 export { deepMerge, getPath, setPath, unsetPath } from "./settings.tree.ts";
+export {
+	RunnerSettingsSchema,
+	RunnerServiceUrlSchema,
+} from "./settings.runner.ts";

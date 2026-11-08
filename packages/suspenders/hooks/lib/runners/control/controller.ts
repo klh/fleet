@@ -162,7 +162,7 @@ export const openRunnerController = (deps: {
 		});
 		const done = p.then(
 			() => null,
-			(err) => (err instanceof Error ? err.message : String(err)),
+			() => `${label} failed`,
 		);
 		return Promise.race([done, timeout]).finally(() => {
 			if (timer) clearTimeout(timer);
@@ -367,8 +367,8 @@ export const openRunnerController = (deps: {
 						requestId: submission.requestId,
 					});
 					drained.add(index);
-				} catch (err) {
-					drainErrors.push(err instanceof Error ? err.message : String(err));
+				} catch {
+					drainErrors.push("submission delivery failed");
 				}
 			}
 			deps.store.run(

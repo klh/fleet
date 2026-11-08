@@ -17,6 +17,7 @@ import {
 	TelemetrySchema,
 } from "./settings.sections.ts";
 import { StackSections } from "./settings.stack.ts";
+import { RunnerSettingsSchema } from "./settings.runner.ts";
 
 export const SettingsSchema = z
 	.object({
@@ -36,6 +37,7 @@ export const SettingsSchema = z
 		dispatch: DispatchSchema,
 		paths: PathsSchema,
 		telemetry: TelemetrySchema,
+		runner: RunnerSettingsSchema,
 	})
 	.strict()
 	.describe("klh fleet per-install settings (~/.config/klh/settings.json)");

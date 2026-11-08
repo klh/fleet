@@ -79,6 +79,7 @@ import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
+import { cmdRunner } from "../coord/runner.ts";
 
 // W157/W651: handler bodies live verbatim in hooks/coord/*.ts; the kit
 // resolves the verb, intercepts --help, parses (lax — handlers own their
@@ -509,6 +510,14 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: executor-cv [--apply] [--json]",
 		lax: true,
 		run: (p) => cmdExecutorCv(p.rest),
+	}),
+	defineVerb({
+		name: "runner",
+		usage:
+			"usage: runner <list|admit|read|submit|resume|abort|attach|replay|detach> [run-id] [--profile ID] [--request-id ID --text TEXT] [--reader UUID] [--url URL] [--key-file FILE] [--json | --ndjson]",
+		help: "Durable runner control; owner comes from the verified user credential",
+		lax: true,
+		run: (p) => cmdRunner(p.rest),
 	}),
 ];
 
