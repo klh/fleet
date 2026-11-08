@@ -35,6 +35,38 @@ export type DispatchLane = {
 	seedError?: StarterSeedFailure;
 };
 
+/** W2854: the lanes.json entry for a launched lane. One producer beside the
+ *  type — the registry shape (including the route model the Read gate's
+ *  vision refusal reads) stops living inline in the launch body. */
+export const dispatchLaneEntry = (o: {
+	sid: string;
+	item: string;
+	pid: number;
+	branch: string;
+	worktree: string;
+	pick: { agent?: string; model?: string | null };
+	host: string;
+	hub?: string;
+	slab: string;
+	attempt?: number;
+	seedError?: StarterSeedFailure;
+	now?: number;
+}): DispatchLane => ({
+	sid: o.sid,
+	item: o.item,
+	pid: o.pid,
+	branch: o.branch,
+	worktree: o.worktree,
+	agent: o.pick.agent,
+	host: o.host,
+	hub: o.hub,
+	...(o.pick.model ? { model: o.pick.model } : {}),
+	slab: o.slab,
+	launchedAt: o.now ?? Date.now(),
+	attempt: o.attempt,
+	...(o.seedError ? { seedError: o.seedError } : {}),
+});
+
 const INTERNAL_CODES = new Set([
 	"no_route",
 	"buckle.no_route",

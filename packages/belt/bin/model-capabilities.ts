@@ -276,7 +276,9 @@ export const fromCopilotCatalogRow = (
 	record.contextTokens = published(
 		positiveInteger(limits?.max_context_window_tokens),
 	);
-	record.maxOutputTokens = published(positiveInteger(limits?.max_output_tokens));
+	record.maxOutputTokens = published(
+		positiveInteger(limits?.max_output_tokens),
+	);
 	record.tools = published(flag("tool_calls"));
 	record.structuredOutput = published(flag("structured_outputs"));
 	record.streaming = published(flag("streaming"));

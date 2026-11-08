@@ -19,6 +19,7 @@ import {
 } from "../../../scripts/lib/brief-verify.ts";
 import {
 	type DispatchLane as Lane,
+	dispatchLaneEntry,
 	parseCapsuleGet,
 	type RouteAdmission,
 } from "../../../scripts/lib/dispatch-admission.ts";
@@ -1129,23 +1130,19 @@ export const dispatchLane = async (
 		proc.unref();
 		const slab = laneClassOf(pick.agent ?? "claude");
 		const js = jobslabFor(slab, FLEET);
-		const entry: Lane = {
+		const entry: Lane = dispatchLaneEntry({
 			sid,
 			item,
 			pid: proc.pid,
 			branch,
 			worktree: wt,
-			agent: pick.agent,
+			pick,
 			host: hostname(),
 			hub: resolvedHub,
-			// W2854: the route pin rides the registry entry — the Read gate's
-			// vision refusal resolves it per Read.
-			...(pick.model ? { model: pick.model } : {}),
 			slab,
-			launchedAt: Date.now(),
 			attempt,
-			...(seedError ? { seedError } : {}),
-		};
+			seedError,
+		});
 		// Accept the launch only after its PID and ownership are durable.
 		if (!renewLaunchLease(store, project, sid, nonce))
 			throw new Error("launch lease replaced before registry persistence");

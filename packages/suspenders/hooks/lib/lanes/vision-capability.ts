@@ -26,8 +26,7 @@ export const visionCapabilityOf = (
 
 /** Extensions whose Read becomes an image block on the wire (PDFs ride the
  *  document-block path — an unverified claim, out of W2854 scope). */
-export const IMAGE_BLOCK_RE =
-	/\.(png|jpe?g|gif|webp|bmp|ico|icns|tiff|avif)$/i;
+export const IMAGE_BLOCK_RE = /\.(png|jpe?g|gif|webp|bmp|ico|icns|tiff|avif)$/i;
 
 /** The Read-gate refusal for an image Read on a text-only route: null =
  *  allow (route unknown/vision-capable or the file is not an image block). */
@@ -41,7 +40,10 @@ export const imageReadDenyReason = (
 };
 
 /** The brief clause for a text-only route (0–1 lines; absent = no clause —
- *  legacy briefs stay byte-identical). */export const visionBriefLines = (model: string | null | undefined): string[] => {
+ *  legacy briefs stay byte-identical). */
+export const visionBriefLines = (
+	model: string | null | undefined,
+): string[] => {
 	if (visionCapabilityOf(model) !== "text-only") return [];
 	return [
 		`ROUTE VISION: ${model} is TEXT-ONLY — NEVER Read PNG/image files into lane context; the provider 400s image blocks, the poison wedges the lane (400→502 retry loop) AND contaminates provider health so later TEXT requests 503 at queue 0. All verification is text-only: DOM snapshots, computed styles, API payloads; the operator reviews visuals.`,

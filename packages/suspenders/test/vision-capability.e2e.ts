@@ -85,7 +85,9 @@ test.describe("W2854 route-vision capability @unit", () => {
 		expect(why).toContain("TEXT-ONLY");
 		// unknown/vision routes never refuse; non-image paths never refuse
 		expect(imageReadDenyReason("/tmp/shot.png", "qwen2.5-vl-7b")).toBeNull();
-		expect(imageReadDenyReason("/tmp/shot.png", "claude-sonnet-5.5")).toBeNull();
+		expect(
+			imageReadDenyReason("/tmp/shot.png", "claude-sonnet-5.5"),
+		).toBeNull();
 		expect(imageReadDenyReason("/tmp/notes.md", "glm-5.3-flash")).toBeNull();
 		expect(imageReadDenyReason("/tmp/shot.png", null)).toBeNull();
 	});
@@ -103,8 +105,9 @@ test.describe("W2854 route-vision capability @unit", () => {
 		expect(kevModelOptionLabel("claude-sonnet-5.5")).toBe("claude-sonnet-5.5");
 	});
 
-	test("the dead-lane wedge classifier recognizes the image-poison shape", () => {		const poisoned = [
-			"API Error: 400 {\"error\":{\"type\":\"invalid_request_error\",",
+	test("the dead-lane wedge classifier recognizes the image-poison shape", () => {
+		const poisoned = [
+			'API Error: 400 {"error":{"type":"invalid_request_error",',
 			'"message":"messages.1.content.0.image: image blocks are not supported"}}',
 			"API Error: 502 retrying 1/10",
 			"API Error: 502 retrying 2/10",
@@ -116,7 +119,9 @@ test.describe("W2854 route-vision capability @unit", () => {
 		// an ordinary death, and a 400 with no image evidence, stay unclassified
 		expect(imagePoisonWedge("lane exited code 1\nnothing to see")).toBeNull();
 		expect(
-			imagePoisonWedge('400 {"error":{"type":"invalid_request_error"}} bad tool'),
+			imagePoisonWedge(
+				'400 {"error":{"type":"invalid_request_error"}} bad tool',
+			),
 		).toBeNull();
 	});
 
