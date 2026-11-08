@@ -350,3 +350,71 @@ test("a destination launch record refuses rekey without partial graph or budget 
 		).toEqual({ project: from });
 	read.close();
 });
+
+test("id collision in an optional table refuses rekey without moving rows (C296 A)", () => {
+	const from = `${PROJ}-idcoll-old`,
+		to = `${PROJ}-idcoll-new`;
+	seedItem(from, "WIDCOLL");
+	const db = new Database(DB);
+	// launch intent at BOTH partitions with the same item id: no target
+	// work_items, so the coarse rail passes and the in-tx probe must catch
+	// the overlap and refuse before anything moves
+	for (const p of [from, to])
+		db.run(
+			"INSERT INTO lane_launch_intents(project,item,sid,nonce,revision,executor,host,attempt,state) VALUES (?,?,?,?,1,'claude','test',1,'STAGED')",
+			[p, "WIDCOLL", "sid-coll", `n-${TS}`],
+		);
+	db.close();
+	const r = run(REPO, coord, "project", "rekey", from, to);
+	expect(r.code).not.toBe(0);
+	expect(r.out + r.err).toContain("lane_launch_intents id collision");
+	const read = new Database(DB, { readonly: true });
+	expect(
+		read.query("SELECT project FROM work_items WHERE id=?").get("WIDCOLL"),
+	).toEqual({ project: from });
+	read.close();
+});
+
+test("take refuses from a non-repo cwd instead of minting a treeless claim (C296 B)", () => {
+	const plain = mkdtempSync(join(tmpdir(), "suspenders-pid-plain-"));
+	try {
+		const work = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
+		const r = run(plain, work, "take", "W1", "--as", "sid-norepo");
+		expect(r.code).not.toBe(0);
+		expect(r.out + r.err).toContain("has no git backing");
+	} finally {
+		rmSync(plain, { recursive: true, force: true });
+	}
+});
+
+test("work_sequences resequence to MAX(source, target), never blend (C296 D)", () => {
+	const from = `${PROJ}-seq-old`,
+		to = `${PROJ}-seq-new`;
+	seedItem(from, "WSEQ");
+	const db = new Database(DB);
+	db.query("INSERT INTO work_sequences (project, next_id) VALUES (?, 100)").run(
+		from,
+	);
+	db.query("INSERT INTO work_sequences (project, next_id) VALUES (?, 250)").run(
+		to,
+	);
+	db.close();
+	const r = run(REPO, coord, "project", "rekey", from, to);
+	expect(r.code).toBe(0);
+	const read = new Database(DB, { readonly: true });
+	expect(
+		read
+			.query(
+				"SELECT COUNT(*) AS n FROM work_sequences WHERE project = ? AND next_id = 250",
+			)
+			.get(to),
+	).toEqual({ n: 1 });
+	// the source counter row moved with the merged counter — no straggler
+	// left on the old key
+	expect(
+		read
+			.query("SELECT COUNT(*) AS n FROM work_sequences WHERE project = ?")
+			.get(from),
+	).toEqual({ n: 0 });
+	read.close();
+});

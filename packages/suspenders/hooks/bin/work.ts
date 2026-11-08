@@ -28,7 +28,8 @@ import { runRejudgeVerb } from "../lib/fleet-loop/dangling-rejudge.ts";
 import { triggerMergeOnDone } from "../lib/fleet-loop/merge-on-done.ts";
 import { unmergedDeps, unmergedNote } from "../lib/gates/dep-merge-gate.ts";
 import { reproGateRefusal } from "../lib/gates/repro-gate.ts";
-import { projectRootOf, resolveSidOf } from "../lib/govdb/govdb.ts";
+import { hasGitBacking, projectRootOf } from "../lib/govdb/govdb.ts";
+import { resolveSidOf } from "../lib/govdb/govdb.ts";
 import { itemCapsuleKey } from "../lib/lanes/capsule-fence.ts";
 import { BACKFILL_EVENT, backfillForItem } from "../lib/lanes/lane-backfill.ts";
 import { rebindKeptLaneContext } from "../lib/lanes/lane-context.ts";
@@ -388,13 +389,13 @@ const dispatchVerb = async (
 		const id = pos[0];
 		let as = flag("--as");
 		const origin = flag("--origin");
+		if (!hasGitBacking(PROJECT))
+			die(`take refused: project ${PROJECT} has no git backing (W870)`);
 		if (
 			rest.includes("--reconcile-context") &&
 			(!flag("--evidence") || !rest.includes("--force"))
 		)
-			die(
-				"take --reconcile-context requires --force --evidence <0600-json>; this is an explicit local operator repair, not SID authentication",
-			);
+			die(`--reconcile-context requires --force --evidence <0600-json>`);
 		if (!id || !as) die("usage: take <id> --as <sid> [--origin <host:agent>]");
 		// truncated-sid guard: a display slice (e.g. 'visual-c') must not become
 		// the owner of record — expand a unique session-sid prefix to the full sid

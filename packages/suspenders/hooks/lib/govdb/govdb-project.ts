@@ -60,3 +60,12 @@ export function resolveProject(dir: string = process.cwd()): ResolvedProject {
 // seams — call sites never change again.
 export const projectRootOf = (project: string): string =>
 	project.endsWith("/.git") ? project.slice(0, -5) : project;
+
+// C296 (B): does this project key have real git backing? A key derived from
+// a non-repo cwd (projectIdentity's realpath fallback — e.g. a dotfile dir)
+// has no common dir to hang a claim worktree on, so take must refuse instead
+// of minting a treeless claim (W870 never-treeless).
+export function hasGitBacking(project: string): boolean {
+	const probe = gitCommonDir(projectRootOf(project));
+	return probe === project;
+}

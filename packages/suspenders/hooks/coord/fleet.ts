@@ -809,9 +809,57 @@ export async function cmdProject(rest: string[]): Promise<void> {
 			.get(`${capsulePrefix}%`) as { n: number }
 	).n;
 	counts["capsule facts"] = capsuleN;
+	// C296 (A): id-bearing migrated tables — an id collision between source
+	// and target partitions silently shadows after the rekey (id-only
+	// resolvers serve the old row; the moved rows go unreachable). Probes
+	// run INSIDE the tx so a concurrent target mint cannot slip the rail.
+	const idTables: [string, string][] = [
+		["work_items", "id"],
+		["lane_launch_intents", "item"],
+		["work_recovery_attempts", "id"],
+		["work_completion_records", "item"],
+		["decisions", "event_id"],
+	];
+	const hasTable = (table: string): boolean =>
+		!!db
+			.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+			.get(table);
 	db.transaction(() => {
 		// composite FKs (work_deps→work_items) defer to COMMIT
 		db.run("PRAGMA defer_foreign_keys = ON");
+		// C296 (A): refuse on ANY source∩target id overlap in the id-bearing
+		// tables (optional tables probed only when materialized).
+		for (const [table, col] of idTables)
+			if (hasTable(table)) {
+				const hit = db
+					.query(
+						`SELECT a.${col} AS id FROM ${table} a WHERE a.project = ? AND EXISTS (SELECT 1 FROM ${table} b WHERE b.project = ? AND b.${col} = a.${col}) LIMIT 5`,
+					)
+					.all(from, to) as { id: string | number }[];
+				if (hit.length)
+					throw new Error(
+						`rekey refused: ${table} id collision at target: ${hit.map((r) => String(r.id)).join(", ")}${hit.length >= 5 ? " …" : ""}`,
+					);
+			}
+		// C296 (D): per-project id sequences resequence, never blend — the
+		// moved counter takes MAX(source, target) and the target row vacates
+		// its (project) PK first so the moved row can take the slot.
+		if (hasTable("work_sequences")) {
+			const seqFrom = db
+				.query("SELECT next_id FROM work_sequences WHERE project = ?")
+				.get(from) as { next_id: number } | null;
+			const seqTo = db
+				.query("SELECT next_id FROM work_sequences WHERE project = ?")
+				.get(to) as { next_id: number } | null;
+			if (seqFrom && seqTo) {
+				db.run(
+					"UPDATE work_sequences SET next_id = ? WHERE project = ?",
+					Math.max(seqFrom.next_id, seqTo.next_id),
+					from,
+				);
+				db.run("DELETE FROM work_sequences WHERE project = ?", to);
+			}
+		}
 		for (const table of launchTables) {
 			const target = db
 				.query(`SELECT COUNT(*) AS n FROM ${table} WHERE project=?`)

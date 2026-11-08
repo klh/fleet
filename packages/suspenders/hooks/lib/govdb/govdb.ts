@@ -59,6 +59,7 @@ export {
 export { openGovernorDb } from "./govdb-open.ts";
 export type { ResolvedProject } from "./govdb-project.ts";
 export {
+	hasGitBacking,
 	projectIdentity,
 	projectRootOf,
 	resolveProject,
