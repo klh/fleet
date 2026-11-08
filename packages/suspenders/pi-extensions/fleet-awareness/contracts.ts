@@ -48,7 +48,7 @@ export const WorkSchema = z
 	.strip();
 export const PeerSchema = z
 	.object({
-		sid: label,
+		sid: label.min(1).regex(/^[A-Za-z0-9][A-Za-z0-9._:@-]*$/),
 		label,
 		sessionName: label.nullable(),
 		capabilities: z.array(label).max(200),

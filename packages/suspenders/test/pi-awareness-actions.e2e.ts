@@ -170,3 +170,45 @@ test("Pi replies feedback and acknowledgments preserve attribution and literal a
 		["ack", "42", "--as", "fixture"],
 	]);
 });
+
+test("Pi refuses option-shaped peer SIDs from control-plane output @unit", async () => {
+	const { executeAction } = await import(
+		"../pi-extensions/fleet-awareness/actions.ts"
+	);
+	const calls: string[][] = [];
+	const run = async (_command: string, args: string[]) => {
+		calls.push(args);
+		return {
+			stdout:
+				args[0] === "targets"
+					? JSON.stringify([
+							{
+								sid: "fixture",
+								label: "self",
+								sessionName: null,
+								capabilities: [],
+							},
+							{
+								sid: "--help",
+								label: "expert",
+								sessionName: "fleet",
+								capabilities: [],
+							},
+						])
+					: "recorded",
+			stderr: "",
+			code: 0,
+			killed: false,
+			truncated: false,
+		};
+	};
+	await expect(
+		executeAction(
+			{ action: "consult", target: "fleet", question: "inspect" },
+			run,
+			"/fixture",
+			"fixture",
+		),
+	).rejects.toThrow();
+	expect(calls).toEqual([["targets", "--json"]]);
+});

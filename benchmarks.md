@@ -16,6 +16,9 @@ evaluator 7038e605. Raw receipts and replay artifacts:
 `23494f5c33c092fe18a98aa4cac72e943547b08686da8f2e5964329e07f2b93b`;
 report `7cf8eebd25e0959547b8dd92441ddd93ca9662cae57870a56f8bd4e8f26dc66e`.
 
+The measured source predates installer and peer-SID hardening; those changes
+have 15 separate regression checks and are not remeasured in these receipts.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.

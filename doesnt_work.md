@@ -10,7 +10,11 @@ did not prove Node compatibility; resolving the real Node executable fixed
 the test. Full GLM-5.3 review first consumed 16,000 output tokens without a
 verdict; one explicit 32,768-budget retry returned PASS. Repeating the same
 truncated request is not review progress. The proof harness still skips
-Playwright-only diffs; the 13 focused specs were executed separately.
+Playwright-only diffs; the 15 focused specs were executed separately.
+Manual claims without a lane-context baseline inspect only the last commit
+at completion, missing ledgers in earlier commits (W2876). Keep the ledgers
+with the final product change until original mint provenance is supported;
+do not disable the documentation gate or fabricate a dispatched context.
 
 Optimizations we actually tried that did not deliver, with the failure
 mechanism and the standing rule that replaced them. Complements
