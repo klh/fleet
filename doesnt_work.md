@@ -8,7 +8,7 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## LLM serving
 
-- **Routing gains inferred from identical arms (W2872, 2026-11-08)** - six successful live calls to the same route showed visible-output medians 834 vs 792 ms. There was no changed route. Treat this as calibration noise, never evidence for a policy improvement. The evaluator now labels identical arm digests A/A and refuses promotion. The intended direct-vs-spoke experiment remains blocked by alternate-front credential rejection (401); no substitute route or hidden retries were used.
+- **Routing gains inferred from identical arms (W2872, 2026-11-08)** - six successful live calls to the same route showed visible-output medians 834 vs 792 ms. There was no changed route. Treat this as calibration noise, never evidence for a policy improvement. The evaluator now labels identical arm digests A/A and refuses promotion. The intended direct-vs-spoke run then stopped at its first failed pair: desktop4111 returned502 because local LiteLLM4100 returned500, while spoke4101 returned200. The earlier wrong-label401 was resolved with the existing desktop credential. Keep this failure in the evidence; do not retry it out of the sample or substitute a different protocol without a separate experiment.
 
 - **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
   the measured 12-pair local clone/worktree probe performs zero model calls.
