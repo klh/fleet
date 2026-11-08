@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { migrateYamlConf } from "../../hooks/lib/kernel-conf.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { cutOverSettings } from "./install-settings-cutover.ts";
+import { pruneMachineSettings } from "./install-settings-prune.ts";
 
 /** The machine conf set, as extension-less base paths under the user home.
  *  Hub-side files (upstreams.hub, routing-policy.hub) are NOT here — hubctl
@@ -119,6 +120,17 @@ export async function migrateConf(ctx: StepContext): Promise<StepResult> {
 			note: `conf migrate failed — settings cutover: ${cutover.note}`,
 		};
 	parts.push(cutover.note);
+	// W2873: after the cutover, one authoritative prune/migrate pass over
+	// settings.json — unknown keys pruned against the current schema,
+	// legacy knowledge.distill shapes migrated; drift it cannot heal
+	// fails loud (the operator's file is never silently rewritten).
+	const prune = pruneMachineSettings(ctx.home);
+	if (prune.status === "failed")
+		return {
+			status: "failed",
+			note: `conf migrate failed — settings prune: ${prune.note}`,
+		};
+	parts.push(prune.note);
 	return {
 		status: "ok",
 		note: `W1253 conf migrate: ${parts.join("; ") || "nothing to do"}`,
