@@ -20,7 +20,10 @@ export function evidenceOutput(content: string): DecodedOutput | null {
 	)
 		return null;
 	const marker = content.indexOf("\nOutput:\n");
-	if (marker < 0) return null;
+	if (marker < 0)
+		return content.startsWith("Script completed\n")
+			? { kind: "legacy", text: content.slice("Script completed\n".length) }
+			: null;
 	const text = content.slice(marker + "\nOutput:\n".length).trim();
 	if (!text.startsWith("{")) return { kind: "legacy", text };
 	try {
