@@ -61,6 +61,27 @@ test("runner CLI uses private user key and emits actual NDJSON completion @unit"
 			.map((line) => JSON.parse(line));
 		expect(rows.at(-1)).toMatchObject({ type: "complete", ok: true });
 		expect(seen).toEqual(["Bearer fixture-key"]);
+		const probe = Bun.spawn(
+			[
+				process.execPath,
+				BIN,
+				"runner",
+				"health",
+				"--url",
+				`http://127.0.0.1:${server.port}`,
+				"--key-file",
+				keyFile,
+				"--json",
+			],
+			{ cwd: world.repo, env: world.env, stdout: "pipe", stderr: "pipe" },
+		);
+		const [probeOut, probeErr, probeCode] = await Promise.all([
+			new Response(probe.stdout).text(),
+			new Response(probe.stderr).text(),
+			probe.exited,
+		]);
+		expect(probeCode, probeErr).toBe(0);
+		expect(JSON.parse(probeOut)).toEqual({ control: "ready" });
 		chmodSync(keyFile, 0o644);
 		const denied = runCli(
 			BIN,
@@ -82,7 +103,7 @@ test("runner CLI uses private user key and emits actual NDJSON completion @unit"
 		});
 		expect(denied.err).toContain("runner.private_credential_required");
 		expect(denied.err).not.toContain("fixture-key");
-		expect(seen).toHaveLength(1);
+		expect(seen).toEqual(["Bearer fixture-key", "Bearer fixture-key"]);
 	} finally {
 		server.stop(true);
 		world.clean();

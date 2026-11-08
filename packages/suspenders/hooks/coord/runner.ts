@@ -4,6 +4,7 @@ import { runRunnerCommand } from "../lib/runners/api/cli-command.ts";
 const shared = ["--url", "--key-file"];
 const descriptions: Record<string, string> = {
 	list: "List permitted jobs",
+	health: "Probe authenticated runner control readiness",
 	admit: "Admit a host-approved profile",
 	read: "Read one bounded event page",
 	submit: "Submit using a stable request ID",
@@ -16,6 +17,7 @@ const descriptions: Record<string, string> = {
 };
 const definitions: [string, string[], string[]][] = [
 	["list", ["--after"], []],
+	["health", [], []],
 	["admit", ["--profile", "--run-id"], ["--profile"]],
 	["read", ["--since"], []],
 	["submit", ["--text", "--request-id"], ["--text", "--request-id"]],
@@ -39,8 +41,8 @@ export async function cmdRunner(rest: string[]) {
 				flags: [...shared, ...flags],
 				reqFlags,
 				switches: ["--json", "--ndjson"],
-				minPos: ["list", "admit"].includes(name) ? 0 : 1,
-				usage: `usage: runner ${name} ${["list", "admit"].includes(name) ? "" : "<run-id> "}[--url URL] [--key-file FILE] [--json | --ndjson]`,
+				minPos: ["list", "admit", "health"].includes(name) ? 0 : 1,
+				usage: `usage: runner ${name} ${["list", "admit", "health"].includes(name) ? "" : "<run-id> "}[--url URL] [--key-file FILE] [--json | --ndjson]`,
 				run: (parsed) => runRunnerCommand(name, parsed),
 			}),
 		),

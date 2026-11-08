@@ -1,7 +1,13 @@
+import { z } from "zod";
 import type { Parsed } from "../../verb-kit.ts";
 import { RunIdSchema, SinceSchema } from "./contracts.ts";
 import { createRunnerClient } from "./client.ts";
 import { runnerOutput } from "./output.ts";
+
+const healthResponse = z.strictObject({
+	runs: z.array(z.unknown()).max(100),
+	nextCursor: RunIdSchema.nullable(),
+});
 
 export async function runRunnerCommand(operation: string, parsed: Parsed) {
 	const ndjson = parsed.rest.includes("--ndjson");
@@ -12,6 +18,16 @@ export async function runRunnerCommand(operation: string, parsed: Parsed) {
 		});
 		let path = "/runs";
 		let body: unknown;
+		if (operation === "health") {
+			healthResponse.parse(await client(path));
+			runnerOutput(
+				operation,
+				{ control: "ready" },
+				ndjson,
+				parsed.rest.includes("--json"),
+			);
+			return 0;
+		}
 		if (operation === "admit")
 			body = {
 				runId: RunIdSchema.parse(

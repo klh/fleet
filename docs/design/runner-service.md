@@ -29,3 +29,8 @@ adapter. Build the host seam without editing the peer's runtime files.
    Keep existing model traffic and approval gates intact.
 5. Record source and installed revisions, actual health and real job outcomes.
    Use paired BLAM receipts for performance; no promotion from a fixture.
+
+Run `coord runner health --json` from a separate process with the configured
+runner credential. This checks authenticated access to the job store and
+returns only the control readiness result. The desktop acceptance run also
+needs an actual model submission, tool result and credential revocation.

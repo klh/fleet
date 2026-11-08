@@ -514,7 +514,7 @@ const VERBS: VerbSpec[] = [
 	defineVerb({
 		name: "runner",
 		usage:
-			"usage: runner <list|admit|read|submit|resume|park|abort|attach|replay|detach> [run-id] [--profile ID] [--request-id ID --text TEXT] [--reader UUID] [--url URL] [--key-file FILE] [--json | --ndjson]",
+			"usage: runner <list|health|admit|read|submit|resume|park|abort|attach|replay|detach> [run-id] [--profile ID] [--request-id ID --text TEXT] [--reader UUID] [--url URL] [--key-file FILE] [--json | --ndjson]",
 		help: "Durable runner control; owner comes from the verified user credential",
 		lax: true,
 		run: (p) => cmdRunner(p.rest),
