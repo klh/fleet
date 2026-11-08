@@ -35,6 +35,9 @@ test("HTTP admission pins host profile and enforces owner on every action @unit"
 				})
 			).status,
 		).toBe(200);
+		expect(
+			(await world.request("alice", `/runs/${runId}/park`, {})).status,
+		).toBe(409);
 		expect(world.calls).toEqual(["start", "submit"]);
 		expect(
 			(

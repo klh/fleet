@@ -29,6 +29,7 @@ export async function runnerAction(
 	}
 	EmptySchema.parse(body);
 	if (action === "resume") return deps.controller.resume({ runId, actor });
+	if (action === "park") return deps.controller.park({ runId, actor });
 	if (action === "abort")
 		return deps.controller.stopWithRevocation({ runId, actor });
 	throw new Error("runner.not_found");

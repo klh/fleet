@@ -23,6 +23,7 @@ export function reportRunnerFailure(
 		"replay",
 		"detach",
 		"fence",
+		"park",
 	]);
 	const tail = path.split("/").at(-1) ?? "";
 	const operation =

@@ -12,6 +12,7 @@ const descriptions: Record<string, string> = {
 	attach: "Attach a reader without consuming",
 	replay: "Consume the reader's next page",
 	detach: "Detach the reader without stopping work",
+	park: "Park a job when its controller permits it",
 };
 const definitions: [string, string[], string[]][] = [
 	["list", ["--after"], []],
@@ -23,6 +24,7 @@ const definitions: [string, string[], string[]][] = [
 	...["attach", "replay", "detach"].map(
 		(name): [string, string[], string[]] => [name, ["--reader"], ["--reader"]],
 	),
+	["park", [], []],
 ];
 export async function cmdRunner(rest: string[]) {
 	await runCli({
