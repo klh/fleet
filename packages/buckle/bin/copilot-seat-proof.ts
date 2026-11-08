@@ -8,27 +8,21 @@
 // back through the full stack.
 
 // W1124.8.4: the Copilot PAT resolves from the inherited env or the CENTRAL
-// provider profile bound to GITHUB_COPILOT_PAT — the implicit copilot.key
-// file read is retired (the secret stays inside this process, never printed).
-import {
-	loadProviderConfig,
-	PROVIDER_STACK_PATH,
-	profileForEnv,
-} from "@klh/speedy/src/provider-config.ts";
+// provider profile bound to GITHUB_COPILOT_PAT; W695.6.2 adds the machine
+// spoke env file as the last leg (src/copilot-pat.ts is the one resolver) so
+// the proof runs standalone on a spoke machine — the implicit copilot.key
+// file read stays retired (the secret stays inside this process, never printed).
+import { resolveCopilotPat } from "../src/copilot-pat.ts";
 import { resolvePort, startServer } from "../src/server.ts";
 
 const LLM = `${process.env.HOME}/.claude/local-llm`;
 const PORT = resolvePort(4104);
 const rootKey = `bkroot_${crypto.randomUUID().replaceAll("-", "")}`;
 process.env.BUCKLE_ROOT_KEY = rootKey;
-const pat =
-	process.env.GITHUB_COPILOT_PAT?.trim() ||
-	profileForEnv("GITHUB_COPILOT_PAT", loadProviderConfig(PROVIDER_STACK_PATH()))
-		?.key ||
-	"";
+const pat = resolveCopilotPat();
 if (!pat) {
 	console.log(
-		"Copilot PAT: set GITHUB_COPILOT_PAT in the environment or a provider profile (stack.json providers, env: GITHUB_COPILOT_PAT)",
+		"Copilot PAT: set GITHUB_COPILOT_PAT in the environment, a provider profile (stack.json providers, env: GITHUB_COPILOT_PAT), or the machine spoke env file",
 	);
 	process.exit(1);
 }
