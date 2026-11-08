@@ -37,6 +37,8 @@ import {
 	nativeTitleFromTranscript,
 	renameSession,
 } from "./lib/lanes/session-rename.ts";
+// W2863 face (c): durable per-CLI lane identity (`<cli>@<short-host>`).
+import { applyDurableLaneName } from "./lib/lanes/durable-lane-name.ts";
 import {
 	attachSubscribe,
 	isSubagentLane,
@@ -270,6 +272,18 @@ if (nativeTitle) {
 		renameSession(db, lane, nativeTitle);
 	} catch {
 		// a display sync never breaks a bootstrap
+	}
+}
+// W2863 face (c): a session that stays nameless after the native-title sync
+// gets the durable `<cli>@<short-host>` identity (collision-escaped among
+// live holders) so peers address it by name — PI_SESSION_ID-style raw ids
+// die with the session. The CLI rides FLEET_AGENT_CLI (codex/copilot pass
+// it through session-policy-hook.ts; claude is the native face). Fail-open.
+if (!isSubagent) {
+	try {
+		applyDurableLaneName(db, lane, process.env.FLEET_AGENT_CLI ?? "claude");
+	} catch {
+		// a naming miss never breaks a bootstrap
 	}
 }
 const out = [

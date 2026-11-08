@@ -38,7 +38,15 @@ try {
 		throw new Error("hook session ID and cwd required");
 	const proc = Bun.spawn(
 		[process.execPath, join(import.meta.dir, "..", "session-start.ts")],
-		{ cwd: input.cwd, stdin: "pipe", stdout: "pipe", stderr: "ignore" },
+		{
+			cwd: input.cwd,
+			stdin: "pipe",
+			stdout: "pipe",
+			stderr: "ignore",
+			// W2863 face (c): the durable lane name needs the CLI identity
+			// (`codex@host` vs `claude@host`) — the native face is claude.
+			env: { ...process.env, FLEET_AGENT_CLI: harness },
+		},
 	);
 	child = proc;
 	proc.stdin.write(
