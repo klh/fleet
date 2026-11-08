@@ -369,6 +369,19 @@ export async function runWireExtras(ctx: StepContext): Promise<string> {
 			extras += ` — ${dialect} gate wire merge failed (non-fatal)`;
 		}
 	}
+	// W2861: the pi coding-agent face — hub models.json (one anthropic-
+	// messages provider per live fleet hub, apiKey `!command`-sourced from
+	// machine conf, never stored in pi's config). The module self-guards on
+	// an absent pi home; a failure here is non-fatal like the adapters.
+	const piFace = join(ctx.repo, "scripts", "install", "install-pi.ts");
+	if (existsSync(join(ctx.home, ".pi")) && existsSync(piFace)) {
+		const res = await execa(process.execPath, [piFace], {
+			cwd: ctx.repo,
+			env: { ...process.env, SUSPENDERS_PREFIX: ctx.prefix },
+			reject: false,
+		});
+		if (res.exitCode !== 0) extras += " — pi models wiring failed (non-fatal)";
+	}
 	return extras;
 }
 
