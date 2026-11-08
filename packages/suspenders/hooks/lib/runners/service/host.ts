@@ -5,7 +5,6 @@ import { readRunnerProfiles } from "./profiles.ts";
 import { openRunnerState } from "./state.ts";
 
 type Runtime = Pick<RunnerApiDependencies, "controller"> & {
-	controller: RunnerApiDependencies["controller"];
 	close(): Promise<void>;
 };
 
@@ -14,7 +13,7 @@ export async function openRunnerHost(
 		stateDir: string;
 		profilesFile: string;
 		port: number;
-		identity: RunnerApiDependencies["identity"];
+
 		openRuntime(
 			deps: Pick<RunnerApiDependencies, "store" | "bindings" | "profiles">,
 		): Promise<Runtime>;
@@ -42,7 +41,7 @@ export async function openRunnerHost(
 			url: listener.url,
 			stop: () =>
 				(stopped ??= (async () => {
-					await listener.stop();
+					await listener.stop(false);
 					try {
 						await opened.close();
 					} finally {

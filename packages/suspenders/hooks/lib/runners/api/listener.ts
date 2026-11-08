@@ -33,8 +33,8 @@ export function openRunnerListener(
 	});
 	return {
 		url: server.url,
-		async stop() {
-			await server.stop(true);
+		async stop(closeActiveConnections = true) {
+			await server.stop(closeActiveConnections);
 		},
 	};
 }

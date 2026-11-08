@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite";
-import { closeSync, constants, fstatSync, openSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import { sqliteStore } from "../control/store.ts";
 import { acquireHostWriter } from "../durable/host-writer.ts";
 import { existingEntry, privateDirectory } from "../durable/private-paths.ts";
 
-export function requirePrivateFile(info: ReturnType<typeof fstatSync>) {
+export function requirePrivateFile(info: Stats) {
 	if (
 		!info.isFile() ||
 		info.nlink !== 1 ||

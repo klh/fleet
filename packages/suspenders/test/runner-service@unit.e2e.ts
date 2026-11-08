@@ -56,10 +56,22 @@ test("runner host reopens admitted jobs and excludes a second writer @unit", asy
 		});
 		expect(response.status).toBe(201);
 		await host.stop();
-		host = await openRunnerHost(options);
-		expect(
-			(await fetch(new URL(`/v1/runner/runs/${runId}`, host.url))).status,
-		).toBe(200);
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		host = await openRunnerHost({
+			...options,
+			async identity(request) {
+				entered.resolve();
+				await release.promise;
+				return options.identity(request);
+			},
+		});
+		const pending = fetch(new URL(`/v1/runner/runs/${runId}`, host.url));
+		await entered.promise;
+		const stopping = host.stop();
+		release.resolve();
+		expect((await pending).status).toBe(200);
+		await stopping;
 	} finally {
 		await host.stop();
 		world.clean();
