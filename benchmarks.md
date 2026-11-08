@@ -1,5 +1,14 @@
 # fleet benchmarks
 
+## Manual completion provenance (W2876, 2026-11-09)
+
+Twelve real CLI cases passed across worktree/root entry points, including
+missing receipts, stale credentials, shared-session siblings and split children.
+The 189-test push gate passed. Mechanical reversal makes the two-commit
+dependency-baseline assertion fail (1 failed, 48 passed), proving that it covers
+the changed behavior. This is correctness evidence, not a throughput or token
+improvement. Compatibility residuals remain in doesnt_work.md.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
