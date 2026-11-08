@@ -204,6 +204,34 @@ export const fromLocalSpecialist = (
 	return record;
 };
 
+// ─── static input-modality seed (W2854) ───
+// Models whose INPUT modalities are known WITHOUT a source catalog. The zai
+// /models endpoint supplies no modality row (zai-catalog-rows.ts), and the
+// GLM-5.3 chat family is TEXT-ONLY (verified 2026-11-02 + 2026-11-08: lesson
+// glm53-text-only-image-400, incidents W2267.4.1 + W2267.5 — an image block
+// 400s the leg and poisons shared provider health). Static facts fill
+// unknowns only — they never overwrite a catalog-sourced fact.
+export type InputModality = "text" | "image" | "audio";
+
+/** Provider-prefixed wire spellings normalize to the bare family id. */
+const PROVIDER_PREFIX_RE =
+	/^(?:zai[-/]|github_copilot\/|copilot\/|openrouter\/|openai\/|anthropic\/)/i;
+
+/** Unambiguous vision-capable id markers — catalog-capability vocabulary. */
+export const VISION_ID_RE =
+	/vision|-vl\b|-vl-|vlm|ocr|llava|pixtral|idefics|internvl|moondream|minicpm-v|qvq|gemini/i;
+
+/** Known text-only families, seeded from verified incidents — never guessed. */
+const TEXT_ONLY_ID_RE = /^glm-5\.3(?!\d)/;
+
+/** The static modality row for a model id, or null = unknown (no row). */
+export const staticInputModalities = (modelId: string): string[] | null => {
+	const id = modelId.toLowerCase().replace(PROVIDER_PREFIX_RE, "");
+	if (TEXT_ONLY_ID_RE.test(id)) return ["text"];
+	if (VISION_ID_RE.test(id)) return ["text", "image"];
+	return null;
+};
+
 /** Catalog identity and locality can be known while all other fields remain unknown. */
 export const fromRemoteCatalogId = (
 	provider: string,
@@ -215,6 +243,8 @@ export const fromRemoteCatalogId = (
 		return null;
 	const record = emptyCapability(provider, modelId);
 	record.locality = fact("remote", source, observedAt);
+	const seed = staticInputModalities(modelId);
+	if (seed) record.inputModalities = fact(seed, "static-seed", observedAt);
 	return record;
 };
 

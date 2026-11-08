@@ -18,6 +18,10 @@ import {
 // brief named no knowledge face before this (hooks/lib/lanes/brief-recall.ts)
 import { briefRecallLines } from "../../hooks/lib/lanes/brief-recall.ts";
 import { effortBudgetLine } from "../../hooks/lib/work/work-effort.ts";
+// W2854: the route-vision capability clause — a text-only pinned model rides
+// an explicit NEVER-READ-IMAGES clause (the W2267.5 hand-written law, made
+// systemic: hooks/lib/lanes/vision-capability.ts).
+import { visionBriefLines } from "../../hooks/lib/lanes/vision-capability.ts";
 // W1295: the agent-rules role library — base + role inject ahead of the brief
 import { loadAgentRules, selectAgentRole } from "./agent-rules.ts";
 import { validationCommand } from "./validation-cmd.ts";
@@ -76,6 +80,9 @@ export interface BriefOpts {
 	 *  the item's tags/title, null = no injection (legacy brief shape). Base +
 	 *  role ride AHEAD of the brief: brief > role > base > habit. */
 	role?: string | null;
+	/** W2854: the route model the lane will ride — a TEXT-ONLY route gets the
+	 *  explicit NEVER-READ-IMAGES clause; absent/vision/unknown = no clause. */
+	model?: string | null;
 }
 
 const briefOpening = (o: BriefOpts): string[] => {
@@ -101,6 +108,9 @@ const briefOpening = (o: BriefOpts): string[] => {
 		...(renderIntel(o.intel).length ? ["", ...renderIntel(o.intel)] : []),
 		``,
 		`PROTOCOL: BEFORE any edit, read AGENTS.md in the repo root and follow it (plan-first, shatter judgment, gates, done protocol, final-line vocabulary).`,
+		// W2854: a TEXT-ONLY route carries its NEVER-READ-IMAGES law right
+		// after the protocol line — the W2267.5 hand-written clause, systemic.
+		...visionBriefLines(o.model),
 		`KNOWLEDGE (pre-flight): before non-trivial code/doc work read the fleet knowledge layer — read_knowledge when your harness lists it, else coord fact list / coord fact get lesson.* — skip for trivial/generic/doc-covered edits; bank durable lessons after landing (coord knowledge-enqueue / coord fact set lesson.<topic>).`,
 		`FORMAT: read the nearest .qlty/qlty.toml + Biome config before writing; qlty fmt + check on changed files before final checks, tests and commit — full doctrine: AGENTS.md. Never chase formatter wrapping by hand.`,
 	];

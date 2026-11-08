@@ -18,6 +18,7 @@ import {
 	type ChosenExecutor,
 	chosenExecutor,
 	chosenExecutorLine,
+	laneModelOf,
 } from "./dispatch-executor-note.ts";
 import { execPick } from "./exec-chain.ts";
 import { fleetReport } from "./fleet-report.ts";
@@ -59,7 +60,7 @@ export type DispatchBriefArgs = {
 	branch: string;
 	wt: string;
 	capsule: Record<string, string> | null;
-	pick: { agent?: string };
+	pick: { agent?: string; model?: string | null };
 	resumeBrief: string[];
 	/** W609/W2186: the CLAIM FENCE line rides the brief when the take minted
 	 *  an epoch (resume paths have none here — the env pin still carries it). */
@@ -86,6 +87,9 @@ export const composeDispatchBrief = (
 			capsule: a.capsule,
 			itemCapsule: d.itemCapsuleGet(a.item),
 			agent: a.pick.agent,
+			// W2854: the final composed route model — a text-only one adds the
+			// NEVER-READ-IMAGES clause (vision-capability.ts).
+			model: laneModelOf(a.pick),
 			...(d.role ? { role: d.role } : {}),
 			effort: effortFromShow(a.show.out),
 			effortPolicy: laneEffortBriefLine(d.REPO, a.item),

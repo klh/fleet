@@ -14,6 +14,10 @@ import { kevTypedDecision } from "../knowledge/kev.ts";
 import { type HubLocation, resolveHub } from "../hub/hub-locate.ts";
 import { fetchHubCatalog } from "../hub/model-health.ts";
 import { hubCredential } from "../lanes/lane-auth.ts";
+// W2854: the catalog's vision-capability row rides the typed choice — kev
+// never had the text-only fact, so it could pick a model that 400s on the
+// first image block (lesson glm53-text-only-image-400).
+import { visionCapabilityOf } from "../lanes/vision-capability.ts";
 import { tryLoadStack } from "../stack-config.ts";
 
 /** One bounded catalog read per launch attempt (W779 parity — never a burst). */
@@ -47,6 +51,14 @@ const staticRung = (hubPick: string, model: string | null): string | null => {
 /** Offerings → the typed option set: catalog order, capped, deduped. */
 export const kevModelOptions = (offerings: readonly string[]): string[] =>
 	[...new Set(offerings)].slice(0, KEV_MODEL_MAX_OPTIONS);
+
+/** W2854: the option label kev reads — the id plus its catalog vision row, so
+ *  the choice is made WITH the text-only fact instead of discovering it as a
+ *  400 on the lane's first image block. Unknown stays unannotated. */
+export const kevModelOptionLabel = (id: string): string => {
+	const cap = visionCapabilityOf(id);
+	return cap === "unknown" ? id : `${id} (${cap})`;
+};
 
 export const kevModelPick = async (o: {
 	/** The lane's hub label (.prefer hub= / policy hub / --hub). */
@@ -109,9 +121,11 @@ export const kevModelPick = async (o: {
 		offerings,
 	});
 	const d = await kevTypedDecision({
-		state: `hub ${hub.label} live /v1/models offerings: ${options.join(", ")}\n${o.state}`,
+		// W2854: the offerings line carries each id's vision row — the option
+		// LABELS stay bare ids so `d.choice` still matches the catalog exactly.
+		state: `hub ${hub.label} live /v1/models offerings: ${options.map(kevModelOptionLabel).join(", ")}\n${o.state}`,
 		question:
-			"Pick the model for this lane from the hub's live offerings. Match the work type: implementation lanes need strong code models, reviews/verifications need careful readers, cheap utility work may ride a fast tier. When unsure prefer the stronger model.",
+			"Pick the model for this lane from the hub's live offerings. Match the work type: implementation lanes need strong code models, reviews/verifications need careful readers, cheap utility work may ride a fast tier. A lane that must read images/screenshots needs a vision model — a (text-only) model 400s on an image block. When unsure prefer the stronger model.",
 		options: options.map((id) => ({ label: id })),
 		timeoutMs: o.decisionTimeoutMs ?? KEV_MODEL_DECISION_TIMEOUT_MS,
 	});

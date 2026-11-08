@@ -13,6 +13,9 @@ export type FleetLane = {
 	item: string;
 	branch: string;
 	worktree: string;
+	/** W2854: the route model dispatch stamped at launch (absent on legacy
+	 *  entries and human sessions) — the Read gate's vision refusal reads it. */
+	model?: string;
 };
 
 type LaneEntry = FleetLane & {
@@ -81,6 +84,7 @@ export function resolveFleetLane(cwd: string): FleetLane | null {
 				item: e.item,
 				branch: e.branch,
 				worktree: e.worktree,
+				...(e.model ? { model: e.model } : {}),
 			};
 	}
 	return null;

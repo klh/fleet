@@ -27,6 +27,9 @@ export type DispatchLane = {
 	host?: string;
 	hub?: string;
 	slab?: string;
+	/** W2854: the route model the lane rides — the Read gate's vision refusal
+	 *  reads it from the lanes.json entry. */
+	model?: string;
 	launchedAt: number;
 	attempt?: number;
 	seedError?: StarterSeedFailure;

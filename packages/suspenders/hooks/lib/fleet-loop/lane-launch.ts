@@ -1138,6 +1138,9 @@ export const dispatchLane = async (
 			agent: pick.agent,
 			host: hostname(),
 			hub: resolvedHub,
+			// W2854: the route pin rides the registry entry — the Read gate's
+			// vision refusal resolves it per Read.
+			...(pick.model ? { model: pick.model } : {}),
 			slab,
 			launchedAt: Date.now(),
 			attempt,

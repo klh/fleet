@@ -23,6 +23,7 @@ import { resolveLaneExecutor } from "../../../scripts/lib/launch-preflight.ts";
 import { wireModelMatch } from "../gates/wire-model-check.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import type { HubLocation } from "../hub/hub-locate.ts";
+import { visionCapabilityOf } from "../lanes/vision-capability.ts";
 import { tryLoadStack } from "../stack-config.ts";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
 import { kevPlacement } from "./kev-placement.ts";
@@ -300,6 +301,13 @@ export async function admitModel(io: {
 			`NOTE — served: ${model} on ${served.destination} (${served.servedBy})`,
 		);
 	} else console.log(`NOTE — ${served.note}`);
+	// W2854: the FINAL composed model's vision row is disclosed at dispatch —
+	// a text-only route is why the brief carries NEVER-READ-IMAGES and why the
+	// Read gate refuses image Reads on this lane.
+	if (visionCapabilityOf(model) === "text-only")
+		console.log(
+			`NOTE — vision: ${model} is TEXT-ONLY — lane brief carries the NEVER-READ-IMAGES clause; image Reads refuse at the gate (W2854)`,
+		);
 	return {
 		verdict: "proceed",
 		pick,

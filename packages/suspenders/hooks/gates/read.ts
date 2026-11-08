@@ -27,6 +27,10 @@ import {
 import { resolveFleetLane } from "../lib/lanes/fleetlane.ts";
 import { bumpPathCount } from "../lib/gates/gatestate.ts";
 import { deny, type HookInput, nudge } from "../lib/hookio.ts";
+import {
+	IMAGE_BLOCK_RE,
+	imageReadDenyReason,
+} from "../lib/lanes/vision-capability.ts";
 
 export const DEFAULT_MAX_READ = 40 * 1024;
 
@@ -132,6 +136,16 @@ export function readGate(hook: HookInput): void {
 		const d = credScopeDeny(F, cwd, resolveFleetLane(cwd), secrets);
 		if (d) deny(d);
 	}
+	// W2854: a text-only route's image Read denies BEFORE the harness — the
+	// image block would 400 the leg and the retry loop wedges the transcript
+	// (lesson glm53-text-only-image-400). Cheap-first: the lane resolve (the
+	// ppid walk) only runs when the path IS an image block and the lane's
+	// model rides the lanes.json entry (dispatch stamps it at launch).
+	const laneModel = IMAGE_BLOCK_RE.test(F)
+		? resolveFleetLane(cwd)?.model
+		: undefined;
+	const visionReason = imageReadDenyReason(F, laneModel);
+	if (visionReason) deny(visionReason);
 	const hasLimit = ti.limit !== undefined && ti.limit !== null;
 	let size: number;
 	try {

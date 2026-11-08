@@ -5,6 +5,7 @@
 // humans can read. Best-effort: a dark store never blocks a prune.
 import { closeSync, openSync, readSync, statSync } from "node:fs";
 import type { GovernorStore } from "../../hooks/lib/govdb/govdb.ts";
+import { imagePoisonWedge } from "../../hooks/lib/lanes/vision-capability.ts";
 
 export const OUTPUT_TAIL_BYTES = 4096;
 /** the breaker window: ≥ MIN fresh samples, > RATIO sub-minute deaths → trip. */
@@ -49,6 +50,10 @@ export const captureLaneDeaths = (
 	for (const r of removed) {
 		const tail = logTail(`${fleet}/lane-${r.sid}.log`);
 		const livedMs = r.launchedAt ? Math.max(0, now - r.launchedAt) : null;
+		// W2854: a recognized wedge SHAPE rides the death fact — the
+		// image-poison retry loop reads as "wedged with reason", not as an
+		// anonymous death the operator must re-derive from the tail.
+		const wedge = imagePoisonWedge(tail);
 		try {
 			store
 				.query(
@@ -56,7 +61,12 @@ export const captureLaneDeaths = (
 				)
 				.run(
 					`lane.${r.sid}.death`,
-					JSON.stringify({ item: r.item ?? null, livedMs, tail }),
+					JSON.stringify({
+						item: r.item ?? null,
+						livedMs,
+						tail,
+						...(wedge ? { wedge } : {}),
+					}),
 					now,
 				);
 		} catch {
