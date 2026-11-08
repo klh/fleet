@@ -4,7 +4,10 @@ import { constants, closeSync, fstatSync, openSync, readSync } from "node:fs";
 export function readRunnerCredential(path: string): string {
 	let descriptor: number | undefined;
 	try {
-		descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+		descriptor = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
 		const stat = fstatSync(descriptor);
 		if (
 			!stat.isFile() ||

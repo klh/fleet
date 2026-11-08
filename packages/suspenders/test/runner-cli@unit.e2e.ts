@@ -4,6 +4,29 @@ import { join } from "node:path";
 import { writeFileSync, chmodSync } from "node:fs";
 const BIN = join(import.meta.dir, "../hooks/bin/coord.ts");
 
+test("runner health rejects a FIFO credential without waiting for a writer @unit", async () => {
+	const world = scratchWorld();
+	const keyFile = join(world.home, "runner.fifo");
+	try {
+		expect(Bun.spawnSync(["mkfifo", "-m", "600", keyFile]).exitCode).toBe(0);
+		const child = Bun.spawn(
+			[process.execPath, BIN, "runner", "health", "--key-file", keyFile],
+			{ cwd: world.repo, env: world.env, stderr: "pipe", stdout: "ignore" },
+		);
+		const deadline = setTimeout(() => child.kill("SIGKILL"), 3000);
+		try {
+			expect(await child.exited).toBe(1);
+			expect(await new Response(child.stderr).text()).toContain(
+				"runner.private_credential_required",
+			);
+		} finally {
+			clearTimeout(deadline);
+		}
+	} finally {
+		world.clean();
+	}
+});
+
 test("runner help needs neither store nor a credential @unit", () => {
 	const world = scratchWorld();
 	try {
