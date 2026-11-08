@@ -292,7 +292,7 @@ footer:empty {
   /* bounded (not equal-share): the rightmost affordance keeps its
      own width, divider at its left edge, rail bare before it */
   flex: 0 1 auto;
-  padding-inline: 14px;
+  padding-inline: 8px;
   border-left: 1px solid var(--klh-edge-faint);
 }
 
@@ -303,16 +303,16 @@ footer:empty {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-height: 32px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   padding: 4px 8px;
   border: 0;
   background: none;
   color: var(--klh-ink-2);
-  font: var(--klh-typo-size-s, 11px) var(--klh-font-sans, var(--klh-typo-sans-stack));
+  font: var(--klh-typo-size-xs, 10.5px) var(--klh-font-sans, var(--klh-typo-sans-stack));
   cursor: pointer;
   white-space: nowrap;
 }
@@ -334,6 +334,11 @@ footer:empty {
   font-weight: 600;
 }
 
+.seg.reassign,
+.seg.release {
+  flex: 0 0 auto;
+}
+
 .seg.prompt {
   color: var(--klh-accent);
 }
@@ -346,13 +351,13 @@ select.seg {
      options keep their full text. */
   flex: 1 1 0;
   min-width: 0;
-  height: 32px;
-  background: var(--klh-field);
+  height: 28px;
+  background: transparent;
   color: var(--klh-ink);
-  border: 1px solid var(--klh-edge-mid);
-  border-radius: 2px;
+  border: 0;
+  border-radius: 0;
   font: var(--klh-typo-size-xs, 10.5px) var(--klh-font-mono, var(--klh-typo-mono-stack));
-  padding: 0 4px;
+  padding: 4px 8px;
 }
 
 footer button.seg:focus-visible,
