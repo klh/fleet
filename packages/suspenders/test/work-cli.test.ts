@@ -787,6 +787,9 @@ describe("dep-merge ancestor gate (W60)", () => {
 			const tree = take.out.match(/worktree: (.+)/)?.[1] ?? "";
 			const token = take.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
 			const epoch = take.out.match(/claim epoch: (\d+)/)?.[1] ?? "";
+			const baseline = g("-C", tree, "rev-parse", "HEAD")
+				.stdout.toString()
+				.trim();
 			writeFileSync(
 				join(tree, file),
 				"export const dependencyProduct = true;\n",
@@ -805,6 +808,24 @@ describe("dep-merge ancestor gate (W60)", () => {
 					"Implement real dependency product",
 				).exitCode,
 			).toBe(0);
+			writeFileSync(
+				join(tree, file),
+				"export const dependencyProduct = true;\nexport const hardened = true;\n",
+			);
+			expect(g("-C", tree, "add", file).exitCode).toBe(0);
+			expect(
+				g(
+					"-C",
+					tree,
+					"-c",
+					"user.name=Fixture",
+					"-c",
+					"user.email=fixture@example.invalid",
+					"commit",
+					"-qm",
+					"Harden dependency product in a second commit",
+				).exitCode,
+			).toBe(0);
 			const sha = g("-C", tree, "rev-parse", "HEAD").stdout.toString().trim();
 			const result = workIn(
 				tree,
@@ -821,6 +842,10 @@ describe("dep-merge ancestor gate (W60)", () => {
 				"--summary",
 				"Implemented the dependency product on its own registered claim branch to verify merge gating.",
 			);
+			if (result.code === 0)
+				expect(
+					JSON.parse(work("show", id, "--json").out).completion.baseline_sha,
+				).toBe(baseline);
 			return { sha, result };
 		};
 		const dep = idOf(work("add", "dep lane (merge gate)").out);
@@ -860,7 +885,7 @@ describe("dep-merge ancestor gate (W60)", () => {
 		// Merge the exact registered product branch; the first dependency opens.
 		g("merge", "-q", "--no-edit", `suspenders/${dep}`);
 		expect(work("take", depOn, "--as", "lane-w60e").code).toBe(0);
-	});
+	}, 15_000);
 });
 
 describe("report — W892 supervisor micro-metrics", () => {
