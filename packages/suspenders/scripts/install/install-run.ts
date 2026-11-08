@@ -396,7 +396,19 @@ async function userLevelWire(ctx: StepContext): Promise<StepResult> {
 		ctx.home,
 	);
 	const extras = await runWireExtras(ctx);
-	return { status: "ok", note: wireNote(settingsPath, added, removed, extras) };
+	const { installPiAwareness } = await import("./install-pi-awareness.ts");
+	const awareness = await installPiAwareness({
+		home: ctx.home,
+		dryRun: ctx.dryRun,
+	});
+	const piNote =
+		awareness.status === "skipped"
+			? ""
+			: ` — Pi awareness ${awareness.status}: ${awareness.note}`;
+	return {
+		status: awareness.status === "conflict" ? "failed" : "ok",
+		note: wireNote(settingsPath, added, removed, extras + piNote),
+	};
 }
 
 // W650: repo-level scrub-gate enforcement — committed .githooks stubs (W236)
