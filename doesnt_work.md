@@ -11,6 +11,13 @@ The new Playwright case checks denial and revocation with the canonical kit.
 Docker commit also excludes mounted tmpfs contents: never use that snapshot
 as proof of artifact export. Desktop export requires an actual tmpfs witness.
 
+The first identity adapter also mapped authority 429/503 failures to 401,
+misdiagnosing unavailable capacity as bad credentials. Keep those failures as
+`runner.identity_unavailable` (503), with a safe correlation trace. Raw cleanup
+exceptions could leak credential-shaped provider text through event payloads;
+bank fixed labels instead. Control keys need proxy READ for the existing
+identity endpoint, never proxy WRITE; a generation attempt is proven 403.
+
 ## Durable hook errors are not transport authorization (W2869.1)
 
 Pinned Durable 1.5.0 swallowed a throwing beforeProviderRequest guard: the

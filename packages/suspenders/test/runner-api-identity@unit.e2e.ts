@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { createRunnerIdentity } from "../hooks/lib/runners/api/identity.ts";
 
+test("identity authority outages stay unavailable instead of blaming credentials @unit", async () => {
+	for (const status of [429, 503]) {
+		const identity = createRunnerIdentity({
+			baseUrl: "http://127.0.0.1:4111",
+			fetch: async () => new Response(null, { status }),
+		});
+		await expect(
+			identity(
+				new Request("http://localhost", {
+					headers: { authorization: "Bearer test-key" },
+				}),
+			),
+		).rejects.toThrow("runner.identity_unavailable");
+	}
+});
+
 test("identity uses verified key ID and rechecks revocation on every request @unit", async () => {
 	let revoked = false;
 	let calls = 0;

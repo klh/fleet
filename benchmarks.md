@@ -9,6 +9,13 @@ was observed. Thirty-three focused API/controller cases passed, including
 persisted host bindings and request IDs through held-message recovery. This is
 correctness evidence, not throughput, deployment or model-quality evidence.
 
+The integrated pinned Durable 1.5.0/API suite now passes 53 cases, including
+actual Node reopen, SIGKILL recovery and completed-request replay without
+another fixture provider call or tool effect. Two real scratch Buckle cases
+prove occupied-slot identity and a control key that cannot generate tokens.
+All 17 settings cases pass; frozen-lockfile installation succeeds. Provider
+responses are synthetic protocol fixtures, not model-quality measurements.
+
 ## Durable runner correctness prerequisite (W2869.1, 2026-11-08)
 
 Pi Durable/pi-ai/Chord pinned 1.5.0: twelve deterministic cases cover real

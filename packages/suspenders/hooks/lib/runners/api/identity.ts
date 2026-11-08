@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { readWireJson } from "./wire.ts";
 
 const IdentitySchema = z.object({
@@ -41,7 +41,11 @@ export function createRunnerIdentity(deps: { baseUrl: string; fetch?: Fetch }) {
 			});
 			if (!response.ok) {
 				await response.body?.cancel();
-				throw new Error("identity denied");
+				throw new Error(
+					response.status === 401 || response.status === 403
+						? "runner.unauthorized"
+						: "runner.identity_unavailable",
+				);
 			}
 			const identity = IdentitySchema.parse(
 				await readWireJson(response, 16_384),
@@ -51,8 +55,13 @@ export function createRunnerIdentity(deps: { baseUrl: string; fetch?: Fetch }) {
 				kind: identity.kind,
 				scopes: identity.scopes,
 			};
-		} catch {
-			throw new Error("runner.unauthorized");
+		} catch (error) {
+			if (
+				error instanceof ZodError ||
+				(error instanceof Error && error.message === "runner.unauthorized")
+			)
+				throw new Error("runner.unauthorized");
+			throw new Error("runner.identity_unavailable");
 		}
 	};
 }

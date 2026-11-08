@@ -2,9 +2,11 @@ import { ZodError } from "zod";
 import { runnerRoute } from "./routes.ts";
 import type { RunnerApiDependencies } from "./types.ts";
 import { RunnerAuthError } from "../control/rights.ts";
+import { reportRunnerFailure } from "./diagnostics.ts";
 
 const statuses: Readonly<Record<string, number>> = {
 	"runner.unauthorized": 401,
+	"runner.identity_unavailable": 503,
 	"runner.forbidden": 403,
 	"runner.not_found": 404,
 	"runner.method_not_allowed": 405,
@@ -20,9 +22,12 @@ export function createRunnerApi(deps: RunnerApiDependencies) {
 	);
 	return {
 		async fetch(request: Request): Promise<Response> {
+			const traceId = crypto.randomUUID();
+			let phase: "identity" | "route" = "identity";
 			const headers = {
 				"cache-control": "no-store",
 				"x-content-type-options": "nosniff",
+				"x-runner-trace-id": traceId,
 			};
 			try {
 				if (
@@ -33,6 +38,7 @@ export function createRunnerApi(deps: RunnerApiDependencies) {
 				)
 					throw new Error("runner.forbidden");
 				const identity = await deps.identity(request);
+				phase = "route";
 				const result = await runnerRoute(deps, request, identity);
 				if (
 					typeof result.body === "object" &&
@@ -62,6 +68,14 @@ export function createRunnerApi(deps: RunnerApiDependencies) {
 					error instanceof ZodError || error instanceof SyntaxError
 						? 400
 						: (statuses[message] ?? 503);
+				if (status === 503)
+					reportRunnerFailure(
+						request,
+						error,
+						traceId,
+						phase,
+						deps.onDiagnostic,
+					);
 				return Response.json(
 					{
 						error:
