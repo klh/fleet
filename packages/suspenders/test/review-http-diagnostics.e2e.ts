@@ -36,6 +36,24 @@ test("review diagnostics bound error bodies and discard unsafe prose @unit", asy
 	expect(redacted.message).toBe("Review LLM HTTP 401");
 });
 
+test("error diagnostics do not turn a fast refusal into retry amplification @unit", async () => {
+	const { reviewHttpFailure } = await import(
+		"../hooks/lib/gates/review-http-error.ts"
+	);
+	const { walkLegs } = await import("../hooks/lib/gates/review-quota.ts");
+	const walk = await walkLegs({
+		legLabels: ["fixture"],
+		fastFailMs: 750,
+		sleep: async () => {},
+		request: async () => {
+			throw await reviewHttpFailure(
+				new Response(new ReadableStream(), { status: 503 }),
+			);
+		},
+	});
+	expect(walk.trail).toHaveLength(1);
+});
+
 test("review diagnostic body deadline cancels an unfinished stream @unit", async () => {
 	const { reviewHttpFailure } = await import(
 		"../hooks/lib/gates/review-http-error.ts"
