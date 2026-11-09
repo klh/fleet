@@ -1499,3 +1499,14 @@ and the bed name followed by the two resident digest-pinned image references.
 BLAM replay validated ten samples and two native image identities. The
 replayed receipt SHA-256 was
 `fd33ac8b5b049391156b9f7b5a701f3f90925ae6647a8166932d53311174ee63`.
+
+The offline Synology QEMU TCG guest passed the same portable HTTP canary
+on x86-64 Linux 6.8.0-147, Bun 1.4.2 and Docker 29.1.3. The verified
+Bun image index was `9114c058…` with the amd64 manifest `296a79bbc…`.
+Docker's container reported `cpu.max = 50000 100000` for a 0.5 CPU probe.
+The canary took 9.90 s to submit acknowledgement and 16.34 s to the first
+verified seed read. It revoked the key and verified container removal.
+One software-emulated sample demonstrates functionality only. The native
+Desktop run and this guest differ in platform, runtime and resource caps.
+The guest receipt SHA-256 is
+`a04c2a03e83233c065ba018050d885cba955eaaf5d4684fe8ba6a9eff4639b20`.
