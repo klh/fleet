@@ -8,6 +8,7 @@ import {
 	loadGatewayPolicy,
 	POLICY_DEFAULTS,
 	parsePolicy,
+	streamIdleS,
 } from "../src/policy.ts";
 
 test.describe("@unit", () => {
@@ -71,6 +72,45 @@ test.describe("@unit", () => {
 				}),
 			),
 		).toThrow("first_byte_budget_s");
+	});
+
+	test("W2579: stream_idle_overrides_s scoping", () => {
+		const p = parsePolicy(
+			JSON.stringify({
+				gateway: {
+					stream_idle_timeout_s: 60,
+					stream_idle_overrides_s: { "glm-5.3": 900, "gpt-5.2": 120 },
+				},
+			}),
+		);
+		expect(streamIdleS(p, "glm-5.3")).toBe(900);
+		expect(streamIdleS(p, "gpt-5.2")).toBe(120);
+		// an unlisted group keeps the global default
+		expect(streamIdleS(p, "claude-sonnet-5")).toBe(60);
+		// absent overrides block → the global default everywhere
+		expect(streamIdleS(parsePolicy("{}"), "glm-5.3")).toBe(60);
+	});
+
+	test("W2579: stream_idle_overrides_s validation is fail-loud", () => {
+		// over the total cap → startup-fatal (the total is absolute)
+		expect(() =>
+			parsePolicy(
+				JSON.stringify({
+					gateway: {
+						stream_total_timeout_s: 900,
+						stream_idle_overrides_s: { greedy: 901 },
+					},
+				}),
+			),
+		).toThrow("stream_idle_overrides_s");
+		// non-positive refuses loudly
+		expect(() =>
+			parsePolicy(
+				JSON.stringify({
+					gateway: { stream_idle_overrides_s: { zero: 0 } },
+				}),
+			),
+		).toThrow("stream_idle_overrides_s");
 	});
 
 	test("POLICY_DEFAULTS: fixed constants from the ported semantics", () => {

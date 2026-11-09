@@ -120,6 +120,8 @@ export const extractUnit: Unit = async (ctx, node) => {
 
 export const DRIFT_REASON = "hash drift: source changed since index (distill)";
 
+export const MISSING_SOURCE_REASON = "verify: source file gone since index";
+
 export const stalenessUnit: Unit = async (ctx, node) => {
 	if (node.kind === "code") {
 		const missing = !roots(ctx).some((r) => existsSync(join(r, node.key)));
@@ -136,6 +138,22 @@ export const stalenessUnit: Unit = async (ctx, node) => {
 	for (const r of roots(ctx)) {
 		trust = trustOf(row.source_ref, row.source_hash, r);
 		if (trust !== "unverified") break;
+	}
+	if (
+		trust === "unverified" &&
+		!roots(ctx).some((r) => existsSync(join(r, row.source_ref.split(/\s+/)[0])))
+	) {
+		ctx.db
+			.query("UPDATE knowledge SET stale_at = ?, stale_reason = ? WHERE id = ?")
+			.run(ctx.now(), MISSING_SOURCE_REASON, row.id);
+		ctx.sink.propose({
+			knowledgeId: row.id,
+			kind: "distill-missing-source",
+			score: 1,
+			reason: `${MISSING_SOURCE_REASON} — retire or repoint #${String(row.id)}`,
+			payload: { source_ref: row.source_ref },
+		});
+		return { outcome: "missing-source" };
 	}
 	if (trust === "drift" && row.stale_at === null) {
 		ctx.db

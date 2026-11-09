@@ -33,8 +33,6 @@ import { DIFF } from "../board-html/diff.ts";
 import { LAUNCH } from "../board-html/launch.ts";
 import { ORCH } from "../board-html/orch.ts";
 import { RENDERS } from "../board-html/renders.ts";
-import { REPORT } from "../board-html/report.ts";
-import { SETUP } from "../board-html/setup.ts";
 import { SHIP } from "../board-html/ship.ts";
 import { ACTIONS_RETRY } from "../board-html/actions-retry.ts";
 import { TABS } from "../board-html/tabs.ts";
@@ -123,7 +121,7 @@ select { background:var(--klh-surface); color:var(--klh-ink); border:1px solid v
   header #proj { width:100%; }
   /* W2267.6 (root #103252): the nowrap status line pushed document
      scrollWidth to 482 at a 420px viewport — the masthead wraps here so
-     only the board keeps horizontal scroll (360px cards stay intact). */
+     only the board keeps horizontal scroll (compact cards stay intact). */
   header #conn, header #stamp, header #blockedn { white-space:normal; overflow-wrap:anywhere; min-width:0; }
   select { max-width:100%; min-width:0; }
 }
@@ -260,9 +258,10 @@ ${DECISIONS_CSS}
    gutter both shows the rail and stops the wrap's height lurching. */
 .kwrap { overflow-x:auto; scrollbar-width:thin; }
 .kanban { display:flex; gap:10px; align-items:flex-start; min-width:max-content; padding-bottom:8px; position:relative; }
-/* W2267.4.2.2: 360–420px readable columns (09-implementation-visual-spec)
-   — the kanban scrolls horizontally inside .kwrap when they don't fit. */
-.kcol { flex:0 0 clamp(360px, 30vw, 420px); max-width:420px; min-width:360px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
+/* W2267.5 owner density correction (8 Nov 2026): ~300–320px compact columns
+   (the original board density) — supersedes W2267.4.2.2's 360–420px; the
+   kanban still scrolls horizontally inside .kwrap when they don't fit. */
+.kcol { flex:0 0 clamp(300px, 24vw, 320px); max-width:320px; min-width:300px; border-top:2px solid var(--state-color, var(--klh-edge-mid)); padding-top:6px; }
 .kcol h3 { font-size:var(--board-label-size); font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--klh-dim); margin:0 0 8px; }
 .kcount { float:right; font:10px var(--klh-font-mono); font-variant-numeric:tabular-nums; letter-spacing:0; }
 /* The live project .prefer owns the card edge; status stays on the pill and column. */
@@ -390,6 +389,8 @@ ${DECISIONS_CSS}
 .copyfix { background:none; border:1px solid var(--klh-edge-strong); color:var(--klh-dim); border-radius:2px; font:inherit; font-size:10px; padding:2px 8px; cursor:pointer; }
 .copyfix:hover { color:var(--klh-ink); border-color:var(--klh-edge-hover); }
 .feed { border:1px solid var(--klh-edge); border-radius:2px; padding:10px 12px; font-size:11.5px; margin-bottom:14px; }
+/* W2267.5: complete description in the drawer — pre-wrap keeps owner line breaks */
+.descFull { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; line-height:1.5; }
 .feed h2 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--klh-dim); margin:0 0 8px; }
 .feed .filters { margin-bottom:6px; display:flex; gap:4px; flex-wrap:wrap; }
 .feed .filters button { background:transparent; color:var(--klh-dim); border:1px solid var(--klh-edge); border-radius:2px; padding:1px 7px; font:9px var(--klh-font-mono); text-transform:uppercase; cursor:pointer; }
@@ -495,7 +496,7 @@ button.lanesend:disabled { opacity:.45; cursor:default; }
 ${fleetNav("suspenders", "suspenders")}
 <klh-topbar><a slot="settings-extra" href="/console/settings">all console settings &rarr;</a></klh-topbar>
 <script>/*SETUP_SEED*/</script>
-${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPORT}${SETUP}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
+${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${USAGE}${ACTIONS_RETRY}${TABS}${ORCH}${FEEDS}${BOOT}</script>
 <script>${UPLOT_SRC}</script>
 <script type="module" src="/vendor/klh-components.js"></script>
 <script type="module" src="/vendor/klh-topbar.js"></script>
@@ -505,5 +506,9 @@ ${BODY}${CORE}${RENDERS}${TASKS}${DIFF}${LAUNCH}${SHIP}${TAIL}${ACTIVITY}${REPOR
 <script type="module" src="/vendor/klh-board-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions-mediator.js"></script>
 <script type="module" src="/vendor/klh-decisions.js"></script>
+<script type="module" src="/vendor/klh-report-mediator.js"></script>
+<script type="module" src="/vendor/klh-report.js"></script>
+<script type="module" src="/vendor/klh-setup-mediator.js"></script>
+<script type="module" src="/vendor/klh-setup.js"></script>
 <script type="module" src="/vendor/klh-card-activity.js"></script>
 <script type="module" src="/vendor/klh-board-register.js"></script>`);
