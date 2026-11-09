@@ -4,29 +4,29 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import {
 	dockerDriver,
 	dockerImageIdentity,
 } from "../bench/artifact/docker-driver.ts";
-import { expect, test } from "@playwright/test";
-import {
-	computeVerdict,
-	seededOrder,
-	statOf,
-	type ArmRef,
-	type ArmSamples,
-	type Caps,
-	type ScenarioSpec,
-} from "../bench/artifact/types.ts";
 import { replayFixtureDriver, walkOrder } from "../bench/artifact/drivers.ts";
 import {
 	audit,
+	coldStartSpec,
+	type Receipt,
 	receiptLines,
 	replayReceipts,
 	runScenario,
-	type Receipt,
 } from "../bench/artifact/harness.ts";
-import { coldStartSpec } from "../bench/artifact/harness.ts";
+import {
+	type ArmRef,
+	type ArmSamples,
+	type Caps,
+	computeVerdict,
+	type ScenarioSpec,
+	seededOrder,
+	statOf,
+} from "../bench/artifact/types.ts";
 
 const CAPS: Caps = {
 	bed: "docker-desktop",
@@ -120,7 +120,7 @@ test.describe("artifact bench harness @unit", () => {
 			"alpine:3.21",
 			"debian:bookworm-slim",
 		]);
-		expect(run.summary.stats["fedora:41"]!.median).toBe(196);
+		expect(run.summary.stats["fedora:41"]?.median).toBe(196);
 		expect(run.failures.length).toBe(0);
 		expect(run.summary.stats["alpine:3.21"]).toEqual({ median: 171, p95: 173 });
 		const auditRows = audit(run, SPEC);

@@ -5,7 +5,7 @@
 // are labeled as such and are never ledger rows. Ledger rows come from live
 // runs only.
 
-import { seededOrder, type ArmRef, type Caps } from "./types.ts";
+import { type ArmRef, type Caps, seededOrder } from "./types.ts";
 
 export interface BedDriver {
 	readonly bed: string;

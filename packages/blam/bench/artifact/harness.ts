@@ -4,17 +4,18 @@
 // REQUIRED (decision-grade law: every summary names a winner or an explicit
 // tie). Same seed + same driver schedule → byte-identical receipts.
 // Run: bun packages/blam/bench/artifact/harness.ts
+
+import { type BedDriver, replayFixtureDriver, walkOrder } from "./drivers.ts";
 import {
-	computeVerdict,
-	statOf,
 	type ArmRef,
 	type ArmSamples,
 	type Caps,
+	computeVerdict,
 	type ScenarioSpec,
 	type Stat,
+	statOf,
 	type Verdict,
 } from "./types.ts";
-import { replayFixtureDriver, walkOrder, type BedDriver } from "./drivers.ts";
 
 export interface ArmReceipt {
 	kind: "arm-sample";
