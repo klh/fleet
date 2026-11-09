@@ -1415,3 +1415,23 @@ kept as the documented anti-pattern. Re-run with
 the tool prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares the
 arms comparable — matched state mix + exposure discipline is judged, not
 computed.
+
+## Artifact bench, decision-grade paired-arm receipts (W2904, 2026-11-09)
+
+`packages/blam/bench/artifact/` — deterministic, LLM-optional paired-arm
+harness whose arms are ARTIFACT refs (image@digest, package version,
+toolchain pin). Decision-grade law: every scenario declares a
+`DecisionRule` up front; every summary carries a REQUIRED `verdict` block
+(winner arm id, or the explicit `tied` when all arms sit inside the 5%
+epsilon band) — winnerless rows are schema-invalid by construction.
+Parity via `Caps {bed, host, kernel, arch, cpu, memMiB}` (samples compare
+only inside one caps block); controlled ordering via mulberry32
+`seededOrder(arms, reps, seed + rep*7919)` — same seed, byte-identical
+receipts (10 bun tests, 29 expects, 35ms, CI-safe replay-fixture driver;
+live docker driver additive). The first matched cross-bed run (desktop vs
+remote hub) pins the receipt-v1 digest `oven/bun@sha256:9114c058…` so the
+only variable is the bed. The suite's live rows supersede the ad-hoc
+2026-11-09 desktop bake-off numbers (cold-start medians alpine ≈ debian-slim
+≈ 171ms, fedora 196ms; tool-install apk 4.1s < apt 6.3s < dnf 25.2s),
+which stay on record as the motivating measurement; fixture rows are
+labeled `<bed>:replay-fixture` and are never ledger-grade.

@@ -425,3 +425,15 @@ budget artifact, not looping.
   the arms comparable; the zero-out attribution mass still floors
   med_out_per_min (0*) — all floors, never rates. See
   [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
+# W2904 — winnerless benchmark rows
+
+The desktop bake-off (2026-11-09) produced medians without a decision
+rule: numbers that could not pick a winner between arms, and no schema to
+say when two arms count as equal. W2904 fixes the shape, not the
+arithmetic: a summary without a `verdict` block is now schema-invalid, and
+the `tied` verdict is explicit rather than implied by eyeballing. Related
+dead ends kept on record from the same bake-off: `archlinux:base` (no
+arm64 manifest — cannot be an arm on Docker Desktop), split
+install+clone across two containers (no filesystem persistence — one
+container per bed), and `--net=enabled` (bogus docker flag; `--net=host`
+is the real one).
