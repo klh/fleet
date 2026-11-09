@@ -58,6 +58,8 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 - **Promoting a seed fork on mean wall time alone (W2882).** Twelve live pairs improved mean wall time but used more tokens and increased p95 latency. The runner evaluator now keeps the measured lift and declines promotion on either regression. The original and rescored reports retain both decisions.
 
+- **Promoting one-shot Docker prewarm on admission alone (W2883).** Twelve pairs cut admission p50 by 168 ms, while full lifecycle p50 increased by 1.7 ms and only five pairs improved wall time. BLAM declined promotion. The live recovery canary also exposed two gaps the deterministic provider missed: Pi Durable requires an environment callback or no environment option, and lease-checked abort fails after revocation. The corrected runtime omits the unused callback and closes the local harness and Docker sandbox after fencing.
+
 - **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
   the measured 12-pair local clone/worktree probe performs zero model calls.
   It establishes a workspace-startup delta only; it cannot establish cache

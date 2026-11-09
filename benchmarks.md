@@ -49,6 +49,10 @@ have 15 separate regression checks and are not remeasured in these receipts.
 
 **W2882, Pi Durable fork vs reconstruction (2026-11-09).** Twelve counterbalanced pairs across three synthetic coding tasks passed all 24 private checks. Local Buckle matched all 48 GLM-5.3 Flash calls. Fork wall time p50 7.89 → 6.59 s, p95 11.04 → 12.15 s, mean paired delta −0.410 s and +12.5 tokens. Provider cache uncontrolled. Replay the `pi-durable-coding-ab-20261109` receipt bundle with the BLAM runner report. No promotion under the new guard.
 
+**W2883, Desktop runner prewarm and recovery (2026-11-09).** Twelve matched infrastructure pairs on Docker Desktop 29.9.2 reduced admission p50 from 189.9 to 21.5 ms and first useful operation from 241.1 to 72.6 ms. Full lifecycle p50 was 326.3 versus 328.0 ms, with no promotion. All 24 runs passed the isolation checks. No model calls in this A/B. Replay `pi-fleet-desktop-prewarm-ab-20261109` using its BLAM report script and receipts. Report SHA256 `cb62251ccc8576aa189f937da5a5b9e7d1b7728d7414463fb7cc0ef26a7b3957`.
+
+Separately, the isolated official install at `356a9168` recovered the same sandbox after SIGKILL and read a private workspace witness. Buckle request `rmw978f35hkpnd5` matched the post-restart journal at 646 input tokens including 512 cache reads and 143 output tokens on `zai-glm-5.3-flash`. Both executor credentials were revoked and Docker removed the sandbox. This was one live acceptance run, with four HTTP 200 requests and one pre-restart HTTP 499.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
