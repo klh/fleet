@@ -65,11 +65,16 @@ export interface Phantom {
 
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 
+/** upstream-vendored packages kept byte-pristine (FORK.md): never scanned for
+ *  fleet import-law compliance (precedent: decant, W1303.1.5). */
+const VENDORED = new Set(["decant", "chord", "pi-durable"]);
+
 /** Fleet package dirs (no manifest required — local-llm/telemetry scan too). */
 export function fleetPackages(root: string): string[] {
 	return readdirSync(join(root, "packages")).filter(
 		(d) =>
 			!d.startsWith(".") &&
+			!VENDORED.has(d) &&
 			existsSync(join(root, "packages", d)) &&
 			readdirSync(join(root, "packages", d), { withFileTypes: true }).some(
 				(e) => e.isDirectory() || e.name.endsWith(".ts"),
