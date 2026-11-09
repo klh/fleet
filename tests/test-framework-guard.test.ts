@@ -11,6 +11,11 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const DECANT = "packages/decant/";
+// Vendored fork trees (@klh/chord, @klh/pi-durable — see their FORK.md):
+// upstream vitest suites vendored PRISTINE per owner decision 2026-11-09
+// ("vitest tolerated in the fork", fleet CI stays bun-only) — not ours to
+// migrate, same exemption class as decant.
+const FORKS = ["packages/chord/", "packages/pi-durable/"];
 // The guard is itself a *.test.ts — self-exempt by exact path (the
 // law-guards UI_LAW_ALLOWLIST pattern) so the pin counts only the
 // migratable corpus.
@@ -50,6 +55,9 @@ const SELF = "tests/test-framework-guard.test.ts";
 // count — re-pinned DOWN (600 → 570) at the merged tree's own measurement.
 const PIN = 570;
 
+const exempt = (p: string): boolean =>
+	p.startsWith(DECANT) || FORKS.some((f) => p.startsWith(f));
+
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
 	if (out.exitCode !== 0) {
@@ -65,9 +73,8 @@ function trackedTestFiles(): string[] {
 // Pure counter over a path list — the teeth tests below prove it without
 // mutating the repo (the detector/fixture split of the import-law guard).
 const counted = (paths: readonly string[]): number =>
-	paths.filter(
-		(p) => p.endsWith(".test.ts") && !p.startsWith(DECANT) && p !== SELF,
-	).length;
+	paths.filter((p) => p.endsWith(".test.ts") && !exempt(p) && p !== SELF)
+		.length;
 
 const violations = (paths: readonly string[], pin: number): string[] => {
 	const n = counted(paths);
@@ -99,6 +106,16 @@ test("decant stays exempt — vendored *.test.ts never counts toward the ratchet
 	const synthetic = [
 		...Array.from({ length: PIN }, (_, i) => `pkg/test/case-${i}.test.ts`),
 		"packages/decant/test/vendored.test.ts",
+	];
+	expect(counted(synthetic)).toBe(PIN);
+	expect(violations(synthetic, PIN)).toEqual([]);
+});
+
+test("vendored fork trees stay exempt — chord/pi-durable upstream vitest suites never count toward the ratchet", () => {
+	const synthetic = [
+		...Array.from({ length: PIN }, (_, i) => `pkg/test/case-${i}.test.ts`),
+		"packages/chord/test/boundary.test.ts",
+		"packages/pi-durable/test/durable.test.ts",
 	];
 	expect(counted(synthetic)).toBe(PIN);
 	expect(violations(synthetic, PIN)).toEqual([]);

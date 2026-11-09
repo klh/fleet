@@ -36,6 +36,10 @@ test("the regex scanner and the transpiler lib agree on @klh edges (W1249) @unit
 			!existsSync(join(import.meta.dir, "..", "packages", pkg, "package.json"))
 		)
 			continue;
+		// skip upstream-vendored trees — the lib's fleetPackages() excludes
+		// them (import-graph.ts VENDORED, decant precedent), so scanning them
+		// here would flag phantom agreement drift
+		if (["decant", "chord", "pi-durable"].includes(pkg)) continue;
 		for (const file of sources(pkg)) {
 			for (const m of readFileSync(
 				join(import.meta.dir, "..", "packages", pkg, file),
@@ -94,6 +98,9 @@ function imported(pkg) {
 test("every cross-package @klh import is declared by the importing package @unit", () => {
 	for (const pkg of readdirSync(PACKAGES).sort()) {
 		if (!existsSync(join(PACKAGES, pkg, "package.json"))) continue;
+		// upstream-vendored trees are scan-exempt (import-graph.ts VENDORED,
+		// decant precedent) — their @klh/* imports are fork-internal
+		if (["decant", "chord", "pi-durable"].includes(pkg)) continue;
 		const deps = declared(pkg);
 		for (const name of imported(pkg)) {
 			expect(

@@ -52,7 +52,11 @@ function crossPackageReachIns(): string[] {
 				if (
 					entry === "node_modules" ||
 					entry === ".harness" ||
-					entry === "decant"
+					entry === "decant" ||
+					// vendored fork trees (W2840 scan-exempt class): their reach-ins
+					// are fork-internal, never fleet seams the exports map must cover
+					entry === "chord" ||
+					entry === "pi-durable"
 				)
 					continue;
 				walk(path);
