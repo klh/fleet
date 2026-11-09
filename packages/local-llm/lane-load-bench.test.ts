@@ -12,7 +12,7 @@ import {
 	type Prompt,
 	type Specialist,
 } from "./lane-load-bench.ts";
-import { SPECIALISTS } from "./registry.ts";
+import { SPECIALISTS } from "@klh/belt/bin/registry.ts";
 
 // registry rows feed the bench fixtures; empty would mean belt broke
 const firstSpecialist = (): Specialist => {
@@ -103,7 +103,7 @@ describe("generateOnce + benchPort vs stub", () => {
 				return new Response(
 					`data: ${JSON.stringify({
 						choices: [{ delta: { content: reply } }],
-					})}\n\n` + "data: [DONE]\n\n",
+					})}\n\ndata: [DONE]\n\n`,
 					{ headers: { "content-type": "text/event-stream" } },
 				);
 			},
