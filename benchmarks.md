@@ -1471,3 +1471,8 @@ runs do not establish a stable p95 winner. Sealed receipt SHA-256
 `5e6014432f5ed43c4c1abda0842650e48c908042c1be88263b14429d8ee5b35f`.
 Use `bun packages/blam/bench/artifact/harness.ts --replay <receipts.ndjson>`
 to recompute the distributions and verdict without Docker.
+
+The replay verifier checks every arm and repetition, the shared bed metadata,
+both native image identities, and the reported median, p95 and verdict. The
+second run contains 14 samples and two image identity records. The earlier
+native run remains readable with zero embedded identity records.

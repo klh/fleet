@@ -448,3 +448,11 @@ The live harness now resolves and records each native image identity before
 sampling, and sets Docker's platform explicitly. It rejected the original
 Alpine arm before emitting any samples. Earlier driver timing also included
 container removal, which made it unsuitable for first-ready comparisons.
+
+## W2940 — Artifact receipt integrity
+
+Counting samples alone accepted a duplicated trial in place of a missing
+trial. The replay audit now checks each arm and repetition exactly once.
+Live runs with missing or failed repetitions no longer emit a verdict.
+Image IDs in diagnostic output also left the receipt incomplete, so the
+native platform and resolved image IDs now travel with the samples.
