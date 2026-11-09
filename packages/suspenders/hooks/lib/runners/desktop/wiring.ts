@@ -418,7 +418,9 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		revokeCredential: (runId, { epoch }) => credentials.revoke(runId, epoch),
 		authorizer: deps.authorizer ?? makeRunnerAuthorizer({ store: deps.store }),
 		leaseTtlMs: ttlMs,
+		// Docker's graceful stop can use ten seconds before the hard kill.
 		cleanupTimeoutMs: deps.cleanupTimeoutMs,
+		executorStopTimeoutMs: deps.cleanupTimeoutMs ?? 15_000,
 	});
 
 	const recover = async (): Promise<{

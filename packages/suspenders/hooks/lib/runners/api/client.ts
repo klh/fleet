@@ -33,7 +33,8 @@ export function createRunnerClient(options: {
 					authorization: `Bearer ${key}`,
 					"content-type": "application/json",
 				},
-				signal: AbortSignal.timeout(15_000),
+				// Abort awaits credential revocation and a graceful executor stop.
+				signal: AbortSignal.timeout(path.endsWith("/abort") ? 25_000 : 15_000),
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 			});
 			if (!response.ok) {

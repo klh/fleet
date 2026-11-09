@@ -395,7 +395,7 @@ test("repair: watchdog expiry halts with bounded cleanup at the captured epoch",
 		runId: spec.runId,
 		actor: controlActor(),
 	});
-	expect(job.state).toBe("stopping");
+	expect(job.state).toBe("stopped");
 	expect(events.some((e) => e.kind === "fence-revoked")).toBe(true);
 });
 
@@ -427,6 +427,7 @@ test("repair: watchdog on takeover leaves the winner's lease and state intact", 
 	await new Promise((resolve) => setTimeout(resolve, 60));
 	watcher.stop();
 	expect(revoked).toEqual([`${spec.runId}@1`]);
+	expect(durable.calls).not.toContain(`stop:${spec.runId}`);
 	expect(getLease(store, spec.runId)).toMatchObject({
 		state: "active",
 		epoch: 2,
@@ -461,7 +462,7 @@ test("repair: stopWithRevocation fences first and bounds a hung executor stop", 
 		runId: spec.runId,
 		actor: controlActor(),
 	});
-	expect(res).toEqual({ ok: true, state: "stopping" });
+	expect(res).toEqual({ ok: true, state: "failed" });
 	expect(order).toEqual(["credential@2:revoked"]);
 	expect(getLease(store, spec.runId)?.state).toBe("revoked");
 	const { events } = await ctl.read({
@@ -530,4 +531,45 @@ test("repair: re-admission with a mutated spec refuses and leaves the lease", as
 		ctl.admit({ spec: mutated, actor: controlActor() }),
 	).rejects.toThrow("bound to a different immutable spec");
 	expect(getLease(store, spec.runId)?.epoch).toBe(1);
+});
+
+test("restart reconciles only fenced stopping rows with a current clean receipt", async () => {
+	const store = memoryStore();
+	const deps = {
+		store,
+		durable: stubDurable(),
+		now,
+		revokeCredential: async () => {},
+	};
+	const controller = openRunnerController(deps);
+	const runs = new Map<string, string>();
+	for (const scenario of ["clean", "active", "old", "failed", "missing"]) {
+		const spec = specInput();
+		runs.set(scenario, spec.runId);
+		await controller.admit({ spec, actor: controlActor() });
+		if (scenario !== "active") revokeLease(store, spec.runId, now());
+		store.run(
+			"UPDATE runner_jobs SET state = 'stopping', updated_at = ? WHERE run_id = ?",
+			now(),
+			spec.runId,
+		);
+		if (scenario !== "missing")
+			recordRunnerEvent(store, {
+				runId: spec.runId,
+				kind: "abort",
+				payload: {
+					leaseRevoked: true,
+					credentialRevoked: true,
+					cleanupErrors: scenario === "failed" ? ["executor stop failed"] : [],
+				},
+				now: scenario === "old" ? now() - 1 : now(),
+			});
+	}
+	const reopened = openRunnerController(deps);
+	for (const [scenario, runId] of runs) {
+		const { job } = await reopened.read({ runId, actor: controlActor() });
+		expect(job.state, scenario).toBe(
+			scenario === "clean" ? "stopped" : "stopping",
+		);
+	}
 });
