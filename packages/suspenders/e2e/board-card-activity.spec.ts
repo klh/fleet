@@ -178,7 +178,9 @@ test("themes: axis + hairline paint in both themes without console errors", {
 				(el) =>
 					el.shadowRoot?.querySelector(".axis")?.textContent?.trim() ?? "",
 			);
-		expect(axis).toContain("m/bin");
+		// W2591: the axis names the ACTUAL adaptive bin width — request-
+		// precise points at card width bin at 30s, never a 3-minute grid
+		expect(axis).toContain("30-second bins");
 		expect(axis).toContain("UTC");
 	}
 });
@@ -218,7 +220,7 @@ test("tooltip: exact bin values, keyboard reachable, stays in viewport", {
 					(el) => el.shadowRoot?.querySelector(".tip")?.textContent ?? "",
 				),
 		)
-		.toContain("3-minute bin");
+		.toContain("30-second bin");
 	await page.keyboard.press("Escape");
 	await expect
 		.poll(() =>

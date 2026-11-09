@@ -23,7 +23,7 @@ import { promoteActorError } from "../lib/knowledge/promote-actor.ts";
 import { drainKevReview } from "../lib/knowledge/kev-review.ts";
 import { suggestKnowledge } from "../lib/knowledge/kev-curation.ts";
 import { openKnowledgeDb } from "../lib/knowledge/govdb-knowledge.ts";
-import { sinkPostFace } from "../lib/knowledge/knowledge-sink-client.ts";
+import { sinkPostFace } from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 
 export async function cmdKnowledge(rest: string[]): Promise<void> {
 	// W91 — ranked FTS5 search over the knowledge layer: distilled knowledge

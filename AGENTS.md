@@ -4,6 +4,7 @@ One monorepo, one version, every service. packages/: suspenders (control
 plane), buckle (LLM gateway), belt (dashboard/gateway), speedy (config
 layer), local (Caddy front), local-llm (MLX swarm kit), blam (agent-mishap
 benchmark), decant (vendored dosu-ai/decant token-accounting toolkit),
+fleet-knowledge (vendored klh/fleet-knowledge knowledge plane, W2761),
 telemetry (shared trace/hop-contract headers). The private enterprise tier
 = klh-remote (mirrors packages/, depends on fleet; local-only until its
 GitHub push — W422.9/W422.1).

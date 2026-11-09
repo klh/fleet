@@ -1,0 +1,26 @@
+{
+	"name": "@klh/fleet-knowledge",
+	"version": "2.2.0",
+	"description": "Generic knowledge plane for agent fleets (vendored from github.com/klh/fleet-knowledge) — SQLite knowledge store, hub sink API, sync + anti-entropy, distillation, MCP recall, consult/oracle libraries",
+	"license": "MIT",
+	"type": "module",
+	"private": true,
+	"exports": {
+		"./src/*": "./src/*",
+		"./bin/*": "./bin/*",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"src",
+		"bin",
+		"docs",
+		"AGENTS.md",
+		"LICENSE",
+		"NOTICE",
+		".env.example"
+	],
+	"dependencies": {
+		"p-queue": "9.3.5",
+		"zod": "4.6.7"
+	}
+}

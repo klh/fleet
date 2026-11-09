@@ -13,7 +13,7 @@ import {
 	searchSink,
 	sinkConf,
 	sinkConfigured,
-} from "../hooks/lib/knowledge/knowledge-sink-client.ts";
+} from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 
 const baseConf = (over: Partial<SinkConf> = {}): SinkConf => ({
 	url: "http://127.0.0.1:1",
@@ -170,12 +170,15 @@ const GOVDB_TS = join(
 	"govdb",
 	"govdb.ts",
 );
+// W2761: the client under test is the vendored knowledge-plane copy
+// (@klh/fleet-knowledge) — resolved from the workspace member, not the
+// retired in-tree twin.
 const CLIENT_TS = join(
 	import.meta.dir,
 	"..",
-	"hooks",
-	"lib",
-	"knowledge",
+	"..",
+	"fleet-knowledge",
+	"src",
 	"knowledge-sink-client.ts",
 );
 const KB_PATH = join(HOME, ".cache", "claude-governor", "knowledge.db");

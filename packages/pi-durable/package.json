@@ -1,0 +1,50 @@
+{
+	"name": "@klh/pi-durable",
+	"version": "1.5.0",
+	"description": "Fork of @earendil-works/pi-durable \u2014 durable conversation, task, and document runtime (see FORK.md)",
+	"type": "module",
+	"module": "./src/index.ts",
+	"private": true,
+	"packageManager": "bun@1.4.2",
+	"engines": {
+		"bun": "1.4.2"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./env": "./src/env/index.ts",
+		"./env/node": "./src/env/node.ts",
+		"./codemode": "./src/codemode/index.ts",
+		"./tool-search": "./src/tool-search/index.ts",
+		"./tools": "./src/tools/index.ts",
+		"./images": "./src/images/index.ts",
+		"./images/node": "./src/images/node.ts",
+		"./images/cloudflare": "./src/images/cloudflare.ts",
+		"./storage/memory": "./src/storage/memory.ts",
+		"./storage/indexeddb": "./src/storage/indexeddb.ts",
+		"./storage/jsonl": "./src/storage/jsonl/index.ts",
+		"./storage/jsonl/node": "./src/storage/jsonl/node.ts",
+		"./storage/store": "./src/storage/store/index.ts",
+		"./storage/sqlite": "./src/storage/sqlite/index.ts",
+		"./storage/sqlite/cloudflare": "./src/storage/sqlite/cloudflare.ts",
+		"./storage/sqlite/node": "./src/storage/sqlite/node.ts",
+		"./testing": "./src/testing/index.ts",
+		"./package.json": "./package.json",
+		"./src/*": "./src/*"
+	},
+	"scripts": {
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "1.5.0",
+		"@earendil-works/pi-codemode": "1.5.0",
+		"@earendil-works/pi-schema": "1.5.0",
+		"@earendil-works/pi-telemetry": "1.5.0",
+		"@silvia-odwyer/photon": "0.3.3",
+		"diff": "8.0.4",
+		"@klh/chord": "1.5.0"
+	},
+	"devDependencies": {
+		"@types/bun": "1.4.2"
+	},
+	"license": "MIT (upstream) \u2014 see LICENSE.upstream and FORK.md"
+}

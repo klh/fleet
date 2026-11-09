@@ -26,6 +26,7 @@ Regenerate:
 | local-llm | MLX swarm kit | `swarm.ts` status/supervise · `spawner.ts` |
 | blam | agent-mishap benchmark | `bench/` arena harness · test fixtures |
 | decant | vendored snapshot @ v0.11.0 | upstream-owned bytes; `fleet/` adapter layer is the ONLY fleet-face |
+| fleet-knowledge | vendored knowledge plane @ 6c03ccf (W2761) | `src/` libs + `bin/` faces (sink api, worker, mcp); consumed as `@klh/fleet-knowledge/src/*` |
 | telemetry | observability | NO manifest — buckle reaches in via `../../telemetry/src/*` (see graph below) |
 
 ## The import graph (2026-10-24, commit 07a822c1)

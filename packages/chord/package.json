@@ -1,0 +1,51 @@
+{
+	"name": "@klh/chord",
+	"version": "1.5.0",
+	"description": "Fork of @earendil-works/chord \u2014 document/state layer under pi-durable (see FORK.md)",
+	"type": "module",
+	"module": "./src/index.ts",
+	"private": true,
+	"packageManager": "bun@1.4.2",
+	"engines": {
+		"bun": "1.4.2"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./app": "./src/node/app/index.ts",
+		"./app/files": "./src/node/app/files-entry.ts",
+		"./context": "./src/context/index.ts",
+		"./delta": "./src/delta/index.ts",
+		"./http": "./src/node/http/index.ts",
+		"./json": "./src/json.ts",
+		"./output": "./src/output.ts",
+		"./plugins": "./src/node/plugins/index.ts",
+		"./plugins/runtime": "./src/node/plugins/runtime.ts",
+		"./react": "./src/react/index.ts",
+		"./sqlite": "./src/sqlite/index.ts",
+		"./sqlite/cloudflare": "./src/sqlite/cloudflare.ts",
+		"./sqlite/node": "./src/sqlite/node.ts",
+		"./surfaces": "./src/node/surfaces/index.ts",
+		"./sync": "./src/sync/index.ts",
+		"./telemetry-sqlite": "./src/telemetry-sqlite/index.ts",
+		"./telemetry-sqlite/node": "./src/telemetry-sqlite/node.ts",
+		"./tui": "./src/tui/index.ts",
+		"./tui/launcher": "./src/node/tui/index.ts",
+		"./watch": "./src/watch.ts",
+		"./web": "./src/web/index.ts",
+		"./workers": "./src/node/workers/index.ts",
+		"./workers/child": "./src/node/workers/child.ts",
+		"./src/*": "./src/*",
+		"./package.json": "./package.json"
+	},
+	"scripts": {
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@earendil-works/pi-schema": "1.5.0",
+		"@earendil-works/pi-telemetry": "1.5.0"
+	},
+	"devDependencies": {
+		"@types/bun": "1.4.2"
+	},
+	"license": "MIT (upstream) \u2014 see LICENSE.upstream and FORK.md"
+}

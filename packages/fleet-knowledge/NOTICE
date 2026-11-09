@@ -1,0 +1,14 @@
+fleet-knowledge
+Copyright 2026 Klaus L. Hougesen
+
+This product includes software developed as part of the fleet agent stack.
+
+------------------------------------------------------------------------
+Vendor: decant
+
+This repository vendors decant (https://github.com/dosu-ai/decant),
+version 0.11.0 — a token-accounting toolkit for agent sessions — under
+the Apache License 2.0. The vendored copy lives in `decant/`, carries its
+own LICENSE and NOTICE files, and is byte-pure apart from documented
+integration seams (see `decant/FLEET.md`). It is distributed under the
+terms of its upstream license.
