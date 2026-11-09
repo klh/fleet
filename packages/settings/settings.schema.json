@@ -1736,6 +1736,33 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "desktop": {
+          "description": "Opt-in Docker runner configuration with a host-only mint key",
+          "type": "object",
+          "properties": {
+            "image": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+            },
+            "seed_root": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "mint_credential_file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "image",
+            "seed_root",
+            "mint_credential_file"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

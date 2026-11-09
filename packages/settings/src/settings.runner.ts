@@ -38,6 +38,17 @@ export const RunnerSettingsSchema = section(
 			"~/.local/state/klh/runners",
 			"Private host runner state and credential bindings",
 		),
+		desktop: z
+			.strictObject({
+				image: z
+					.string()
+					.max(512)
+					.regex(/^[^\s@]+@sha256:[a-f0-9]{64}$/),
+				seed_root: z.string().min(1).max(4096),
+				mint_credential_file: z.string().min(1).max(4096),
+			})
+			.optional()
+			.describe("Opt-in Docker runner configuration with a host-only mint key"),
 	},
 	"Durable runner service and client configuration",
 );

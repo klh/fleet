@@ -7,6 +7,7 @@ test("runner control has strict central settings with no embedded credentials", 
 	expect(defaults.runner.identity_url).toBe("http://127.0.0.1:4111");
 	expect(defaults.runner.credential_file).toBe("~/.config/klh/runner.key");
 	expect(defaults.runner.state_dir).toBe("~/.local/state/klh/runners");
+	expect(defaults.runner.desktop).toBeUndefined();
 	expect(
 		SettingsSchema.safeParse({ runner: { api_key: "secret" } }).success,
 	).toBe(false);
@@ -14,4 +15,23 @@ test("runner control has strict central settings with no embedded credentials", 
 		SettingsSchema.safeParse({ runner: { control_url: "file:///tmp/socket" } })
 			.success,
 	).toBe(false);
+});
+
+test("desktop runner opt-in requires a digest and a separate private credential path", () => {
+	const desktop = {
+		image: `oven/bun@sha256:${"a".repeat(64)}`,
+		seed_root: "~/.local/share/klh/runner-seeds",
+		mint_credential_file: "~/.config/klh/runner-mint.key",
+	};
+	expect(SettingsSchema.parse({ runner: { desktop } }).runner.desktop).toEqual(
+		desktop,
+	);
+	for (const invalid of [
+		{ ...desktop, image: "oven/bun:latest" },
+		{ ...desktop, mint_credential_file: "" },
+		{ ...desktop, admin_key: "inline" },
+	])
+		expect(
+			SettingsSchema.safeParse({ runner: { desktop: invalid } }).success,
+		).toBe(false);
 });
