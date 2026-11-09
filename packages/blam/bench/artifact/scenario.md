@@ -71,3 +71,9 @@ remote hub) rides the receipt-v1 digest `oven/bun@sha256:9114c058…`.
 - `stats-total` — every arm with samples has median+p95.
 - `reps-accounted` — receipts + recorded failures cover the walk; failures
   shrink an arm's samples and are visible, never silently dropped.
+
+Live runs take two or more distinct digest-pinned image references after
+`--live`. Images must already be resident for the Docker daemon's native
+platform. The receipt starts with resolved image identity rows. An incomplete
+live run exits nonzero and omits the verdict. Use `--replay <receipts.ndjson>`
+to verify a complete run and print its content hash.

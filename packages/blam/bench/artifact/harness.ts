@@ -43,7 +43,29 @@ export interface SummaryReceipt {
 	decision: string;
 }
 
-export type Receipt = ArmReceipt | SummaryReceipt;
+export interface ImageReceipt {
+	kind: "image-identity";
+	image: string;
+	platform: string;
+	imageId: string;
+}
+
+export type Receipt = ArmReceipt | SummaryReceipt | ImageReceipt;
+
+function sampleStats(receipts: ArmReceipt[]) {
+	const byArm = Map.groupBy(receipts, ({ arm }) => arm);
+	const armSamples: ArmSamples[] = [...byArm].map(([arm, rows]) => ({
+		arm,
+		samples: rows.map(({ value }) => value),
+	}));
+	const stats: Record<string, Stat> = {};
+	for (const { arm, samples } of armSamples)
+		stats[arm] = {
+			median: statOf(samples, "median"),
+			p95: statOf(samples, "p95"),
+		};
+	return { armSamples, stats };
+}
 
 export interface ScenarioRun {
 	armReceipts: ArmReceipt[];
@@ -59,7 +81,6 @@ export async function runScenario(
 ): Promise<ScenarioRun> {
 	const armReceipts: ArmReceipt[] = [];
 	const failures: Array<{ arm: string; rep: number; error: string }> = [];
-	const byArm = new Map<string, number[]>();
 	const pinnedById = new Map(spec.arms.map((a) => [a.id, a.pinned] as const));
 	for (const { arm, rep } of walkOrder(spec.arms, spec.reps, spec.seed)) {
 		try {
@@ -76,9 +97,6 @@ export async function runScenario(
 				value,
 				unit: "ms",
 			});
-			const list = byArm.get(arm.id) ?? [];
-			list.push(value);
-			byArm.set(arm.id, list);
 		} catch (e) {
 			failures.push({
 				arm: arm.id,
@@ -87,16 +105,9 @@ export async function runScenario(
 			});
 		}
 	}
-	const armSamples: ArmSamples[] = [...byArm.entries()].map(
-		([arm, samples]) => ({ arm, samples }),
-	);
-	const stats: Record<string, Stat> = {};
-	for (const a of armSamples) {
-		stats[a.arm] = {
-			median: statOf(a.samples, "median"),
-			p95: statOf(a.samples, "p95"),
-		};
-	}
+	if (!armReceipts.length)
+		throw new Error(`All artifact trials failed: ${JSON.stringify(failures)}`);
+	const { armSamples, stats } = sampleStats(armReceipts);
 	const verdict = computeVerdict(armSamples, spec.rule);
 	const summary: SummaryReceipt = {
 		kind: "scenario-summary",
@@ -114,45 +125,132 @@ export async function runScenario(
 }
 
 /** JSONL serialization — stable key order via explicit construction. */
-export function receiptLines(run: ScenarioRun): string[] {
-	return [...run.armReceipts, run.summary].map((r) => JSON.stringify(r));
+export function receiptLines(
+	run: ScenarioRun,
+	images: ImageReceipt[] = [],
+): string[] {
+	return [...images, ...run.armReceipts, run.summary].map((r) =>
+		JSON.stringify(r),
+	);
+}
+
+/** Recompute the complete trial from sealed rows, without Docker or a model. */
+export function replayReceipts(text: string) {
+	const rows: Receipt[] = text
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
+	const summary = rows.pop();
+	if (
+		summary?.kind !== "scenario-summary" ||
+		!Number.isInteger(summary.reps) ||
+		summary.reps < 1 ||
+		!summary.verdict?.rule
+	)
+		throw new Error("Missing valid artifact summary");
+	const samples = rows.filter(
+		(row): row is ArmReceipt => row.kind === "arm-sample",
+	);
+	const images = rows.filter(
+		(row): row is ImageReceipt => row.kind === "image-identity",
+	);
+	if (
+		samples.length + images.length !== rows.length ||
+		samples.some(
+			(row) =>
+				!Number.isFinite(row.value) ||
+				row.value < 0 ||
+				row.unit !== summary.unit ||
+				row.scenario !== summary.scenario ||
+				row.bed !== summary.bed ||
+				row.seed !== summary.seed ||
+				JSON.stringify(row.caps) !== JSON.stringify(summary.caps),
+		)
+	)
+		throw new Error("Invalid or mismatched artifact samples");
+	const { armSamples, stats } = sampleStats(samples);
+	const arms = (
+		images.length
+			? images.map(({ image }) => image)
+			: Object.keys(summary.stats)
+	).map((id): ArmRef => ({ id, label: id, kind: "image", pinned: true }));
+	const platform = ["aarch64", "arm64"].includes(summary.caps.arch)
+		? "linux/arm64"
+		: ["x86_64", "amd64"].includes(summary.caps.arch)
+			? "linux/amd64"
+			: undefined;
+	if (
+		arms.length < 2 ||
+		new Set(arms.map(({ id }) => id)).size !== arms.length ||
+		(images.length > 0 &&
+			(images.some(
+				({ image, platform: resolved, imageId }) =>
+					!/@sha256:[a-f0-9]{64}$/.test(image) ||
+					resolved !== platform ||
+					!/^sha256:[a-f0-9]{64}$/.test(imageId),
+			) ||
+				samples.some(({ pinned }) => !pinned)))
+	)
+		throw new Error("Invalid artifact image identities");
+	const spec: ScenarioSpec = {
+		id: summary.scenario,
+		title: summary.scenario,
+		decision: summary.decision,
+		seed: summary.seed,
+		reps: summary.reps,
+		rule: summary.verdict.rule,
+		arms,
+	};
+	if (
+		audit({ armReceipts: samples, summary, failures: [] }, spec).some(
+			({ ok }) => !ok,
+		) ||
+		JSON.stringify(stats) !== JSON.stringify(summary.stats) ||
+		JSON.stringify(computeVerdict(armSamples, spec.rule)) !==
+			JSON.stringify(summary.verdict)
+	)
+		throw new Error("Artifact receipt replay mismatch");
+	return { samples: samples.length, imageIdentities: images.length, summary };
 }
 
 /** decision-grade audit over a run: the properties every consumer may assume. */
 export function audit(
 	run: ScenarioRun,
-): Array<{ prop: string; ok: boolean; why?: string }> {
-	const v = run.summary.verdict;
-	const props: Array<{ prop: string; ok: boolean; why?: string }> = [];
-	props.push({
-		prop: "verdict-present",
-		ok: typeof v?.winner === "string",
-		why: v?.winner === undefined ? "summary lacks a verdict block" : undefined,
-	});
-	props.push({
-		prop: "verdict-decides",
-		ok: v.winner === "tied" || run.summary.stats[v.winner] !== undefined,
-		why: `winner ${v.winner} has no stats row`,
-	});
-	const minSamples = Math.max(1, Math.ceil(run.summary.reps / 2));
-	const starved = Object.entries(run.summary.stats).filter(
-		([, s]) => s.median === undefined,
+	spec: ScenarioSpec,
+): Array<{ prop: string; ok: boolean }> {
+	const verdict = run.summary.verdict;
+	const expected = new Set(
+		walkOrder(spec.arms, spec.reps, spec.seed).map(({ arm, rep }) =>
+			JSON.stringify([arm.id, rep]),
+		),
 	);
-	props.push({
-		prop: "stats-total",
-		ok: starved.length === 0,
-		why: starved.map(([k]) => k).join(","),
-	});
-	const shortfall = run.armReceipts.length + run.failures.length;
-	props.push({
-		prop: "reps-accounted",
-		ok:
-			shortfall ===
-				run.summary.reps * Object.keys(run.summary.stats).length +
-					run.failures.length * 0 || shortfall >= 0,
-		why: "receipts + failures do not cover the walk",
-	});
-	return props;
+	const observations = [...run.armReceipts, ...run.failures];
+	const matched = observations.map(({ arm, rep }) =>
+		JSON.stringify([arm, rep]),
+	);
+	return [
+		{ prop: "verdict-present", ok: typeof verdict?.winner === "string" },
+		{
+			prop: "verdict-decides",
+			ok:
+				verdict?.winner === "tied" ||
+				Boolean(verdict && run.summary.stats[verdict.winner]),
+		},
+		{
+			prop: "stats-total",
+			ok: run.armReceipts.every(({ arm }) => {
+				const stats = run.summary.stats[arm];
+				return Number.isFinite(stats?.median) && Number.isFinite(stats?.p95);
+			}),
+		},
+		{
+			prop: "reps-accounted",
+			ok:
+				matched.length === expected.size &&
+				new Set(matched).size === expected.size &&
+				matched.every((key) => expected.has(key)),
+		},
+	];
 }
 
 /** the docker-desktop seed scenarios (W2904 spec § beds). Arms are REAL
@@ -201,6 +299,14 @@ if (import.meta.main) {
 		"fedora:41": [194, 197, 196, 195, 198, 196, 194],
 	};
 	const args = process.argv.slice(2);
+	if (args[0] === "--replay") {
+		if (args.length !== 2)
+			throw new Error("usage: artifact harness --replay <receipts.ndjson>");
+		const text = await Bun.file(args[1]).text();
+		const sha256 = new Bun.CryptoHasher("sha256").update(text).digest("hex");
+		console.log(JSON.stringify({ sha256, ...replayReceipts(text) }));
+		process.exit(0);
+	}
 	const live = args[0] === "--live";
 	const images = live ? args.slice(1) : [];
 	if (
@@ -223,20 +329,23 @@ if (import.meta.main) {
 	const driver = live
 		? dockerDriver(await dockerCaps())
 		: replayFixtureDriver(CAPS_FIXTURE, fixtures);
+	const identities: ImageReceipt[] = [];
 	if (live)
 		for (const { id } of arms)
-			console.error(
-				JSON.stringify({
-					kind: "image-identity",
-					...(await dockerImageIdentity(driver.caps, id)),
-				}),
-			);
+			identities.push({
+				kind: "image-identity",
+				...(await dockerImageIdentity(driver.caps, id)),
+			});
 	const out = await runScenario(coldStartSpec(arms), driver);
-	for (const line of receiptLines(out)) console.log(line);
-	if (out.failures.length) {
+	if (live && out.failures.length) {
+		for (const row of [...identities, ...out.armReceipts])
+			console.log(JSON.stringify(row));
 		for (const failure of out.failures) console.error(JSON.stringify(failure));
 		process.exitCode = 1;
+	} else {
+		for (const line of receiptLines(out, identities)) console.log(line);
 	}
+
 	if (live)
 		console.error(
 			`# live bed ${driver.bed} ${driver.caps.host}/${driver.caps.kernel}`,

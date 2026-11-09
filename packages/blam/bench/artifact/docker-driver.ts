@@ -35,10 +35,14 @@ function nativePlatform(caps: Caps): string {
 	throw new Error(`Unsupported Docker probe architecture: ${caps.arch}`);
 }
 
-export async function dockerImageIdentity(caps: Caps, image: string) {
+export async function dockerImageIdentity(
+	caps: Caps,
+	image: string,
+	binary = "docker",
+) {
 	const platform = nativePlatform(caps);
 	const result = await run(
-		"docker",
+		binary,
 		[
 			"image",
 			"inspect",
@@ -60,12 +64,17 @@ export async function dockerImageIdentity(caps: Caps, image: string) {
 	return { image, platform, imageId };
 }
 
-async function waitForReady(name: string, startedAt: number): Promise<number> {
-	const child = Bun.spawn(["docker", "start", "-a", name], {
+async function waitForReady(
+	binary: string,
+	name: string,
+	startedAt: number,
+	deadlineMs: number,
+): Promise<number> {
+	const child = Bun.spawn([binary, "start", "-a", name], {
 		stdout: "pipe",
 		stderr: "ignore",
 		signal: AbortSignal.timeout(
-			Math.max(1, Math.ceil(timeout - (performance.now() - startedAt))),
+			Math.max(1, Math.ceil(deadlineMs - (performance.now() - startedAt))),
 		),
 	});
 	const decoder = new TextDecoder();
@@ -93,7 +102,13 @@ async function waitForReady(name: string, startedAt: number): Promise<number> {
 	}
 }
 
-export function dockerDriver(caps: Caps): BedDriver {
+export function dockerDriver(
+	caps: Caps,
+	{
+		binary = "docker",
+		deadlineMs = timeout,
+	}: { binary?: string; deadlineMs?: number } = {},
+): BedDriver {
 	const platform = nativePlatform(caps);
 	return {
 		bed: caps.bed,
@@ -103,9 +118,10 @@ export function dockerDriver(caps: Caps): BedDriver {
 				throw new Error("Docker probe requires an image arm");
 			const name = `blam-artifact-${randomUUID()}`;
 			const startedAt = performance.now();
+			let probeError: unknown;
 			try {
 				await run(
-					"docker",
+					binary,
 					[
 						"create",
 						"--name",
@@ -127,14 +143,25 @@ export function dockerDriver(caps: Caps): BedDriver {
 						"-c",
 						"printf 'ready\\n'",
 					],
-					{ timeout },
+					{ timeout: deadlineMs },
 				);
-				return await waitForReady(name, startedAt);
+				return await waitForReady(binary, name, startedAt, deadlineMs);
+			} catch (error) {
+				probeError = error;
+				throw error;
 			} finally {
-				await run("docker", ["rm", "-f", name], { timeout }).catch((error) => {
-					if (!String(error.stderr ?? "").includes("No such container"))
+				await run(binary, ["rm", "-f", name], { timeout: deadlineMs }).catch(
+					(error) => {
+						if (String(error.stderr ?? "").includes("No such container"))
+							return;
+						if (probeError)
+							throw new AggregateError(
+								[probeError, error],
+								`${String(probeError)}; Docker cleanup failed: ${String(error)}`,
+							);
 						throw error;
-				});
+					},
+				);
 			}
 		},
 	};

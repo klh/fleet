@@ -28,7 +28,8 @@ export function replayFixtureDriver(
 			const f = fixtures[arm.id];
 			if (!f) throw new Error(`no fixture for arm ${arm.id}`);
 			const v = f[rep % f.length];
-			if (v === undefined) throw new Error(`fixture short for ${arm.id}@${rep}`);
+			if (v === undefined)
+				throw new Error(`fixture short for ${arm.id}@${rep}`);
 			return v;
 		},
 	};
@@ -36,7 +37,11 @@ export function replayFixtureDriver(
 
 /** execution-order walk: arms in seeded order per rep (controlled ordering —
  * the pairing law at bench scale: order bias averages out over reps). */
-export function walkOrder(arms: ArmRef[], reps: number, seed: number): Array<{ arm: ArmRef; rep: number }> {
+export function walkOrder(
+	arms: ArmRef[],
+	reps: number,
+	seed: number,
+): Array<{ arm: ArmRef; rep: number }> {
 	const walk: Array<{ arm: ArmRef; rep: number }> = [];
 	for (let rep = 0; rep < reps; rep++) {
 		for (const i of seededOrder(arms.length, seed + rep * 7919)) {

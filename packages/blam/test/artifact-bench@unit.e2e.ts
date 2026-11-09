@@ -1,7 +1,14 @@
-// test/artifact-bench.test.ts — W2904 decision-grade properties over the
+// test/artifact-bench@unit.e2e.ts — W2904 decision-grade properties over the
 // replay-fixture driver (CI-safe: bun-only, no Docker). The fixtures are
 // harness mechanics only, clearly labeled, never ledger rows.
-import { describe, expect, test } from "bun:test";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
+import {
+	dockerDriver,
+	dockerImageIdentity,
+} from "../bench/artifact/docker-driver.ts";
+import { expect, test } from "@playwright/test";
 import {
 	computeVerdict,
 	seededOrder,
@@ -15,6 +22,7 @@ import { replayFixtureDriver, walkOrder } from "../bench/artifact/drivers.ts";
 import {
 	audit,
 	receiptLines,
+	replayReceipts,
 	runScenario,
 	type Receipt,
 } from "../bench/artifact/harness.ts";
@@ -44,7 +52,7 @@ const FIXTURES: Record<string, number[]> = {
 
 const SPEC: ScenarioSpec = coldStartSpec(ARMS);
 
-describe("artifact bench decision kernel", () => {
+test.describe("artifact bench decision kernel @unit", () => {
 	test("median lowerWins picks the strictly best arm with margin", () => {
 		const arms: ArmSamples[] = [
 			{ arm: "fast", samples: [10, 11, 12] },
@@ -103,7 +111,7 @@ describe("artifact bench decision kernel", () => {
 	});
 });
 
-describe("artifact bench harness", () => {
+test.describe("artifact bench harness @unit", () => {
 	test("runScenario emits receipts + REQUIRED verdict; alpine/debian tie, fedora loses", async () => {
 		const driver = replayFixtureDriver(CAPS, FIXTURES);
 		const run = await runScenario(SPEC, driver);
@@ -115,8 +123,29 @@ describe("artifact bench harness", () => {
 		expect(run.summary.stats["fedora:41"]!.median).toBe(196);
 		expect(run.failures.length).toBe(0);
 		expect(run.summary.stats["alpine:3.21"]).toEqual({ median: 171, p95: 173 });
-		const auditRows = audit(run);
+		const auditRows = audit(run, SPEC);
 		for (const row of auditRows) expect(row.ok).toBe(true);
+		const duplicate = {
+			...run,
+			armReceipts: [run.armReceipts[1], ...run.armReceipts.slice(1)],
+		};
+		expect(audit(duplicate, SPEC)).toContainEqual({
+			prop: "reps-accounted",
+			ok: false,
+		});
+	});
+
+	test("replay rejects changed statistics and duplicated trials", async () => {
+		const run = await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES));
+		const lines = receiptLines(run);
+		expect(replayReceipts(lines.join("\n")).summary).toEqual(run.summary);
+		const wrong = { ...run.summary, stats: {} };
+		expect(() =>
+			replayReceipts([...lines.slice(0, -1), JSON.stringify(wrong)].join("\n")),
+		).toThrow();
+		expect(() =>
+			replayReceipts([lines[1], ...lines.slice(1)].join("\n")),
+		).toThrow();
 	});
 
 	test("byte-identical receipts for the same seed + schedule", async () => {
@@ -145,7 +174,7 @@ describe("artifact bench harness", () => {
 		expect(run.failures.length).toBeGreaterThan(0);
 		expect(run.summary.stats["alpine:3.21"]).toBeDefined();
 		expect(run.summary.stats["fedora:41"]).toBeUndefined();
-		const auditRows = audit(run);
+		const auditRows = audit(run, SPEC);
 		expect(auditRows.find((r) => r.prop === "verdict-decides")?.ok).toBe(true);
 	});
 
@@ -159,4 +188,66 @@ describe("artifact bench harness", () => {
 			summary && "verdict" in summary && summary.verdict.winner === "tied",
 		).toBe(true);
 	});
+});
+
+test("Docker probe checks native identity, ready output and cleanup @unit", async () => {
+	const world = scratchWorld({ prefix: "blam-docker-probe-" });
+	try {
+		const binary = join(world.home, "docker");
+		const log = join(world.home, "argv");
+		const mode = join(world.home, "mode");
+		writeFileSync(
+			binary,
+			`#!${process.execPath}
+import { appendFileSync, readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const mode = readFileSync(${JSON.stringify(mode)}, "utf8");
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + String.fromCharCode(10));
+if (args[0] === "image") console.log("linux/amd64|sha256:" + "a".repeat(64));
+if (args[0] === "start") {
+	if (mode === "ok") {
+		process.stdout.write("re");
+		await Bun.sleep(5);
+		process.stdout.write("ady" + String.fromCharCode(10));
+	}
+	if (mode === "large") console.log("x".repeat(4097));
+	if (mode === "timeout") await Bun.sleep(3000);
+}
+if (args[0] === "rm" && mode === "both") {
+	console.error("fixture cleanup failed");
+	process.exit(9);
+}
+`,
+			{ mode: 0o700 },
+		);
+		const driver = dockerDriver(CAPS, { binary, deadlineMs: 500 });
+		writeFileSync(mode, "ok");
+		await expect(dockerImageIdentity(CAPS, ARMS[0].id, binary)).rejects.toThrow(
+			"linux/arm64",
+		);
+		expect(await driver.measure(ARMS[0], 0, 1)).toBeGreaterThanOrEqual(0);
+		for (const [behavior, error] of [
+			["missing", /ready marker/],
+			["large", /4096 bytes/],
+			["timeout", /ready marker/],
+			["both", /ready marker.*Docker cleanup failed/],
+		] as const) {
+			writeFileSync(mode, behavior);
+			await expect(driver.measure(ARMS[0], 0, 1)).rejects.toThrow(error);
+		}
+		const calls: string[][] = readFileSync(log, "utf8")
+			.trim()
+			.split("\n")
+			.map(JSON.parse);
+		const creates = calls.filter(([verb]) => verb === "create");
+		const names = creates.map((args) => args[args.indexOf("--name") + 1]);
+		expect(new Set(names).size).toBe(5);
+		for (const name of names) expect(calls).toContainEqual(["rm", "-f", name]);
+		for (const argv of creates) {
+			expect(argv).toContain("linux/arm64");
+			expect(argv).toContain("never");
+		}
+	} finally {
+		world.clean();
+	}
 });

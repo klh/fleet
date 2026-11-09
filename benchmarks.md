@@ -1463,3 +1463,11 @@ bun packages/blam/bench/artifact/harness.ts --live \
 
 This probe measures local container startup. Pi Durable admission, model
 latency and cross-host results need separate evidence.
+
+A second native run with embedded platform identity records tied again
+(W2940, same seed, seven new pairs). Alpine median/p95 was 132/191 ms
+and Bun was 138/171 ms. The tail ordering reversed, so these two small
+runs do not establish a stable p95 winner. Sealed receipt SHA-256
+`5e6014432f5ed43c4c1abda0842650e48c908042c1be88263b14429d8ee5b35f`.
+Use `bun packages/blam/bench/artifact/harness.ts --replay <receipts.ndjson>`
+to recompute the distributions and verdict without Docker.

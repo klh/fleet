@@ -85,7 +85,10 @@ export function statOf(samples: number[], stat: DecisionRule["stat"]): number {
 }
 
 /** the decision-grade kernel: pure, total, tie-explicit. */
-export function computeVerdict(arms: ArmSamples[], rule: DecisionRule): Verdict {
+export function computeVerdict(
+	arms: ArmSamples[],
+	rule: DecisionRule,
+): Verdict {
 	const stats = new Map<string, number>();
 	for (const a of arms) stats.set(a.arm, statOf(a.samples, rule.stat));
 	const ranked = [...stats.entries()].sort((x, y) =>
@@ -93,7 +96,9 @@ export function computeVerdict(arms: ArmSamples[], rule: DecisionRule): Verdict 
 	);
 	const best = ranked[0]!;
 	const band = Math.abs(best[1]) * rule.tieEpsilon;
-	const tiedArms = ranked.filter(([, v]) => Math.abs(v - best[1]) <= band).map(([k]) => k);
+	const tiedArms = ranked
+		.filter(([, v]) => Math.abs(v - best[1]) <= band)
+		.map(([k]) => k);
 	if (tiedArms.length > 1) {
 		return { winner: "tied", rule, best: null, marginRel: null, tiedArms };
 	}
@@ -101,7 +106,13 @@ export function computeVerdict(arms: ArmSamples[], rule: DecisionRule): Verdict 
 	const marginRel = runnerUp
 		? Math.abs(runnerUp[1] - best[1]) / Math.abs(runnerUp[1])
 		: Number.POSITIVE_INFINITY; // single-arm scenarios decide trivially
-	return { winner: best[0], rule, best: best[1], marginRel, tiedArms: [best[0]] };
+	return {
+		winner: best[0],
+		rule,
+		best: best[1],
+		marginRel,
+		tiedArms: [best[0]],
+	};
 }
 
 /** seeded PRNG (mulberry32) — the controlled-ordering witness. Same seed,
