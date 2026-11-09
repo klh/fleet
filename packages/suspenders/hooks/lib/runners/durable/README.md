@@ -30,8 +30,8 @@ The host must verify the seed digest against its immutable deployment image;
 this library does not prove that a caller-supplied hash matches executable code.
 The registry is copied per open: new jobs see updates, active jobs retain code.
 
-Durable has no cross-process locking. A local kernel loopback-port lock
-excludes another writer and releases on crash, without PID cleanup. Hash/port
-collisions fail closed. It is limited to one host/network namespace: private
-per-runner volumes and Fleet's distributed fencing remain mandatory. It is
-neither OS sandboxing nor a remote authentication endpoint.
+The host holds a SQLite write transaction on a separate private lock file.
+The OS releases it on crash without PID cleanup. Use a local filesystem
+with SQLite locking support, private per-runner volumes, and Fleet's
+distributed fencing. Stop any earlier port-lock runner before opening
+the same job directory with this version.
