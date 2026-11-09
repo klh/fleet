@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { Snapshot } from "./contracts.ts";
 import { renderSnapshot, TABS, type Tab } from "./presentation.ts";
 import { plain } from "./safe-text.ts";
+import { dualShort } from "../../hooks/lib/wallclock.ts";
 
 const RunnerList = z.object({
 	runs: z
@@ -84,10 +85,7 @@ async function showRunnerHistory(ctx: ExtensionCommandContext, run: Run) {
 				ctx,
 				`Runner ${selected.runId}`,
 				visible
-					.map(
-						(event) =>
-							`${new Date(event.created_at).toLocaleTimeString()}  ${event.kind}`,
-					)
+					.map((event) => `${dualShort(event.created_at)}  ${event.kind}`)
 					.join("\n") || "No events yet",
 			);
 			if (
