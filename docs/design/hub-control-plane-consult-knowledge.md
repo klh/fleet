@@ -227,3 +227,16 @@ Live-DB effects on install: the `machine_state` migration runs on every
 Reviewer note: `test/verb-surface.test.ts` (in the commit gate) spawns CLIs
 against the real HOME, so the gate itself can run the D3 migration on the
 operator's governor.db.
+
+## 7. Trust priors (W2846)
+
+Recall ranks origins by a per-origin trust prior, configured in the
+`knowledge.trust_priors` settings section (zod: `settings.sections.ts`,
+one definition: `hooks/lib/knowledge/trust-prior.ts`): `owner_verified`
+1.0 > `distilled` 0.6 > `lane_written` 0.4. The prior folds into recall
+ranking (promoted outranks lane-written at equal text match) and into the
+distill scheduler's revisit cadence (`origin_prior_h × prior` — trusted
+origins are revisited sooner). Prose cards and `withTrust` rows carry the
+resolved prior tag. Weighted docs (owner-verified content) outrank raw
+lane output by construction; the weights are settings, not code, so the
+operator ladder tunes without a redeploy.
