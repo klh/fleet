@@ -13,6 +13,7 @@ import { resolve } from "node:path";
 import { readJsonConfEither, writeJsonConf } from "../kernel-conf.ts";
 import { projectIdentity } from "../govdb/govdb.ts";
 import {
+	fleetLoopRegistry,
 	type FleetLoopProject,
 	FleetLoopConfigSchema,
 	FleetLoopProjectSchema,
@@ -34,6 +35,8 @@ export interface SupervisedProject {
 	/** the loop's own --repo: hub-wide sweeps ride this project's cycle */
 	primary: boolean;
 }
+
+export const DEFAULT_INTEGRATION_BRANCH = "main";
 
 export interface PrimaryFlags {
 	repo: string;
@@ -105,7 +108,7 @@ export function supervisedProjects(
 			glob: row.glob ?? primary.glob,
 			ladder: row.ladder,
 			dispatch: row.dispatch_cmd ?? primary.dispatch,
-			main: row.main ?? "main",
+			main: row.main ?? DEFAULT_INTEGRATION_BRANCH,
 			cap: row.lane_target,
 			primary: false,
 		});
@@ -168,6 +171,18 @@ const sameRepo = (
 		return false;
 	}
 };
+
+/** Use the same enabled registry rows as the fleet-loop dispatcher. */
+export function reviewIntegrationBranch(repo: string): string {
+	const { projects, issues } = fleetLoopRegistry();
+	if (issues.length) throw new Error("review project registry is invalid");
+	const row = projects.find(
+		(project) =>
+			project.enabled !== false &&
+			sameRepo(repo, project.path, projectIdentity),
+	);
+	return row?.main ?? DEFAULT_INTEGRATION_BRANCH;
+}
 
 export function listRegistry(path: string = STACK_PATH()): FleetLoopProject[] {
 	return rowsOf(readRaw(path));

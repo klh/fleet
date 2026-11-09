@@ -716,3 +716,22 @@ test("W2754 rate budget: review starts stop at the per-minute cap; re-open when 
 	).toContain("requested through Buckle");
 	expect(f.launches).toHaveLength(3);
 });
+
+test("advancing the integration base launches a new bound request for the same commit", () => {
+	const f = fixture();
+	expect(scheduleReview({ ...f.options, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	finishReviewRequest(f.db, f.key, requestOf(f).token, false);
+
+	const context = { ...f.context, base: "d".repeat(40) };
+	expect(scheduleReview({ ...f.options, context, spawn: f.spawn })).toContain(
+		"requested through Buckle",
+	);
+	expect(f.launches).toHaveLength(2);
+	const args = f.launches[1];
+	const key = args[args.indexOf("--request-key") + 1];
+	expect(key).toBe(reviewRequestKey(f.options.project, f.options.item, context));
+	expect(key).not.toBe(f.key);
+	expect(args[args.indexOf("--base") + 1]).toBe(context.base);
+});

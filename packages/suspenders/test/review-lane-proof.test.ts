@@ -123,6 +123,7 @@ function learnProject(): void {
 
 interface Case {
 	unrelatedHead?: boolean;
+	registeredBranch?: string;
 	name: string;
 	keptChild?: boolean;
 	// branch-tip file contents, relative to the fixture repo root
@@ -191,6 +192,16 @@ async function runCase(
 					],
 				})),
 	});
+	const reviewEnv = { ...env };
+	if (c.registeredBranch) {
+		reviewEnv.KLH_STACK = join(HOME, `registry-${id}.json`);
+		await Bun.write(
+			reviewEnv.KLH_STACK,
+			JSON.stringify({
+				fleet_loop: { projects: [{ path: REPO, main: c.registeredBranch }] },
+			}),
+		);
+	}
 	const p = Bun.spawn(
 		[
 			"bun",
@@ -206,7 +217,7 @@ async function runCase(
 			"--llm-model",
 			requestedModel,
 		],
-		{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+		{ cwd: REPO, env: reviewEnv, stdout: "pipe", stderr: "pipe" },
 	);
 	const errText = await new Response(p.stderr).text();
 	await p.exited;
@@ -1065,6 +1076,39 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 				.get(id) as { payload: string };
 			expect(JSON.parse(JSON.parse(row.payload).receipt)).toMatchObject({
 				base: git(["rev-parse", "main"]).out.trim(),
+				verdict: "PASS",
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	test("manual review uses a registered non-main integration branch", async () => {
+		expect(git(["checkout", "-b", "release-review"]).code).toBe(0);
+		await Bun.write(
+			join(REPO, "release-review.md"),
+			"Integration branch fixture.\n",
+		);
+		expect(git(["add", "release-review.md"]).code).toBe(0);
+		expect(git(["commit", "-m", "release integration base"]).code).toBe(0);
+		const base = git(["rev-parse", "HEAD"]).out.trim();
+		expect(git(["checkout", "main"]).code).toBe(0);
+		const { id } = await runCase({
+			name: "registered-review-base",
+			files: { "src.ts": "export const base = 3;\n" },
+			want: "skipped",
+			unrelatedHead: true,
+			registeredBranch: "release-review",
+		});
+		const db = new Database(DB_PATH, { readonly: true });
+		try {
+			const row = db
+				.query(
+					"SELECT payload FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+				)
+				.get(id) as { payload: string };
+			expect(JSON.parse(JSON.parse(row.payload).receipt)).toMatchObject({
+				base,
 				verdict: "PASS",
 			});
 		} finally {

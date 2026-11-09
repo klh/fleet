@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { canonicalProjectRoot } from "../lanes/lane-registry.ts";
 import { loopDie } from "./loop-errors.ts";
+import { DEFAULT_INTEGRATION_BRANCH } from "./project-registry.ts";
 
 /** W2173.7 zod-first: the schema is THE definition of the loop's parsed
  *  argv config; the type is derived, never hand-written. */
@@ -87,7 +88,7 @@ export function parseLoopConfig(argv: string[], binDir: string): LoopConfig {
 		loopDie("loop.config_invalid", "--repo <dir> is required");
 	const CALLER_REPO = resolve(requestedRepo);
 	const REPO = canonicalProjectRoot(CALLER_REPO);
-	const MAIN = val("--main", "main");
+	const MAIN = val("--main", DEFAULT_INTEGRATION_BRANCH);
 	const GLOB = val("--glob", "lane/autow*");
 	const LADDER = val("--ladder");
 	const AGENT = val("--agent", "claude");

@@ -50,6 +50,7 @@ import {
 	reviewWireParkMarker,
 } from "../lib/gates/review-scheduler.ts";
 import { wireModelAudit } from "../lib/gates/wire-model-check.ts";
+import { reviewIntegrationBranch } from "../lib/fleet-loop/project-registry.ts";
 import { openStore, projectRootOf } from "../lib/govdb/govdb.ts";
 import { resolveBelt } from "../lib/hub/belt-locate.ts";
 import {
@@ -208,12 +209,10 @@ const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
 const base = parsedArgs.parsed.flag("--base");
 if (base && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base))
 	throw new Error("review base must be a full Git commit SHA");
-// Match fleet-loop's default integration branch; callers of a custom
-// integration branch pass its exact SHA.
 const boundContext = reviewContext(
 	repo,
 	boundBranch,
-	base ?? "refs/heads/main",
+	base ?? `refs/heads/${reviewIntegrationBranch(repo)}`,
 );
 const priorBlocking = priorBlockingReviewLines(
 	db,
