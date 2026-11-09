@@ -165,6 +165,40 @@ export const dieFor =
 		process.exit(2);
 	};
 
+/** Nested dispatch for a sub-registry embedded in a parent verb (e.g. `coord
+ *  knowledge-distill <sub>`, `coord lane-key <sub>`) — same per-verb --help,
+ *  parse+validate, and generated listing as runCli, returned as an exit code
+ *  instead of calling process.exit (the parent verb's run() owns that). */
+export async function dispatchSub(
+	prog: string,
+	about: string,
+	verbs: VerbSpec[],
+	rest: string[],
+): Promise<number> {
+	const [head, ...tail] = rest;
+	const spec = verbs.find((v) => v.name === head);
+	if (!spec || head === "--help" || head === "-h") {
+		console.log(renderRegistryHelp(prog, about, verbs));
+		return spec || head === "--help" || head === "-h" ? 0 : 2;
+	}
+	if (tail.includes("--help") || tail.includes("-h")) {
+		console.log(renderVerbHelp(spec));
+		return 0;
+	}
+	const parsed = parseVerb(spec, tail);
+	if (!parsed.ok) {
+		console.error(`${prog}: ${parsed.message || spec.usage || head}`);
+		return 2;
+	}
+	try {
+		const r = await spec.run?.(parsed.parsed);
+		return typeof r === "number" ? r : 0;
+	} catch (e) {
+		console.error(`${prog}: ${e instanceof Error ? e.message : String(e)}`);
+		return 1;
+	}
+}
+
 export type RunCliOpts = {
 	prog: string;
 	about: string;

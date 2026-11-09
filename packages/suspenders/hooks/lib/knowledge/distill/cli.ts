@@ -4,14 +4,7 @@
 // The same specs back the standalone bin (hooks/bin/knowledge-distill.ts).
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import {
-	defineVerb,
-	type Parsed,
-	parseVerb,
-	renderRegistryHelp,
-	renderVerbHelp,
-	type VerbSpec,
-} from "../../verb-kit.ts";
+import { defineVerb, type Parsed, type VerbSpec } from "../../verb-kit.ts";
 import {
 	aboutTarget,
 	contradictions,
@@ -272,33 +265,6 @@ export const GRAPH_VERBS: VerbSpec[] = [
 	}),
 ];
 
-/** Nested dispatch for `coord knowledge-distill <sub>` / `knowledge-graph <sub>`. */
-export async function dispatchSub(
-	prog: string,
-	about: string,
-	verbs: VerbSpec[],
-	rest: string[],
-): Promise<number> {
-	const [head, ...tail] = rest;
-	const spec = verbs.find((v) => v.name === head);
-	if (!spec || head === "--help" || head === "-h") {
-		console.log(renderRegistryHelp(prog, about, verbs));
-		return spec || head === "--help" || head === "-h" ? 0 : 2;
-	}
-	if (tail.includes("--help") || tail.includes("-h")) {
-		console.log(renderVerbHelp(spec));
-		return 0;
-	}
-	const parsed = parseVerb(spec, tail);
-	if (!parsed.ok) {
-		console.error(`${prog}: ${parsed.message || spec.usage || head}`);
-		return 2;
-	}
-	try {
-		const r = await spec.run?.(parsed.parsed);
-		return typeof r === "number" ? r : 0;
-	} catch (e) {
-		console.error(`${prog}: ${e instanceof Error ? e.message : String(e)}`);
-		return 1;
-	}
-}
+// moved to verb-kit.ts (W2885: lane-key needs the same nested-dispatch
+// shape — one generic implementation, not a knowledge-specific one)
+export { dispatchSub } from "../../verb-kit.ts";

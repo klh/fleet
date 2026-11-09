@@ -56,6 +56,7 @@ import { cmdMetrics } from "../coord/fleet-metrics.ts";
 import { cmdGovernance } from "../coord/governance.ts";
 import { cmdHubs } from "../coord/hubs.ts";
 import { cmdKb } from "../coord/kb.ts";
+import { cmdLaneKey } from "../coord/lane-key.ts";
 import {
 	cmdKnowledge,
 	cmdKnowledgeConsolidate,
@@ -222,6 +223,13 @@ const VERBS: VerbSpec[] = [
 			"usage: gc — governor.db housekeeping (archives audit/usage tables; --forget prefix:days forgets a facts namespace by age)",
 		lax: true,
 		run: (p) => cmdGc(p.rest),
+	}),
+	defineVerb({
+		name: "lane-key",
+		usage:
+			"usage: lane-key mint-file <name> <path> [--ttl S] [--scope s1,s2] [--hub h] | revoke <id> [--hub h] | list [--hub h] [--json]",
+		lax: true,
+		run: (p) => cmdLaneKey(p.rest),
 	}),
 	defineVerb({
 		name: "consult",

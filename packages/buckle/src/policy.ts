@@ -28,6 +28,22 @@ import { parseResilience, type ResilienceConfig } from "./resilience-config.ts";
  *  flashx tiers and the candidate table never builds flashx rows. */
 export const FLASHX = /flashx/i;
 
+/** W2579: the effective stream idle budget for one request's model group —
+ *  a scoped operator override first (validated at parse), the global
+ *  stream_idle_timeout_s otherwise. The walk's single seam for the knob
+ *  (router-walk attemptTier); the total cap never moves per group. */
+export function streamIdleS(
+	policy: Pick<
+		GatewayPolicy,
+		"stream_idle_timeout_s" | "stream_idle_overrides_s"
+	>,
+	group: string,
+): number {
+	const scoped = policy.stream_idle_overrides_s?.[group];
+	if (scoped !== undefined) return scoped;
+	return policy.stream_idle_timeout_s ?? 60;
+}
+
 export interface GatewayPolicy {
 	throughput?: ThroughputPolicy;
 	num_retries?: number;
@@ -61,6 +77,14 @@ export interface GatewayPolicy {
 	// exchanges keep request_timeout_s as their whole-exchange cap.
 	stream_idle_timeout_s?: number;
 	stream_total_timeout_s?: number;
+	/** W2579: per-model-group stream idle overrides — a group whose legs
+	 *  legitimately out-think the global idle budget (full-model review
+	 *  legs) gets its OWN operator-bounded idle deadline, so the global
+	 *  default stays tight for every other group. Scoped numbers are
+	 *  clamped to the global stream_total_timeout_s at parse (the total
+	 *  cap is absolute, never extended per group) and validated
+	 *  fail-loud: non-finite or non-positive values refuse startup. */
+	stream_idle_overrides_s?: Record<string, number>;
 	/** W2266: terminal-SSE failure circuit breaker — consecutive post-header
 	 *  stream failures (stream_failed/stream_truncated) on ONE deployment
 	 *  bench it for stream_cooldown_time_s so the next request heads an
@@ -272,6 +296,23 @@ export function parsePolicy(
 	const pools = policy.provider_pools ?? {};
 	if (policy.throughput !== undefined)
 		assertThroughputPolicy(policy.throughput);
+	// W2579: scoped idle overrides are operator-bounded — every value must
+	// be a positive finite number AND within the global stream total cap
+	// (a group extension may never out-live the absolute total deadline).
+	const idleOverrides = policy.stream_idle_overrides_s ?? {};
+	for (const [group, idleS] of Object.entries(idleOverrides)) {
+		const totalS =
+			policy.stream_total_timeout_s ?? POLICY_DEFAULTS.stream_total_timeout_s;
+		if (
+			typeof idleS !== "number" ||
+			!Number.isFinite(idleS) ||
+			idleS <= 0 ||
+			idleS > totalS
+		)
+			throw new Error(
+				`policy: stream_idle_overrides_s."${group}" must be a positive number within stream_total_timeout_s (${String(totalS)}s)`,
+			);
+	}
 	for (const [id, pool] of Object.entries(pools)) {
 		try {
 			assertProviderPoolPolicy(pool);

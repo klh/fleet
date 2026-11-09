@@ -18,7 +18,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { profileForLabel, profileToken, readRegistry } from "../hub/hub-locate.ts";
+import {
+	profileForLabel,
+	profileToken,
+	readRegistry,
+} from "../hub/hub-locate.ts";
 import { loopbackUrl, BUCKLE_SPOKE_PORT } from "../loopback.ts";
 
 export const BELT_ENV_PATH =
@@ -41,7 +45,15 @@ export const LANE_KEY_TTL_S = 24 * 60 * 60;
  *  half-launched claim. Env-pinnable for tests (W670: read at call time). */
 const laneKeyTimeoutMs = (): number => setting("dispatch.lane_key_timeout_ms");
 
-export type MintedLaneKey = { key: string; keyId: string };
+export type MintedLaneKey = {
+	key: string;
+	keyId: string;
+	/** carried through when the mint response includes them (W2885 lane-key
+	 *  CLI: list/mint-file record the actual granted scope + expiry rather
+	 *  than echoing back the request) — absent for callers that never asked. */
+	scopes?: string[];
+	expiresAt?: number | null;
+};
 
 /** KEY=VALUE line parser — no eval; quotes are literal (belt.env is ours). */
 export function parseEnvFile(text: string): Record<string, string> {
@@ -91,15 +103,18 @@ export function hubCredential(
 	return profileToken(profileForLabel(label) ?? {}) ?? null;
 }
 
-/** Mint a per-lane proxy key (name=sid, scope buckle:proxy:WRITE_, TTL'd).
- *  Returns the raw key PLUS the key_id revocation needs; null when the mint
- *  fails or the answer lacks either field — a key we cannot revoke or audit
- *  is not worth holding. Exposed for tests — the fetch is injected. */
+/** Mint a per-lane proxy key (default scope buckle:proxy:WRITE_, default
+ *  TTL'd). Returns the raw key PLUS the key_id revocation needs; null when
+ *  the mint fails or the answer lacks either field — a key we cannot revoke
+ *  or audit is not worth holding. `opts` overrides the default scope/TTL
+ *  (W2885 lane-key CLI: `--scope`/`--ttl` ride the same admin body the
+ *  dispatch mint already sends). Exposed for tests — the fetch is injected. */
 export async function mintLaneKey(
 	sid: string,
 	admin: string,
 	fetchFn: typeof fetch = fetch,
 	front: string = BUCKLE_FRONT,
+	opts?: { scopes?: string[]; ttlS?: number },
 ): Promise<MintedLaneKey | null> {
 	let r: Response;
 	try {
@@ -111,8 +126,8 @@ export async function mintLaneKey(
 			},
 			body: JSON.stringify({
 				name: sid,
-				scopes: ["buckle:proxy:WRITE_"],
-				expires_in_s: LANE_KEY_TTL_S,
+				scopes: opts?.scopes ?? ["buckle:proxy:WRITE_"],
+				expires_in_s: opts?.ttlS ?? LANE_KEY_TTL_S,
 			}),
 			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
 		});
@@ -124,11 +139,18 @@ export async function mintLaneKey(
 		key?: string;
 		apiKey?: string;
 		key_id?: string;
+		scopes?: string[];
+		expires_at?: number | null;
 	} | null;
 	const k = data?.key ?? data?.apiKey;
 	if (typeof k !== "string" || !k.startsWith("bksk_")) return null;
 	if (typeof data?.key_id !== "string" || data.key_id.length === 0) return null;
-	return { key: k, keyId: data.key_id };
+	return {
+		key: k,
+		keyId: data.key_id,
+		scopes: Array.isArray(data.scopes) ? data.scopes : undefined,
+		expiresAt: typeof data.expires_at === "number" ? data.expires_at : null,
+	};
 }
 
 /** Revoke one lane key by id (buckle admin API). True when the front answers
@@ -151,6 +173,64 @@ export async function revokeLaneKey(
 		return false;
 	}
 	return r.ok;
+}
+
+export type LaneKeyRow = {
+	keyId: string;
+	name: string;
+	scopes: string[];
+	expiresAt: number | null;
+	revokedAt: number | null;
+};
+
+/** GET /v1/admin/keys answer → safe rows — the server never echoes key
+ *  material past the issue response, so there is nothing to redact here;
+ *  scopes arrive storage-form (space-separated) and decode to a list. */
+function parseLaneKeyRows(data: unknown): LaneKeyRow[] | null {
+	const keys = (
+		data as {
+			keys?: Array<{
+				key_id?: string;
+				name?: string;
+				scopes?: string | string[] | null;
+				expires_at?: number | null;
+				revoked_at?: number | null;
+			}>;
+		} | null
+	)?.keys;
+	if (!Array.isArray(keys)) return null;
+	return keys.map((k) => ({
+		keyId: k.key_id ?? "",
+		name: k.name ?? "",
+		scopes: Array.isArray(k.scopes)
+			? k.scopes
+			: typeof k.scopes === "string"
+				? k.scopes.split(" ").filter(Boolean)
+				: [],
+		expiresAt: k.expires_at ?? null,
+		revokedAt: k.revoked_at ?? null,
+	}));
+}
+
+/** List keys the hub's KeyStore holds (buckle admin API) — null on any
+ *  rejection/partition, same fail-closed posture as mint/revoke (W2885
+ *  lane-key CLI's `list`). */
+export async function listLaneKeys(
+	admin: string,
+	fetchFn: typeof fetch = fetch,
+	front: string = BUCKLE_FRONT,
+): Promise<LaneKeyRow[] | null> {
+	let r: Response;
+	try {
+		r = await fetchFn(`${front}/v1/admin/keys`, {
+			headers: { authorization: `Bearer ${admin}` },
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+	} catch {
+		return null;
+	}
+	if (!r.ok) return null;
+	return parseLaneKeyRows(await r.json().catch(() => null));
 }
 
 export const laneKeyMetaPath = (fleet: string, sid: string): string =>

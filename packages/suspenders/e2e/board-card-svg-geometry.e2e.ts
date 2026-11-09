@@ -368,12 +368,13 @@ test("poll refresh retains node identity, focus and selection (spend)", {
 		.toBeGreaterThanOrEqual(10);
 	const plot = host.locator("svg.plot");
 	await plot.focus();
-	// select an INTERIOR bin (slot 10 — survives a one-bin window shift),
+	// select a REAL bin (W2591: 30-second adaptive slots — slot 18 is the
+	// NIGHT0+9m point, which the refreshed window keeps as its FIRST bin),
 	// remember its exact dual-stamped start so the refreshed tip is checked
 	// against the SAME timestamp, not a slot index (#102929).
-	for (let i = 0; i <= 10; i++) await page.keyboard.press("ArrowRight");
+	for (let i = 0; i <= 18; i++) await page.keyboard.press("ArrowRight");
 	const tipBefore = await tipText(host);
-	expect(tipBefore).toContain("3-minute");
+	expect(tipBefore).toContain("30-second");
 	const stampLine = tipBefore.split("\n")[0] ?? "";
 	if (!stampLine) throw new Error("no dual stamp on the bin tip");
 	await host.evaluate((el) => {
@@ -398,12 +399,13 @@ test("poll refresh retains node identity, focus and selection (spend)", {
 	});
 	expect(retained.sameNode).toBe(true);
 	expect(retained.focused).toBe(true);
-	// SAME timestamp (dual-stamp line identical), UPDATED values: refreshed
-	// bin at this ts is (5128+2)×10 = 51,350 — the stale ~5,13x must be
-	// gone (#102929).
+	// SAME timestamp (dual-stamp line identical), UPDATED values: the
+	// refreshed window starts at NIGHT0+9m and the slot-18 timestamp IS
+	// that first bin — its refreshed value is 5128×10 = 51,280 (the
+	// stale ~5,13x must be gone, #102929).
 	const kept = await tipText(host);
 	expect(kept.split("\n")[0]).toBe(stampLine);
-	expect(kept).toContain("Fresh input 51,350");
+	expect(kept).toContain("Fresh input 51,280");
 	expect(kept).not.toMatch(/Fresh input 5,13\d/);
 	// rollout: shift the window until the selected timestamp LEAVES it —
 	// the stale inspection dismisses while node + focus remain.
