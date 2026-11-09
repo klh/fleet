@@ -41,3 +41,7 @@ To stage its unit from a reviewed installation, render
 with the approved installed prefix. Verify that the unit targets the
 installed `bin/runner-control.ts` before registering it. Keep keys in private
 files and use the independent health command after activation.
+
+Run `bun <prefix>/bin/runner-control.ts --check` on the desktop host before
+activation. It validates the private inputs and inspects the pinned image in
+the local Docker Desktop cache. It does not pull or start the image.
