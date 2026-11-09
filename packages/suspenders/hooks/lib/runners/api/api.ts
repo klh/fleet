@@ -37,6 +37,16 @@ export function createRunnerApi(deps: RunnerApiDependencies) {
 						!hosts.has(request.headers.get("host") ?? ""))
 				)
 					throw new Error("runner.forbidden");
+				// W2880: unauthenticated liveness face for the independent
+				// health sidecar (services.yaml runner-control-health) — it
+				// polls over the wire with no credential, so identity stays
+				// off the health leg and an expired key can never break
+				// liveness reporting.
+				if (
+					request.method === "GET" &&
+					new URL(request.url).pathname === "/v1/runner/health"
+				)
+					return Response.json({ ok: true }, { status: 200, headers });
 				const identity = await deps.identity(request);
 				phase = "route";
 				const result = await runnerRoute(deps, request, identity);

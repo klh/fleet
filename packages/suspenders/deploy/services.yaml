@@ -339,6 +339,22 @@ services:
     logs: { out: "__HOME__/Library/Logs/fleet-runner-control.log" }
     placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
 
+  # W2880: the runner's independent health probe sidecar (owner law
+  # 2026-10-05) — its OWN launchd unit, OUTSIDE the served process. Polls
+  # the service's unauthenticated /v1/runner/health face over the network
+  # and serves the verdict on control-port+1 (:7811); a wedged
+  # runner-control process cannot paint itself healthy.
+  - name: runner-control-health
+    explicitOnly: true
+    bunEntry: "__PREFIX__/bin/runner-control-health.ts"
+    args: []
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { runAtLoad: true, keepalive: true }
+    logs: { out: "__HOME__/Library/Logs/fleet-runner-control-health.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
 # Retired labels — boot-out + plist removal at the next install --with-launchd
 # (scripts/install/install-launchd.ts reads THIS list via loadLegacyLabels; the old
 # TS const is gone). Never boot-out a label still in `services:` above.
