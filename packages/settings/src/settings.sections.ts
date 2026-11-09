@@ -157,6 +157,31 @@ export const KnowledgeSchema = section(
 			"Kev curation timeout before the review queue",
 		),
 		kev_url: str("http://127.0.0.1:8912", "Kev specialist base URL"),
+		// W2846 per-origin trust priors (nm_hasConfidence lift): each origin
+		// tier's prior weight, folded into recall ranking and distill scheduling
+		trust_priors: section(
+			{
+				owner_verified: num(
+					0,
+					1,
+					1,
+					"Prior for human-promoted rows (state active — the promote gate is human-only)",
+				),
+				distilled: num(
+					0,
+					1,
+					0.6,
+					"Prior for machine-distilled rows (origin_kind distilled; capped at the single-model band 0.6)",
+				),
+				lane_written: num(
+					0,
+					1,
+					0.4,
+					"Prior for raw lane/agent-written rows (candidates and everything else)",
+				),
+			},
+			"Per-origin-kind trust prior weights (ladder: owner > distilled > lane)",
+		),
 		sink: section(
 			{
 				url: opt("Hub knowledge sink origin"),

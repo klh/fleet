@@ -957,6 +957,35 @@
           "minLength": 1,
           "maxLength": 4096
         },
+        "trust_priors": {
+          "description": "Per-origin-kind trust prior weights (ladder: owner > distilled > lane)",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "owner_verified": {
+              "default": 1,
+              "description": "Prior for human-promoted rows (state active — the promote gate is human-only)",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "distilled": {
+              "default": 0.6,
+              "description": "Prior for machine-distilled rows (origin_kind distilled; capped at the single-model band 0.6)",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "lane_written": {
+              "default": 0.4,
+              "description": "Prior for raw lane/agent-written rows (candidates and everything else)",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
         "sink": {
           "description": "Hub knowledge sink client",
           "default": {},
@@ -1071,6 +1100,11 @@
                 },
                 "neighbours_changed_h": {
                   "default": 12,
+                  "type": "number",
+                  "minimum": 0
+                },
+                "origin_prior_h": {
+                  "default": 24,
                   "type": "number",
                   "minimum": 0
                 }

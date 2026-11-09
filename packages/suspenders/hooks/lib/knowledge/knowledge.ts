@@ -9,6 +9,12 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { glyphFor } from "./confidence.ts";
+import {
+	originTierOf,
+	trustPriorOf,
+	trustPriors,
+	trustPriorSql,
+} from "./trust-prior.ts";
 
 export interface KnowledgeFilters {
 	domain?: string | null;
@@ -71,6 +77,9 @@ export interface KnowledgeHit {
 	// prose cards; reason rides the row.
 	stale_at?: number | null;
 	stale_reason?: string | null;
+	// W2846: the row's per-origin trust prior (0..1) — tier from state +
+	// origin_kind, weight from knowledge.trust_priors machine conf
+	trust_prior?: number;
 }
 
 // FTS5 MATCH term list: quoted, OR-joined — bm25 ranks the union, so a
@@ -157,7 +166,7 @@ WHERE k.id NOT IN (${marks})
 	${AXIS_FILTER_SQL}
 	${CONF_FLOOR_SQL}
 	AND ${anyEdge}
-ORDER BY ${STATE_TIER_SQL}, (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL}
+ORDER BY ${STATE_TIER_SQL}, (CASE via WHEN 'pointer' THEN 0.0 ELSE 2.0 END) + ${ORIGIN_PRIOR_SQL} + ${trustPriorSql(trustPriors())}
 	+ (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
 LIMIT ?`,
 		)
@@ -240,7 +249,7 @@ export function knowledgeSearch(
 		${AXIS_FILTER_SQL}
 		${CONF_FLOOR_SQL}
 	ORDER BY ${STATE_TIER_SQL}, rank + (${Date.now()} - COALESCE(k.updated_at, k.ts)) / 86400000.0 * 0.05
-		+ ${ORIGIN_PRIOR_SQL}
+		+ ${ORIGIN_PRIOR_SQL} + ${trustPriorSql(trustPriors())}
 	LIMIT ?`,
 					)
 					.all(
@@ -441,14 +450,24 @@ export function trustOf(
 	return "unverified";
 }
 
-// add a `trust` field to every knowledge-kind hit (JSON face)
+// add a `trust` field to every knowledge-kind hit (JSON face). W2846: the
+// per-origin trust prior rides along (trust_prior 0..1) — consumers rank and
+// render by origin kind without re-deriving the tier.
 export function withTrust<T extends KnowledgeHit>(
 	hits: T[],
 	root?: string,
 ): T[] {
+	const priors = trustPriors();
 	return hits.map((h) =>
 		h.kind === "knowledge"
-			? { ...h, trust: trustOf(h.source_ref, h.source_hash, root) }
+			? {
+					...h,
+					trust: trustOf(h.source_ref, h.source_hash, root),
+					trust_prior: trustPriorOf(
+						{ state: h.state ?? null, origin_kind: h.origin_kind ?? null },
+						priors,
+					),
+				}
 			: h,
 	);
 }
@@ -507,9 +526,16 @@ export function proseCards(
 			// W836 trust schema: the audit rating + evidence ref ride the marker
 			// line when the row carries them (grade-stamped, not the distiller)
 			const rated = h.rating ? ` · ${h.rating}` : "";
+			// W2846: the origin trust prior rides the card (tier · weight)
+			const priors = trustPriors();
+			const origin = originTierOf({
+				state: h.state ?? null,
+				origin_kind: h.origin_kind ?? null,
+			});
+			const priorTag = ` · prior ${origin} ${priors[origin]}`;
 			const ev = h.evidence ? ` · ev ${h.evidence}` : "";
 			lines.push(
-				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · ${confTag(h.confidence)} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}${stale}]`,
+				`k#${h.id} · ${h.topic ?? "(untitled)"} [${h.state ?? "?"} · ${confTag(h.confidence)} · age ${h.ageDays ?? "?"}d · hash ${trust}${hop}${rated}${ev}${stale}${priorTag}]`,
 				`  ${h.fact ?? h.snippet}`,
 				`  source: ${h.source_ref ?? h.code_origin ?? "none"}${h.domain ? ` · domain ${h.domain}` : ""}${h.area ? ` · area ${h.area}` : ""}`,
 			);
