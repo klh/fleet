@@ -56,7 +56,7 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 			if (row.readyMs === null || row.firstUsefulMs === null)
 				issues.push(`missing startup telemetry at rep ${rep} ${row.arm}`);
 			if (
-				row.track === "agentic" &&
+				row.track !== "infrastructure" &&
 				(!row.usage || row.usage.input + row.usage.output <= 0)
 			)
 				issues.push(`missing model usage at rep ${rep} ${row.arm}`);
@@ -64,7 +64,9 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 		if (on.quality !== 1 || on.quality < off.quality)
 			issues.push(`candidate quality failure at rep ${rep}`);
 		const tokens = (r: RunnerReceipt) =>
-			r.track === "agentic" && r.usage ? r.usage.input + r.usage.output : 0;
+			r.track !== "infrastructure" && r.usage
+				? r.usage.input + r.usage.output
+				: 0;
 		pairs.push({
 			rep,
 			setup: JSON.stringify(first.setup),
@@ -91,6 +93,7 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 	}
 	if ([...groups.keys()].sort((a, b) => a - b).some((rep, i) => rep !== i))
 		issues.push("non-contiguous repetitions");
+	const controlOnly = new Set(rows.map((r) => r.seedDigest)).size === 1;
 	const lift = issues.length ? null : pairedLift(pairs);
 	let promotion = lift
 		? gatePromotion(lift, { minReps: 12, maxCorrectRegression: 0 })
@@ -126,8 +129,11 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 		issues: [...new Set(issues)],
 		pairs,
 		lift,
-		promotion,
-		tokenSavingsMeasured: first.track === "agentic" && lift !== null,
+		promotion: controlOnly
+			? { promote: false, why: "identical arms: A/A calibration only" }
+			: promotion,
+		controlOnly,
+		tokenSavingsMeasured: first.track !== "infrastructure" && lift !== null,
 		arms: Object.fromEntries(
 			(["baseline", "candidate"] as const).map((arm) => {
 				const subset = rows.filter((r) => r.arm === arm);
@@ -142,6 +148,15 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 							subset.map((r) => r.isolationFailures),
 						),
 						readyMs: distribution(subset.map((r) => r.readyMs)),
+						firstByteMs: distribution(subset.map((r) => r.firstByteMs ?? null)),
+						outputTokensPerWallSecond: distribution(
+							subset.map((r) =>
+								r.usage && r.wallMs > 0
+									? (r.usage.output * 1000) / r.wallMs
+									: null,
+							),
+						),
+						quality: distribution(subset.map((r) => r.quality)),
 						firstUsefulMs: distribution(subset.map((r) => r.firstUsefulMs)),
 						wallMs: distribution(subset.map((r) => r.wallMs)),
 						rssBytes: distribution(subset.map((r) => r.rssBytes)),

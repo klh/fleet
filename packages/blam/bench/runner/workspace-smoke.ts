@@ -84,11 +84,9 @@ if (import.meta.main) {
 	const outputDir = process.argv[2];
 	if (!outputDir)
 		throw new Error("usage: bun workspace-smoke.ts output-dir [reps]");
-	console.log(
-		JSON.stringify(
-			await workspaceSmoke(outputDir, Number(process.argv[3] ?? 12)),
-		),
-	);
+	const report = await workspaceSmoke(outputDir, Number(process.argv[3] ?? 12));
+	console.log(JSON.stringify(report));
+	if (report.issues.length) process.exitCode = 2;
 }
 export async function workspaceSmoke(outputDir: string, reps = 12) {
 	if (!Number.isInteger(reps) || reps < 3 || reps > 100)

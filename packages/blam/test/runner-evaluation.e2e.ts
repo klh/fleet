@@ -49,6 +49,14 @@ const rows = () =>
 	]);
 
 test.describe("runner refusal evidence @unit", () => {
+	test("identical configurations only calibrate even with apparent timing gains", () => {
+		const data = rows().map((r) => ({ ...r, seedDigest: "same" }));
+		const report = evaluateRunner(data);
+		expect(report.issues).toEqual([]);
+		expect(report.controlOnly).toBe(true);
+		expect(report.promotion.promote).toBe(false);
+		expect(report.promotion.why).toContain("A/A");
+	});
 	for (const [name, mutate] of [
 		[
 			"missing usage",

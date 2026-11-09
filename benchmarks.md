@@ -53,6 +53,14 @@ have 15 separate regression checks and are not remeasured in these receipts.
 
 Separately, the isolated official install at `356a9168` recovered the same sandbox after SIGKILL and read a private workspace witness. Buckle request `rmw978f35hkpnd5` matched the post-restart journal at 646 input tokens including 512 cache reads and 143 output tokens on `zai-glm-5.3-flash`. Both executor credentials were revoked and Docker removed the sandbox. This was one live acceptance run, with four HTTP 200 requests and one pre-restart HTTP 499.
 
+## W2872 - live routing measurement calibration (2026-11-08; AC)
+
+The first actual matched path experiment (desktop :4111 baseline vs Mac spoke :4101 candidate, same OpenAI streaming prompt/model/cap) stopped after its first pair. Baseline returned 502, with its trace proving local LiteLLM :4100 returned 500; candidate returned 200 with valid JSON and matching usage/provider. Both keys revoked. Baseline model usage and visible-output time are unknown, not zero. No lift/parity estimate is valid. Trace `8adbd2a455c44a7922e69317287e9941`, baseline request `rmw87tyqh3355e9`. Alternate admin access works with configured `desktop` credential; initial wrong-label 401 was resolved without copying secrets or changing configuration. Evidence `outputs/blam-route-ab-20261108/run`: receipts SHA256 `27f6af7b8d48007b67506ad1f88810f40a9957283b763a95f23c2e9008ae8705`; report `cddc8a9dc64303ba39849a6d768dc34d44f9fdf46728ddb65cb4bee1540a010e`.
+
+Six actual GLM-5.3-Flash calls through local Buckle :4101, three alternating A/A pairs, same provider `zai`, strict JSON task. All six matched the ledger's served model/provider and token counts, passed exact response validation and revoked their scoped keys. No retries. First visible output p50/p95: arm A 834/979 ms, arm B 792/878 ms. Request wall p50/p95: A 1004/1025 ms, B 844/930 ms. These differences are **noise calibration, not a routing gain**; both arms used the same URL and policy. Three pairs cannot promote. No coding-quality, decode-throughput or sandbox-isolation claim. Provider cache uncontrolled; measured counters were zero cached tokens.
+
+Owner-held raw evidence: `outputs/blam-route-aa-20261108/run/{receipts.ndjson,report.json}` under the design workspace. SHA256 receipts `f66427a6049321c96be3cdd0f25ec359aaa1f2e6dc8db50ad2f5eb27153a8c43`; report `f0730515e763f07fb24599e3bf4ce619b2a16f99e6914bac0510351d5ce2d1ed`. This initial producer version predates the explicit identical-arm refusal added in W2872; replay now labels it A/A and refuses promotion irrespective of repetition count. Direct-vs-spoke performance remains unmeasured because its first pair failed, as recorded above.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
