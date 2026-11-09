@@ -243,7 +243,7 @@ const run = (
 const PACK_TIMEOUT_MS = 60_000;
 export const INSTALL_TIMEOUT_MS = 120_000;
 export const BIN_TIMEOUT_MS = 15_000;
-const VENDORED = new Set(["decant"]);
+const VENDORED = new Set(["decant", "chord", "pi-durable"]);
 export const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const PACKAGES_ROOT = join(REPO_ROOT, "packages");
 

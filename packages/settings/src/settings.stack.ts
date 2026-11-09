@@ -104,6 +104,18 @@ export const StackSections = {
 		.record(z.string(), z.unknown())
 		.optional()
 		.describe("Posture document (validated by its owner)"),
+	upstreams: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe(
+			"Upstream override doc — W2760 law home: groups merge over the committed ladder (owner-validated by buckle src/upstreams.ts)",
+		),
+	routing_policy: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe(
+			"Routing-policy ladder — W2760 law home (owner-validated by buckle src/policy.ts + belt bin/router-policy.ts)",
+		),
 	cache_unsupported_models: list(
 		[],
 		"Models without provider prompt-cache reporting",
