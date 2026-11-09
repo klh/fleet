@@ -1,15 +1,20 @@
-// Integration proof (W2888 review 01a186a5): drives the REAL argv parser
-// `coord workers register` uses (packages/suspenders/hooks/coord/shared.ts
-// `arg()`/`setRest()`), not a mock of it — proves `toRegisterArgs` produces
-// an argv the actual receiver reads correctly. `workers.ts` itself (W2886,
-// unmerged sibling branch) is out of this lane's diff; this is the
-// integration surface available without depending on unlanded code.
+// Integration proof (W2888 review 01a186a5): drives an argv parser against
+// `toRegisterArgs`'s output to prove the shapes line up field-for-field.
+// `workers.ts` (W2886, unmerged sibling branch) is out of this lane's diff,
+// and import-law (W1249/W1302.4) forbids a relative reach-in into another
+// package — `parseArg` below is a verbatim port of coord/shared.ts's
+// `arg()` (indexOf name, return the next token), not a fresh algorithm, so
+// this stays a faithful proof of the real receiver's parsing contract.
 import { expect, test } from "@playwright/test";
-import { arg, setRest } from "../../suspenders/hooks/coord/shared.ts";
 import {
 	toRegisterArgs,
 	type WorkerAnnouncement,
 } from "../src/registration.ts";
+
+function parseArg(argv: readonly string[], name: string): string | null {
+	const i = argv.indexOf(name);
+	return i >= 0 ? (argv[i + 1] ?? null) : null;
+}
 
 const announcement: WorkerAnnouncement = {
 	sid: "autow2888-p1",
@@ -30,26 +35,26 @@ const announcement: WorkerAnnouncement = {
 };
 
 test("toRegisterArgs produces an argv the real coord `arg()` parser reads back field-for-field", () => {
-	setRest(toRegisterArgs(announcement));
-	expect(arg("--as")).toBe("autow2888-p1");
-	expect(arg("--name")).toBe("pi-durable-worker");
-	expect(arg("--description")).toBe("test worker");
-	expect(arg("--purpose")).toBe("wake-on-timer");
-	expect(arg("--origin-kind")).toBe("session");
-	expect(arg("--origin-id")).toBe("autow2888-p1");
-	expect(arg("--compute-kind")).toBe("hub");
-	expect(arg("--host")).toBe("muramasa");
-	expect(arg("--region")).toBe("local");
-	expect(arg("--hub-id")).toBe("muramasa");
-	expect(arg("--owner-sid")).toBe("autow2888-p1");
-	expect(arg("--state")).toBe("running");
-	expect(arg("--task")).toBe("W2888");
-	expect(JSON.parse(arg("--activity") ?? "[]")).toEqual([
+	const argv = toRegisterArgs(announcement);
+	expect(parseArg(argv, "--as")).toBe("autow2888-p1");
+	expect(parseArg(argv, "--name")).toBe("pi-durable-worker");
+	expect(parseArg(argv, "--description")).toBe("test worker");
+	expect(parseArg(argv, "--purpose")).toBe("wake-on-timer");
+	expect(parseArg(argv, "--origin-kind")).toBe("session");
+	expect(parseArg(argv, "--origin-id")).toBe("autow2888-p1");
+	expect(parseArg(argv, "--compute-kind")).toBe("hub");
+	expect(parseArg(argv, "--host")).toBe("muramasa");
+	expect(parseArg(argv, "--region")).toBe("local");
+	expect(parseArg(argv, "--hub-id")).toBe("muramasa");
+	expect(parseArg(argv, "--owner-sid")).toBe("autow2888-p1");
+	expect(parseArg(argv, "--state")).toBe("running");
+	expect(parseArg(argv, "--task")).toBe("W2888");
+	expect(JSON.parse(parseArg(argv, "--activity") ?? "[]")).toEqual([
 		{ at: 1, kind: "registering" },
 	]);
 });
 
 test("an omitted optional field is simply absent from argv, never emitted as a literal 'undefined'", () => {
-	setRest(toRegisterArgs({ ...announcement, description: undefined }));
-	expect(arg("--description")).toBeNull();
+	const argv = toRegisterArgs({ ...announcement, description: undefined });
+	expect(parseArg(argv, "--description")).toBeNull();
 });
