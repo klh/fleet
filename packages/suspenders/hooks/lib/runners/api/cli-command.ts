@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Parsed } from "../../verb-kit.ts";
 import { RunIdSchema, SinceSchema } from "./contracts.ts";
-import { createRunnerClient } from "./client.ts";
+import { createRunnerClient, RunnerHttpError } from "./client.ts";
 import { runnerOutput } from "./output.ts";
 
 const healthResponse = z.strictObject({
@@ -68,7 +68,10 @@ export async function runRunnerCommand(operation: string, parsed: Parsed) {
 			error instanceof Error && /^runner\.[a-z_0-9]+$/.test(error.message)
 				? error.message
 				: "runner.invalid_request";
-		console.error(`coord runner: ${code}`);
+		const traceId =
+			error instanceof RunnerHttpError ? error.traceId : undefined;
+		const trace = traceId ? ` (trace ${traceId})` : "";
+		console.error(`coord runner: ${code}${trace}`);
 		if (ndjson)
 			console.log(
 				JSON.stringify({
@@ -77,6 +80,7 @@ export async function runRunnerCommand(operation: string, parsed: Parsed) {
 					operation,
 					ok: false,
 					error: code,
+					traceId,
 				}),
 			);
 		return 1;

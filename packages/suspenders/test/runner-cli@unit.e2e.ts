@@ -4,6 +4,57 @@ import { join } from "node:path";
 import { writeFileSync, chmodSync } from "node:fs";
 const BIN = join(import.meta.dir, "../hooks/bin/coord.ts");
 
+test("runner CLI carries only validated trace IDs from HTTP failures @unit", async () => {
+	const world = scratchWorld();
+	const keyFile = join(world.home, "runner.key");
+	writeFileSync(keyFile, "fixture-key", { mode: 0o600 });
+	const trace = crypto.randomUUID();
+	let header = trace;
+	const server = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		fetch: () =>
+			new Response("private provider error", {
+				status: 503,
+				headers: { "x-runner-trace-id": header },
+			}),
+	});
+	try {
+		for (const expected of [trace, undefined]) {
+			header = expected ?? "private invalid trace";
+			const child = Bun.spawn(
+				[
+					process.execPath,
+					BIN,
+					"runner",
+					"health",
+					"--ndjson",
+					"--url",
+					server.url.href,
+					"--key-file",
+					keyFile,
+				],
+				{ cwd: world.repo, env: world.env, stdout: "pipe", stderr: "pipe" },
+			);
+			const [out, err, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			expect(code).toBe(1);
+			expect(JSON.parse(out)).toMatchObject({
+				ok: false,
+				error: "runner.http_503",
+			});
+			expect(JSON.parse(out).traceId).toBe(expected);
+			expect(out + err).not.toContain("private");
+		}
+	} finally {
+		await server.stop(true);
+		world.clean();
+	}
+});
+
 test("runner health rejects a FIFO credential without waiting for a writer @unit", async () => {
 	const world = scratchWorld();
 	const keyFile = join(world.home, "runner.fifo");

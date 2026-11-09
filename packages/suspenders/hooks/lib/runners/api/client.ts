@@ -1,6 +1,16 @@
 import { expandHome, RunnerServiceUrlSchema, settings } from "@klh/settings";
 import { readRunnerCredential } from "./credential.ts";
 import { readWireJson } from "./wire.ts";
+import { RunIdSchema } from "./contracts.ts";
+
+export class RunnerHttpError extends Error {
+	readonly traceId: string | undefined;
+
+	constructor(status: number, traceHeader: string | null) {
+		super(`runner.http_${status}`);
+		this.traceId = RunIdSchema.safeParse(traceHeader).data;
+	}
+}
 
 export function createRunnerClient(options: {
 	url?: string;
@@ -28,12 +38,14 @@ export function createRunnerClient(options: {
 			});
 			if (!response.ok) {
 				void response.body?.cancel().catch(() => {});
-				throw new Error(`runner.http_${response.status}`);
+				throw new RunnerHttpError(
+					response.status,
+					response.headers.get("x-runner-trace-id"),
+				);
 			}
 			return await readWireJson(response, 1_048_576);
 		} catch (error) {
-			if (error instanceof Error && /^runner\.http_\d{3}$/.test(error.message))
-				throw error;
+			if (error instanceof RunnerHttpError) throw error;
 			throw new Error("runner.request_failed");
 		}
 	};
