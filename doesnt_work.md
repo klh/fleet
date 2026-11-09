@@ -32,6 +32,22 @@ controller fencing. A Models object has prototype methods: spreading it lost
 getAuth and produced a fault; a bound proxy preserves those methods. Synthetic
 fixture tokens remain test data and never become performance evidence.
 
+## Pi awareness is functionality, not a startup optimization (W2875)
+
+The 12-pair real-Node SDK probe added 13.39 ms to median ready time;
+BLAM correctly refused promotion as a speed improvement. Keep this overhead
+baseline for later variants; do not infer token savings from registration or
+stubbed CLI calls. An initial SDK test invoked Bun's `node` shim and therefore
+did not prove Node compatibility; resolving the real Node executable fixed
+the test. Full GLM-5.3 review first consumed 16,000 output tokens without a
+verdict; one explicit 32,768-budget retry returned PASS. Repeating the same
+truncated request is not review progress. The proof harness still skips
+Playwright-only diffs; the 15 focused specs were executed separately.
+Manual claims without a lane-context baseline inspect only the last commit
+at completion, missing ledgers in earlier commits (W2876). Keep the ledgers
+with the final product change until original mint provenance is supported;
+do not disable the documentation gate or fabricate a dispatched context.
+
 Optimizations we actually tried that did not deliver, with the failure
 mechanism and the standing rule that replaced them. Complements
 [benchmarks.md](benchmarks.md) (the winners). Every row must be
