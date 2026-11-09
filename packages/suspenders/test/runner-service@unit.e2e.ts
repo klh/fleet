@@ -113,6 +113,61 @@ test("runner host reopens admitted jobs and excludes a second writer @unit", asy
 		release.resolve();
 		expect((await pending).status).toBe(200);
 		await stopping;
+		const probe = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			fetch: () => new Response(),
+		});
+		const control_url = probe.url.href;
+		await probe.stop(true);
+		const settingsFile = join(world.home, "settings.json");
+		await writeFile(
+			settingsFile,
+			JSON.stringify({
+				runner: {
+					control_url,
+					profiles_file: profilesFile,
+					state_dir: options.stateDir,
+				},
+			}),
+			{ mode: 0o600 },
+		);
+		const lib = new URL("../hooks/lib/runners/", import.meta.url).href;
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				"-e",
+				`
+			import { runRunnerService } from ${JSON.stringify(`${lib}service/process.ts`)};
+			import { openRunnerController } from ${JSON.stringify(`${lib}control/controller.ts`)};
+			await runRunnerService({ openRuntime: async ({ store }) => ({
+				controller: openRunnerController({ store }), async close() {}
+			}) });
+		`,
+			],
+			{
+				env: { ...world.env, KLH_SETTINGS: settingsFile },
+				stdout: "pipe",
+				stderr: "inherit",
+			},
+		);
+		const deadline = setTimeout(() => child.kill("SIGKILL"), 3000);
+		const stdout = child.stdout.getReader();
+		try {
+			const first = await stdout.read();
+			expect(JSON.parse(new TextDecoder().decode(first.value))).toEqual({
+				control: "listening",
+				url: control_url,
+			});
+			child.kill("SIGTERM");
+			expect(await child.exited).toBe(0);
+			host = await openRunnerHost(options);
+		} finally {
+			clearTimeout(deadline);
+			stdout.releaseLock();
+			if (child.exitCode === null) child.kill("SIGKILL");
+			await child.exited;
+		}
 	} finally {
 		await host.stop();
 		world.clean();
