@@ -77,6 +77,13 @@ export const DistillConfigSchema = z
 		cluster_size_max: z.number().int().min(2).max(20).default(8),
 		/** pairs judged per entry per contradiction visit */
 		contradiction_pairs: z.number().int().min(1).max(10).default(3),
+		/** chars of origin-session transcript fed to the verify judge */
+		verify_transcript_chars: z
+			.number()
+			.int()
+			.min(200)
+			.max(20_000)
+			.default(4000),
 		/** the machine's decant.db (read-only); absent = source skipped */
 		decant_db: z.string().min(1).optional(),
 		/** sessions a command set must recur in before it is a script */

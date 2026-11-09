@@ -297,3 +297,12 @@ packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:89
 9bcd46261570333ae77f6403979e810aa67f6f9d:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:107
 2c41bcf668aa1f56a584e71880bd238d67e81a20:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:82
 2c41bcf668aa1f56a584e71880bd238d67e81a20:packages/suspenders/test/migrate-provider-keys.test.ts:generic-api-key:107
+
+# vendored chord corpus (W2902/W2907): upstream test fixtures reviewed line-by-line — RFC 6455 spec sample Sec-WebSocket-Key (base64 of the spec example) + synthetic archive.jsonl fixture UUIDs (owner=fixture.switch.owner); no real credential material
+packages/chord/test/node/http/upgrades.test.ts:generic-api-key:361
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:17
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:19
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:24
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:26
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:31
+packages/chord/test/schema/stored/archive.jsonl:generic-api-key:33
