@@ -111,16 +111,36 @@ Opened by selecting a lane in local or remote; remembers the lane.
 
 ## 4. Data plane (no hand-rolled state)
 
+**Federated by construction.** The local session CANNOT see into remote
+compute (an azure VM, an on-prem box): it does not know those sessions exist,
+let alone where they run. Each hub is AUTHORITATIVE for the sessions it
+hosts; the cockpit merges per-hub answers and stamps every row with its
+reporting hub. Unknown = `unreported`, never fabricated.
+
+**Worker registration contract (executor → hub):** long-lived remote
+drivers/executors announce on connect and on change — heartbeat keeps it
+fresh: `{sid, name, description, purpose, compute: {kind, host, region},
+started_at, activity}`. This is what lets a hub answer "I am running 4
+long-lived remote sessions: 2 from this azure VM, 1 from this on-prem VM,
+1 from this aws box." The microVM substrate (W2865 lineage) implements this
+in its cloned-VM bootstrap; unregistered sessions are the hub's problem to
+surface, not the cockpit's to invent.
+
 - `coord fleet --json` — ambient aggregate feed (all lanes my plane knows).
-  Already proven; powers hub rail + statusline today.
-- **`coord workers --json`** — NEW verb (fleet work item): the plane's workers
-  with rich fields: `sid, name, class: local|remote, origin: {kind:
-  session|controller|service|user, id}, compute: {kind: hub|cloud|local,
-  host}, inference: [{hub, model, since, calls}], owner_sid, rights[], state,
-  task, activity[]`. `origin`, `compute`, `inference` are three INDEPENDENT
+  Already proven; powers hub rail + statusline today. Covers ONLY
+  plane-visible lanes.
+- **`coord workers --json`** — NEW verb (fleet work item): FEDERATED worker
+  inventory — plane-visible lanes + per-hub self-reported sessions (from the
+  registration contract above). Fields: `sid, name, class: local|remote,
+  origin: {kind: session|controller|service|user, id} | unreported, compute:
+  {kind: hub|cloud|local, host, region} | unreported, inference: [{hub,
+  model, since, calls}], owner_sid, rights[], state, task, activity[],
+  reported_by: <hub>`. `origin`, `compute`, `inference` are three INDEPENDENT
   pointers — no hub containment. Rights computed by the plane for the asking
-  lane (owner / steerable / read-only). UI renders; plane enforces. (Hub-
-  scoped alias `coord hub <name> workers --json` = filtered view, same schema.)
+  lane (owner / steerable / read-only); remote rows not visible to the local
+  plane inherit rights from their reporting hub's answer. UI renders; plane
+  enforces. (Hub-scoped alias `coord hub <name> workers --json` = that hub's
+  authoritative answer only.)
 - Hub list: `coord targets` / stack.json peers — same source as the W2878
   board dropdown.
 - Sparklines: rolling event buckets from the fleet-receiver WS feed
