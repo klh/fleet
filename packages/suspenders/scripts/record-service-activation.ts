@@ -27,20 +27,20 @@
 // actually loaded.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveStableRepo } from "./install/install-launchd.ts";
 import {
 	defaultRenderValues,
 	loadManifest,
-	renderDarwin,
 	type RenderValues,
+	renderDarwin,
 } from "./install/install-services.ts";
-import { resolveStableRepo } from "./install/install-launchd.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import {
+	type ActivationReceipt,
+	type ActivationService,
 	digestUnit,
 	readActivation,
 	writeActivation,
-	type ActivationReceipt,
-	type ActivationService,
 } from "./lib/service-drift.ts";
 
 export interface ApproveStableOptions {
@@ -186,6 +186,7 @@ export function approveStableActivation(
 	const identical: string[] = [];
 	const added: string[] = [];
 	for (const spec of loadManifest(manifest)) {
+		if (spec.explicitOnly) continue;
 		const label = `com.suspenders.${spec.name}`;
 		const priorEntry = prior.services.find((entry) => entry.label === label);
 		if (priorEntry?.generation !== undefined)

@@ -1696,6 +1696,76 @@
         }
       },
       "additionalProperties": false
+    },
+    "runner": {
+      "description": "Durable runner service and client configuration",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "control_url": {
+          "default": "http://127.0.0.1:7810",
+          "description": "Durable runner control service",
+          "type": "string",
+          "maxLength": 4096,
+          "format": "uri"
+        },
+        "identity_url": {
+          "default": "http://127.0.0.1:4111",
+          "description": "Buckle identity authority for runner credentials",
+          "type": "string",
+          "maxLength": 4096,
+          "format": "uri"
+        },
+        "credential_file": {
+          "default": "~/.config/klh/runner.key",
+          "description": "Private runner user credential; never an implicit root key (path; ~/ expands)",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "profiles_file": {
+          "default": "~/.config/klh/runner-profiles.json",
+          "description": "Host-approved immutable runner profiles (path; ~/ expands)",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "state_dir": {
+          "default": "~/.local/state/klh/runners",
+          "description": "Private host runner state and credential bindings (path; ~/ expands)",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "desktop": {
+          "description": "Opt-in Docker runner configuration with a host-only mint key",
+          "type": "object",
+          "properties": {
+            "image": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^[^\\s@]+@sha256:[a-f0-9]{64}$"
+            },
+            "seed_root": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "mint_credential_file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "image",
+            "seed_root",
+            "mint_credential_file"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
