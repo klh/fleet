@@ -6,6 +6,7 @@ import {
 	checkDesktopMintAuthority,
 } from "../lib/runners/service/desktop-preflight.ts";
 import { runnerHostConfig } from "../lib/runners/service/config.ts";
+import { readRunnerProfiles } from "../lib/runners/service/profiles.ts";
 
 if (process.argv.length !== 3 || process.argv[2] !== "--check") {
 	console.error("usage: runner-control --check");
@@ -13,7 +14,8 @@ if (process.argv.length !== 3 || process.argv[2] !== "--check") {
 } else {
 	try {
 		const config = settings({ mode: "service" }).runner;
-		runnerHostConfig(config);
+		const host = runnerHostConfig(config);
+		readRunnerProfiles(host.profilesFile);
 		const desktop = await loadDesktopRuntimeConfig(config);
 		const [imageId] = await Promise.all([
 			checkDesktopImage(desktop.image),
