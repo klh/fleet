@@ -37,7 +37,9 @@ the opposite: interim prose is correctable, final claims are not.
 
 - `packages/suspenders/hooks/lib/gates/claim-check.ts` — final-claim verdict.
 - `packages/suspenders/hooks/lib/executors/codex-evidence.ts` — Codex
-  `response_item` event extraction (`codexInitiatedTest`).
+  `response_item` correlation; call grammar, output parsing and session
+  resolution live in `codex-evidence-call.ts` / `-output.ts` /
+  `-sessions.ts` (W2877 split).
 - `packages/suspenders/hooks/lib/transcript.ts` — `codexRollout`
   session-id resolution.
 - `packages/suspenders/test/claim-check.test.ts` — boundary, capsule,
