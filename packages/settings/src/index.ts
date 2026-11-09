@@ -28,6 +28,13 @@ export {
 	knobHome,
 } from "./settings.knob-registry.ts";
 export {
+	jsonSiblingOf,
+	type LlmConfEnv,
+	type LlmConfSource,
+	resolvePolicyDoc,
+	resolveUpstreamsDoc,
+} from "./settings.llm-conf.ts";
+export {
 	FOLD_INTO_FLEET_LOOP,
 	type MigrateInput,
 	type MigrateResult,
