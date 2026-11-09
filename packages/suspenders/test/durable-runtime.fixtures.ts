@@ -66,7 +66,10 @@ export function createFixtureRuntime(url: string, effect: () => Promise<void>) {
 	};
 }
 
-export function fixtureResponse(n: number): Response {
+export function fixtureResponse(
+	n: number,
+	tool = { name: "probe", arguments: '{"value":"ok"}' },
+): Response {
 	const delta =
 		n === 1
 			? {
@@ -75,7 +78,7 @@ export function fixtureResponse(n: number): Response {
 							index: 0,
 							id: "call-fixture",
 							type: "function",
-							function: { name: "probe", arguments: '{"value":"ok"}' },
+							function: tool,
 						},
 					],
 				}
