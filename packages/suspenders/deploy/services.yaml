@@ -327,6 +327,18 @@ services:
     logs: { out: "__HOME__/.claude-insights/launchd-stdout.log" }
     placeholders: ["__BUN__", "__HOME__"]
 
+  # The desktop runner has a separate activation and health check.
+  - name: runner-control
+    explicitOnly: true
+    bunEntry: "__PREFIX__/bin/runner-control.ts"
+    args: []
+    env:
+      HOME: "__HOME__"
+      PATH: "__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    schedule: { runAtLoad: true, keepalive: false }
+    logs: { out: "__HOME__/Library/Logs/fleet-runner-control.log" }
+    placeholders: ["__BUN__", "__HOME__", "__PREFIX__"]
+
 # Retired labels — boot-out + plist removal at the next install --with-launchd
 # (scripts/install/install-launchd.ts reads THIS list via loadLegacyLabels; the old
 # TS const is gone). Never boot-out a label still in `services:` above.

@@ -186,6 +186,7 @@ export function approveStableActivation(
 	const identical: string[] = [];
 	const added: string[] = [];
 	for (const spec of loadManifest(manifest)) {
+		if (spec.explicitOnly) continue;
 		const label = `com.suspenders.${spec.name}`;
 		const priorEntry = prior.services.find((entry) => entry.label === label);
 		if (priorEntry?.generation !== undefined)
