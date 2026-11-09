@@ -2,12 +2,32 @@
 // replay-fixture driver (CI-safe: bun-only, no Docker). The fixtures are
 // harness mechanics only, clearly labeled, never ledger rows.
 import { describe, expect, test } from "bun:test";
-import { computeVerdict, seededOrder, statOf, type ArmRef, type ArmSamples, type Caps, type ScenarioSpec } from "../bench/artifact/types.ts";
+import {
+	computeVerdict,
+	seededOrder,
+	statOf,
+	type ArmRef,
+	type ArmSamples,
+	type Caps,
+	type ScenarioSpec,
+} from "../bench/artifact/types.ts";
 import { replayFixtureDriver, walkOrder } from "../bench/artifact/drivers.ts";
-import { audit, receiptLines, runScenario, type Receipt } from "../bench/artifact/harness.ts";
+import {
+	audit,
+	receiptLines,
+	runScenario,
+	type Receipt,
+} from "../bench/artifact/harness.ts";
 import { coldStartSpec } from "../bench/artifact/harness.ts";
 
-const CAPS: Caps = { bed: "docker-desktop", host: "linuxkit", kernel: "7.0.14", arch: "arm64", cpu: 18, memMiB: 7889 };
+const CAPS: Caps = {
+	bed: "docker-desktop",
+	host: "linuxkit",
+	kernel: "7.0.14",
+	arch: "arm64",
+	cpu: 18,
+	memMiB: 7889,
+};
 
 const ARMS: ArmRef[] = [
 	{ kind: "image", id: "alpine:3.21", label: "alpine", pinned: false },
@@ -30,7 +50,11 @@ describe("artifact bench decision kernel", () => {
 			{ arm: "fast", samples: [10, 11, 12] },
 			{ arm: "slow", samples: [20, 21, 22] },
 		];
-		const v = computeVerdict(arms, { stat: "median", lowerWins: true, tieEpsilon: 0.05 });
+		const v = computeVerdict(arms, {
+			stat: "median",
+			lowerWins: true,
+			tieEpsilon: 0.05,
+		});
 		expect(v.winner).toBe("fast");
 		expect(v.best).toBe(11);
 		expect(v.marginRel !== null && v.marginRel > 0.4).toBe(true);
@@ -41,7 +65,11 @@ describe("artifact bench decision kernel", () => {
 			{ arm: "a", samples: [100, 101, 102] },
 			{ arm: "b", samples: [101, 102, 103] },
 		];
-		const v = computeVerdict(arms, { stat: "median", lowerWins: true, tieEpsilon: 0.05 });
+		const v = computeVerdict(arms, {
+			stat: "median",
+			lowerWins: true,
+			tieEpsilon: 0.05,
+		});
 		expect(v.winner).toBe("tied");
 		expect(v.tiedArms.sort()).toEqual(["a", "b"]);
 		expect(v.best).toBeNull();
@@ -52,7 +80,11 @@ describe("artifact bench decision kernel", () => {
 			{ arm: "a", samples: [100, 100, 100] },
 			{ arm: "b", samples: [110, 110, 110] },
 		];
-		const v = computeVerdict(arms, { stat: "median", lowerWins: true, tieEpsilon: 0.05 });
+		const v = computeVerdict(arms, {
+			stat: "median",
+			lowerWins: true,
+			tieEpsilon: 0.05,
+		});
 		expect(v.winner).toBe("a");
 	});
 
@@ -64,7 +96,9 @@ describe("artifact bench decision kernel", () => {
 
 	test("seededOrder: deterministic, a permutation, seed-sensitive", () => {
 		expect(seededOrder(5, 42)).toEqual(seededOrder(5, 42));
-		expect([...seededOrder(5, 42)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+		expect([...seededOrder(5, 42)].sort((a, b) => a - b)).toEqual([
+			0, 1, 2, 3, 4,
+		]);
 		expect(seededOrder(5, 43)).not.toEqual(seededOrder(5, 42));
 	});
 });
@@ -74,16 +108,24 @@ describe("artifact bench harness", () => {
 		const driver = replayFixtureDriver(CAPS, FIXTURES);
 		const run = await runScenario(SPEC, driver);
 		expect(run.summary.verdict.winner).toBe("tied");
-		expect(run.summary.verdict.tiedArms.sort()).toEqual(["alpine:3.21", "debian:bookworm-slim"]);
+		expect(run.summary.verdict.tiedArms.sort()).toEqual([
+			"alpine:3.21",
+			"debian:bookworm-slim",
+		]);
 		expect(run.summary.stats["fedora:41"]!.median).toBe(196);
 		expect(run.failures.length).toBe(0);
+		expect(run.summary.stats["alpine:3.21"]).toEqual({ median: 171, p95: 173 });
 		const auditRows = audit(run);
 		for (const row of auditRows) expect(row.ok).toBe(true);
 	});
 
 	test("byte-identical receipts for the same seed + schedule", async () => {
-		const a = receiptLines(await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)));
-		const b = receiptLines(await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)));
+		const a = receiptLines(
+			await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)),
+		);
+		const b = receiptLines(
+			await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)),
+		);
 		expect(a).toEqual(b);
 	});
 
@@ -95,7 +137,10 @@ describe("artifact bench harness", () => {
 	});
 
 	test("failures are recorded verbatim and starve only that arm", async () => {
-		const driver = replayFixtureDriver(CAPS, { "alpine:3.21": [170], "debian:bookworm-slim": [171] });
+		const driver = replayFixtureDriver(CAPS, {
+			"alpine:3.21": [170],
+			"debian:bookworm-slim": [171],
+		});
 		const run = await runScenario(SPEC, driver);
 		expect(run.failures.length).toBeGreaterThan(0);
 		expect(run.summary.stats["alpine:3.21"]).toBeDefined();
@@ -105,9 +150,13 @@ describe("artifact bench harness", () => {
 	});
 
 	test("receipt JSONL round-trips through parse", async () => {
-		const lines = receiptLines(await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)));
+		const lines = receiptLines(
+			await runScenario(SPEC, replayFixtureDriver(CAPS, FIXTURES)),
+		);
 		const parsed = lines.map((l) => JSON.parse(l) as Receipt);
 		const summary = parsed.find((r) => r.kind === "scenario-summary");
-		expect(summary && "verdict" in summary && summary.verdict.winner === "tied").toBe(true);
+		expect(
+			summary && "verdict" in summary && summary.verdict.winner === "tied",
+		).toBe(true);
 	});
 });

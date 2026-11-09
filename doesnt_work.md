@@ -437,3 +437,14 @@ arm64 manifest — cannot be an arm on Docker Desktop), split
 install+clone across two containers (no filesystem persistence — one
 container per bed), and `--net=enabled` (bogus docker flag; `--net=host`
 is the real one).
+
+## W2939 — Docker startup measurement exclusions
+
+The first corrected-timing run paired an emulated x86 Alpine image with
+native ARM Bun. Docker Desktop silently selected the resident x86 image for
+the Alpine manifest. Discard that comparison (receipt SHA-256
+`7a6e5b78f198cdb018406c5054ab60cdd74235fb3f078813ece61c6c0332974a`).
+The live harness now resolves and records each native image identity before
+sampling, and sets Docker's platform explicitly. It rejected the original
+Alpine arm before emitting any samples. Earlier driver timing also included
+container removal, which made it unsuitable for first-ready comparisons.

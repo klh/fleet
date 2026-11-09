@@ -4,7 +4,16 @@
 // REQUIRED (decision-grade law: every summary names a winner or an explicit
 // tie). Same seed + same driver schedule → byte-identical receipts.
 // Run: bun packages/blam/bench/artifact/harness.ts
-import { computeVerdict, statOf, type ArmRef, type ArmSamples, type Caps, type ScenarioSpec, type Stat, type Verdict } from "./types.ts";
+import {
+	computeVerdict,
+	statOf,
+	type ArmRef,
+	type ArmSamples,
+	type Caps,
+	type ScenarioSpec,
+	type Stat,
+	type Verdict,
+} from "./types.ts";
 import { replayFixtureDriver, walkOrder, type BedDriver } from "./drivers.ts";
 
 export interface ArmReceipt {
@@ -44,7 +53,10 @@ export interface ScenarioRun {
 	failures: Array<{ arm: string; rep: number; error: string }>;
 }
 
-export async function runScenario(spec: ScenarioSpec, driver: BedDriver): Promise<ScenarioRun> {
+export async function runScenario(
+	spec: ScenarioSpec,
+	driver: BedDriver,
+): Promise<ScenarioRun> {
 	const armReceipts: ArmReceipt[] = [];
 	const failures: Array<{ arm: string; rep: number; error: string }> = [];
 	const byArm = new Map<string, number[]>();
@@ -68,13 +80,22 @@ export async function runScenario(spec: ScenarioSpec, driver: BedDriver): Promis
 			list.push(value);
 			byArm.set(arm.id, list);
 		} catch (e) {
-			failures.push({ arm: arm.id, rep, error: String((e as Error)?.message ?? e) });
+			failures.push({
+				arm: arm.id,
+				rep,
+				error: String((e as Error)?.message ?? e),
+			});
 		}
 	}
-	const armSamples: ArmSamples[] = [...byArm.entries()].map(([arm, samples]) => ({ arm, samples }));
+	const armSamples: ArmSamples[] = [...byArm.entries()].map(
+		([arm, samples]) => ({ arm, samples }),
+	);
 	const stats: Record<string, Stat> = {};
 	for (const a of armSamples) {
-		stats[a.arm] = { median: statOf(a.samples, "median"), p95: statOf(a.samples, spec.rule.stat) };
+		stats[a.arm] = {
+			median: statOf(a.samples, "median"),
+			p95: statOf(a.samples, "p95"),
+		};
 	}
 	const verdict = computeVerdict(armSamples, spec.rule);
 	const summary: SummaryReceipt = {
@@ -98,7 +119,9 @@ export function receiptLines(run: ScenarioRun): string[] {
 }
 
 /** decision-grade audit over a run: the properties every consumer may assume. */
-export function audit(run: ScenarioRun): Array<{ prop: string; ok: boolean; why?: string }> {
+export function audit(
+	run: ScenarioRun,
+): Array<{ prop: string; ok: boolean; why?: string }> {
 	const v = run.summary.verdict;
 	const props: Array<{ prop: string; ok: boolean; why?: string }> = [];
 	props.push({
@@ -115,11 +138,18 @@ export function audit(run: ScenarioRun): Array<{ prop: string; ok: boolean; why?
 	const starved = Object.entries(run.summary.stats).filter(
 		([, s]) => s.median === undefined,
 	);
-	props.push({ prop: "stats-total", ok: starved.length === 0, why: starved.map(([k]) => k).join(",") });
+	props.push({
+		prop: "stats-total",
+		ok: starved.length === 0,
+		why: starved.map(([k]) => k).join(","),
+	});
 	const shortfall = run.armReceipts.length + run.failures.length;
 	props.push({
 		prop: "reps-accounted",
-		ok: shortfall === run.summary.reps * Object.keys(run.summary.stats).length + run.failures.length * 0 || shortfall >= 0,
+		ok:
+			shortfall ===
+				run.summary.reps * Object.keys(run.summary.stats).length +
+					run.failures.length * 0 || shortfall >= 0,
 		why: "receipts + failures do not cover the walk",
 	});
 	return props;
@@ -140,7 +170,14 @@ export function coldStartSpec(arms: ArmRef[]): ScenarioSpec {
 	};
 }
 
-const CAPS_FIXTURE: Caps = { bed: "docker-desktop", host: "linuxkit", kernel: "7.0.14", arch: "arm64", cpu: 18, memMiB: 7889 };
+const CAPS_FIXTURE: Caps = {
+	bed: "docker-desktop",
+	host: "linuxkit",
+	kernel: "7.0.14",
+	arch: "arm64",
+	cpu: 18,
+	memMiB: 7889,
+};
 
 // ---------- entry ----------
 // bun packages/blam/bench/artifact/harness.ts          → mechanics run over the
@@ -148,9 +185,14 @@ const CAPS_FIXTURE: Caps = { bed: "docker-desktop", host: "linuxkit", kernel: "7
 //                                                        (labeled fixture, NOT ledger)
 // bun packages/blam/bench/artifact/harness.ts --live   → live docker bed
 if (import.meta.main) {
-	const arms: ArmRef[] = [
+	const fixtureArms: ArmRef[] = [
 		{ kind: "image", id: "alpine:3.21", label: "alpine", pinned: false },
-		{ kind: "image", id: "debian:bookworm-slim", label: "debian-slim", pinned: false },
+		{
+			kind: "image",
+			id: "debian:bookworm-slim",
+			label: "debian-slim",
+			pinned: false,
+		},
 		{ kind: "image", id: "fedora:41", label: "fedora", pinned: false },
 	];
 	const fixtures: Record<string, number[]> = {
@@ -158,11 +200,46 @@ if (import.meta.main) {
 		"debian:bookworm-slim": [170, 169, 173, 171, 172, 168, 171],
 		"fedora:41": [194, 197, 196, 195, 198, 196, 194],
 	};
-	const live = process.argv.includes("--live");
-	const { dockerCaps, dockerDriver } = await import("./docker-driver.ts");
-	const driver = live ? dockerDriver(await dockerCaps()) : replayFixtureDriver(CAPS_FIXTURE, fixtures);
+	const args = process.argv.slice(2);
+	const live = args[0] === "--live";
+	const images = live ? args.slice(1) : [];
+	if (
+		live &&
+		(new Set(images).size !== images.length ||
+			images.length < 2 ||
+			images.some(
+				(image) => !/^[a-z0-9][^\s@]*@sha256:[a-f0-9]{64}$/.test(image),
+			))
+	)
+		throw new Error(
+			"usage: artifact harness --live <pinned-image> <pinned-image> [...]",
+		);
+	const arms: ArmRef[] = live
+		? images.map((id) => ({ kind: "image", id, label: id, pinned: true }))
+		: fixtureArms;
+	const { dockerCaps, dockerDriver, dockerImageIdentity } = await import(
+		"./docker-driver.ts"
+	);
+	const driver = live
+		? dockerDriver(await dockerCaps())
+		: replayFixtureDriver(CAPS_FIXTURE, fixtures);
+	if (live)
+		for (const { id } of arms)
+			console.error(
+				JSON.stringify({
+					kind: "image-identity",
+					...(await dockerImageIdentity(driver.caps, id)),
+				}),
+			);
 	const out = await runScenario(coldStartSpec(arms), driver);
 	for (const line of receiptLines(out)) console.log(line);
-	if (live) console.error(`# live bed ${driver.bed} ${driver.caps.host}/${driver.caps.kernel}`);
+	if (out.failures.length) {
+		for (const failure of out.failures) console.error(JSON.stringify(failure));
+		process.exitCode = 1;
+	}
+	if (live)
+		console.error(
+			`# live bed ${driver.bed} ${driver.caps.host}/${driver.caps.kernel}`,
+		);
 	else console.error("# replay-fixture (mechanics run, not ledger-grade)");
 }

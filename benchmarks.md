@@ -1435,3 +1435,31 @@ only variable is the bed. The suite's live rows supersede the ad-hoc
 ≈ 171ms, fedora 196ms; tool-install apk 4.1s < apt 6.3s < dnf 25.2s),
 which stay on record as the motivating measurement; fixture rows are
 labeled `<bed>:replay-fixture` and are never ledger-grade.
+
+## Native Docker Desktop first-ready probe (W2939)
+
+Seven complete pairs, seed `20261109`, Docker Desktop on
+`7.0.14-linuxkit`, native ARM64, 18 CPUs, 7932 MiB. Both images were already
+resident. Time starts before container creation and stops at the first
+validated `ready` line. Removal is outside that measurement.
+
+| Image | Median | p95 |
+| --- | ---: | ---: |
+| Alpine 3.21 | 144 ms | 151 ms |
+| Oven Bun | 145 ms | 245 ms |
+
+The median verdict was tied under the preset 5% band. All 14 samples
+reproduce the distributions and verdict. Receipt SHA-256
+`168d18a3dafc32d978d2c2ae0399169efbb92f84435792291ab73634248554a8`.
+The native Alpine and Bun image IDs were respectively
+`sha256:e77b401c86e6d0651b12ca45dea812bdf6ffca3b6e16662b7c116180e56ec9f7`
+and `sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b`.
+
+```sh
+bun packages/blam/bench/artifact/harness.ts --live \
+  alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab \
+  oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+```
+
+This probe measures local container startup. Pi Durable admission, model
+latency and cross-host results need separate evidence.
