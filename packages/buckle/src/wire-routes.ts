@@ -19,6 +19,7 @@ import {
 	registryDocument,
 } from "./endpoints.ts";
 import { principalOf } from "./gov/federation.ts";
+import { hasScope } from "./gov/scopes.ts";
 import { handleNamedIngress, namedIngressOf } from "./ingress-routes.ts";
 import { opsRoutes } from "./litellm-ops.ts";
 import { modelsFace, modelsRoute } from "./models-route.ts";
@@ -115,6 +116,17 @@ export function createApp(deps: AppDeps): App {
 					why: `no route: ${method} ${path}`,
 				});
 			return deps.federation.handle(req, principalOf(req));
+		}
+		if (path === "/v1/workers" && deps.workerInventory) {
+			if (method !== "GET") return methodNotAllowed(path);
+			const principal = principalOf(req);
+			if (!principal || !hasScope(principal.scopes, "buckle:runner:READ_"))
+				return problem({
+					status: principal ? 403 : 401,
+					code: "buckle.worker_inventory_denied",
+					why: "runner read scope required",
+				});
+			return deps.workerInventory(req);
 		}
 		if (method === "GET" && path === "/v1/fleet/whoami") {
 			// W607: self-verify echo for GUI fleet readers — the presented

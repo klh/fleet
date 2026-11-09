@@ -77,9 +77,12 @@ export function problem(p: ProblemInput): Response {
  *  /status and /metrics live here too even though servicemon serves them
  *  outside the gate — the table is the one truth about what exists. */
 export function allowOf(path: string): string | null {
-	if (path === "/repo-policy/manifest") return "GET, OPTIONS";
+	if (path === "/repo-policy/manifest" || path === "/v1/workers")
+		return "GET, OPTIONS";
 	// W914: non-admin surfaces derive from the registry (the one front-door
-	// table); admin + federation rows below stay hand-declared.
+	// table); admin + federation rows below stay hand-declared. /v1/workers
+	// stays hand-declared above — main serves it but this lineage's registry
+	// has no row for it yet.
 	if (
 		!path.startsWith("/v1/admin") &&
 		path !== "/federation" &&

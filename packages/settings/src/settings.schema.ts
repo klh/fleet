@@ -4,6 +4,7 @@
 // unknown key anywhere fails loud with the prettified zod error.
 import { z } from "zod";
 import { HubsSchema } from "./settings.hubs.ts";
+import { RunnerSettingsSchema } from "./settings.runner.ts";
 import {
 	BoardSchema,
 	BuckleSchema,
@@ -36,6 +37,7 @@ export const SettingsSchema = z
 		dispatch: DispatchSchema,
 		paths: PathsSchema,
 		telemetry: TelemetrySchema,
+		runner: RunnerSettingsSchema,
 	})
 	.strict()
 	.describe("klh fleet per-install settings (~/.config/klh/settings.json)");

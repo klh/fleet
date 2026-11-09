@@ -26,6 +26,7 @@ import type { SystemOneConfig } from "./systemone.ts";
 import type { Dialect, UpstreamPool } from "./upstreams.ts";
 
 export interface AppDeps {
+	workerInventory?: (request: Request) => Promise<Response>;
 	router: Router;
 	ledger: Ledger;
 	sm: Servicemon;
