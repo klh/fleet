@@ -4,6 +4,23 @@ import { RunnerSettingsSchema } from "@klh/settings";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import { loadDesktopRuntimeConfig } from "../hooks/lib/runners/service/desktop-config.ts";
+import { runnerDockerArgv } from "../hooks/lib/runners/service/desktop-preflight.ts";
+
+test("runner uses a local Docker endpoint on Linux and Desktop @unit", () => {
+	const argv = ["docker", "image", "inspect", "pinned-image"];
+	expect(runnerDockerArgv(argv, "linux")).toEqual([
+		"docker",
+		"--host",
+		"unix:///var/run/docker.sock",
+		...argv.slice(1),
+	]);
+	expect(runnerDockerArgv(argv, "darwin")).toEqual([
+		"docker",
+		"--context",
+		"desktop-linux",
+		...argv.slice(1),
+	]);
+});
 
 test("desktop runner requires explicit private seed and separate mint credential @unit", async () => {
 	const world = scratchWorld();
