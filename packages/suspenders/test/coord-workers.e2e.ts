@@ -73,6 +73,22 @@ test.describe("@api", () => {
 		expect(azure?.rights).toEqual(["read-only"]);
 	});
 
+	test("workers register: owner_sid is a one-time claim, a later heartbeat cannot hijack it", async () => {
+		const first = await runCliAsync(
+			COORD,
+			["workers", "register", "--as", "guarded-sid", "--owner-sid", "owner-a"],
+			{ cwd: world.repo, env },
+		);
+		expect(first.code).toBe(0);
+		const hijack = await runCliAsync(
+			COORD,
+			["workers", "register", "--as", "guarded-sid", "--owner-sid", "owner-b"],
+			{ cwd: world.repo, env },
+		);
+		expect(hijack.code).toBe(2);
+		expect(hijack.err).toContain("already owned by owner-a");
+	});
+
 	test("coord hub <name> workers: that hub's own answer only, no further federation", async () => {
 		const hub = serveStub((req) => {
 			if (new URL(req.url).pathname !== "/v1/workers")

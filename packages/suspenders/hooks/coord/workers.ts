@@ -111,8 +111,17 @@ function registerWorker(store: GovernorStore): void {
 	ensureWorkerRegistry(store);
 	const now = Date.now();
 	const prior = store
-		.query("SELECT started_at FROM worker_registrations WHERE sid = ?")
-		.get(sid) as { started_at: number } | null;
+		.query(
+			"SELECT started_at, owner_sid FROM worker_registrations WHERE sid = ?",
+		)
+		.get(sid) as { started_at: number; owner_sid: string | null } | null;
+	const ownerArg = arg("--owner-sid");
+	// W2886 review (01a186a5): owner_sid is a one-time claim — a later
+	// heartbeat cannot hijack it by passing a different --owner-sid; the
+	// announcing sid re-asserts freely (bootstrap --as trust boundary).
+	if (prior?.owner_sid && ownerArg && ownerArg !== prior.owner_sid)
+		die(`workers register: sid ${sid} already owned by ${prior.owner_sid}`);
+	const ownerSid = ownerArg ?? prior?.owner_sid ?? null;
 	store.run(
 		`INSERT INTO worker_registrations
 			(sid, name, description, purpose, origin_kind, origin_id,
@@ -137,7 +146,7 @@ function registerWorker(store: GovernorStore): void {
 		arg("--host"),
 		arg("--region"),
 		arg("--hub-id"),
-		arg("--owner-sid"),
+		ownerSid,
 		arg("--state"),
 		arg("--task"),
 		arg("--activity"),
@@ -247,7 +256,11 @@ export function localWorkers(askingSid: string | null): Worker[] {
 /** W2886: fetch one hub's own `coord workers --json` answer over its buckle
  *  front — same token-file + timeout contract as fetchHubModels
  *  (hooks/coord/hubs.ts); unreachable or no credential returns null, never
- *  a guess. */
+ *  a guess. Scope caveat: this item lands the CLI contract only — the peer hub must
+ *  itself serve `/v1/workers` (a buckle-gateway route, out of this item's
+ *  packages/suspenders scope); until that route exists, federation to a
+ *  real remote hub degrades to an errors[] entry, exercised here only via
+ *  a stub server. */
 export async function fetchHubWorkers(
 	base: string,
 	tokenFile: string | undefined,
