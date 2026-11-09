@@ -1,0 +1,27 @@
+{
+	"name": "@klh/pi-durable-workers",
+	"version": "0.1.0",
+	"description": "pi-durable extension: registration + heartbeat patterns for long-lived remote drivers (W2888)",
+	"type": "module",
+	"module": "./src/index.ts",
+	"private": true,
+	"packageManager": "bun@1.4.2",
+	"engines": {
+		"bun": "1.4.2"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./src/*": "./src/*"
+	},
+	"files": [
+		"src",
+		"README.md"
+	],
+	"scripts": {
+		"test": "bun --bun node_modules/.bin/playwright test -c test/playwright.config.ts"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.64.1",
+		"@types/bun": "1.4.2"
+	}
+}
