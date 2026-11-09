@@ -119,8 +119,18 @@ reporting hub. Unknown = `unreported`, never fabricated.
 
 **Worker registration contract (executor → hub):** long-lived remote
 drivers/executors announce on connect and on change — heartbeat keeps it
-fresh: `{sid, name, description, purpose, compute: {kind, host, region},
-started_at, activity}`. This is what lets a hub answer "I am running 4
+fresh: `{sid, name, description, purpose, trigger, compute: {kind, host,
+region}, started_at, activity}`.
+
+**Trigger archetypes (owner-set 2026-11-09)** — `trigger: {kind, spec}` is
+part of the registration; the cockpit shows it in fiddle headers and badges
+tree rows:
+
+| Kind | Wake | Plane bones already present | Missing |
+|---|---|---|---|
+| `cron` ⏰ | schedule — e.g. wake, gather reports, auto-fix CVEs | parked-digest lifecycle (W2869 design) | WHO fires cron: executor-side timer (tolerates hub-dark/Mac-sleep) vs hub-side scheduler — W2888 decision |
+| `event` ⚡ | plane event — new Jira/GitHub issue → remote inference on the data → act | WS subscribe held open (W303), control catch-up, resume controls | event-source adapters; backlog semantics while worker down |
+| `user` ◉ | connected interface requests work | queued-message delivery on resume | agent-SDK-compatible request surface (OpenRouter agent SDK as candidate shape) | This is what lets a hub answer "I am running 4
 long-lived remote sessions: 2 from this azure VM, 1 from this on-prem VM,
 1 from this aws box." The microVM substrate (W2865 lineage) implements this
 in its cloned-VM bootstrap; unregistered sessions are the hub's problem to
@@ -203,9 +213,13 @@ Owner is a stickler for columnar alignment; NO hand-padded strings.
    stable sid across host death with announce re-bind, announce location,
    runner.* event-stream integration, lease/fencing interplay, inference-leg
    recording, activity cursor.
-4. ChatGPT messaged: W2883 re-scope — panel-internal polish only; persistent
+4. Trigger archetypes folded into W2888 (cron/event/user) with
+   scheduler-location and agent-SDK-surface decisions flagged; peers
+   consulted on durable patterns (fleet: leases/GC/rights; ChatGPT:
+   identity/announce/legs/activity).
+5. ChatGPT messaged: W2883 re-scope — panel-internal polish only; persistent
    chrome + dock = cockpit item (this design).
-5. W2878 board dropdown: hub list source stays `coord targets`/stack.json
+6. W2878 board dropdown: hub list source stays `coord targets`/stack.json
    peers; cockpit consumes the same list — one source of truth.
 
 ## 10. Testing
