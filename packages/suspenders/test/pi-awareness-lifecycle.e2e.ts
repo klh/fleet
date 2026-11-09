@@ -47,7 +47,7 @@ test("Pi factory starts no IO and binds actual two-argument lifecycle with cance
 		awareness(api);
 		expect(signals).toHaveLength(0);
 		expect(tools).toContain("fleet");
-		expect(commands).toContain("fleet");
+		expect(commands).toEqual(["fleetpanel"]);
 		for (const name of ["session_start", "session_shutdown"]) {
 			const handler = events.get(name);
 			expect(typeof handler).toBe("function");

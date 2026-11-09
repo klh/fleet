@@ -10,6 +10,10 @@ test("Node Pi SDK discovers Fleet registration and disposes during real startup 
 		expect(await installPiAwareness({ piHome: world.home })).toMatchObject({
 			status: "ok",
 		});
+		writeFileSync(
+			join(world.home, "extensions/fleet-statusline.ts"),
+			'export default function(pi) { pi.registerCommand("fleet", { description: "Status widget", handler: async () => {} }); }',
+		);
 		for (const command of ["coord", "work"])
 			writeFileSync(
 				join(world.home, command),
@@ -30,7 +34,7 @@ const {session}=await createAgentSession({cwd:process.cwd(),agentDir:process.cwd
 let tools;try{await session.bindExtensions({uiContext:{setStatus:()=>{statusWrites++}}});tools=session.getAllTools().map(t=>t.name);}finally{session.dispose()}
 await new Promise(r=>setTimeout(r,250));
 const loaded=resourceLoader.getExtensions();
-console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,command:loaded.extensions.some(e=>e.commands.has("fleet")),errors:loaded.errors}));
+console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,panelCommands:loaded.extensions.filter(e=>e.commands.has("fleetpanel")).length,widgetCommands:loaded.extensions.filter(e=>e.commands.has("fleet")).length,errors:loaded.errors}));
 `,
 		);
 		const node =
@@ -61,7 +65,8 @@ console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,command:loaded
 		const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}");
 		expect(result).toMatchObject({
 			runtime: "undefined",
-			command: true,
+			panelCommands: 1,
+			widgetCommands: 1,
 			statusWrites: 0,
 			errors: [],
 		});

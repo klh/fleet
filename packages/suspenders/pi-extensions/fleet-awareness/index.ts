@@ -43,7 +43,7 @@ export default function fleetAwareness(
 			// Direct SDK disposal can invalidate the context without a shutdown event.
 			return;
 		}
-		ui?.setStatus("fleet-awareness", `/fleet | ${next.work.state}`);
+		ui?.setStatus("fleet-awareness", `/fleetpanel | ${next.work.state}`);
 	}
 	pi.on("session_start", (_event, ctx) => {
 		snapshot = null;
@@ -97,7 +97,7 @@ export default function fleetAwareness(
 			};
 		},
 	});
-	pi.registerCommand("fleet", {
+	pi.registerCommand("fleetpanel", {
 		description:
 			"Fleet terminal overview, routes, work, knowledge and consults",
 		async handler(args, ctx) {

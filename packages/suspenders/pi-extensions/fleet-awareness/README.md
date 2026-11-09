@@ -5,7 +5,7 @@ home. Pi SDK and TUI are pinned to 1.5.0. Existing user files, modified bundles
 and incompatible managed Pi versions produce a visible install conflict.
 Reinstalling identical code preserves its mtime. Bundle and metadata are 0600.
 
-Use `/fleet` for overview, work, routes, attention and peers. Keys 1–5 change
+Use `/fleetpanel` for overview, work, routes, attention and peers. Keys 1–5 change
 tabs; arrows scroll; `r` refreshes; `i` opens a work item; `k` searches knowledge;
 `c` asks a live peer; `a` reads consults; Escape closes. Ages redraw locally;
 data refreshes only on startup or explicit request. No additional subscriber

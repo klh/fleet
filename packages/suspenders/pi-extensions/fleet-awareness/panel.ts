@@ -245,7 +245,7 @@ export async function openFleet(
 	const tab = TABS.find((value) => value === command);
 	if (command && !tab)
 		throw new Error(
-			"Use /fleet [overview|work|routes|attention|peers|knowledge|consult|item|consults]",
+			"Use /fleetpanel [overview|work|routes|attention|peers|knowledge|consult|item|consults]",
 		);
 	for (;;) {
 		const choice = await showOverview(
