@@ -1,3 +1,4 @@
+import { ensureWorkerHeartbeatSchema } from "./worker-heartbeat.ts";
 // controller.ts — W2869.2: the runner control plane. Admission parses
 // the durable spec ONCE (identity is immutable — root #117690), takes
 // the distributed lease, and writes the control row; every later action
@@ -148,6 +149,7 @@ export const openRunnerController = (deps: {
 	const cleanupTimeoutMs = deps.cleanupTimeoutMs ?? 5_000;
 	deps.store.run(JOBS_DDL);
 	ensureRunnerLeaseSchema(deps.store);
+	ensureWorkerHeartbeatSchema(deps.store);
 	ensureRunnerReaderSchema(deps.store);
 	const authorizer =
 		deps.authorizer ?? makeRunnerAuthorizer({ store: deps.store, now });

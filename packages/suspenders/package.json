@@ -7,6 +7,7 @@
 	"packageManager": "bun@1.4.2",
 	"scripts": {
 		"test": "bun test test/",
+		"test:unit": "bun --bun playwright test --config test/playwright.config.ts --project unit",
 		"ci": "bun install && bun test test/",
 		"build:styles": "bun scripts/build-styles.ts",
 		"build:vendor": "bun scripts/build-vendor.ts",
