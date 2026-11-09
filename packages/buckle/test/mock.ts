@@ -3,7 +3,7 @@
 // stub body is @klh/test-kit serveStub (identical recording semantics);
 // this file keeps the MockCall/MockUpstream faces its importers assert
 // against.
-import { serveStub, type StubHandler, type StubRequest } from "@klh/test-kit";
+import { type StubHandler, type StubRequest, serveStub } from "@klh/test-kit";
 
 export type MockCall = StubRequest;
 
@@ -18,7 +18,7 @@ export type Handler = StubHandler;
 
 export async function startMockUpstream(
 	handler: Handler,
-	opts?: { hostname?: string },
+	opts?: { hostname?: string; raw?: boolean },
 ): Promise<MockUpstream> {
 	const stub = serveStub(handler, opts);
 	return {
