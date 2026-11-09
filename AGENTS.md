@@ -374,9 +374,10 @@ Machine-level config (the SOLE conf — repos carry placeholders only):
   honored read-only until the install migrateConf step runs)
 - `~/.claude/local-llm/`: `belt.env` (upstream keys, BUCKLE_ADMIN_KEY),
   `hubs.json` (label → candidate URLs resolveHub walks),
-  `routing-policy.json` (operator-owned ladder — edit THIS, never code),
-  `upstreams.json` (group overrides — per-model upstream ladders over
-  swarm :8902 / router :4000 / litellm :4100),
+  `routing-policy.json` + `upstreams.json` (W2760 side files — the law home
+  is settings.json's `routing_policy` / `upstreams` sections; resolution
+  walks explicit path → env pin → settings → legacy side files, so these
+  stay honored read-only until cut over — edit the settings sections first),
   `buckle-spoke.env` / `buckle-desktop.env` (BUCKLE_ROOT_KEY; the spoke
   env also holds `GITHUB_COPILOT_PAT`, resolved from the 0600 `copilot.key`)
 - IKEA Copilot seat (W695.6, amended W2595 2026-11-03): claude-* lane models
