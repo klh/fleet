@@ -1,15 +1,15 @@
+import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import {
 	ControlJobSchema,
-	RunnerSpecSchema,
 	digestOf,
+	RunnerSpecSchema,
 } from "../hooks/lib/runners/control/control-state.ts";
 import {
 	assertTransition,
 	canTransition,
 	TRANSITIONS,
 } from "../hooks/lib/runners/control/lifecycle.ts";
-import { scratchWorld } from "@klh/test-kit";
 
 const digest = () => digestOf(`fixture-${Math.random()}`);
 

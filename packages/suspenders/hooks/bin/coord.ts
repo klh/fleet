@@ -73,13 +73,13 @@ import {
 	cmdKnowledgeReviewDrain,
 	cmdKnowledgeVerify,
 } from "../coord/knowledge.ts";
+import { cmdRunner } from "../coord/runner.ts";
 import { cmdSettings } from "../coord/settings.ts";
 import { setRest } from "../coord/shared.ts";
 import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
-import { cmdRunner } from "../coord/runner.ts";
 
 // W157/W651: handler bodies live verbatim in hooks/coord/*.ts; the kit
 // resolves the verb, intercepts --help, parses (lax — handlers own their

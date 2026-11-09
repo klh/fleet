@@ -8,40 +8,40 @@
 // durable job fences the executor's CURRENT lease token (execute rides
 // nothing user-shaped — root #117699).
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import {
 	createRegistry,
 	defineExtension,
 	defineTool,
 	type HarnessOptions,
 } from "@earendil-works/pi-durable";
-import { openDurableJob } from "../durable/job.ts";
+import { z } from "zod";
+import { type RunnerSpec, RunnerSpecSchema } from "../control/control-state.ts";
+import {
+	type DurableAdapter,
+	openRunnerController,
+	type RunnerController,
+} from "../control/controller.ts";
+import { getLease, type LeaseToken, revokeLease } from "../control/leases.ts";
 import {
 	type JobAction,
 	makeRunnerAuthorizer,
 	type RunnerActor,
 	type RunnerAuthorizer,
 } from "../control/rights.ts";
-import {
-	openRunnerController,
-	type DurableAdapter,
-	type RunnerController,
-} from "../control/controller.ts";
-import { revokeLease, type LeaseToken } from "../control/leases.ts";
-import { RunnerSpecSchema, type RunnerSpec } from "../control/control-state.ts";
 import type { RunnerStore } from "../control/store.ts";
-import { canonicalSeedDigest, scanSeedDir } from "./seed.ts";
+import { openDurableJob } from "../durable/job.ts";
 import {
-	createDesktopDockerExecutor,
-	resolvedPolicyDigest,
-	type DesktopContainer,
-	type DesktopExecutorDeps,
-} from "./docker-executor.ts";
-import {
-	createCredentialManager,
 	type CredentialManager,
 	type CredentialManagerDeps,
+	createCredentialManager,
 } from "./credentials.ts";
+import {
+	createDesktopDockerExecutor,
+	type DesktopContainer,
+	type DesktopExecutorDeps,
+	resolvedPolicyDigest,
+} from "./docker-executor.ts";
+import { canonicalSeedDigest, scanSeedDir } from "./seed.ts";
 
 /** The pi-durable runtime the durable job rides (job.ts Runtime mirror). */
 type LeafRuntime = Pick<
@@ -236,6 +236,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		spec: RunnerSpec;
 		actor: RunnerActor;
 		seedRoot: string;
+		autoPark?: boolean;
 	}) => {
 		const runId = input.spec.runId;
 		const files = await scanSeedDir(input.seedRoot);
@@ -248,16 +249,36 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		const lease = await controller.admit({
 			spec: input.spec,
 			actor: input.actor,
+			autoPark: input.autoPark,
 		});
 		try {
 			// Mint keyed by the LEASE epoch (revocation rides the lease
 			// generation, not the immutable spec generation).
-			await credentials.mint(runId, lease.token.epoch);
+			await credentials.ensure(runId, lease.token.epoch);
+			await controller.fence({
+				runId,
+				actor: { sid: deps.executorSid, scopes: [], leaseToken: lease.token },
+			});
 		} catch (err) {
-			revokeLease(deps.store, runId, Date.now());
+			const current = getLease(deps.store, runId);
+			if (current?.epoch === lease.token.epoch && current.state === "active")
+				revokeLease(deps.store, runId, Date.now());
+			if (
+				credentials
+					.list()
+					.some(
+						(receipt) =>
+							receipt.runId === runId &&
+							receipt.epoch === lease.token.epoch &&
+							receipt.revokedAt === null,
+					)
+			)
+				await credentials.revoke(runId, lease.token.epoch);
 			throw err;
 		}
 		tokens.set(runId, lease.token);
+		stopHeartbeat(runId);
+		watchdogs.get(runId)?.stop();
 		startHeartbeat(runId, lease.token);
 		watchdogs.set(
 			runId,
@@ -300,11 +321,13 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		async stop(runId) {
 			const job = jobs.get(runId);
 			jobs.delete(runId);
-			if (job) {
-				await job.abort();
-				await job.close();
+			try {
+				// Control has already fenced the lease. Close the local harness
+				// without trying the model-facing, lease-checked abort action.
+				await job?.close();
+			} finally {
+				await executor.stop(runId);
 			}
-			await executor.stop(runId);
 		},
 	};
 
@@ -472,7 +495,11 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	};
 
 	return {
-		controller,
+		controller: {
+			...controller,
+			admit: (input) =>
+				admitAndStart({ ...input, seedRoot: deps.container.seedRoot }),
+		},
 		executor,
 		credentials,
 		policyDigest: () => resolvedPolicyDigest(deps.container),

@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import { z } from "zod";
 import { digestOf, type RunnerSpec } from "../control/control-state.ts";
+import { exportArtifacts } from "./artifact-export.ts";
 import {
-	IMAGE_PIN,
 	canonicalSeedDigest,
+	IMAGE_PIN,
 	materializeSnapshot,
 	scanSeedDir,
 	verifySnapshotDigest,
@@ -18,7 +19,6 @@ import {
 	runArgvStream,
 	type StreamRun,
 } from "./spawn.ts";
-import { exportArtifacts } from "./artifact-export.ts";
 
 export interface DesktopExecutorDeps {
 	image: string;

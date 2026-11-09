@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { apiWorld } from "./runner-api.fixture.ts";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
+import { apiWorld } from "./runner-api.fixture.ts";
 
 test("cleanup errors cannot expose provider bodies or credentials through the feed @unit", async () => {
 	const world = apiWorld();

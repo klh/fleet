@@ -2,29 +2,30 @@
 // container + real lease store + real credential journal; the buckle
 // admin leg rides a loopback stub (the admin API shape is out of scope
 // here — the live :4111 mint is the acceptance smoke).
-import { expect, test } from "@playwright/test";
+
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRegistry } from "@earendil-works/pi-durable";
-import { createDesktopRunnerLeaf } from "../hooks/lib/runners/desktop/wiring.ts";
+import { scratchWorld, serveStub } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { RunnerSpecSchema } from "../hooks/lib/runners/control/control-state.ts";
-import {
-	canonicalSeedDigest,
-	scanSeedDir,
-} from "../hooks/lib/runners/desktop/seed.ts";
-import { containerNameOf } from "../hooks/lib/runners/desktop/docker-executor.ts";
+import { ensureRunnerReaderSchema } from "../hooks/lib/runners/control/cursors.ts";
 import {
 	ensureRunnerLeaseSchema,
 	revokeLease,
 } from "../hooks/lib/runners/control/leases.ts";
-import { ensureRunnerReaderSchema } from "../hooks/lib/runners/control/cursors.ts";
 import {
 	RUNNER_SCOPES,
 	type RunnerActor,
 } from "../hooks/lib/runners/control/rights.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
-import { scratchWorld, serveStub } from "@klh/test-kit";
+import { containerNameOf } from "../hooks/lib/runners/desktop/docker-executor.ts";
+import {
+	canonicalSeedDigest,
+	scanSeedDir,
+} from "../hooks/lib/runners/desktop/seed.ts";
+import { createDesktopRunnerLeaf } from "../hooks/lib/runners/desktop/wiring.ts";
 
 const dockerUp = (): boolean =>
 	Bun.spawnSync(["docker", "info", "--format", "{{.ServerVersion}}"], {

@@ -351,34 +351,24 @@ const bindCredential = async (
 		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		try {
+			await revokeById(ctx, minted.keyId);
+		} catch (cleanupErr) {
+			const cleanup =
+				cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			throw new CredentialError(
+				`credential mint: binding failed — ${message}; CLEANUP ALSO FAILED — ${cleanup}`,
+			);
+		}
 		const receipt = ctx.receipts.get(keyOf(runId, epoch));
 		if (receipt) {
 			receipt.revokedAt = ctx.now();
 			persistReceipts(ctx);
 		}
-		throw await revokeAfterBindFailure(ctx, minted.keyId, message);
-	}
-};
-
-/** Bind failure tail: revoke the just-minted key, then fail — the error
- *  names BOTH failures when cleanup itself also failed (combined message). */
-const revokeAfterBindFailure = async (
-	ctx: CredCtx,
-	keyId: string,
-	message: string,
-): Promise<CredentialError> => {
-	try {
-		await revokeById(ctx, keyId);
-	} catch (cleanupErr) {
-		const cleanup =
-			cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-		return new CredentialError(
-			`credential mint: binding failed — ${message}; CLEANUP ALSO FAILED — ${cleanup}`,
+		throw new CredentialError(
+			`credential mint: binding failed (key revoked) — ${message}`,
 		);
 	}
-	return new CredentialError(
-		`credential mint: binding failed (key revoked) — ${message}`,
-	);
 };
 
 const revokeKey = async (

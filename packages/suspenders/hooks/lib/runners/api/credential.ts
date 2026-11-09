@@ -1,4 +1,4 @@
-import { constants, closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 
 /** Read the same descriptor that was checked; refuse symlink and permissive keys. */
 export function readRunnerCredential(path: string): string {

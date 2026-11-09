@@ -8,28 +8,29 @@
 // the loop the poll cannot (root #117701): lease flip → abort signal →
 // revokeCredential backstop → stopping.
 import { z } from "zod";
-import { assertTransition, type JobState } from "./lifecycle.ts";
 import {
-	ControlJobSchema,
-	RunnerSpecSchema,
 	type ControlJob,
+	ControlJobSchema,
 	type RunnerSpec,
+	RunnerSpecSchema,
 } from "./control-state.ts";
-import {
-	admitLease,
-	ensureRunnerLeaseSchema,
-	getLease,
-	revokeLease,
-	type LeaseToken,
-} from "./leases.ts";
 import {
 	attachReader,
 	detachReader,
 	ensureRunnerReaderSchema,
+	type RunnerEvent,
 	recordRunnerEvent,
 	replayReader,
-	type RunnerEvent,
 } from "./cursors.ts";
+import { readRunnerEvents } from "./feed.ts";
+import {
+	admitLease,
+	ensureRunnerLeaseSchema,
+	getLease,
+	type LeaseToken,
+	revokeLease,
+} from "./leases.ts";
+import { assertTransition, type JobState } from "./lifecycle.ts";
 import {
 	makeRunnerAuthorizer,
 	type RunnerActor,
@@ -37,7 +38,6 @@ import {
 } from "./rights.ts";
 import type { RunnerStore } from "./store.ts";
 import { heldSubmissions, RunnerSubmissionSchema } from "./submissions.ts";
-import { readRunnerEvents } from "./feed.ts";
 
 const JOBS_DDL = `
 CREATE TABLE IF NOT EXISTS runner_jobs (

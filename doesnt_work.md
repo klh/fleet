@@ -32,6 +32,22 @@ controller fencing. A Models object has prototype methods: spreading it lost
 getAuth and produced a fault; a bound proxy preserves those methods. Synthetic
 fixture tokens remain test data and never become performance evidence.
 
+## Pi awareness is functionality, not a startup optimization (W2875)
+
+The 12-pair real-Node SDK probe added 13.39 ms to median ready time;
+BLAM correctly refused promotion as a speed improvement. Keep this overhead
+baseline for later variants; do not infer token savings from registration or
+stubbed CLI calls. An initial SDK test invoked Bun's `node` shim and therefore
+did not prove Node compatibility; resolving the real Node executable fixed
+the test. Full GLM-5.3 review first consumed 16,000 output tokens without a
+verdict; one explicit 32,768-budget retry returned PASS. Repeating the same
+truncated request is not review progress. The proof harness still skips
+Playwright-only diffs; the 15 focused specs were executed separately.
+Manual claims without a lane-context baseline inspect only the last commit
+at completion, missing ledgers in earlier commits (W2876). Keep the ledgers
+with the final product change until original mint provenance is supported;
+do not disable the documentation gate or fabricate a dispatched context.
+
 Optimizations we actually tried that did not deliver, with the failure
 mechanism and the standing rule that replaced them. Complements
 [benchmarks.md](benchmarks.md) (the winners). Every row must be
@@ -39,6 +55,18 @@ decision-grade: it has to change what you would do. When a verdict flips
 (new numbers), move the row to benchmarks.md with the date.
 
 ## LLM serving
+
+- **Promoting a seed fork on mean wall time alone (W2882).** Twelve live pairs improved mean wall time but used more tokens and increased p95 latency. The runner evaluator now keeps the measured lift and declines promotion on either regression. The original and rescored reports retain both decisions.
+
+- **Promoting one-shot Docker prewarm on admission alone (W2883).** Twelve pairs cut admission p50 by 168 ms, while full lifecycle p50 increased by 1.7 ms and only five pairs improved wall time. BLAM declined promotion. The live recovery canary also exposed two gaps the deterministic provider missed: Pi Durable requires an environment callback or no environment option, and lease-checked abort fails after revocation. The corrected runtime omits the unused callback and closes the local harness and Docker sandbox after fencing.
+
+- **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
+  the measured 12-pair local clone/worktree probe performs zero model calls.
+  It establishes a workspace-startup delta only; it cannot establish cache
+  hits, token savings, isolation or durable recovery. BLAM now labels this
+  infrastructure-only and refuses agentic promotion with missing usage or
+  isolation observations. Keep live inference, recovery and sandbox drills
+  separate; never substitute a fast filesystem fixture for those results.
 
 - **Speculative decoding, 4B draft → big target (MLX)** — verified no win at
   4B scale; the verdict does not extrapolate to 30B+ (see W242: re-bench when

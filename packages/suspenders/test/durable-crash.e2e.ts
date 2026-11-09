@@ -1,8 +1,8 @@
-import { scratchWorld, serveStub } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld, serveStub } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { realNode } from "./durable-node.fixtures.ts";
 import {
 	createFixtureRuntime,

@@ -28,6 +28,31 @@ HTTP requests when revoked before dispatch; revocation before the tool permits
 one preceding model request and zero tool side effects. These checks gate a
 future matched BLAM run; they do not qualify a remote runner for deployment.
 
+## Pi awareness startup overhead (W2875, 2026-11-08)
+
+Twelve counterbalanced pairs, same host and pinned Pi SDK 1.5.0 under real
+Node v26.3.1; fresh process, warm filesystem, stubbed CLI responses. Off/on
+median SDK ready time: 17.82/31.21 ms; p95: 26.65/47.83 ms. Whole-process
+wall p50: 336.65/339.38 ms; p95: 382.27/386.69 ms. All 24 lifecycle checks
+passed. Candidate performs three snapshot reads and registers Fleet; baseline
+does neither. This measures added startup cost, not equal agent capabilities
+or inference throughput. BLAM reports no measured benefit and no promotion.
+Usage, disk and sandbox isolation are unmeasured, not zero. Ready means
+control registration, not first model output. Extension source abae89f0;
+evaluator 7038e605. Raw receipts and replay artifacts:
+`outputs/pi-awareness-ab-20261108` in the design workspace. Receipt SHA256
+`23494f5c33c092fe18a98aa4cac72e943547b08686da8f2e5964329e07f2b93b`;
+report `7cf8eebd25e0959547b8dd92441ddd93ca9662cae57870a56f8bd4e8f26dc66e`.
+
+The measured source predates installer and peer-SID hardening; those changes
+have 15 separate regression checks and are not remeasured in these receipts.
+
+**W2882, Pi Durable fork vs reconstruction (2026-11-09).** Twelve counterbalanced pairs across three synthetic coding tasks passed all 24 private checks. Local Buckle matched all 48 GLM-5.3 Flash calls. Fork wall time p50 7.89 → 6.59 s, p95 11.04 → 12.15 s, mean paired delta −0.410 s and +12.5 tokens. Provider cache uncontrolled. Replay the `pi-durable-coding-ab-20261109` receipt bundle with the BLAM runner report. No promotion under the new guard.
+
+**W2883, Desktop runner prewarm and recovery (2026-11-09).** Twelve matched infrastructure pairs on Docker Desktop 29.9.2 reduced admission p50 from 189.9 to 21.5 ms and first useful operation from 241.1 to 72.6 ms. Full lifecycle p50 was 326.3 versus 328.0 ms, with no promotion. All 24 runs passed the isolation checks. No model calls in this A/B. Replay `pi-fleet-desktop-prewarm-ab-20261109` using its BLAM report script and receipts. Report SHA256 `cb62251ccc8576aa189f937da5a5b9e7d1b7728d7414463fb7cc0ef26a7b3957`.
+
+Separately, the isolated official install at `356a9168` recovered the same sandbox after SIGKILL and read a private workspace witness. Buckle request `rmw978f35hkpnd5` matched the post-restart journal at 646 input tokens including 512 cache reads and 143 output tokens on `zai-glm-5.3-flash`. Both executor credentials were revoked and Docker removed the sandbox. This was one live acceptance run, with four HTTP 200 requests and one pre-restart HTTP 499.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
@@ -41,6 +66,23 @@ test; score per class, never blended; one lever at a time; re-run after any
 model bump.
 
 ---
+
+## Pi runner workspace preparation (W2870, 2026-11-08; infrastructure smoke)
+
+AC-powered macOS arm64, Bun 1.4.4, resident 128-file local Git fixture,
+12 sequential alternating-order pairs, exact content validation 24/24.
+Baseline: `git clone --no-hardlinks`; candidate: detached worktree sharing
+Git objects. Ready latency p50/p95: **48.36/54.27 ms → 23.02/30.25 ms**.
+First validated file read p50/p95: **48.39/54.30 ms → 23.05/30.28 ms**.
+Reproduce: `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12`.
+Receipt SHA256 `43bab36fc57b4e261bebe0bec92af835730447b84c35dd9eb3249c05f13933ea`;
+report SHA256 `6b44ae074608512e1097e5d4b6d372ae90b2eb076cfa96c0fa0f70199ed92104`.
+Raw evidence retained by the experiment owner outside the repo.
+Decision: prepared shared Git objects are worth including in the runner
+pilot. This is NOT a container/VM isolation test, agent-quality study,
+true-cold image-pull measurement or token-saving result. No model ran;
+RAM, disk and isolation outcomes are unmeasured/null. OS page caches were
+not controlled. Remote runtime and live model comparisons remain separate.
 
 ## Review-skill effectiveness — matched held-out agent eval (W1172; harness landed 2026-10-23, matched batches PENDING)
 

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "@playwright/test";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 

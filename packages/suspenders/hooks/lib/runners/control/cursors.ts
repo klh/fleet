@@ -4,8 +4,9 @@
 // a filtered row can never be re-seen. Replay is exact and reconnect
 // resumes at the reader's own cursor. Detach is a read-only close: it
 // never aborts or parks the job it watched.
-import type { RunnerStore } from "./store.ts";
+
 import { readRunnerEvents } from "./feed.ts";
+import type { RunnerStore } from "./store.ts";
 
 const EVENTS_DDL = `
 CREATE TABLE IF NOT EXISTS runner_events (

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { apiWorld } from "./runner-api.fixture.ts";
 import { createRunnerApi } from "../hooks/lib/runners/api/api.ts";
+import { apiWorld } from "./runner-api.fixture.ts";
 
 test("unexpected failures get correlated diagnostics without raw secret messages @unit", async () => {
 	const world = apiWorld();

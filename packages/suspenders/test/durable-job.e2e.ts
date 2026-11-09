@@ -1,8 +1,8 @@
-import { scratchWorld } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { createRegistry } from "@earendil-works/pi-durable";
-import { randomUUID } from "node:crypto";
+import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 
 test("Durable job preserves conversation and rejects changed seed across reopen @unit", async () => {
 	const { openDurableJob } = await import(

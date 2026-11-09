@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { chmod, link, mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { RunnerSettingsSchema } from "@klh/settings";
 import { scratchWorld } from "@klh/test-kit";
-import { chmod, link, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { loadDesktopRuntimeConfig } from "../hooks/lib/runners/service/desktop-config.ts";
 
 test("desktop runner requires explicit private seed and separate mint credential @unit", async () => {
@@ -35,6 +35,14 @@ test("desktop runner requires explicit private seed and separate mint credential
 		await chmod(seedRoot, 0o700);
 		await expect(
 			loadDesktopRuntimeConfig({ ...config, credential_file: mintFile }),
+		).rejects.toThrow("separate_mint_credential_required");
+		const alias = join(world.home, "alias");
+		await symlink(world.home, alias);
+		await expect(
+			loadDesktopRuntimeConfig({
+				...config,
+				credential_file: join(alias, "mint.key"),
+			}),
 		).rejects.toThrow("separate_mint_credential_required");
 		await link(mintFile, controlFile);
 		await expect(loadDesktopRuntimeConfig(config)).rejects.toThrow(

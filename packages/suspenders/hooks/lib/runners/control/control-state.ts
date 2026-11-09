@@ -1,8 +1,8 @@
 // Controller state wraps the canonical immutable durable job schema.
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { JobStateSchema } from "./lifecycle.ts";
 import { JobSpecSchema as RunnerSpecSchema } from "../durable/contracts.ts";
+import { JobStateSchema } from "./lifecycle.ts";
 
 export type RunnerSpec = z.infer<typeof RunnerSpecSchema>;
 

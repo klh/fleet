@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { ALL_SCOPES, hasScope } from "@klh/buckle/src/gov/scopes.ts";
+import { expect, test } from "@playwright/test";
 
 test("runner permissions use canonical WRITE-implies-READ without proxy privilege @unit", () => {
 	expect(ALL_SCOPES).toContain("buckle:runner:READ_");

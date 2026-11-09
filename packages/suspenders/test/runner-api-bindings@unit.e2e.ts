@@ -1,7 +1,7 @@
-import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
-import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
+import { expect, test } from "@playwright/test";
 import { createExecutorBindings } from "../hooks/lib/runners/api/bindings.ts";
+import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 
 test("host bindings persist old epochs and refuse foreign/expired credentials @unit", () => {
 	const db = new Database(":memory:");

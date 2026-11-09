@@ -1,7 +1,7 @@
 import { expandHome, RunnerServiceUrlSchema, settings } from "@klh/settings";
+import { RunIdSchema } from "./contracts.ts";
 import { readRunnerCredential } from "./credential.ts";
 import { readWireJson } from "./wire.ts";
-import { RunIdSchema } from "./contracts.ts";
 
 export class RunnerHttpError extends Error {
 	readonly traceId: string | undefined;

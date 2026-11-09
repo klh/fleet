@@ -1,18 +1,18 @@
+import { readFile, realpath } from "node:fs/promises";
+import { hostname } from "node:os";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, type HarnessOptions } from "@earendil-works/pi-durable";
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
-import { realpath, readFile } from "node:fs/promises";
-import { hostname } from "node:os";
-import { join } from "node:path";
 import {
-	JobSpecSchema,
-	JobManifestSchema,
-	JobInputSchema,
 	type Authorize,
+	JobInputSchema,
+	JobManifestSchema,
+	JobSpecSchema,
 } from "./contracts.ts";
 import { acquireHostWriter } from "./host-writer.ts";
-import { privateDirectory, existingEntry } from "./private-paths.ts";
+import { existingEntry, privateDirectory } from "./private-paths.ts";
 
 type Runtime = Pick<
 	HarnessOptions,

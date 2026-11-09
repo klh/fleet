@@ -5,7 +5,10 @@
 // opens its own database file: the host (coord verb wiring, store-server
 // adapter) injects one.
 export interface RunnerStore {
-	run(sql: string, ...params: unknown[]): { changes: number; lastInsertRowid: number };
+	run(
+		sql: string,
+		...params: unknown[]
+	): { changes: number; lastInsertRowid: number };
 	get<T>(sql: string, ...params: unknown[]): T | null;
 	all<T>(sql: string, ...params: unknown[]): T[];
 }
@@ -14,7 +17,10 @@ export interface RunnerStore {
  *  Modern bun:sqlite keeps get/all on prepared STATEMENTS (Database.query),
  *  not on the Database itself. */
 interface SqliteLike {
-	run(sql: string, ...params: unknown[]): {
+	run(
+		sql: string,
+		...params: unknown[]
+	): {
 		changes: number | bigint;
 		lastInsertRowid: number | bigint;
 	};
@@ -30,7 +36,10 @@ interface SqliteLike {
 export const sqliteStore = (db: SqliteLike): RunnerStore => ({
 	run: (sql, ...params) => {
 		const res = db.run(sql, ...params);
-		return { changes: Number(res.changes), lastInsertRowid: Number(res.lastInsertRowid) };
+		return {
+			changes: Number(res.changes),
+			lastInsertRowid: Number(res.lastInsertRowid),
+		};
 	},
 	get: <T>(sql: string, ...params: unknown[]): T | null =>
 		(db.query(sql).get(...params) ?? null) as T | null,

@@ -1,5 +1,5 @@
-import { expandHome, type RunnerSettingsSchema } from "@klh/settings";
 import { resolve } from "node:path";
+import { expandHome, type RunnerSettingsSchema } from "@klh/settings";
 import { readRunnerCredential } from "../api/credential.ts";
 import { existingEntry } from "../durable/private-paths.ts";
 
@@ -10,8 +10,20 @@ export async function loadDesktopRuntimeConfig(
 	if (!desktop) throw new Error("runner.desktop_opt_in_required");
 	const mintFile = resolve(expandHome(desktop.mint_credential_file));
 	const controlFile = resolve(expandHome(config.credential_file));
-	const mintEntry = await existingEntry(mintFile);
-	if (mintFile === controlFile || (mintEntry && mintEntry.nlink !== 1))
+	const [mintEntry, controlEntry] = await Promise.all([
+		existingEntry(mintFile),
+		existingEntry(controlFile),
+	]);
+	const sameFile =
+		mintEntry &&
+		controlEntry &&
+		mintEntry.dev === controlEntry.dev &&
+		mintEntry.ino === controlEntry.ino;
+	if (
+		mintFile === controlFile ||
+		sameFile ||
+		(mintEntry && mintEntry.nlink !== 1)
+	)
 		throw new Error("runner.separate_mint_credential_required");
 	const seedRoot = resolve(expandHome(desktop.seed_root));
 	const seedEntry = await existingEntry(seedRoot);

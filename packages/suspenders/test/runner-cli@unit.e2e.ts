@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test";
-import { scratchWorld, runCli } from "@klh/test-kit";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { writeFileSync, chmodSync } from "node:fs";
+import { runCli, scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
+
 const BIN = join(import.meta.dir, "../hooks/bin/coord.ts");
 
 test("runner CLI carries only validated trace IDs from HTTP failures @unit", async () => {

@@ -115,9 +115,7 @@ class StreamReader {
 	private async ensure(n: number): Promise<void> {
 		while (this.filled < n) {
 			if (!(await this.fill())) {
-				throw new ArtifactRefusalError(
-					"artifact-export: truncated tar stream",
-				);
+				throw new ArtifactRefusalError("artifact-export: truncated tar stream");
 			}
 		}
 	}
@@ -204,8 +202,10 @@ export const exportArtifacts = async (
 		"tar",
 		"--format=ustar",
 		"--blocking-factor=1",
-		"-C", "/workspace",
-		"-cf", "-",
+		"-C",
+		"/workspace",
+		"-cf",
+		"-",
 		".",
 	]);
 	const reader = new StreamReader(proc.stream);

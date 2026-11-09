@@ -41,13 +41,13 @@ import { type Federation, stashPrincipal } from "./federation.ts";
 import { createJwtValidator, type JwtOpts, jwtScopeCheck } from "./jwt.ts";
 import { hashKey, KeyStore } from "./keys.ts";
 import { applyGovernanceSchema } from "./schema.ts";
+import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
 import {
-	Slots,
 	type SlotLease,
 	type SlotLimits,
+	Slots,
 	slotsFromEnv,
 } from "./slots.ts";
-import { ALL_SCOPES, hasScope, scopesFromStorage } from "./scopes.ts";
 
 export interface GovernanceOpts {
 	dbPath: string;
