@@ -65,6 +65,12 @@ exclude_patterns = [
   # (package.json) fall through to the root biome run, which hard-errors on
   # the nested biome root and reports a parser error against the file.
   "packages/decant/**",
+  # W2761: vendored klh/fleet-knowledge snapshot @ 6c03ccf — upstream-owned
+  # bytes, same posture as decant: never reformatted in place. The tree ships
+  # no biome config of its own, but its formatting is upstream's (tabs,
+  # comment style) and a root reformat would fork the snapshot; the fork's
+  # own gates (tsc/biome in the source repo) reconcile it.
+  "packages/fleet-knowledge/**",
 ]
 
 test_patterns = [

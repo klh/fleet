@@ -10,7 +10,7 @@ import {
 	lessonsViaSink,
 	sinkConf,
 	type SinkLessonRow,
-} from "./knowledge-sink-client.ts";
+} from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 
 export interface LessonPushRow {
 	key: string;

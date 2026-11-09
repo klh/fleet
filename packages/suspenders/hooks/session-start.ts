@@ -23,11 +23,13 @@ import {
 	projectIdentity,
 	sweepStaleSessions,
 } from "./lib/govdb/govdb.ts";
+// W2761: the sink client rides the vendored knowledge plane
+// (@klh/fleet-knowledge) — the in-tree twin is retired.
 import {
 	SINK_QUERY_SCOPE,
 	sinkConf,
 	sinkConfigured,
-} from "./lib/knowledge/knowledge-sink-client.ts";
+} from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 import { checkpointPath } from "./lib/lanes/checkpoint.ts";
 import { enrollTopLevel } from "./lib/lanes/hook-scripts.ts";
 // W2782: the session-scoped lanes table rides the supervisor block — same

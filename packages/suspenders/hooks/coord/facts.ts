@@ -28,10 +28,12 @@ import {
 	originKindOf,
 	sourceRefOf,
 } from "../lib/knowledge/knowledge-facts.ts";
+// W2761: the sink client rides the vendored knowledge plane
+// (@klh/fleet-knowledge) — the in-tree twin is retired.
 import {
 	searchSink,
 	sinkConfigured,
-} from "../lib/knowledge/knowledge-sink-client.ts";
+} from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 import { parseProvenance } from "../lib/knowledge/knowledge-sync.ts";
 import {
 	assertCapsuleBounds,

@@ -17,7 +17,7 @@ import { openGovernorDb, openKnowledgeDb } from "../govdb/govdb.ts";
 import { SqliteKnowledgeStore } from "./sqlite-store.ts";
 import type { KnowledgeStore } from "./store-schema.ts";
 import { restrictiveDomain, type DataDomain } from "../lanes/provenance.ts";
-import { settleViaSink } from "./knowledge-sink-client.ts";
+import { settleViaSink } from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 
 export interface SettleResult {
 	sid: string;

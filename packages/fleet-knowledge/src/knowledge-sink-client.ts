@@ -1,4 +1,4 @@
-// hooks/lib/knowledge/knowledge-sink-client.ts — W1221: the ONE client the
+// src/knowledge-sink-client.ts — W1221: the ONE client the
 // harness uses to reach the hub knowledge sink's recall faces. W1221 wires
 // three consumers onto it:
 //   coord fact get — a local facts miss falls through to the sink (/search),

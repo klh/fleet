@@ -5,11 +5,10 @@
 import { test, expect } from "@playwright/test";
 import { serveStub } from "@klh/test-kit";
 import {
-	type fkWriteConf,
 	lessonsViaSink,
 	settleViaSink,
 	sinkPostFace,
-} from "../hooks/lib/knowledge/knowledge-sink-client.ts";
+} from "@klh/fleet-knowledge/src/knowledge-sink-client.ts";
 import {
 	lessonPushLines,
 	lessonsForPush,
@@ -19,10 +18,7 @@ function stub404() {
 	return serveStub(() => new Response("no", { status: 404 }));
 }
 
-const wc = (
-	url: string,
-	writeToken: string | null,
-): ReturnType<typeof fkWriteConf> => ({
+const wc = (url: string, writeToken: string | null): FkWriteConf => ({
 	conf: { url, key: null, keyFile: null, timeoutMs: 300 },
 	writeToken,
 });

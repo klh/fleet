@@ -1,0 +1,65 @@
+# One sink, one probe. The health law lives here: a server cannot paint
+# itself healthy, so compose's healthcheck hits the knowledge-sink-health
+# SIDECAR on :7803 — never the served process. The sidecar polls the real
+# target over the network and serves the verdict on its own port.
+#
+# No secrets in this file. Keys arrive via the environment (see
+# .env.example); the sqlite db lives in a named volume under the HOME-style
+# registry path.
+
+services:
+  knowledge-sink:
+    image: oven/bun:1
+    command: bun run bin/knowledge-api.ts
+    environment:
+      KNOWLEDGE_API_PORT: "7802"
+      KNOWLEDGE_API_BIND: 0.0.0.0
+      # The db root is $HOME/.cache/claude-governor (src/db.ts REG root);
+      # pinning HOME to the mounted volume parks knowledge.db there.
+      HOME: /data
+    volumes:
+      - sink-db:/data
+    ports:
+      - "7802:7802"
+    restart: unless-stopped
+
+  knowledge-sink-health:
+    image: oven/bun:1
+    depends_on:
+      - knowledge-sink
+    command: >-
+      bun -e
+      "const probe = async () => {
+        try {
+          const r = await fetch('http://knowledge-sink:7802/status');
+          return r.ok;
+        } catch { return false; }
+      };
+      let up = false; let misses = 0;
+      const tick = async () => { up = await probe(); if (up) misses = 0; else misses++; };
+      Bun.serve({
+        port: 7803,
+        fetch: async () => {
+          await tick();
+          return Response.json({ ok: up, misses },
+            { status: up ? 200 : 503 });
+        },
+      });
+      setInterval(tick, 10000).unref();
+      console.error('knowledge-sink-health: probing :7802, serving :7803');"
+    ports:
+      - "7803:7803"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bun -e 'const r = await fetch("http://127.0.0.1:7803/healthz");
+          if (!r.ok) process.exit(1);'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  sink-db:
