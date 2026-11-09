@@ -89,6 +89,41 @@ test.describe("@api", () => {
 		expect(hijack.err).toContain("already owned by owner-a");
 	});
 
+	test("workers register: accepts the W2888 JSON-positional wire payload", async () => {
+		const payload = JSON.stringify({
+			sid: "pi-durable-1",
+			name: "pi durable worker",
+			origin_kind: "controller",
+			origin_id: "ctl-1",
+			compute_kind: "hub",
+			compute_host: "nas.local",
+			hub_id: "nas",
+			owner_sid: "owner-pi",
+			state: "RUNNING",
+			task: "heartbeat",
+		});
+		const reg = await runCliAsync(COORD, ["workers", "register", payload], {
+			cwd: world.repo,
+			env,
+		});
+		expect(reg.code).toBe(0);
+		const listed = await runCliAsync(
+			COORD,
+			["workers", "--json", "--local-only"],
+			{ cwd: world.repo, env },
+		);
+		const out = JSON.parse(listed.out) as { workers: unknown[] };
+		const parsed = out.workers.map((w) => workerSchema.parse(w));
+		const row = parsed.find((w) => w.sid === "pi-durable-1");
+		expect(row?.compute).toEqual({
+			kind: "hub",
+			host: "nas.local",
+			region: null,
+			hub_id: "nas",
+		});
+		expect(row?.owner_sid).toBe("owner-pi");
+	});
+
 	test("coord hub <name> workers: that hub's own answer only, no further federation", async () => {
 		const hub = serveStub((req) => {
 			if (new URL(req.url).pathname !== "/v1/workers")

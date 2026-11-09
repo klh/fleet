@@ -101,13 +101,65 @@ function readRegistrations(store: GovernorStore): Map<string, RegistrationRow> {
 	return new Map(rows.map((r) => [r.sid, r]));
 }
 
+/** W2886/W2888 settled contract (01a186a5 directive): `register` accepts
+ *  EITHER the flag form OR a single JSON positional payload (the wire shape
+ *  @klh/pi-durable-workers' RegistrationClient emits) — one contract, two
+ *  calling conventions, never a silent drop when one side sends the other's
+ *  shape. Malformed/absent JSON falls through to flags. */
+function registerPayload(rest: string[]): Record<string, string | null> {
+	const positional = rest.find((t) => !t.startsWith("--"));
+	if (positional?.trim().startsWith("{")) {
+		try {
+			const w = JSON.parse(positional) as Record<string, unknown>;
+			const s = (k: string): string | null => {
+				const v = w[k];
+				return v == null ? null : String(v);
+			};
+			return {
+				sid: s("sid"),
+				name: s("name"),
+				description: s("description"),
+				purpose: s("purpose"),
+				origin_kind: s("origin_kind"),
+				origin_id: s("origin_id"),
+				compute_kind: s("compute_kind"),
+				compute_host: s("compute_host"),
+				compute_region: s("compute_region"),
+				compute_hub_id: s("hub_id"),
+				owner_sid: s("owner_sid"),
+				state: s("state"),
+				task: s("task"),
+				activity: s("activity"),
+			};
+		} catch {} // malformed JSON falls through to the flag form below
+	}
+	return {
+		sid: arg("--as"),
+		name: arg("--name"),
+		description: arg("--description"),
+		purpose: arg("--purpose"),
+		origin_kind: arg("--origin-kind"),
+		origin_id: arg("--origin-id"),
+		compute_kind: arg("--compute-kind"),
+		compute_host: arg("--host"),
+		compute_region: arg("--region"),
+		compute_hub_id: arg("--hub-id"),
+		owner_sid: arg("--owner-sid"),
+		state: arg("--state"),
+		task: arg("--task"),
+		activity: arg("--activity"),
+	};
+}
+
 /** `coord workers register --as <sid> --name n [--description d] [--purpose p]
  *  [--origin-kind k] [--origin-id id] [--compute-kind k] [--host h]
  *  [--region r] [--hub-id id] [--owner-sid sid] [--state s] [--task t]
  *  [--activity json]` — announce-or-heartbeat upsert (W2886 registration
  *  contract). */
-function registerWorker(store: GovernorStore): void {
-	const sid = arg("--as") ?? die("usage: workers register --as <sid> ...");
+function registerWorker(store: GovernorStore, rest: string[]): void {
+	const p = registerPayload(rest);
+	const sid =
+		p.sid ?? die("usage: workers register --as <sid> ... | register '<json>'");
 	ensureWorkerRegistry(store);
 	const now = Date.now();
 	const prior = store
@@ -115,7 +167,7 @@ function registerWorker(store: GovernorStore): void {
 			"SELECT started_at, owner_sid FROM worker_registrations WHERE sid = ?",
 		)
 		.get(sid) as { started_at: number; owner_sid: string | null } | null;
-	const ownerArg = arg("--owner-sid");
+	const ownerArg = p.owner_sid;
 	// W2886 review (01a186a5): owner_sid is a one-time claim — a later
 	// heartbeat cannot hijack it by passing a different --owner-sid; the
 	// announcing sid re-asserts freely (bootstrap --as trust boundary).
@@ -137,19 +189,19 @@ function registerWorker(store: GovernorStore): void {
 			state=excluded.state, task=excluded.task, activity=excluded.activity,
 			updated_at=excluded.updated_at`,
 		sid,
-		arg("--name"),
-		arg("--description"),
-		arg("--purpose"),
-		arg("--origin-kind"),
-		arg("--origin-id"),
-		arg("--compute-kind"),
-		arg("--host"),
-		arg("--region"),
-		arg("--hub-id"),
+		p.name,
+		p.description,
+		p.purpose,
+		p.origin_kind,
+		p.origin_id,
+		p.compute_kind,
+		p.compute_host,
+		p.compute_region,
+		p.compute_hub_id,
 		ownerSid,
-		arg("--state"),
-		arg("--task"),
-		arg("--activity"),
+		p.state,
+		p.task,
+		p.activity,
 		prior?.started_at ?? now,
 		now,
 	);
@@ -301,7 +353,7 @@ function renderTable(workers: Worker[]): void {
  *  hub's self-reported reported_by. A hub that cannot be reached contributes
  *  an errors[] entry, never a silent gap. */
 export async function cmdWorkers(rest: string[]): Promise<void> {
-	if (rest[0] === "register") return registerWorker(db);
+	if (rest[0] === "register") return registerWorker(db, rest.slice(1));
 	const askingSid = arg("--as");
 	const mine = localWorkers(askingSid);
 	const errors: { scope: string; message: string }[] = [];
