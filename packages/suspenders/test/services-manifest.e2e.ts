@@ -238,6 +238,20 @@ const iniByName = (name: string): Record<string, Record<string, string>> =>
 	parseIni(renderLinux(byName(name), FIXTURE));
 
 test.describe("services manifest linux (W488.2)", () => {
+	test("runner control is an opt-in Linux service with an installed entry", () => {
+		const spec = loadManifest().find(({ name }) => name === "runner-control");
+		if (!spec) throw new Error("runner-control missing from manifest");
+		expect(services.some(({ name }) => name === "runner-control")).toBe(false);
+		expect(spec.explicitOnly).toBe(true);
+		const units = renderUnits("linux", spec, FIXTURE);
+		expect(units).toHaveLength(1);
+		const ini = parseIni(units[0].body);
+		expect(ini.Service?.ExecStart).toBe(
+			`"${FIXTURE.bun}" "${FIXTURE.prefix}/bin/runner-control.ts"`,
+		);
+		expect(ini.Service?.Environment).not.toContain("DOCKER_HOST");
+	});
+
 	test("every service renders a systemd unit that parses as INI with required keys", () => {
 		for (const spec of services) {
 			const ini = parseIni(renderLinux(spec, FIXTURE));

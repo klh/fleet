@@ -5,12 +5,14 @@ import {
 	streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
 import { createRegistry } from "@earendil-works/pi-durable";
+import { runArgv, runArgvStream } from "../desktop/spawn.ts";
 import { createDesktopRunnerLeaf } from "../desktop/wiring.ts";
 import { privateDirectory } from "../durable/private-paths.ts";
 import { loadDesktopRuntimeConfig } from "./desktop-config.ts";
 import {
 	checkDesktopImage,
 	checkDesktopMintAuthority,
+	runnerDockerArgv,
 } from "./desktop-preflight.ts";
 import type { runRunnerService } from "./process.ts";
 
@@ -71,12 +73,16 @@ export async function desktopRuntime(
 			const leaf = createDesktopRunnerLeaf({
 				store,
 				durableRoot,
-				executorSid: "desktop-runner",
+				executorSid:
+					process.platform === "linux" ? "linux-hub-runner" : "desktop-runner",
 				cleanupTimeoutMs: 20_000,
 				container: {
 					image: desktop.image,
 					seedRoot: desktop.seedRoot,
 					workspacesDir,
+					runDocker: (argv, options) =>
+						runArgv(runnerDockerArgv(argv), options),
+					runDockerStream: (argv) => runArgvStream(runnerDockerArgv(argv)),
 				},
 				runtime: {
 					models,
