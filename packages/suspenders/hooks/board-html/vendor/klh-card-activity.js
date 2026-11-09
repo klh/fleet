@@ -1,1 +1,1 @@
-import{R}from"./lit-2a58fe1efc89d77c.js";import"./lit-b59bf30faa0b21f8.js";export{R as KlhCardActivity};
+import{M}from"./lit-bdbe25a9bb288c58.js";import"./lit-f18bcbfe556b7350.js";export{M as KlhCardActivity};

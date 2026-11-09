@@ -37,6 +37,10 @@ const SOURCES = [
 	"hooks/board-html/klh-board-mediator.ts",
 	"hooks/board-html/klh-decisions-mediator.ts",
 	"hooks/board-html/klh-decisions.ts",
+	"hooks/board-html/klh-report-mediator.ts",
+	"hooks/board-html/klh-report.ts",
+	"hooks/board-html/klh-setup-mediator.ts",
+	"hooks/board-html/klh-setup.ts",
 	"hooks/board-html/klh-card-activity.ts",
 	// W2267.4.2.2 (#103173): the ONE registration entry — class modules
 	// export definitions only; this composes them via defineElement.
