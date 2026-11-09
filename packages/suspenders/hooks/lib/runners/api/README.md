@@ -63,3 +63,10 @@ From `packages/suspenders`, run `bun test/runner-linux-preflight.fixture.ts`
 to reproduce the isolated Linux preflight. It uses a pinned local Bun image,
 a fixture identity service and a stub for image inspection. It does not
 launch a real runner job or verify a deployment on the target host.
+
+On Synology, verify the effective permissions on the state root before
+writing any key or profile. In the NAS canary, an inherited home ACL made
+a newly created directory and file report mode 0777 despite a restrictive
+umask. Explicitly applying mode 0700 to the empty private root before
+creating children restored 0700 directories and 0600 files. The runner's
+private-file checks remain in force.

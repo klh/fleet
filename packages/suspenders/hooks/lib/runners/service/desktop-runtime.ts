@@ -12,6 +12,7 @@ import { loadDesktopRuntimeConfig } from "./desktop-config.ts";
 import {
 	checkDesktopImage,
 	checkDesktopMintAuthority,
+	checkRunnerDockerLimits,
 	runnerDockerArgv,
 } from "./desktop-preflight.ts";
 import type { runRunnerService } from "./process.ts";
@@ -24,6 +25,7 @@ export async function desktopRuntime(
 	await Promise.all([
 		checkDesktopImage(desktop.image),
 		checkDesktopMintAuthority(desktop.baseUrl, desktop.adminKey),
+		checkRunnerDockerLimits(),
 	]);
 	return {
 		async openRuntime({ store, bindings, profiles }) {
@@ -75,7 +77,6 @@ export async function desktopRuntime(
 				durableRoot,
 				executorSid:
 					process.platform === "linux" ? "linux-hub-runner" : "desktop-runner",
-				cleanupTimeoutMs: 20_000,
 				container: {
 					image: desktop.image,
 					seedRoot: desktop.seedRoot,
