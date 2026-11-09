@@ -1,5 +1,58 @@
 # fleet benchmarks
 
+## Runner API prerequisites (W2879, 2026-11-08)
+
+Real scratch Buckle with one occupied model slot: identity was HTTP 429 before
+the change and HTTP 200 after it, while another generation remained HTTP 429.
+Missing, wrong-scope and revoked keys remain 401/403/401. No extra generation
+was observed. Thirty-three focused API/controller cases passed, including
+persisted host bindings and request IDs through held-message recovery. This is
+correctness evidence, not throughput, deployment or model-quality evidence.
+
+The integrated pinned Durable 1.5.0/API suite now passes 53 cases, including
+actual Node reopen, SIGKILL recovery and completed-request replay without
+another fixture provider call or tool effect. Two real scratch Buckle cases
+prove occupied-slot identity and a control key that cannot generate tokens.
+All 17 settings cases pass; frozen-lockfile installation succeeds. Provider
+responses are synthetic protocol fixtures, not model-quality measurements.
+
+## Durable runner correctness prerequisite (W2869.1, 2026-11-08)
+
+Pi Durable/pi-ai/Chord pinned 1.5.0: twelve deterministic cases cover real
+Node reopen, per-job writer exclusion and SIGKILL release, mid-tool SIGKILL
+without unsafe replay, stable request IDs, reader cancellation, private storage,
+execution fencing and active/new-job registry versions. Provider responses and
+usage are synthetic fixtures. No throughput, token savings, sandbox isolation
+or model-quality result is measured here. Model fencing asserts zero actual
+HTTP requests when revoked before dispatch; revocation before the tool permits
+one preceding model request and zero tool side effects. These checks gate a
+future matched BLAM run; they do not qualify a remote runner for deployment.
+
+## Pi awareness startup overhead (W2875, 2026-11-08)
+
+Twelve counterbalanced pairs, same host and pinned Pi SDK 1.5.0 under real
+Node v26.3.1; fresh process, warm filesystem, stubbed CLI responses. Off/on
+median SDK ready time: 17.82/31.21 ms; p95: 26.65/47.83 ms. Whole-process
+wall p50: 336.65/339.38 ms; p95: 382.27/386.69 ms. All 24 lifecycle checks
+passed. Candidate performs three snapshot reads and registers Fleet; baseline
+does neither. This measures added startup cost, not equal agent capabilities
+or inference throughput. BLAM reports no measured benefit and no promotion.
+Usage, disk and sandbox isolation are unmeasured, not zero. Ready means
+control registration, not first model output. Extension source abae89f0;
+evaluator 7038e605. Raw receipts and replay artifacts:
+`outputs/pi-awareness-ab-20261108` in the design workspace. Receipt SHA256
+`23494f5c33c092fe18a98aa4cac72e943547b08686da8f2e5964329e07f2b93b`;
+report `7cf8eebd25e0959547b8dd92441ddd93ca9662cae57870a56f8bd4e8f26dc66e`.
+
+The measured source predates installer and peer-SID hardening; those changes
+have 15 separate regression checks and are not remeasured in these receipts.
+
+**W2882, Pi Durable fork vs reconstruction (2026-11-09).** Twelve counterbalanced pairs across three synthetic coding tasks passed all 24 private checks. Local Buckle matched all 48 GLM-5.3 Flash calls. Fork wall time p50 7.89 → 6.59 s, p95 11.04 → 12.15 s, mean paired delta −0.410 s and +12.5 tokens. Provider cache uncontrolled. Replay the `pi-durable-coding-ab-20261109` receipt bundle with the BLAM runner report. No promotion under the new guard.
+
+**W2883, Desktop runner prewarm and recovery (2026-11-09).** Twelve matched infrastructure pairs on Docker Desktop 29.9.2 reduced admission p50 from 189.9 to 21.5 ms and first useful operation from 241.1 to 72.6 ms. Full lifecycle p50 was 326.3 versus 328.0 ms, with no promotion. All 24 runs passed the isolation checks. No model calls in this A/B. Replay `pi-fleet-desktop-prewarm-ab-20261109` using its BLAM report script and receipts. Report SHA256 `cb62251ccc8576aa189f937da5a5b9e7d1b7728d7414463fb7cc0ef26a7b3957`.
+
+Separately, the isolated official install at `356a9168` recovered the same sandbox after SIGKILL and read a private workspace witness. Buckle request `rmw978f35hkpnd5` matched the post-restart journal at 646 input tokens including 512 cache reads and 143 output tokens on `zai-glm-5.3-flash`. Both executor credentials were revoked and Docker removed the sandbox. This was one live acceptance run, with four HTTP 200 requests and one pre-restart HTTP 499.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
@@ -13,6 +66,23 @@ test; score per class, never blended; one lever at a time; re-run after any
 model bump.
 
 ---
+
+## Pi runner workspace preparation (W2870, 2026-11-08; infrastructure smoke)
+
+AC-powered macOS arm64, Bun 1.4.4, resident 128-file local Git fixture,
+12 sequential alternating-order pairs, exact content validation 24/24.
+Baseline: `git clone --no-hardlinks`; candidate: detached worktree sharing
+Git objects. Ready latency p50/p95: **48.36/54.27 ms → 23.02/30.25 ms**.
+First validated file read p50/p95: **48.39/54.30 ms → 23.05/30.28 ms**.
+Reproduce: `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12`.
+Receipt SHA256 `43bab36fc57b4e261bebe0bec92af835730447b84c35dd9eb3249c05f13933ea`;
+report SHA256 `6b44ae074608512e1097e5d4b6d372ae90b2eb076cfa96c0fa0f70199ed92104`.
+Raw evidence retained by the experiment owner outside the repo.
+Decision: prepared shared Git objects are worth including in the runner
+pilot. This is NOT a container/VM isolation test, agent-quality study,
+true-cold image-pull measurement or token-saving result. No model ran;
+RAM, disk and isolation outcomes are unmeasured/null. OS page caches were
+not controlled. Remote runtime and live model comparisons remain separate.
 
 ## Review-skill effectiveness — matched held-out agent eval (W1172; harness landed 2026-10-23, matched batches PENDING)
 
@@ -1345,3 +1415,64 @@ kept as the documented anti-pattern. Re-run with
 the tool prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares the
 arms comparable — matched state mix + exposure discipline is judged, not
 computed.
+
+## Artifact bench, decision-grade paired-arm receipts (W2904, 2026-11-09)
+
+`packages/blam/bench/artifact/` — deterministic, LLM-optional paired-arm
+harness whose arms are ARTIFACT refs (image@digest, package version,
+toolchain pin). Decision-grade law: every scenario declares a
+`DecisionRule` up front; every summary carries a REQUIRED `verdict` block
+(winner arm id, or the explicit `tied` when all arms sit inside the 5%
+epsilon band) — winnerless rows are schema-invalid by construction.
+Parity via `Caps {bed, host, kernel, arch, cpu, memMiB}` (samples compare
+only inside one caps block); controlled ordering via mulberry32
+`seededOrder(arms, reps, seed + rep*7919)` — same seed, byte-identical
+receipts (10 bun tests, 29 expects, 35ms, CI-safe replay-fixture driver;
+live docker driver additive). The first matched cross-bed run (desktop vs
+remote hub) pins the receipt-v1 digest `oven/bun@sha256:9114c058…` so the
+only variable is the bed. The suite's live rows supersede the ad-hoc
+2026-11-09 desktop bake-off numbers (cold-start medians alpine ≈ debian-slim
+≈ 171ms, fedora 196ms; tool-install apk 4.1s < apt 6.3s < dnf 25.2s),
+which stay on record as the motivating measurement; fixture rows are
+labeled `<bed>:replay-fixture` and are never ledger-grade.
+
+## Native Docker Desktop first-ready probe (W2939)
+
+Seven complete pairs, seed `20261109`, Docker Desktop on
+`7.0.14-linuxkit`, native ARM64, 18 CPUs, 7932 MiB. Both images were already
+resident. Time starts before container creation and stops at the first
+validated `ready` line. Removal is outside that measurement.
+
+| Image | Median | p95 |
+| --- | ---: | ---: |
+| Alpine 3.21 | 144 ms | 151 ms |
+| Oven Bun | 145 ms | 245 ms |
+
+The median verdict was tied under the preset 5% band. All 14 samples
+reproduce the distributions and verdict. Receipt SHA-256
+`168d18a3dafc32d978d2c2ae0399169efbb92f84435792291ab73634248554a8`.
+The native Alpine and Bun image IDs were respectively
+`sha256:e77b401c86e6d0651b12ca45dea812bdf6ffca3b6e16662b7c116180e56ec9f7`
+and `sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b`.
+
+```sh
+bun packages/blam/bench/artifact/harness.ts --live \
+  alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab \
+  oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+```
+
+This probe measures local container startup. Pi Durable admission, model
+latency and cross-host results need separate evidence.
+
+A second native run with embedded platform identity records tied again
+(W2940, same seed, seven new pairs). Alpine median/p95 was 132/191 ms
+and Bun was 138/171 ms. The tail ordering reversed, so these two small
+runs do not establish a stable p95 winner. Sealed receipt SHA-256
+`5e6014432f5ed43c4c1abda0842650e48c908042c1be88263b14429d8ee5b35f`.
+Use `bun packages/blam/bench/artifact/harness.ts --replay <receipts.ndjson>`
+to recompute the distributions and verdict without Docker.
+
+The replay verifier checks every arm and repetition, the shared bed metadata,
+both native image identities, and the reported median, p95 and verdict. The
+second run contains 14 samples and two image identity records. The earlier
+native run remains readable with zero embedded identity records.

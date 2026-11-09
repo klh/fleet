@@ -13,6 +13,15 @@ import {
 import { join } from "node:path";
 import { execa } from "execa";
 import { ensureShims } from "../ensure-shims.ts";
+import { registerLaunchdPreflight } from "../install-preflight.ts";
+import {
+	ensurePreferHubLine,
+	gitToplevel,
+	resolvePreferHubLabel,
+} from "../lib/prefer-hub-line.ts";
+import { sourcePaths, syncHarness } from "../sync-harness.ts";
+import { upgradeGateway } from "../upgrade-gateway.ts";
+import { activateGateway } from "./install-activate-gateway.ts";
 import { migrateConf } from "./install-conf-migrate.ts";
 import { wireConnections } from "./install-connections.ts";
 import {
@@ -25,7 +34,6 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
-import { registerLaunchdPreflight } from "../install-preflight.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -36,14 +44,6 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import {
-	ensurePreferHubLine,
-	gitToplevel,
-	resolvePreferHubLabel,
-} from "../lib/prefer-hub-line.ts";
-import { sourcePaths, syncHarness } from "../sync-harness.ts";
-import { upgradeGateway } from "../upgrade-gateway.ts";
-import { activateGateway } from "./install-activate-gateway.ts";
 
 export interface StepContext {
 	dryRun: boolean;
@@ -396,7 +396,19 @@ async function userLevelWire(ctx: StepContext): Promise<StepResult> {
 		ctx.home,
 	);
 	const extras = await runWireExtras(ctx);
-	return { status: "ok", note: wireNote(settingsPath, added, removed, extras) };
+	const { installPiAwareness } = await import("./install-pi-awareness.ts");
+	const awareness = await installPiAwareness({
+		home: ctx.home,
+		dryRun: ctx.dryRun,
+	});
+	const piNote =
+		awareness.status === "skipped"
+			? ""
+			: ` — Pi awareness ${awareness.status}: ${awareness.note}`;
+	return {
+		status: awareness.status === "conflict" ? "failed" : "ok",
+		note: wireNote(settingsPath, added, removed, extras + piNote),
+	};
 }
 
 // W650: repo-level scrub-gate enforcement — committed .githooks stubs (W236)

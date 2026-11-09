@@ -6,9 +6,10 @@
 // logs, cwd or Nice fails loudly. Also covers placeholder validation (used
 // but undeclared / declared but unused / unresolvable tokens) and the
 // install.sh-matching belt defaults.
-import { expect, test } from "@playwright/test";
+
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import {
 	defaultRenderValues,
 	loadLegacyLabels,
@@ -38,7 +39,7 @@ const FIXTURE: RenderValues = {
 	beltToken: "fixture-belt-token",
 };
 
-const services = loadManifest();
+const services = loadManifest().filter((service) => !service.explicitOnly);
 const byName = (name: string): ServiceSpec => {
 	const spec = services.find((s) => s.name === name);
 	if (spec === undefined)
@@ -237,6 +238,20 @@ const iniByName = (name: string): Record<string, Record<string, string>> =>
 	parseIni(renderLinux(byName(name), FIXTURE));
 
 test.describe("services manifest linux (W488.2)", () => {
+	test("runner control is an opt-in Linux service with an installed entry", () => {
+		const spec = loadManifest().find(({ name }) => name === "runner-control");
+		if (!spec) throw new Error("runner-control missing from manifest");
+		expect(services.some(({ name }) => name === "runner-control")).toBe(false);
+		expect(spec.explicitOnly).toBe(true);
+		const units = renderUnits("linux", spec, FIXTURE);
+		expect(units).toHaveLength(1);
+		const ini = parseIni(units[0].body);
+		expect(ini.Service?.ExecStart).toBe(
+			`"${FIXTURE.bun}" "${FIXTURE.prefix}/bin/runner-control.ts"`,
+		);
+		expect(ini.Service?.Environment).not.toContain("DOCKER_HOST");
+	});
+
 	test("every service renders a systemd unit that parses as INI with required keys", () => {
 		for (const spec of services) {
 			const ini = parseIni(renderLinux(spec, FIXTURE));

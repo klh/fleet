@@ -55,13 +55,14 @@ export {
 	qltyFixMergedFiles,
 } from "./merge-qlty.ts";
 
-import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import {
 	candidatePaths,
 	classifyRiskTier,
 	emitRiskDecision,
 	type RiskClassification,
+	riskApprovalsOf,
 } from "../gates/risk-tier.ts";
+import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 // W1183: the ladder reports what ACTUALLY happened — never a count of
@@ -361,11 +362,17 @@ export function createMergeLadder(
 		// merge — agent approval never fills a human slot (how-to-review.md).
 		// SUSPENDERS_RISK_TIERS=0 is the operator escape hatch (manual merges).
 		let risk: RiskClassification;
+		let approvals: ReturnType<typeof riskApprovalsOf> | undefined;
+		let held = 0;
 		try {
 			risk =
 				process.env.SUSPENDERS_RISK_TIERS === "0"
 					? { tier: "low", approvals: 0, reasons: [] }
 					: classifyRiskTier(candidatePaths(REPO, "HEAD", b));
+			if (risk.approvals > 0) {
+				approvals = riskApprovalsOf(REPO, b, risk, projectIdentity(REPO));
+				held = approvals.count();
+			}
 		} catch (error) {
 			log(
 				`MERGE-DEFER ${b} — risk tier unavailable: ${String(error).slice(0, 300)}`,
@@ -376,7 +383,7 @@ export function createMergeLadder(
 				why: "risk tier unavailable",
 			};
 		}
-		if (risk.approvals > 0) {
+		if (held < risk.approvals) {
 			try {
 				const store = openStore();
 				try {
@@ -395,7 +402,7 @@ export function createMergeLadder(
 				/* the RISK-DEFER log line is the durable record if the bus is down */
 			}
 			log(
-				`RISK-DEFER ${b} — ${risk.tier} tier needs ${risk.approvals} human approval(s): ${risk.reasons.join("; ")}`,
+				`RISK-DEFER ${b} — ${risk.tier} tier needs ${risk.approvals} human approval(s), held ${held}: ${risk.reasons.join("; ")}`,
 			);
 			return {
 				branch: b,
@@ -455,6 +462,14 @@ export function createMergeLadder(
 		grantStore?.close();
 		let receipt: MergeReceipt;
 		if (mv.code === 0) {
+			if (approvals) {
+				try {
+					const consumed = approvals.consume();
+					log(`RISK-CONSUMED ${b} — ${consumed}/${risk.approvals} approval(s)`);
+				} catch (error) {
+					log(`RISK-CONSUME-FAILED ${b} — ${String(error).slice(0, 300)}`);
+				}
+			}
 			const after = sh(["git", "rev-parse", "--short", "HEAD"]);
 			log(`MERGED ${b} ${before}→${after}`);
 			// W1476: the published head IS the landing — W2681 moved any qlty
