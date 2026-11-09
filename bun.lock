@@ -165,6 +165,17 @@
         "@types/bun": "1.4.2",
       },
     },
+    "packages/pi-durable-workers": {
+      "name": "@klh/pi-durable-workers",
+      "version": "0.1.0",
+      "dependencies": {
+        "@earendil-works/pi-ai": "1.5.0",
+        "@earendil-works/pi-schema": "1.5.0",
+        "@klh/buckle": "workspace:*",
+        "@klh/chord": "workspace:*",
+        "@klh/pi-durable": "workspace:*",
+      },
+    },
     "packages/settings": {
       "name": "@klh/settings",
       "version": "2.2.0",
@@ -318,6 +329,8 @@
     "@klh/local-llm": ["@klh/local-llm@workspace:packages/local-llm"],
 
     "@klh/pi-durable": ["@klh/pi-durable@workspace:packages/pi-durable"],
+
+    "@klh/pi-durable-workers": ["@klh/pi-durable-workers@workspace:packages/pi-durable-workers"],
 
     "@klh/settings": ["@klh/settings@workspace:packages/settings"],
 

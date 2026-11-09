@@ -1,0 +1,25 @@
+{
+	"name": "@klh/pi-durable-workers",
+	"version": "0.1.0",
+	"private": true,
+	"description": "pi-durable-workers \u2014 durable unattended-run machinery on @klh/pi-durable: wake tasks, budget guards, doom-loop ladder, approvals doc, uniform task tool, announce/heartbeat (W2901; pattern provenance W2888).",
+	"type": "module",
+	"license": "MIT",
+	"engines": {
+		"bun": ">=1.2.0"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./docs": "./src/docs.ts",
+		"./announce": "./src/announce.ts",
+		"./wake": "./src/wake.ts",
+		"./package.json": "./package.json"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "1.5.0",
+		"@earendil-works/pi-schema": "1.5.0",
+		"@klh/buckle": "workspace:*",
+		"@klh/chord": "workspace:*",
+		"@klh/pi-durable": "workspace:*"
+	}
+}
