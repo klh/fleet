@@ -1,5 +1,8 @@
 # Local Pi Durable foundation
 
+The [Pi package inventory](plugins.md) records the full 60-page catalog snapshot,
+usable extension pilots and the cross-host telemetry acceptance criteria.
+
 Pinned runtime: pi-durable, pi-ai and Chord 1.5.0. Durable is experimental.
 This module provides persistent local jobs; Fleet's controller owns remote
 admission, credentials, lifecycle supervision and sandbox launch.
