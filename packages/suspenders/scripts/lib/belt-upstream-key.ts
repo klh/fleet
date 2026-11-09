@@ -10,6 +10,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { beltRowSettingsWired } from "./belt-row-settings.ts";
 
 export const BELT_UPSTREAM_KEY_VAR = "BELT_UPSTREAM_KEY";
 export const BELT_GROUP_NAME = "belt";
@@ -139,6 +140,16 @@ export const beltRowLines = (): string[] => [
  *  row NAMES the env var — the secret value never lands in this file). */
 export const beltRowBlock = (): string =>
 	["groups:", ...beltRowLines()].join("\n");
+
+/** The belt group entry as the W2760 JSON row (settings.json
+ *  `upstreams.groups.belt` — same shape loadUpstreams/mergeUpstreams read;
+ *  the row NAMES the env var, the secret value never lands in the file). */
+export const beltRowSpec = (): Record<string, unknown> => ({
+	url: BELT_ROW_URL,
+	dialect: "anthropic",
+	adapter: "anthropic",
+	api_key_env: BELT_UPSTREAM_KEY_VAR,
+});
 
 const safeParse = (text: string): Record<string, unknown> | null => {
 	try {
@@ -286,7 +297,9 @@ export interface PeerWiring {
 }
 
 /** Runtime parity probe: every face of the peer-auth wiring in place.
- *  Read-only — used by tests and doctor-style checks. */
+ *  Read-only — used by tests and doctor-style checks. W2760: the law home
+ *  is settings.json (upstreams.groups.belt); a lingering BUCKLE_UPSTREAMS
+ *  env pin is a defect (it would shadow the settings chain). */
 export function verifyBeltPeerWiring(
 	wiring: PeerWiring,
 	env: Record<string, string | undefined> = process.env,
@@ -299,13 +312,20 @@ export function verifyBeltPeerWiring(
 		);
 	if (!is0600(wiring.beltEnvPath))
 		reasons.push(`${wiring.beltEnvPath}: must be 0600`);
-	if (env[BUCKLE_OVERRIDE_VAR] !== wiring.overridePath)
+	if (env[BUCKLE_OVERRIDE_VAR] !== undefined)
 		reasons.push(
-			`${BUCKLE_OVERRIDE_VAR} env does not name the machine override`,
+			`${BUCKLE_OVERRIDE_VAR} env is set — W2760 retires the pin (settings.json owns the chain)`,
 		);
-	const doc = safeParse(readOrEmpty(wiring.overridePath));
-	if (doc === null || !rowWired(doc))
-		reasons.push(`${wiring.overridePath}: authenticated belt row not wired`);
+	let doc: unknown = null;
+	try {
+		doc = JSON.parse(readOrEmpty(wiring.overridePath));
+	} catch {
+		doc = null;
+	}
+	if (doc === null || !beltRowSettingsWired(doc))
+		reasons.push(
+			`${wiring.overridePath}: authenticated belt row not wired (upstreams.groups.belt)`,
+		);
 	return { ok: reasons.length === 0, reasons };
 }
 
