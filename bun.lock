@@ -65,10 +65,12 @@
       },
       "dependencies": {
         "@klh/suspenders": "2.2.0",
+        "zod": "4.6.7",
       },
       "devDependencies": {
         "@klh/belt": "2.2.0",
         "@klh/buckle": "2.2.0",
+        "@klh/test-kit": "2.2.0",
         "@playwright/test": "1.64.1",
       },
     },

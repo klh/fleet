@@ -47,6 +47,8 @@ report `7cf8eebd25e0959547b8dd92441ddd93ca9662cae57870a56f8bd4e8f26dc66e`.
 The measured source predates installer and peer-SID hardening; those changes
 have 15 separate regression checks and are not remeasured in these receipts.
 
+**W2882, Pi Durable fork vs reconstruction (2026-11-09).** Twelve counterbalanced pairs across three synthetic coding tasks passed all 24 private checks. Local Buckle matched all 48 GLM-5.3 Flash calls. Fork wall time p50 7.89 → 6.59 s, p95 11.04 → 12.15 s, mean paired delta −0.410 s and +12.5 tokens. Provider cache uncontrolled. Replay the `pi-durable-coding-ab-20261109` receipt bundle with the BLAM runner report. No promotion under the new guard.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.
@@ -60,6 +62,23 @@ test; score per class, never blended; one lever at a time; re-run after any
 model bump.
 
 ---
+
+## Pi runner workspace preparation (W2870, 2026-11-08; infrastructure smoke)
+
+AC-powered macOS arm64, Bun 1.4.4, resident 128-file local Git fixture,
+12 sequential alternating-order pairs, exact content validation 24/24.
+Baseline: `git clone --no-hardlinks`; candidate: detached worktree sharing
+Git objects. Ready latency p50/p95: **48.36/54.27 ms → 23.02/30.25 ms**.
+First validated file read p50/p95: **48.39/54.30 ms → 23.05/30.28 ms**.
+Reproduce: `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12`.
+Receipt SHA256 `43bab36fc57b4e261bebe0bec92af835730447b84c35dd9eb3249c05f13933ea`;
+report SHA256 `6b44ae074608512e1097e5d4b6d372ae90b2eb076cfa96c0fa0f70199ed92104`.
+Raw evidence retained by the experiment owner outside the repo.
+Decision: prepared shared Git objects are worth including in the runner
+pilot. This is NOT a container/VM isolation test, agent-quality study,
+true-cold image-pull measurement or token-saving result. No model ran;
+RAM, disk and isolation outcomes are unmeasured/null. OS page caches were
+not controlled. Remote runtime and live model comparisons remain separate.
 
 ## Review-skill effectiveness — matched held-out agent eval (W1172; harness landed 2026-10-23, matched batches PENDING)
 

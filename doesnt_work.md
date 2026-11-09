@@ -56,6 +56,16 @@ decision-grade: it has to change what you would do. When a verdict flips
 
 ## LLM serving
 
+- **Promoting a seed fork on mean wall time alone (W2882).** Twelve live pairs improved mean wall time but used more tokens and increased p95 latency. The runner evaluator now keeps the measured lift and declines promotion on either regression. The original and rescored reports retain both decisions.
+
+- **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
+  the measured 12-pair local clone/worktree probe performs zero model calls.
+  It establishes a workspace-startup delta only; it cannot establish cache
+  hits, token savings, isolation or durable recovery. BLAM now labels this
+  infrastructure-only and refuses agentic promotion with missing usage or
+  isolation observations. Keep live inference, recovery and sandbox drills
+  separate; never substitute a fast filesystem fixture for those results.
+
 - **Speculative decoding, 4B draft → big target (MLX)** — verified no win at
   4B scale; the verdict does not extrapolate to 30B+ (see W242: re-bench when
   an MTP-capable 30B+ resident model exists). Replaced by: don't burn lanes
