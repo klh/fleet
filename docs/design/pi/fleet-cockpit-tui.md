@@ -195,12 +195,17 @@ Owner is a stickler for columnar alignment; NO hand-padded strings.
 
 ## 9. Fleet coordination items
 
-1. Mint: **cockpit TUI extension** (claimed by pi lane).
-2. Mint: **`coord hub <name> workers --json` verb** (coord/belt scope; reuse
-   plane state, typed JSON, rights[] computed per requester).
-3. Message ChatGPT: W2883 re-scope — panel-internal polish only; persistent
+1. Minted: **cockpit TUI extension** — W2887 (claimed by pi lane).
+2. Minted: **`coord workers --json` verb + registration contract** — W2886
+   (federated inventory; hubs authoritative for what they host).
+3. Minted: **pi-durable registration + heartbeat patterns** — W2888 (joint
+   with ChatGPT runner-durable line + fleet controller W2869/W2869.2):
+   stable sid across host death with announce re-bind, announce location,
+   runner.* event-stream integration, lease/fencing interplay, inference-leg
+   recording, activity cursor.
+4. ChatGPT messaged: W2883 re-scope — panel-internal polish only; persistent
    chrome + dock = cockpit item (this design).
-4. W2878 board dropdown: hub list source stays `coord targets`/stack.json
+5. W2878 board dropdown: hub list source stays `coord targets`/stack.json
    peers; cockpit consumes the same list — one source of truth.
 
 ## 10. Testing
