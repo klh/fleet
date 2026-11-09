@@ -70,7 +70,6 @@ export interface CredentialManagerDeps {
 	onCredential?: (binding: CredentialBinding) => Promise<void>;
 }
 
-
 /** The 0600 receipt journal file — rows are CredentialReceipts; the key
  * is (runId, epoch) carried INSIDE the row so restart revocation can walk
  * it without trusting the map key. */
@@ -92,7 +91,7 @@ const httpJson = async (
 	url: string,
 	init: RequestInit,
 ): Promise<{ status: number; body: string }> => {
-	const res = await fetchImpl(url, {
+	const res = await ctx.fetchImpl(url, {
 		...init,
 		// Root #117912.4: bounded + non-following admin HTTP — a redirect
 		// must never replay the Bearer admin key cross-origin, and a hung
@@ -191,20 +190,16 @@ const mintOnce = async (
 	receipt: CredentialReceipt;
 }> => {
 	const name = `runner:${runId}:${epoch}`;
-	const res = await httpJson(
-		ctx,
-		ctx.urlOf("/v1/admin/keys"),
-		{
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				authorization: `Bearer ${ctx.deps.adminKey}`,
-			},
-			// Root #117912.3: ask for a bounded key explicitly — the real
-			// admin defaults expires_at:null (parse-refused) otherwise.
-			body: JSON.stringify({ name, scopes: [MINT_SCOPE], expires_in_s: 3600 }),
+	const res = await httpJson(ctx, ctx.urlOf("/v1/admin/keys"), {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${ctx.deps.adminKey}`,
 		},
-	);
+		// Root #117912.3: ask for a bounded key explicitly — the real
+		// admin defaults expires_at:null (parse-refused) otherwise.
+		body: JSON.stringify({ name, scopes: [MINT_SCOPE], expires_in_s: 3600 }),
+	});
 	if (res.status !== 201) {
 		throw new CredentialError(
 			`credential mint: admin refused (${res.status}) — body redacted (${res.body.length} bytes)`,
@@ -311,7 +306,9 @@ const finishMint = async (
 					`credential mint refused — ${msgOf(err)}; CLEANUP ALSO FAILED — ${msgOf(cleanupErr)}`,
 				);
 			}
-			throw new CredentialError(`credential mint refused (key revoked) — ${msgOf(err)}`);
+			throw new CredentialError(
+				`credential mint refused (key revoked) — ${msgOf(err)}`,
+			);
 		}
 		throw err;
 	}

@@ -152,8 +152,7 @@ const mkCtx = (deps: DesktopExecutorDeps): Ctx => {
 	const tmpMb = deps.tmpMb ?? DEFAULTS.tmpMb;
 	const stopTimeoutS = deps.stopTimeoutS ?? DEFAULTS.stopTimeoutS;
 	const submitTimeoutMs = deps.submitTimeoutMs ?? DEFAULTS.submitTimeoutMs;
-	const artifactCapBytes =
-		deps.artifactCapBytes ?? DEFAULTS.artifactCapBytes;
+	const artifactCapBytes = deps.artifactCapBytes ?? DEFAULTS.artifactCapBytes;
 	return {
 		deps,
 		dockerBin,
@@ -173,8 +172,17 @@ const mkCtx = (deps: DesktopExecutorDeps): Ctx => {
 			stopTimeoutS,
 			submitTimeoutMs,
 			artifactCapBytes,
+			uid: deps.uid ?? DEFAULTS.uid,
 		},
 	};
+};
+
+/** The policy digest THIS factory would bind at start — the canonical
+ *  value spec builders stamp into RunnerSpec.policyDigest (start refuses
+ *  a mismatch). Exported so callers never hand-recompute the shape. */
+export const resolvedPolicyDigest = (deps: DesktopExecutorDeps): string => {
+	const ctx = mkCtx(deps);
+	return canonicalPolicyDigest(ctx.limits, ctx.image);
 };
 
 const recordPathOf = (ctx: Ctx, runId: string): string =>
@@ -210,27 +218,50 @@ const relaunchArgv = (ctx: Ctx, spec: RunnerSpec): string[] => {
 	const seedDir = join(ctx.deps.workspacesDir, spec.runId, "seed");
 	const lim = ctx.limits;
 	const isolation = [
-		"run", "-d", "--name", name, "--rm", "--read-only",
-		"--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges",
-		"--user", `${lim.uid}:${lim.uid}`,
-		"--network", "none",
+		"run",
+		"-d",
+		"--name",
+		name,
+		"--rm",
+		"--read-only",
+		"--cap-drop",
+		"ALL",
+		"--security-opt",
+		"no-new-privileges",
+		"--user",
+		`${lim.uid}:${lim.uid}`,
+		"--network",
+		"none",
 	];
 	const resources = [
-		"--memory", `${lim.memoryMb}m`,
-		"--memory-swap", `${lim.memoryMb}m`,
-		"--cpus", String(lim.cpus),
-		"--pids-limit", String(lim.pidsLimit),
+		"--memory",
+		`${lim.memoryMb}m`,
+		"--memory-swap",
+		`${lim.memoryMb}m`,
+		"--cpus",
+		String(lim.cpus),
+		"--pids-limit",
+		String(lim.pidsLimit),
 	];
 	const mounts = [
-		"--tmpfs", `/tmp:rw,noexec,nosuid,size=${lim.tmpMb}m,uid=${lim.uid},gid=${lim.uid}`,
-		"--tmpfs", `/workspace:rw,noexec,nosuid,size=${lim.workMb}m,uid=${lim.uid},gid=${lim.uid}`,
-		"-v", `${seedDir}:/seed:ro`,
+		"--tmpfs",
+		`/tmp:rw,noexec,nosuid,size=${lim.tmpMb}m,uid=${lim.uid},gid=${lim.uid}`,
+		"--tmpfs",
+		`/workspace:rw,noexec,nosuid,size=${lim.workMb}m,uid=${lim.uid},gid=${lim.uid}`,
+		"-v",
+		`${seedDir}:/seed:ro`,
 	];
 	const idle = ctx.deps.idleCommand ?? ["sleep", "infinity"];
 	// docker run: IMAGE before COMMAND — the idle command is the container
 	// command riding the image, never the reverse (root #117912.1).
-	return [ctx.dockerBin, ...isolation, ...resources, ...mounts, ctx.image, ...idle];
+	return [
+		ctx.dockerBin,
+		...isolation,
+		...resources,
+		...mounts,
+		ctx.image,
+		...idle,
+	];
 };
 
 const containerRunning = async (
@@ -428,9 +459,7 @@ const relaunchFromRecord = async (
 	await ctx.run([ctx.dockerBin, "rm", "-f", record.containerName]);
 	const res = await ctx.run(record.argv);
 	if (res.code !== 0) {
-		throw new Error(
-			`desktop-runner: relaunch failed — ${res.stderr.trim()}`,
-		);
+		throw new Error(`desktop-runner: relaunch failed — ${res.stderr.trim()}`);
 	}
 	const containerId = res.stdout.trim();
 	if (containerId.length === 0) {
@@ -472,11 +501,7 @@ const ensureRunning = async (
 			`desktop-runner: workspace-lost — container ${record.containerName} died after tool execution; /workspace state is unrecoverable — run fails closed`,
 		);
 	}
-	const restarted = await ctx.run([
-		ctx.dockerBin,
-		"start",
-		record.containerId,
-	]);
+	const restarted = await ctx.run([ctx.dockerBin, "start", record.containerId]);
 	if (restarted.code === 0) return record;
 	if (!dockerGone(restarted)) {
 		throw new Error(
