@@ -41,9 +41,9 @@ export async function desktopRuntime(
 				api: { "openai-completions": { stream, streamSimple } },
 			}));
 			const leaf = createDesktopRunnerLeaf({
-				store, durableRoot, executorSid: "desktop-runner",
+				store, durableRoot, executorSid: "desktop-runner", cleanupTimeoutMs: 20_000,
 				container: { image: desktop.image, seedRoot: desktop.seedRoot, workspacesDir },
-				runtime: { models, registry: createRegistry(), env: {}, settings: undefined, onReport() {} },
+				runtime: { models, registry: createRegistry(), settings: undefined, onReport() {} },
 				credentials: {
 					baseUrl: desktop.baseUrl, adminKey: desktop.adminKey,
 					receiptsPath: join(stateDir, "credentials.json"),

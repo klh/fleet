@@ -313,11 +313,13 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		async stop(runId) {
 			const job = jobs.get(runId);
 			jobs.delete(runId);
-			if (job) {
-				await job.abort();
-				await job.close();
+			try {
+				// Control has already fenced the lease. Close the local harness
+				// without trying the model-facing, lease-checked abort action.
+				await job?.close();
+			} finally {
+				await executor.stop(runId);
 			}
-			await executor.stop(runId);
 		},
 	};
 
