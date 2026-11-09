@@ -31,10 +31,16 @@ import {
 
 const ROOT = join(import.meta.dir, "..");
 
-// No pins: W1294.13 repaired the route-preflight instance (the original
-// pin is dropped with it). A new dead import lands as a red row — repair
-// it or pin it here with the owning item.
-const KNOWN_DEAD: string[] = [];
+// No pins except the row below: W1294.13 repaired the route-preflight
+// instance (the original pin is dropped with it). A new dead import lands
+// as a red row — repair it or pin it here with the owning item.
+const KNOWN_DEAD: string[] = [
+	// W2856: scanner cannot see through `export * from "@klh/belt/..."`
+	// package-form re-exports; this import is load-bearing for the W508
+	// runtime-identity contract (spawner.test.ts asserts shim ≡ belt) and
+	// resolves fine at runtime. Owner: belt kit shims (W508/W1135.2).
+	"packages/local-llm/spawner.test.ts -> ./spawner.ts (kit)",
+];
 
 // The synthetic tree the teeth build: every accepted import form plus one
 // dead variant per detector.

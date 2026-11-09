@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdff71701c.js";import{m,D}from"./lit-abee8ae562874fb2.js";var p=(s)=>m(s??null),h=(s)=>typeof s==="string"&&s.trim().length>=8&&!/^\s*(?:#{1,6}\s*|\*\*|analysis\s+of\b|recommendation\s+:)/i.test(s),f=(s)=>{let i=String(s??"");if(i.startsWith("split"))return" psplit";if(i.startsWith("consensus "))return" pagree";return""},w=(s)=>`policy provenance: hub ${s.hub} · row ${s.id} · pin ${String(s.sha256??"").slice(0,12)}…`,y=(s)=>`— ${s.name||"leg"} (${s.model||"?"}) ${s.ok?`${s.ms}ms`:"FAILED"} — ${s.ok?s.verdict?String(s.verdict).toUpperCase():"NO VERDICT":"UNAVAILABLE"}`;class b extends n{static properties={slice:{attribute:!1},requests:{attribute:!1},collapsed:{type:Boolean,reflect:!0},histOpen:{type:Boolean,reflect:!0}};constructor(){super();this.slice={dec:{loaded:!1,err:null,okAt:0,data:null},hist:{loaded:!1,err:null,okAt:0,data:null},open:!0,query:"",filter:"",project:"",needs:{}},this.requests={answering:{},ansErr:{},sentOk:{},drafts:{},selOpt:{},advising:{},advRetry:{},advAttempts:{},advErr:{}},this.collapsed=!1,this.histOpen=!1}createRenderRoot(){return this}openDecs(){let s=this.slice.dec.data?.decisions??[],i=[];for(let a of s){if(a.dup_of)continue;if(a.state&&a.state!=="OPEN")continue;if(!this.inProject(a))continue;i.push(a)}return i}inProject(s){let i=this.slice.project;return!i||i==="all"||s.project===i}rowMatches(s,i){let a=[s.id,s.question??s.title,...i];for(let o of[this.slice.filter,this.slice.query]){if(!o)continue;let l=o.toLowerCase();if(!a.some((c)=>String(c??"").toLowerCase().includes(l)))return!1}return!0}decMatches(s){return this.rowMatches(s,[s.asked_by,s.asked_by_label,s.project])}gatedMatches(s){return this.rowMatches(s,[s.project])}byId(s){let i=this.slice.dec.data?.decisions??[];for(let a of i)if(a.id===s&&this.inProject(a))return a;return null}adviceFor(s){let i=this.byId(s);if(i&&(("advice"in i)&&i.advice||("adviceError"in i)&&i.adviceError))return i;return this.slice.needs[s]??null}pick(s,i){let a=this.byId(s);if(!a)return;for(let o of a.options??[])if(o.label===i){this.requests.selOpt[s]=i;let l=this.querySelector(`.dec[data-id="${s}"] input.ans`);if(l)l.value=i,this.requests.drafts[s]=i,l.focus();this.requestUpdate()}}send(s){let a=(this.querySelector(`.dec[data-id="${s}"] input.ans`)?.value??"").trim();if(!a){this.requests.ansErr[s]="type an answer first",this.requestUpdate();return}this.dispatchEvent(new g(s,a))}use(s){let i=this.adviceFor(s),a=this.querySelector(`.dec[data-id="${s}"] input.ans`);if(!i?.advice||!a||!h(i.advice.rec))return;a.value=i.advice.rec??"",this.requests.drafts[s]=a.value,a.focus()}toggleHist(){this.histOpen=!this.histOpen,this.dispatchEvent(new CustomEvent("hist-toggle",{detail:this.histOpen,bubbles:!0,composed:!0}))}render(){let s=this.openDecs(),i=s.filter((o)=>this.decMatches(o)),a=[this.collapsed?"closed":"",s.length>0?"has":""].filter(Boolean).join(" ");return e`
+import{r,e,t,n}from"./lit-f18bcbfe556b7350.js";import{k,m,y}from"./lit-be85f2495e3b3bfc.js";import{c,f}from"./lit-88ce58085f9deb62.js";var p=(s)=>c(s??null),h=(s)=>typeof s==="string"&&s.trim().length>=8&&!/^\s*(?:#{1,6}\s*|\*\*|analysis\s+of\b|recommendation\s+:)/i.test(s),g=(s)=>{let i=String(s??"");if(i.startsWith("split"))return" psplit";if(i.startsWith("consensus "))return" pagree";return""},b=(s)=>`policy provenance: hub ${s.hub} · row ${s.id} · pin ${String(s.sha256??"").slice(0,12)}…`,w=(s)=>`— ${s.name||"leg"} (${s.model||"?"}) ${s.ok?`${s.ms}ms`:"FAILED"} — ${s.ok?s.verdict?String(s.verdict).toUpperCase():"NO VERDICT":"UNAVAILABLE"}`;class v extends n{static properties={slice:{attribute:!1},requests:{attribute:!1},collapsed:{type:Boolean,reflect:!0},histOpen:{type:Boolean,reflect:!0}};constructor(){super();this.slice={dec:{loaded:!1,err:null,okAt:0,data:null},hist:{loaded:!1,err:null,okAt:0,data:null},open:!0,query:"",filter:"",project:"",needs:{}},this.requests={answering:{},ansErr:{},sentOk:{},drafts:{},selOpt:{},advising:{},advRetry:{},advAttempts:{},advErr:{}},this.collapsed=!1,this.histOpen=!1}createRenderRoot(){return this}openDecs(){let s=this.slice.dec.data?.decisions??[],i=[];for(let a of s){if(a.dup_of)continue;if(a.state&&a.state!=="OPEN")continue;if(!this.inProject(a))continue;i.push(a)}return i}inProject(s){let i=this.slice.project;return!i||i==="all"||s.project===i}rowMatches(s,i){let a=[s.id,s.question??s.title,...i];for(let o of[this.slice.filter,this.slice.query]){if(!o)continue;let l=o.toLowerCase();if(!a.some((d)=>String(d??"").toLowerCase().includes(l)))return!1}return!0}decMatches(s){return this.rowMatches(s,[s.asked_by,s.asked_by_label,s.project])}gatedMatches(s){return this.rowMatches(s,[s.project])}byId(s){let i=this.slice.dec.data?.decisions??[];for(let a of i)if(a.id===s&&this.inProject(a))return a;return null}adviceFor(s){let i=this.byId(s);if(i&&(("advice"in i)&&i.advice||("adviceError"in i)&&i.adviceError))return i;return this.slice.needs[s]??null}pick(s,i){let a=this.byId(s);if(!a)return;for(let o of a.options??[])if(o.label===i){this.requests.selOpt[s]=i;let l=this.querySelector(`.dec[data-id="${s}"] input.ans`);if(l)l.value=i,this.requests.drafts[s]=i,l.focus();this.requestUpdate()}}send(s){let a=(this.querySelector(`.dec[data-id="${s}"] input.ans`)?.value??"").trim();if(!a){this.requests.ansErr[s]="type an answer first",this.requestUpdate();return}this.dispatchEvent(new k(s,a))}use(s){let i=this.adviceFor(s),a=this.querySelector(`.dec[data-id="${s}"] input.ans`);if(!i?.advice||!a||!h(i.advice.rec))return;a.value=i.advice.rec??"",this.requests.drafts[s]=a.value,a.focus()}toggleHist(){this.histOpen=!this.histOpen,this.dispatchEvent(new CustomEvent("hist-toggle",{detail:this.histOpen,bubbles:!0,composed:!0}))}render(){let s=this.openDecs(),i=s.filter((o)=>this.decMatches(o)),a=[this.collapsed?"closed":"",s.length>0?"has":""].filter(Boolean).join(" ");return e`
 			<section id="decisions" class=${a||t}>
 				<h2>
 					<button
@@ -71,20 +71,20 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 			</div>
 			<div class="dq">${s.question||"(no question text)"}</div>
 			<div class="dblocks">${this.blocksText(s)}</div>
-			${s.policy?e`<div class="dsrc dim">${w(s.policy)}</div>`:t}
+			${s.policy?e`<div class="dsrc dim">${b(s.policy)}</div>`:t}
 			<div class="dopts">
-				${(s.options??[]).map((c)=>e`<div
-						class="optrow${a.selOpt[i]===c.label?" sel":""}"
+				${(s.options??[]).map((d)=>e`<div
+						class="optrow${a.selOpt[i]===d.label?" sel":""}"
 					>
 						<button
 							type="button"
 							class="opt"
-							aria-pressed=${a.selOpt[i]===c.label?"true":"false"}
-							@click=${()=>c.label&&this.pick(i,c.label)}
+							aria-pressed=${a.selOpt[i]===d.label?"true":"false"}
+							@click=${()=>d.label&&this.pick(i,d.label)}
 						>
-							${c.label}
+							${d.label}
 						</button>
-						<span class="trade dim">${c.tradeoff||""}</span>
+						<span class="trade dim">${d.tradeoff||""}</span>
 					</div>`)}
 			</div>
 			${this.renderAdvice(i)}
@@ -93,8 +93,8 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 					class="ans"
 					placeholder="your decision..."
 					.value=${a.drafts[i]??""}
-					@input=${(c)=>{this.requests.drafts[i]=c.target.value}}
-					@keydown=${(c)=>{if(c.key==="Enter")c.preventDefault(),this.send(i)}}
+					@input=${(d)=>{this.requests.drafts[i]=d.target.value}}
+					@keydown=${(d)=>{if(d.key==="Enter")d.preventDefault(),this.send(i)}}
 				/>
 			</div>
 			<div class="derr" role="alert">${o}</div>
@@ -112,14 +112,14 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 					class="getrec"
 					type="button"
 					?disabled=${a.advising[i]!==void 0||!1}
-					@click=${()=>this.dispatchEvent(new d(i))}
+					@click=${()=>this.dispatchEvent(new m(i))}
 				>
 					Get recommendation
 				</button>
 				<button
 					class="dismiss"
 					type="button"
-					@click=${()=>this.dispatchEvent(new v(i))}
+					@click=${()=>this.dispatchEvent(new y(i))}
 				>
 					${s.owner_reason==="target-dead"?"Dismiss if obsolete":"Cancel"}
 				</button>
@@ -133,7 +133,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 				<button
 					class="advretry"
 					type="button"
-					@click=${()=>this.dispatchEvent(new d(s))}
+					@click=${()=>this.dispatchEvent(new m(s))}
 				>
 					retry
 				</button>
@@ -142,7 +142,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 				<button
 					class="advretry"
 					type="button"
-					@click=${()=>this.dispatchEvent(new d(s))}
+					@click=${()=>this.dispatchEvent(new m(s))}
 				>
 					retry
 				</button>
@@ -160,13 +160,13 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 						<button
 							class="advretry"
 							type="button"
-							@click=${()=>this.dispatchEvent(new d(s))}
+							@click=${()=>this.dispatchEvent(new m(s))}
 						>
 							retry
 						</button>`}
 		</div>`}renderPanel(s){let i=String(s.consensus??"");return e`<div>
-			<div class="pconsensus${f(i)}">${i}</div>
-			${(s.legs??[]).map((a)=>e`<div class="pleg">${y(a)}</div>
+			<div class="pconsensus${g(i)}">${i}</div>
+			${(s.legs??[]).map((a)=>e`<div class="pleg">${w(a)}</div>
 					${!a.ok&&a.error?e`<div class="plegerr dim">${a.error}</div>`:t}`)}
 		</div>`}renderGated(){return(this.slice.dec.data?.gated??[]).map((i)=>this.gatedMatches(i)?e`<div class="gated" data-id=${i.id}>
 						<div class="dhead">
@@ -189,10 +189,10 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{g,d,v}from"./lit-9967cffdf
 							>`:t}
 				</span>
 				<span class="hage dim"
-					>${p(D(i.answered_ts||i.ack_ts||i.created_ts))}</span
+					>${p(f(i.answered_ts||i.ack_ts||i.created_ts))}</span
 				>
 			</div>`)}static styles=r`
 		:host {
 			display: block;
 		}
-	`}if(!customElements.get("klh-decisions"))customElements.define("klh-decisions",b);export{b as KlhDecisions,y as legLine,f as panelClassOf,w as policySrcOf,h as usableRec};
+	`}if(!customElements.get("klh-decisions"))customElements.define("klh-decisions",v);export{v as KlhDecisions,w as legLine,g as panelClassOf,b as policySrcOf,h as usableRec};
