@@ -14,6 +14,9 @@
 		"@klh/local-llm": "2.2.0",
 		"lit": "3.3.3"
 	},
+	"devDependencies": {
+		"@playwright/test": "1.64.1"
+	},
 	"scripts": {
 		"build:lit": "bun scripts/build-lit.ts"
 	},
@@ -28,6 +31,7 @@
 	"files": [
 		"bin",
 		"!bin/*.test.ts",
+		"!bin/*.e2e.ts",
 		"scripts",
 		"assets",
 		"install.sh",

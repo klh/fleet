@@ -99,17 +99,6 @@
         "typescript": "7.0.2",
       },
     },
-    "packages/chord": {
-      "name": "@klh/chord",
-      "version": "1.5.0",
-      "dependencies": {
-        "@earendil-works/pi-schema": "1.5.0",
-        "@earendil-works/pi-telemetry": "1.5.0",
-      },
-      "devDependencies": {
-        "@types/bun": "1.4.2",
-      },
-    },
     "packages/design-ui": {
       "name": "@klh/design-ui",
       "version": "2.2.0",
@@ -125,6 +114,9 @@
     "packages/kernel": {
       "name": "@klh/kernel",
       "version": "2.2.0",
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+      },
     },
     "packages/local": {
       "name": "@klh/local",
@@ -138,6 +130,9 @@
         "@klh/local-llm": "2.2.0",
         "lit": "3.3.3",
       },
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+      },
     },
     "packages/local-llm": {
       "name": "@klh/local-llm",
@@ -150,35 +145,21 @@
       },
       "devDependencies": {
         "@klh/test-kit": "2.2.0",
-      },
-    },
-    "packages/pi-durable": {
-      "name": "@klh/pi-durable",
-      "version": "1.5.0",
-      "dependencies": {
-        "@earendil-works/pi-ai": "1.5.0",
-        "@earendil-works/pi-codemode": "1.5.0",
-        "@earendil-works/pi-schema": "1.5.0",
-        "@earendil-works/pi-telemetry": "1.5.0",
-        "@klh/chord": "1.5.0",
-        "@silvia-odwyer/photon": "0.3.3",
-        "diff": "8.0.4",
-      },
-      "devDependencies": {
-        "@types/bun": "1.4.2",
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/pi-durable-workers": {
       "name": "@klh/pi-durable-workers",
-      "version": "0.1.0",
+      "version": "2.2.0",
       "dependencies": {
         "@earendil-works/pi-ai": "1.5.0",
         "@earendil-works/pi-durable": "1.5.0",
         "@earendil-works/pi-schema": "1.5.0",
-        "@klh/buckle": "workspace:*",
+        "@klh/buckle": "2.2.0",
       },
       "devDependencies": {
         "@earendil-works/chord": "1.5.0",
+        "@playwright/test": "1.64.1",
       },
     },
     "packages/settings": {
@@ -203,6 +184,7 @@
         "shell-quote": "1.12.0",
       },
       "devDependencies": {
+        "@playwright/test": "1.64.1",
         "lit": "3.3.3",
       },
     },
@@ -258,6 +240,9 @@
     "packages/telemetry": {
       "name": "@klh/telemetry",
       "version": "2.2.0",
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+      },
     },
     "packages/test-kit": {
       "name": "@klh/test-kit",
@@ -343,8 +328,6 @@
 
     "@klh/buckle": ["@klh/buckle@workspace:packages/buckle"],
 
-    "@klh/chord": ["@klh/chord@workspace:packages/chord"],
-
     "@klh/design-ui": ["@klh/design-ui@workspace:packages/design-ui"],
 
     "@klh/kernel": ["@klh/kernel@workspace:packages/kernel"],
@@ -352,8 +335,6 @@
     "@klh/local": ["@klh/local@workspace:packages/local"],
 
     "@klh/local-llm": ["@klh/local-llm@workspace:packages/local-llm"],
-
-    "@klh/pi-durable": ["@klh/pi-durable@workspace:packages/pi-durable"],
 
     "@klh/pi-durable-workers": ["@klh/pi-durable-workers@workspace:packages/pi-durable-workers"],
 

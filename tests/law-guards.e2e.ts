@@ -21,6 +21,14 @@ const ROOT = join(import.meta.dir, "..");
 // is exempt ONLY while tracked, over-cap, and argued there.
 const LINE_LIMIT = 1500;
 
+// Vendored fork trees (@klh/chord, @klh/pi-durable — provenance + diverge
+// policy in their FORK.md): upstream snapshots stay byte-pure, a local
+// split would fork the vendor snapshot, so both line-limit scans skip them
+// outright (the W1300 per-file rows stay for argued single files outside
+// these trees).
+const FORK_TREES = ["packages/chord/", "packages/pi-durable/"];
+const forkExempt = (f) => FORK_TREES.some((p) => f.startsWith(p));
+
 // The legacy .sh set (W694 L5): installer entrypoints, the launchd loader
 // and its test harness, speedy harness hook shims and skill scripts.
 const SH_ALLOWLIST = [
@@ -101,7 +109,9 @@ function tracked(...patterns) {
 test("no tracked .ts exceeds the 1500-line law @unit", () => {
 	const over = tracked("*.ts")
 		.map((f) => [f, readFileSync(join(ROOT, f), "utf8").split("\n").length])
-		.filter(([f, n]) => n > LINE_LIMIT && !lineLimitExemption(f));
+		.filter(
+			([f, n]) => n > LINE_LIMIT && !lineLimitExemption(f) && !forkExempt(f),
+		);
 	expect(
 		over.map(([f, n]) => `${f}: ${n} > ${LINE_LIMIT}`),
 		"files over the 1500-line law — decompose, do not raise the limit (vendored-snapshot rows: LINE_LIMIT_EXEMPT)",
@@ -163,10 +173,9 @@ const NEAR_CAP_PINNED = {
 
 test("the 1200-line band stays pinned: shrink-only, no new entrants (W1238.6) @unit", () => {
 	const counts = new Map(
-		tracked("*.ts").map((f) => [
-			f,
-			readFileSync(join(ROOT, f), "utf8").split("\n").length,
-		]),
+		tracked("*.ts")
+			.filter((f) => !forkExempt(f))
+			.map((f) => [f, readFileSync(join(ROOT, f), "utf8").split("\n").length]),
 	);
 	const offenders = [];
 	for (const [f, n] of counts) {
