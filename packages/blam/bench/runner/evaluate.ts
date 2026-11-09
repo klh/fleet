@@ -105,6 +105,21 @@ export function evaluateRunner(input: RunnerReceipt[]) {
 			promote: false,
 			why: "no wall-time sign agreement across repetitions",
 		};
+	if (lift && promotion.promote) {
+		const regressions: string[] = [];
+		if (first.track === "agentic" && lift.tokensSaved < 0)
+			regressions.push("mean token use regressed");
+		const baselineP95 = distribution(pairs.map((pair) => pair.off.minutes)).p95;
+		const candidateP95 = distribution(pairs.map((pair) => pair.on.minutes)).p95;
+		if (
+			baselineP95 !== null &&
+			candidateP95 !== null &&
+			candidateP95 > baselineP95
+		)
+			regressions.push("p95 wall time regressed");
+		if (regressions.length)
+			promotion = { promote: false, why: regressions.join("; ") };
+	}
 	return {
 		experiment: first.experiment,
 		track: first.track,

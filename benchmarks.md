@@ -1,5 +1,7 @@
 # fleet benchmarks
 
+**W2882, Pi Durable fork vs reconstruction (2026-11-09).** Twelve counterbalanced pairs across three synthetic coding tasks passed all 24 private checks. Local Buckle matched all 48 GLM-5.3 Flash calls. Fork wall time p50 7.89 → 6.59 s, p95 11.04 → 12.15 s, mean paired delta −0.410 s and +12.5 tokens. Provider cache uncontrolled. Replay the `pi-durable-coding-ab-20261109` receipt bundle with the BLAM runner report. No promotion under the new guard.
+
 All curated benchmark results live in this file at the fleet root. Package
 documents hold protocols and question sets; do not start new results files. One curated row
 per model/probe/setup, few params, medians decide — not an LLM dump.

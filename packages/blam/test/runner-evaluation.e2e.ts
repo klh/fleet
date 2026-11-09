@@ -133,6 +133,31 @@ test.describe("runner refusal evidence @unit", () => {
 });
 
 test.describe("runner paired evidence @unit", () => {
+	test("faster mean wall time cannot promote with a token regression", () => {
+		const data = rows();
+		for (const row of data) {
+			if (row.arm === "candidate")
+				row.usage = { input: 300, cachedInput: 50, output: 10 };
+		}
+		const result = evaluateRunner(data);
+		expect(result.lift?.minutesSaved).toBeGreaterThan(0);
+		expect(result.promotion).toEqual({
+			promote: false,
+			why: "mean token use regressed",
+		});
+	});
+
+	test("faster mean wall time cannot promote with a p95 regression", () => {
+		const data = rows();
+		data[1].wallMs = 90;
+		const result = evaluateRunner(data);
+		expect(result.lift?.minutesSaved).toBeGreaterThan(0);
+		expect(result.promotion).toEqual({
+			promote: false,
+			why: "p95 wall time regressed",
+		});
+	});
+
 	test("smoke-size runs cannot promote", () => {
 		const result = evaluateRunner(rows().slice(0, 6));
 		expect(result.lift).not.toBeNull();

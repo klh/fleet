@@ -1,5 +1,7 @@
 # Measured Pi/runner comparisons
 
+The runner evaluator keeps measured lift visible and declines promotion if the candidate raises p95 wall time or, on the agentic track, mean token use.
+
 This additive BLAM track reuses `pairedLift` and `gatePromotion`; it does not change a seed channel or deploy a runtime. Infrastructure-only runs and agentic runs are explicitly different tracks.
 
 Run `bun packages/blam/bench/runner/workspace-smoke.ts /tmp/blam-run-unique 12` for a local, model-free workspace probe. Both arms use the same resident Git fixture (128 files), alternating clone-first and worktree-first order. Baseline is `git clone --no-hardlinks`; candidate is a detached worktree sharing Git objects. Exact file content is the acceptance check. These are workspace strategies, NOT isolated sandboxes, Pi sessions or token-efficiency evidence. OS page caches are uncontrolled and explicitly labelled. This probe never contacts a model.
