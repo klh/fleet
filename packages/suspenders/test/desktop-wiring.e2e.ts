@@ -431,7 +431,25 @@ try {
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 		expect(ps.stdout.toString().trim()).toBe(containerNameOf(runId));
-		// reopen: a fresh leaf over the SAME on-disk state recovers the run
+		// reopen: a fresh leaf over the SAME on-disk state recovers the run.
+		// Root #118603 re-arm: recover() now confirm-revokes + re-mints before
+		// reopen — the CHILD's admin stub died with the SIGKILLed child, so
+		// leaf2 needs a PARENT-side admin that survives the crash. Path-routed
+		// (revoke legs 200, mint legs 201), unlike the child's parity stub.
+		const admin2 = serveStub((req, _body, n) =>
+			new URL(req.url).pathname.endsWith("/revoke")
+				? Response.json({ revoked: "revoked: key" }, { status: 200 })
+				: Response.json(
+						{
+							key_id: `key-r${n}`,
+							key: `bksk_stub_r${n}`,
+							name: "witness",
+							scopes: ["buckle:proxy:WRITE_"],
+							expires_at: Date.now() + 3_600_000,
+						},
+						{ status: 201 },
+					),
+		);
 		const store2 = sqliteStore(new Database(dbPath));
 		ensureRunnerLeaseSchema(store2);
 		ensureRunnerReaderSchema(store2);
@@ -447,8 +465,8 @@ try {
 			},
 			container: { image: conf.image, workspacesDir, seedRoot },
 			credentials: {
-				baseUrl: "http://127.0.0.1:1",
-				adminKey: "unused",
+				baseUrl: admin2.url,
+				adminKey: "bksk_admin_stub",
 				receiptsPath: join(world.home, "receipts.json"),
 			},
 			executorSid: "executor-witness",

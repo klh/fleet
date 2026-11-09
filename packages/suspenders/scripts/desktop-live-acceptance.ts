@@ -152,7 +152,6 @@ const leaf = createDesktopRunnerLeaf({
 	runtime: {
 		models,
 		registry: createRegistry(),
-		env: {},
 		settings: undefined,
 		onReport: () => {},
 	},
