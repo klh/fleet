@@ -38,6 +38,9 @@ The Linux controller talks to the host Docker daemon over
 `unix:///var/run/docker.sock`. Job containers never receive that socket or
 the controller's mint credential. Runner startup, execution and artifact
 export use the same daemon. On macOS they use the `desktop-linux` context.
+The transport pin (local Linux daemon, or the Desktop daemon elsewhere —
+never a remote socket) is asserted per platform by
+`test/runner-desktop-config@unit.e2e.ts` via `runnerDockerArgv`.
 
 Configure `runner.control_url` as a dedicated IPv4 loopback listener and
 `runner.identity_url` as the Buckle instance for this runner. Give the
