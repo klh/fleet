@@ -1,6 +1,7 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
@@ -35,7 +36,7 @@ export default function fleetAwareness(
 		const next = await loadSnapshot(pi.exec.bind(pi), ctx.cwd, null, signal);
 		if (generation !== mine || signal.aborted) return;
 		snapshot = next;
-		let ui;
+		let ui: ExtensionUIContext | null;
 		try {
 			ui = ctx.hasUI ? ctx.ui : null;
 		} catch {
