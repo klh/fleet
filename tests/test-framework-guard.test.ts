@@ -11,6 +11,11 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..");
 const DECANT = "packages/decant/";
+// Vendored fork trees (@klh/chord, @klh/pi-durable — see their FORK.md):
+// upstream vitest suites vendored PRISTINE per owner decision 2026-11-09
+// ("vitest tolerated in the fork", fleet CI stays bun-only) — not ours to
+// migrate, same exemption class as decant.
+const FORKS = ["packages/chord/", "packages/pi-durable/"];
 // The guard is itself a *.test.ts — self-exempt by exact path (the
 // law-guards UI_LAW_ALLOWLIST pattern) so the pin counts only the
 // migratable corpus.
@@ -36,9 +41,22 @@ const SELF = "tests/test-framework-guard.test.ts";
 // .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635). W1294.9.3
 // sweep-G slice-3 (30 install/hubctl files, merged via W2668 from
 // parked/W2654, carried by W2739's rebase) re-pins DOWN on top
-// (635 → 605 at the W2812 rebase integration — this tree carries both
-// waves, re-pinned at its own measured landing count).
-const PIN = 605;
+// (635 → 605 at the W2812 rebase integration).
+// W1294.12 sweep-I (2026-10-29, landed via W2651) ports all 35 remaining
+// specs in speedy/local/telemetry/kernel/local-llm/blam — both lineages
+// ported disjoint corpora, so the W2666 merged tree measures 600 under
+// the guard's own git ls-files counting; re-pinned DOWN to that exact
+// count. W2738 rebase: the two lineages BOTH ported risk-tier
+// (.test.ts→.e2e.ts, add/add) — the merged tree still measures 600; pin
+// holds. W2813 rebase (merging suspenders/W2750 onto main bd26c298): the
+// merged tree measures the same 600; pin holds. W2817 rebase (merging
+// suspenders/W2813 onto the W2812 ladder): the merged tree carries both
+// sides' ports; measured at the landing sha and re-pinned to that exact
+// count — re-pinned DOWN (600 → 570) at the merged tree's own measurement.
+const PIN = 570;
+
+const exempt = (p: string): boolean =>
+	p.startsWith(DECANT) || FORKS.some((f) => p.startsWith(f));
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
@@ -55,9 +73,8 @@ function trackedTestFiles(): string[] {
 // Pure counter over a path list — the teeth tests below prove it without
 // mutating the repo (the detector/fixture split of the import-law guard).
 const counted = (paths: readonly string[]): number =>
-	paths.filter(
-		(p) => p.endsWith(".test.ts") && !p.startsWith(DECANT) && p !== SELF,
-	).length;
+	paths.filter((p) => p.endsWith(".test.ts") && !exempt(p) && p !== SELF)
+		.length;
 
 const violations = (paths: readonly string[], pin: number): string[] => {
 	const n = counted(paths);
@@ -89,6 +106,16 @@ test("decant stays exempt — vendored *.test.ts never counts toward the ratchet
 	const synthetic = [
 		...Array.from({ length: PIN }, (_, i) => `pkg/test/case-${i}.test.ts`),
 		"packages/decant/test/vendored.test.ts",
+	];
+	expect(counted(synthetic)).toBe(PIN);
+	expect(violations(synthetic, PIN)).toEqual([]);
+});
+
+test("vendored fork trees stay exempt — chord/pi-durable upstream vitest suites never count toward the ratchet", () => {
+	const synthetic = [
+		...Array.from({ length: PIN }, (_, i) => `pkg/test/case-${i}.test.ts`),
+		"packages/chord/test/boundary.test.ts",
+		"packages/pi-durable/test/durable.test.ts",
 	];
 	expect(counted(synthetic)).toBe(PIN);
 	expect(violations(synthetic, PIN)).toEqual([]);
