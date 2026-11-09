@@ -152,6 +152,7 @@ export const openRunnerController = (deps: {
 	const authorizer =
 		deps.authorizer ?? makeRunnerAuthorizer({ store: deps.store, now });
 	const signals = new Map<string, AbortController>();
+	const resuming = new Set<string>();
 	/** One independent cleanup step, bounded: resolves null on success, a
 	 *  recorded error string on throw OR timeout — the revocation ladder
 	 *  never awaits an unbounded executor stop. */
@@ -280,6 +281,8 @@ export const openRunnerController = (deps: {
 		async submit({ runId, text, requestId, actor }) {
 			await authorizer.authorize("submit", { runId, actor });
 			const submission = RunnerSubmissionSchema.parse({ text, requestId });
+			if (resuming.has(runId))
+				return { ok: false, reason: "runner: resume in progress" };
 			const row = jobRow(runId);
 			if (!row) return { ok: false, reason: "runner: unknown run" };
 			const state = toControlJob(row).state;
@@ -368,33 +371,44 @@ export const openRunnerController = (deps: {
 					reason: "executor-absent: cannot resume without a durable adapter",
 				};
 			}
-			await deps.durable.resume(runId);
-			const held = heldSubmissions(row.held_interrupts_json);
-			const drained = new Set<number>();
-			const drainErrors: string[] = [];
-			for (const [index, submission] of held.entries()) {
-				try {
-					await deps.durable.submit(runId, submission.text, {
-						requestId: submission.requestId,
-					});
-					drained.add(index);
-				} catch {
-					drainErrors.push("submission delivery failed");
+			if (resuming.has(runId) || (state === "cold" && signals.has(runId)))
+				return { ok: false, reason: "runner: startup in progress" };
+			resuming.add(runId);
+			try {
+				await deps.durable.resume(runId);
+				if (jobRow(runId)?.state !== state)
+					return { ok: false, reason: "runner: resume interrupted" };
+				const held = heldSubmissions(row.held_interrupts_json);
+				const drained = new Set<number>();
+				const drainErrors: string[] = [];
+				for (const [index, submission] of held.entries()) {
+					try {
+						await deps.durable.submit(runId, submission.text, {
+							requestId: submission.requestId,
+						});
+						drained.add(index);
+					} catch {
+						drainErrors.push("submission delivery failed");
+					}
+					if (jobRow(runId)?.state !== state)
+						return { ok: false, reason: "runner: resume interrupted" };
 				}
+				deps.store.run(
+					"UPDATE runner_jobs SET held_interrupts_json = ?, updated_at = ? WHERE run_id = ?",
+					JSON.stringify(held.filter((_, index) => !drained.has(index))),
+					now(),
+					runId,
+				);
+				setState(runId, "running", now());
+				record(runId, "resumed", {
+					by: actor.sid,
+					drained: drained.size,
+					errors: drainErrors,
+				});
+				return { ok: true, state: "running" };
+			} finally {
+				resuming.delete(runId);
 			}
-			deps.store.run(
-				"UPDATE runner_jobs SET held_interrupts_json = ?, updated_at = ? WHERE run_id = ?",
-				JSON.stringify(held.filter((_, index) => !drained.has(index))),
-				now(),
-				runId,
-			);
-			setState(runId, "running", now());
-			record(runId, "resumed", {
-				by: actor.sid,
-				drained: drained.size,
-				errors: drainErrors,
-			});
-			return { ok: true, state: "running" };
 		},
 		async park({ runId, actor }) {
 			await authorizer.authorize("abort", { runId, actor });
