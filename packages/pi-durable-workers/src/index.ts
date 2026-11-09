@@ -17,25 +17,59 @@
  * `workers_finish` and the host may abort past the cap.
  */
 
-import { defineExtension, hook } from "@earendil-works/pi-durable";
-import { GenerationTask, ToolTask } from "@earendil-works/pi-durable";
-import type { Extension, HookApi, ToolRegistration } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/pi-durable";
+import type {
+	Context,
+	Extension,
+	HookApi,
+	ToolRegistration,
+} from "@earendil-works/pi-durable";
+import {
+	defineExtension,
+	GenerationTask,
+	hook,
+	ToolTask,
+} from "@earendil-works/pi-durable";
 import { createLogger, type Logger } from "@klh/buckle/src/log";
-import { createFinishTool, budgetBeforeRequest, DEFAULTS } from "./budget.ts";
-import { doomAfterTools, doomBeforeRequest, doomBeforeTool, foldRound, type DoomLadder } from "./doomloop.ts";
-import { approvalsBeforeTool, createApprovalsWriter, type ApprovalRequest, type ApprovalsWriter } from "./approvals.ts";
-import { createWorkersTaskTool } from "./tasks.ts";
+import {
+	type AnnounceOptions,
+	type Announcer,
+	createAnnouncer,
+} from "./announce.ts";
+import {
+	type ApprovalRequest,
+	type ApprovalsWriter,
+	approvalsBeforeTool,
+	createApprovalsWriter,
+} from "./approvals.ts";
+import { budgetBeforeRequest, createFinishTool, DEFAULTS } from "./budget.ts";
 import { ApprovalsDoc, WakeDoc, type WakePolicy } from "./docs.ts";
+import {
+	type DoomLadder,
+	doomAfterTools,
+	doomBeforeRequest,
+	doomBeforeTool,
+	foldRound,
+} from "./doomloop.ts";
+import { createWorkersTaskTool } from "./tasks.ts";
 import { startWake, type WakeController, type WakeOptions } from "./wake.ts";
-import { createAnnouncer, type Announcer, type AnnounceOptions } from "./announce.ts";
 
-export { startWake, type WakeController, type WakeOptions } from "./wake.ts";
-export { createAnnouncer, type Announcer, type AnnounceOptions, type AnnounceWorker } from "./announce.ts";
-export { createApprovalsWriter, type ApprovalsWriter } from "./approvals.ts";
+export {
+	type AnnounceOptions,
+	type Announcer,
+	type AnnounceWorker,
+	createAnnouncer,
+} from "./announce.ts";
+export { type ApprovalsWriter, createApprovalsWriter } from "./approvals.ts";
+export { counters, createFinishTool, verdict } from "./budget.ts";
+export {
+	ApprovalsDoc,
+	BudgetDoc,
+	DoomDoc,
+	WakeDoc,
+	type WakePolicy,
+} from "./docs.ts";
 export { createWorkersTaskTool, type WorkersTaskHost } from "./tasks.ts";
-export { createFinishTool, verdict, counters } from "./budget.ts";
-export { ApprovalsDoc, BudgetDoc, DoomDoc, WakeDoc, type WakePolicy } from "./docs.ts";
+export { startWake, type WakeController, type WakeOptions } from "./wake.ts";
 
 export type DurableWorkersOptions = {
 	readonly budget?: {
@@ -48,17 +82,26 @@ export type DurableWorkersOptions = {
 		/** Tools that require approval before every call (`*` = all). */
 		readonly requireFor?: readonly string[];
 		/** Bridge committed by the host: raise a pending request durably. */
-		readonly onPending?: (req: ApprovalRequest, conversationId: string, context: Context) => Promise<void>;
+		readonly onPending?: (
+			req: ApprovalRequest,
+			conversationId: string,
+			context: Context,
+		) => Promise<void>;
 	};
 	/** Surface finished runs (announce beat, cockpit activity). */
-	readonly onFinish?: (finish: { summary: string; success: boolean }, context: Context) => void | Promise<void>;
+	readonly onFinish?: (
+		finish: { summary: string; success: boolean },
+		context: Context,
+	) => void | Promise<void>;
 	readonly fetchImpl?: typeof fetch;
 	/** Shared logger seam (default `createLogger("workers")`). */
 	readonly logger?: Logger;
 };
 
 /** The `pi-durable-workers` extension: tools, protocol section, and hooks. */
-export function durableWorkers(options: DurableWorkersOptions = {}): Extension<ToolRegistration> {
+export function durableWorkers(
+	options: DurableWorkersOptions = {},
+): Extension<ToolRegistration> {
 	const budget = { ...DEFAULTS, ...options.budget };
 	const ladder = options.doom ?? { observe: 2, block: 3, stop: 6 };
 	const log = options.logger ?? createLogger("workers");
@@ -68,7 +111,9 @@ export function durableWorkers(options: DurableWorkersOptions = {}): Extension<T
 		tools: [
 			createFinishTool({
 				onFinish: async (finish, context) => {
-					log[finish.success ? "info" : "warn"](`run finished: ${finish.success ? "success" : "failed"} — ${finish.summary}`);
+					log[finish.success ? "info" : "warn"](
+						`run finished: ${finish.success ? "success" : "failed"} — ${finish.summary}`,
+					);
 					await options.onFinish?.(finish, context);
 				},
 			}),
@@ -117,12 +162,20 @@ export function durableWorkers(options: DurableWorkersOptions = {}): Extension<T
 				async beforeTool(call, api, context) {
 					const doomBlock = await doomBeforeTool(call, api, context, ladder);
 					if (doomBlock?.block) {
-						log.warn(`doom loop: blocked ${call.name} (identical round repeats)`);
+						log.warn(
+							`doom loop: blocked ${call.name} (identical round repeats)`,
+						);
 						return doomBlock;
 					}
 					return approvalsBeforeTool(call, api, context, async (req) => {
-						log.warn(`approval required for ${req.tool} (request ${req.id} pending)`);
-						await options.approvals?.onPending?.(req, api.conversationId, context);
+						log.warn(
+							`approval required for ${req.tool} (request ${req.id} pending)`,
+						);
+						await options.approvals?.onPending?.(
+							req,
+							api.conversationId,
+							context,
+						);
 					});
 				},
 			}),
@@ -136,16 +189,21 @@ function countCalls(entry: Awaited<ReturnType<HookApi["entry"]>>): number {
 		if (m.role !== "assistant") continue;
 		const content = (m as { content?: unknown }).content;
 		if (!Array.isArray(content)) continue;
-		for (const block of content) if ((block as { type?: string })?.type === "toolCall") n += 1;
+		for (const block of content)
+			if ((block as { type?: string })?.type === "toolCall") n += 1;
 	}
 	return n;
 }
 
 const noRuntimeBridge = {
-	spawn: () => Promise.resolve("unreported: spawn requires startWorkers() runtime"),
-	check: () => Promise.resolve("unreported: check requires startWorkers() runtime"),
-	steer: () => Promise.resolve("unreported: steer requires startWorkers() runtime"),
-	cancel: () => Promise.resolve("unreported: cancel requires startWorkers() runtime"),
+	spawn: () =>
+		Promise.resolve("unreported: spawn requires startWorkers() runtime"),
+	check: () =>
+		Promise.resolve("unreported: check requires startWorkers() runtime"),
+	steer: () =>
+		Promise.resolve("unreported: steer requires startWorkers() runtime"),
+	cancel: () =>
+		Promise.resolve("unreported: cancel requires startWorkers() runtime"),
 };
 
 // ---------- runtime ----------
@@ -163,7 +221,10 @@ export type WorkersRuntime = {
 	readonly stop: () => void;
 	readonly approvals: ApprovalsWriter;
 	readonly announcer: Announcer | null;
-	readonly addWakePolicy: (policy: WakePolicy, context: Context) => Promise<void>;
+	readonly addWakePolicy: (
+		policy: WakePolicy,
+		context: Context,
+	) => Promise<void>;
 	readonly beat: (state: string, task: string) => Promise<void>;
 };
 
@@ -175,10 +236,13 @@ export async function startWorkers(
 ): Promise<WorkersRuntime> {
 	const conversationId = options.conversationId;
 	const conversation = await harness.conversation(conversationId, context);
-	if (!conversation) throw new Error(`pi-durable-workers: no conversation ${conversationId}`);
+	if (!conversation)
+		throw new Error(`pi-durable-workers: no conversation ${conversationId}`);
 	const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 	const log = options.logger ?? createLogger("workers");
-	log.info(`startWorkers booting for ${conversationId}${options.hubUrl ? ` → ${options.hubUrl}` : " (announce off)"}`);
+	log.info(
+		`startWorkers booting for ${conversationId}${options.hubUrl ? ` → ${options.hubUrl}` : " (announce off)"}`,
+	);
 
 	// approvals: seed requireFor durably + writer bridged onto this harness
 	const approvals = createApprovalsWriter(
@@ -193,11 +257,17 @@ export async function startWorkers(
 		},
 		async (ctx) => await harness.snapshot(ApprovalsDoc, conversationId, ctx),
 	);
-	if (options.approvals?.requireFor?.length) await approvals.requireFor(options.approvals.requireFor, context);
+	if (options.approvals?.requireFor?.length)
+		await approvals.requireFor(options.approvals.requireFor, context);
 
 	// wake timers (restartable so addWakePolicy can reschedule)
 	const wakeOptions: WakeOptions = { fetchImpl };
-	let wake: WakeController = await startWake(harness, conversationId, context, wakeOptions);
+	let wake: WakeController = await startWake(
+		harness,
+		conversationId,
+		context,
+		wakeOptions,
+	);
 
 	// announce (optional; hub-dark tolerant)
 	const announcer = options.hubUrl
@@ -220,12 +290,20 @@ export async function startWorkers(
 		},
 		addWakePolicy: async (policy, ctx) => {
 			await conversation.commit(async (tx) => {
-				const doc = (await tx.doc(WakeDoc, conversationId)) as { policies: WakePolicy[] };
-				doc.policies = [...doc.policies.filter((p) => p.label !== policy.label), policy];
+				const doc = (await tx.doc(WakeDoc, conversationId)) as {
+					policies: WakePolicy[];
+				};
+				doc.policies = [
+					...doc.policies.filter((p) => p.label !== policy.label),
+					policy,
+				];
 			}, ctx);
 			log.info(`wake policy ${policy.label} (${policy.kind}) added`);
 			wake.stop();
-			wake = await startWake(harness, conversationId, ctx, { ...wakeOptions, logger: log });
+			wake = await startWake(harness, conversationId, ctx, {
+				...wakeOptions,
+				logger: log,
+			});
 		},
 		stop: () => {
 			wake.stop();

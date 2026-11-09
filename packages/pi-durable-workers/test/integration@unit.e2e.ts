@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
+
 /**
  * Integration: the pi-durable-workers extension inside a REAL durable run.
  *
@@ -12,16 +13,20 @@ import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/n
  * conversation.
  */
 
-import { expect, test } from "@playwright/test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { MemoryStorage } from "@earendil-works/pi-durable";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
+import { defineTool, MemoryStorage } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
-import { defineTool } from "@earendil-works/pi-durable";
+import { expect, test } from "@playwright/test";
 import { BudgetDoc } from "../src/docs.ts";
 import { durableWorkers, startWake, startWorkers } from "../src/index.ts";
-import { chatSetup, openChat, waitFor, allEntries } from "./release-support.ts";
-import { context } from "./release-support.ts";
+import {
+	allEntries,
+	chatSetup,
+	context,
+	openChat,
+	waitFor,
+} from "./release-support.ts";
 
 const echoTool = (): ToolRegistration<typeof echoSchema> => {
 	const echoSchema = obj({ x: str({ description: "echoed" }) });
@@ -50,10 +55,20 @@ test.describe("workers in a real run", () => {
 
 		const idem = { x: "same" };
 		setup.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", idem, { id: "e1" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("echo", idem, { id: "e2" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("echo", idem, { id: "e1" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage([fauxToolCall("echo", idem, { id: "e2" })], {
+				stopReason: "toolUse",
+			}),
 			fauxAssistantMessage(
-				[fauxToolCall("workers_finish", { summary: "all done", success: true }, { id: "f1" })],
+				[
+					fauxToolCall(
+						"workers_finish",
+						{ summary: "all done", success: true },
+						{ id: "f1" },
+					),
+				],
 				{ stopReason: "toolUse" },
 			),
 		]);
@@ -66,10 +81,15 @@ test.describe("workers in a real run", () => {
 		expect(budget.finishReason).toBe("finish_tool");
 
 		await harness.close(context);
-		const reopenedStorage = await openNodeJsonlStorage(state, context, { fsync: true });
+		const reopenedStorage = await openNodeJsonlStorage(state, context, {
+			fsync: true,
+		});
 		const reopened = await openChat(reopenedStorage, setup);
 		expect(reopened.root.id).toBe(root.id);
-		expect((await reopened.harness.snapshot(BudgetDoc, root.id, context)).finishReason).toBe("finish_tool");
+		expect(
+			(await reopened.harness.snapshot(BudgetDoc, root.id, context))
+				.finishReason,
+		).toBe("finish_tool");
 		await reopened.harness.close(context);
 		await rm(state, { recursive: true });
 	});
@@ -82,15 +102,26 @@ test.describe("workers in a real run", () => {
 		harness.resume();
 
 		setup.faux.setResponses([fauxAssistantMessage("woke")]);
-		const runtime = await startWorkers(harness, { conversationId: root.id }, context);
+		const runtime = await startWorkers(
+			harness,
+			{ conversationId: root.id },
+			context,
+		);
 		await runtime.addWakePolicy(
-			{ kind: "timer", everyS: 0.4, prompt: "[wake] tick from the timer policy", label: "tick" },
+			{
+				kind: "timer",
+				everyS: 0.4,
+				prompt: "[wake] tick from the timer policy",
+				label: "tick",
+			},
 			context,
 		);
 
 		await waitFor(async () => {
 			const entries = await allEntries(root, context);
-			return entries.some((e) => JSON.stringify(e.model?.[0] ?? e.data ?? {}).includes("[wake] tick"));
+			return entries.some((e) =>
+				JSON.stringify(e.model?.[0] ?? e.data ?? {}).includes("[wake] tick"),
+			);
 		}, 10_000);
 
 		runtime.stop();
@@ -98,7 +129,10 @@ test.describe("workers in a real run", () => {
 	});
 });
 
-async function rootIdle(harness: import("@earendil-works/pi-durable").Harness, ctx: typeof context): Promise<boolean> {
+async function rootIdle(
+	harness: import("@earendil-works/pi-durable").Harness,
+	ctx: typeof context,
+): Promise<boolean> {
 	await harness.waitForIdle(ctx).catch(() => {});
 	return true;
 }
@@ -107,19 +141,47 @@ test("poll and subscribe wakes submit only on a usable response", async () => {
 	const setup = chatSetup();
 	setup.registry.install(durableWorkers({}));
 	const { harness, root } = await openChat(new MemoryStorage(), setup);
-	const runtime = await startWorkers(harness, { conversationId: root.id }, context);
+	const runtime = await startWorkers(
+		harness,
+		{ conversationId: root.id },
+		context,
+	);
 	const url = "https://wake.invalid/";
-	await runtime.addWakePolicy({
-		kind: "poll", url, everyS: 3600, idleToken: "idle", label: "poll", prompt: "poll wake",
-	}, context);
-	await runtime.addWakePolicy({
-		kind: "subscribe", url, degradeEveryS: 3600, filter: "work.ready", label: "subscribe", prompt: "subscribe wake",
-	}, context);
+	await runtime.addWakePolicy(
+		{
+			kind: "poll",
+			url,
+			everyS: 3600,
+			idleToken: "idle",
+			label: "poll",
+			prompt: "poll wake",
+		},
+		context,
+	);
+	await runtime.addWakePolicy(
+		{
+			kind: "subscribe",
+			url,
+			degradeEveryS: 3600,
+			filter: "work.ready",
+			label: "subscribe",
+			prompt: "subscribe wake",
+		},
+		context,
+	);
 	runtime.stop();
 
-	const replies = [new Response("idle"), new Response("ready"), new Response("offline", { status: 503 }), new Response("ready")];
+	const replies = [
+		new Response("idle"),
+		new Response("ready"),
+		new Response("offline", { status: 503 }),
+		new Response("ready"),
+	];
 	const controller = await startWake(harness, root.id, context, {
-		fetchImpl: Object.assign(async () => replies.shift() ?? new Response(null, { status: 500 }), { preconnect: () => {} }),
+		fetchImpl: Object.assign(
+			async () => replies.shift() ?? new Response(null, { status: 500 }),
+			{ preconnect: () => {} },
+		),
 	});
 	try {
 		expect(await controller.fire("poll", context)).toBe(false);

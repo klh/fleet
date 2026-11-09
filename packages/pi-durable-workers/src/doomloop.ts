@@ -11,22 +11,32 @@
  * checkpointed, replay-safe: a rerun after a crash sees the same counts.
  */
 
-import type { EntryRecord, HookApi, Message } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/pi-durable";
-import { roundSignature } from "./docs.ts";
+import type {
+	Context,
+	EntryRecord,
+	HookApi,
+	Message,
+} from "@earendil-works/pi-durable";
 import { bumpSteps, bumpToolCalls } from "./budget.ts";
+import { roundSignature } from "./docs.ts";
 
 export const DOOM_DEFAULTS = { observe: 2, block: 3, stop: 6 } as const;
 
 const MEMO_LAST_SIG = "klh.workers.doom.lastSig";
 const MEMO_REPEAT = "klh.workers.doom.repeat";
 
-export type DoomLadder = { readonly observe: number; readonly block: number; readonly stop: number };
+export type DoomLadder = {
+	readonly observe: number;
+	readonly block: number;
+	readonly stop: number;
+};
 
 // ---------- round reading (from hook entry ids) ----------
 
 /** Tool-call blocks of the round's assistant message: `{type:"toolCall", id, name, arguments}`. */
-function callBlocks(entry: EntryRecord | undefined): Array<{ name: string; arguments: unknown }> {
+function callBlocks(
+	entry: EntryRecord | undefined,
+): Array<{ name: string; arguments: unknown }> {
 	const out: Array<{ name: string; arguments: unknown }> = [];
 	for (const m of entry?.model ?? []) {
 		if (m.role !== "assistant") continue;
@@ -67,9 +77,15 @@ export async function doomAfterTools(
 ): Promise<{ repeats: number; signature: string }> {
 	const assistantEntry = await api.entry(assistant, context);
 	const calls = callBlocks(assistantEntry);
-	const resultEntries = await Promise.all(results.map((id) => api.entry(id, context)));
+	const resultEntries = await Promise.all(
+		results.map((id) => api.entry(id, context)),
+	);
 	const sig = roundSignature(
-		calls.map((c, i) => ({ name: c.name, args: c.arguments, resultHead: resultText(resultEntries[i]) })),
+		calls.map((c, i) => ({
+			name: c.name,
+			args: c.arguments,
+			resultHead: resultText(resultEntries[i]),
+		})),
 	);
 	const lastSig = await api.memo<string>(MEMO_LAST_SIG, context);
 	if (lastSig === sig) {
@@ -84,7 +100,7 @@ export async function doomAfterTools(
 
 /** Called from `beforeTool`: block a call the ladder has condemned. */
 export async function doomBeforeTool(
-	call: { name: string },
+	_call: { name: string },
 	api: HookApi,
 	context: Context,
 	ladder: DoomLadder = DOOM_DEFAULTS,
@@ -113,12 +129,20 @@ export async function doomBeforeRequest(
 		repeats >= ladder.stop
 			? `[doom-loop] STOP: ${repeats} identical rounds. Do not retry. Call workers_finish with your findings now.`
 			: `[doom-loop] observed: the last ${repeats} tool rounds produced identical results. Break the loop: change inputs, pick another approach, or call workers_finish.`;
-	const noteMessage = { role: "user", content: note, timestamp: Date.now() } as Message;
+	const noteMessage = {
+		role: "user",
+		content: note,
+		timestamp: Date.now(),
+	} as Message;
 	return { messages: [...request.messages, noteMessage] };
 }
 
 /** Shared step/call folding for the budget hooks; exported for tests. */
-export async function foldRound(api: HookApi, roundToolCalls: number, context: Context): Promise<{ steps: number; toolCalls: number }> {
+export async function foldRound(
+	api: HookApi,
+	roundToolCalls: number,
+	context: Context,
+): Promise<{ steps: number; toolCalls: number }> {
 	const steps = await bumpSteps(api, context);
 	const toolCalls = await bumpToolCalls(api, roundToolCalls, context);
 	return { steps, toolCalls };

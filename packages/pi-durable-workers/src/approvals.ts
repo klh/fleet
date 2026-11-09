@@ -9,9 +9,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { HookApi } from "@earendil-works/pi-durable";
-import type { Context } from "@earendil-works/pi-durable";
-import { ApprovalsDoc, type ApprovalRequest, type ApprovalsState } from "./docs.ts";
+import type { Context, HookApi } from "@earendil-works/pi-durable";
+import {
+	type ApprovalRequest,
+	ApprovalsDoc,
+	type ApprovalsState,
+} from "./docs.ts";
 
 /** Block payload from `beforeTool`; the first block wins. */
 export type ApprovalBlock = { block: string };
@@ -27,18 +30,27 @@ export async function approvalsBeforeTool(
 	onPending?: (req: ApprovalRequest) => void,
 ): Promise<ApprovalBlock | undefined> {
 	const approvals =
-		((await api.snapshot(ApprovalsDoc, api.conversationId, context)) as ApprovalsState | undefined) ??
-		({ requests: [], requireFor: [] } as ApprovalsState);
+		((await api.snapshot(ApprovalsDoc, api.conversationId, context)) as
+			| ApprovalsState
+			| undefined) ?? ({ requests: [], requireFor: [] } as ApprovalsState);
 	if (!matches(call.name, approvals.requireFor)) return undefined;
 	const approved = approvals.requests.find(
-		(r) => r.tool === call.name && r.status === "approved" && r.argsPreview === preview(call.arguments),
+		(r) =>
+			r.tool === call.name &&
+			r.status === "approved" &&
+			r.argsPreview === preview(call.arguments),
 	);
 	if (approved) return undefined;
 	const existing = approvals.requests.find(
-		(r) => r.tool === call.name && r.status === "pending" && r.argsPreview === preview(call.arguments),
+		(r) =>
+			r.tool === call.name &&
+			r.status === "pending" &&
+			r.argsPreview === preview(call.arguments),
 	);
 	if (existing) {
-		return { block: `[approvals] ${call.name} awaits approval (request ${existing.id}). Ask the operator or change arguments.` };
+		return {
+			block: `[approvals] ${call.name} awaits approval (request ${existing.id}). Ask the operator or change arguments.`,
+		};
 	}
 	const req: ApprovalRequest = {
 		id: `apr-${randomUUID().slice(0, 8)}`,
@@ -50,21 +62,30 @@ export async function approvalsBeforeTool(
 	// Hooks cannot commit (HookApi is read-side); the pending record is raised
 	// through the host callback, which commits on the Session line.
 	onPending?.(req);
-	return { block: `[approvals] ${call.name} requires approval — request ${req.id} raised. Retry once approved.` };
+	return {
+		block: `[approvals] ${call.name} requires approval — request ${req.id} raised. Retry once approved.`,
+	};
 }
 
 function preview(args: unknown): string {
 	const s = JSON.stringify(args) ?? "{}";
-	return s.length > 300 ? s.slice(0, 299) + "…" : s;
+	return s.length > 300 ? `${s.slice(0, 299)}…` : s;
 }
 
 // ---------- host-side decision API (committed on the Session line) ----------
 
 export type ApprovalsWriter = {
 	/** Configure which tools require approval. */
-	readonly requireFor: (tools: readonly string[], context: Context) => Promise<void>;
+	readonly requireFor: (
+		tools: readonly string[],
+		context: Context,
+	) => Promise<void>;
 	/** Record a decision; returns false when the id is unknown. */
-	readonly decide: (id: string, decision: "approved" | "denied", context: Context) => Promise<boolean>;
+	readonly decide: (
+		id: string,
+		decision: "approved" | "denied",
+		context: Context,
+	) => Promise<boolean>;
 	/** Pending requests, oldest first. */
 	readonly pending: (context: Context) => Promise<ApprovalRequest[]>;
 	/** Raise a pending request from a hook (commit wrapper supplied by the runtime). */
@@ -72,8 +93,19 @@ export type ApprovalsWriter = {
 };
 
 export function createApprovalsWriter(
-	commit: (change: (doc: { requests: ApprovalRequest[]; requireFor: string[] }) => Promise<void> | void, context: Context) => Promise<void>,
-	read: (context: Context) => Promise<{ requests: readonly ApprovalRequest[]; requireFor: readonly string[] }>,
+	commit: (
+		change: (doc: {
+			requests: ApprovalRequest[];
+			requireFor: string[];
+		}) => Promise<void> | void,
+		context: Context,
+	) => Promise<void>,
+	read: (
+		context: Context,
+	) => Promise<{
+		requests: readonly ApprovalRequest[];
+		requireFor: readonly string[];
+	}>,
 ): ApprovalsWriter {
 	return {
 		requireFor: async (tools, context) => {
@@ -87,14 +119,21 @@ export function createApprovalsWriter(
 			await commit(async (doc) => {
 				const requests = [...doc.requests];
 				const i = requests.findIndex((r) => r.id === id);
-				if (i >= 0) requests[i] = { ...requests[i], status: decision, decidedAt: Date.now() };
+				if (i >= 0)
+					requests[i] = {
+						...requests[i],
+						status: decision,
+						decidedAt: Date.now(),
+					};
 				doc.requests = requests;
 			}, context);
 			return true;
 		},
 		pending: async (context) => {
 			const state = await read(context);
-			return state.requests.filter((r) => r.status === "pending").sort((a, b) => a.at - b.at);
+			return state.requests
+				.filter((r) => r.status === "pending")
+				.sort((a, b) => a.at - b.at);
 		},
 		raise: async (req, context) => {
 			await commit(async (doc) => {

@@ -1,8 +1,8 @@
 import type { Context } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	createModels,
 	type FauxProviderHandle,
-	type FauxResponseStep,
 	fauxProvider,
 	type Message,
 	type Models,
@@ -18,10 +18,8 @@ import {
 	type Registry,
 	type ReportInfo,
 	type Storage,
-	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 export const context = BACKGROUND_CONTEXT;
 
 /** Models and registry that survive a close/reopen, like a host process's own objects. */
@@ -33,17 +31,29 @@ export type ChatSetup = {
 	/** What each report was about, in the order of `reports`. */
 	readonly infos: ReportInfo[];
 	/** Live Harness settings; tests assign fields to change them between decisions. */
-	readonly settings: { -readonly [K in keyof HarnessSettings]: HarnessSettings[K] };
+	readonly settings: {
+		-readonly [K in keyof HarnessSettings]: HarnessSettings[K];
+	};
 	now: () => number;
 	/** `HarnessOptions.identity`. */
 	identity?: HarnessOptions["identity"];
 };
 
-export function chatSetup(options: RegisterFauxProviderOptions = {}): ChatSetup {
+export function chatSetup(
+	options: RegisterFauxProviderOptions = {},
+): ChatSetup {
 	const faux = fauxProvider(options);
 	const models = createModels();
 	models.setProvider(faux.provider);
-	return { faux, models, registry: createRegistry(), reports: [], infos: [], settings: {}, now: () => Date.now() };
+	return {
+		faux,
+		models,
+		registry: createRegistry(),
+		reports: [],
+		infos: [],
+		settings: {},
+		now: () => Date.now(),
+	};
 }
 
 /** Open a Harness over `storage` and return its root, configured with the faux model on first creation. */
@@ -51,7 +61,9 @@ export async function openChat(
 	storage: Storage,
 	setup: ChatSetup,
 	/** One environment for every conversation, or an `env` function. */
-	options: { readonly env?: ExecutionEnv | NonNullable<HarnessOptions["env"]> } = {},
+	options: {
+		readonly env?: ExecutionEnv | NonNullable<HarnessOptions["env"]>;
+	} = {},
 ): Promise<{ readonly harness: Harness; readonly root: Conversation }> {
 	const harness = await Harness.open(
 		storage,
@@ -62,7 +74,12 @@ export async function openChat(
 			...(setup.identity === undefined ? {} : { identity: setup.identity }),
 			...(options.env === undefined
 				? {}
-				: { env: typeof options.env === "function" ? options.env : () => options.env as ExecutionEnv }),
+				: {
+						env:
+							typeof options.env === "function"
+								? options.env
+								: () => options.env as ExecutionEnv,
+					}),
 			now: () => setup.now(),
 			onReport: ({ error, ...info }) => {
 				setup.reports.push(error);
@@ -71,12 +88,17 @@ export async function openChat(
 		},
 		context,
 	);
-	const root = await harness.root(context, { agent: { model: { provider: "faux", modelId: "faux-1" } } });
+	const root = await harness.root(context, {
+		agent: { model: { provider: "faux", modelId: "faux-1" } },
+	});
 	return { harness, root };
 }
 
 /** Raw entries of a conversation, oldest first. */
-export async function allEntries(conversation: Conversation, callContext: Context = context): Promise<EntryRecord[]> {
+export async function allEntries(
+	conversation: Conversation,
+	callContext: Context = context,
+): Promise<EntryRecord[]> {
 	const page = await conversation.entries({}, 1000, undefined, callContext);
 	return [...page.items].reverse();
 }
@@ -91,7 +113,10 @@ export function textOf(message: Message | undefined): string | undefined {
 }
 
 /** Poll `check` in real time until it holds; for waits that span throttle windows and timers. */
-export async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+export async function waitFor(
+	check: () => boolean | Promise<boolean>,
+	timeoutMs = 5000,
+): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error("Condition was not reached");

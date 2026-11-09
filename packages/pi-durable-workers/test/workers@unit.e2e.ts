@@ -1,23 +1,48 @@
+import type {
+	EntryRecord,
+	HookApi,
+	JsonValue,
+	Message,
+} from "@earendil-works/pi-durable";
 import { expect, test } from "@playwright/test";
-import type { EntryRecord, HookApi, JsonValue, Message } from "@earendil-works/pi-durable";
+import { createAnnouncer } from "../src/announce.ts";
 import {
+	approvalsBeforeTool,
+	createApprovalsWriter,
+} from "../src/approvals.ts";
+import {
+	budgetBeforeRequest,
+	counters,
+	createFinishTool,
+	DEFAULTS,
+	MEMO_CALLS,
+	MEMO_STEPS,
+	verdict,
+} from "../src/budget.ts";
+import {
+	type ApprovalRequest,
 	ApprovalsDoc,
+	type ApprovalsState,
 	BudgetDoc,
-	WakeDoc,
+	type BudgetState,
 	roundSignature,
 	stableStringify,
-	type ApprovalRequest,
-	type ApprovalsState,
-	type BudgetState,
+	WakeDoc,
 	type WakeState,
 } from "../src/docs.ts";
-import { budgetBeforeRequest, counters, verdict, createFinishTool, DEFAULTS, MEMO_STEPS, MEMO_CALLS } from "../src/budget.ts";
-import { doomAfterTools, doomBeforeTool, doomBeforeRequest, foldRound, DOOM_DEFAULTS } from "../src/doomloop.ts";
-import { approvalsBeforeTool, createApprovalsWriter } from "../src/approvals.ts";
-import { createAnnouncer } from "../src/announce.ts";
+import {
+	DOOM_DEFAULTS,
+	doomAfterTools,
+	doomBeforeRequest,
+	doomBeforeTool,
+	foldRound,
+} from "../src/doomloop.ts";
 
 // ---------- fake HookApi (memo + entry + snapshot, enough for every unit hook) ----------
-function fakeApi(docs: Record<string, unknown> = {}, entries: Record<string, EntryRecord> = {}) {
+function fakeApi(
+	docs: Record<string, unknown> = {},
+	entries: Record<string, EntryRecord> = {},
+) {
 	const memos = new Map<string, JsonValue>();
 	const pendingRaises: ApprovalRequest[] = [];
 	const api = {
@@ -29,20 +54,30 @@ function fakeApi(docs: Record<string, unknown> = {}, entries: Record<string, Ent
 			return rest[0] as JsonValue;
 		},
 		entry: async (id: string) => entries[id],
-		snapshot: async (_doc: { definition?: { kind?: string } }, _scope: string) => docs[_doc?.definition?.kind ?? ""],
+		snapshot: async (
+			_doc: { definition?: { kind?: string } },
+			_scope: string,
+		) => docs[_doc?.definition?.kind ?? ""],
 	} as unknown as HookApi & { __memos: Map<string, JsonValue> };
 	(api as unknown as { __memos: Map<string, JsonValue> }).__memos = memos;
 	return { api, memos, pendingRaises, ctx: {} as never };
 }
 
-const assistantEntry = (calls: Array<{ name: string; args: Record<string, unknown> }>): EntryRecord => ({
+const assistantEntry = (
+	calls: Array<{ name: string; args: Record<string, unknown> }>,
+): EntryRecord => ({
 	id: "a1" as never,
 	conversationId: "conv-1" as never,
 	kind: "assistant",
 	model: [
 		{
 			role: "assistant",
-			content: calls.map((c) => ({ type: "toolCall", id: `c-${c.name}`, name: c.name, arguments: c.args })),
+			content: calls.map((c) => ({
+				type: "toolCall",
+				id: `c-${c.name}`,
+				name: c.name,
+				arguments: c.args,
+			})),
 			timestamp: Date.now(),
 		} as unknown as Message,
 	],
@@ -52,18 +87,32 @@ const resultEntry = (text: string): EntryRecord => ({
 	id: "r1" as never,
 	conversationId: "conv-1" as never,
 	kind: "pi.tool-result",
-	model: [{ role: "toolResult", content: [{ type: "text", text }], timestamp: Date.now() } as unknown as Message],
+	model: [
+		{
+			role: "toolResult",
+			content: [{ type: "text", text }],
+			timestamp: Date.now(),
+		} as unknown as Message,
+	],
 });
 
 // ---------- docs ----------
 test.describe("docs", () => {
 	test("stableStringify is key-sorted and deterministic", () => {
-		expect(stableStringify({ b: 1, a: [2, { z: 3, y: 4 }] })).toBe(stableStringify({ a: [2, { y: 4, z: 3 }], b: 1 }));
+		expect(stableStringify({ b: 1, a: [2, { z: 3, y: 4 }] })).toBe(
+			stableStringify({ a: [2, { y: 4, z: 3 }], b: 1 }),
+		);
 	});
 	test("roundSignature: same round → same signature; different result → different", () => {
-		const s1 = roundSignature([{ name: "bash", args: { cmd: "ls" }, resultHead: "file.txt" }]);
-		const s2 = roundSignature([{ name: "bash", args: { cmd: "ls" }, resultHead: "file.txt" }]);
-		const s3 = roundSignature([{ name: "bash", args: { cmd: "ls" }, resultHead: "OTHER" }]);
+		const s1 = roundSignature([
+			{ name: "bash", args: { cmd: "ls" }, resultHead: "file.txt" },
+		]);
+		const s2 = roundSignature([
+			{ name: "bash", args: { cmd: "ls" }, resultHead: "file.txt" },
+		]);
+		const s3 = roundSignature([
+			{ name: "bash", args: { cmd: "ls" }, resultHead: "OTHER" },
+		]);
 		expect(s1).toBe(s2);
 		expect(s1).not.toBe(s3);
 	});
@@ -96,7 +145,7 @@ test.describe("budget", () => {
 	});
 	test("beforeRequest: silent at ok, steer at warn, hard stop note at cap", async () => {
 		const ctx = {} as never;
-		const mk = (steps: number, calls: number) => fakeApi();
+		const mk = (_steps: number, _calls: number) => fakeApi();
 		{
 			const { api } = mk(0, 0);
 			const r = await budgetBeforeRequest({ messages: [] }, api, ctx);
@@ -107,14 +156,20 @@ test.describe("budget", () => {
 			memos.set(MEMO_STEPS, 34);
 			const r = await budgetBeforeRequest({ messages: [] }, api, ctx);
 			expect(r?.messages.length).toBe(1);
-			expect(String((r?.messages[0] as { content: string }).content)).toContain("approaching cap");
+			expect(String((r?.messages[0] as { content: string }).content)).toContain(
+				"approaching cap",
+			);
 		}
 		{
 			const { api, memos } = mk(0, 0);
 			memos.set(MEMO_STEPS, 40);
 			const r = await budgetBeforeRequest({ messages: [] }, api, ctx);
-			expect(String((r?.messages[0] as { content: string }).content)).toContain("HARD CAP");
-			expect(String((r?.messages[0] as { content: string }).content)).toContain("workers_finish");
+			expect(String((r?.messages[0] as { content: string }).content)).toContain(
+				"HARD CAP",
+			);
+			expect(String((r?.messages[0] as { content: string }).content)).toContain(
+				"workers_finish",
+			);
 		}
 	});
 	test("foldRound bumps memos (replay-safe counters)", async () => {
@@ -127,7 +182,9 @@ test.describe("budget", () => {
 	test("finish tool writes BudgetDoc + calls onFinish", async () => {
 		let finished: { summary: string; success: boolean } | null = null;
 		const doc: BudgetState = { startedAt: Date.now() };
-		const tool = createFinishTool({ onFinish: async (f) => void (finished = f) });
+		const tool = createFinishTool({
+			onFinish: async (f) => void (finished = f),
+		});
 		const api = {
 			conversationId: "conv-1",
 			commit: async (change: (tx: never) => Promise<void>) => {
@@ -136,11 +193,11 @@ test.describe("budget", () => {
 				} as never);
 			},
 		} as never;
-		const res = await (tool.execute as (a: never, api: never, ctx: never) => Promise<unknown>)(
-			{ summary: "done", success: true },
-			api,
-			{} as never,
-		) as { details: { finished: boolean } };
+		const res = (await (
+			tool.execute as (a: never, api: never, ctx: never) => Promise<unknown>
+		)({ summary: "done", success: true }, api, {} as never)) as {
+			details: { finished: boolean };
+		};
 		expect(res.details.finished).toBe(true);
 		expect(doc.finishReason).toBe("finish_tool");
 		expect(finished?.success).toBe(true);
@@ -159,7 +216,13 @@ test.describe("doom loop", () => {
 		return out;
 	}
 	test("identical rounds escalate repeats", async () => {
-		const { api } = fakeApi({}, { a1: assistantEntry([{ name: "bash", args: { cmd: "ls" } }]), r1: resultEntry("x") });
+		const { api } = fakeApi(
+			{},
+			{
+				a1: assistantEntry([{ name: "bash", args: { cmd: "ls" } }]),
+				r1: resultEntry("x"),
+			},
+		);
 		expect(await rounds(api, 4)).toEqual([1, 2, 3, 4]);
 	});
 	test("changed round resets the counter", async () => {
@@ -178,21 +241,31 @@ test.describe("doom loop", () => {
 		const { api, memos } = fakeApi();
 		memos.set("klh.workers.doom.lastSig", "abc" as JsonValue);
 		memos.set("klh.workers.doom.repeat", DOOM_DEFAULTS.block - 1);
-		expect((await doomBeforeTool({ name: "bash" }, api, ctx))?.block).toBeUndefined();
+		expect(
+			(await doomBeforeTool({ name: "bash" }, api, ctx))?.block,
+		).toBeUndefined();
 		memos.set("klh.workers.doom.repeat", DOOM_DEFAULTS.block);
-		expect((await doomBeforeTool({ name: "bash" }, api, ctx))?.block).toContain("Blocked");
+		expect((await doomBeforeTool({ name: "bash" }, api, ctx))?.block).toContain(
+			"Blocked",
+		);
 		memos.set("klh.workers.doom.repeat", DOOM_DEFAULTS.stop);
-		expect((await doomBeforeTool({ name: "bash" }, api, ctx))?.block).toBeUndefined(); // stop rung: request-side
+		expect(
+			(await doomBeforeTool({ name: "bash" }, api, ctx))?.block,
+		).toBeUndefined(); // stop rung: request-side
 	});
 	test("beforeRequest: observe note at 2, stop note at 6", async () => {
 		const { api, memos } = fakeApi();
 		expect(await doomBeforeRequest({ messages: [] }, api, ctx)).toBeUndefined();
 		memos.set("klh.workers.doom.repeat", DOOM_DEFAULTS.observe);
 		const obs = await doomBeforeRequest({ messages: [] }, api, ctx);
-		expect(String((obs?.messages[0] as { content: string }).content)).toContain("observed");
+		expect(String((obs?.messages[0] as { content: string }).content)).toContain(
+			"observed",
+		);
 		memos.set("klh.workers.doom.repeat", DOOM_DEFAULTS.stop);
 		const stop = await doomBeforeRequest({ messages: [] }, api, ctx);
-		expect(String((stop?.messages[0] as { content: string }).content)).toContain("workers_finish");
+		expect(
+			String((stop?.messages[0] as { content: string }).content),
+		).toContain("workers_finish");
 	});
 });
 
@@ -202,13 +275,18 @@ test.describe("approvals", () => {
 	test("no requireFor → no block", async () => {
 		const state: ApprovalsState = { requests: [], requireFor: [] };
 		const { api } = fakeApi({ "klh.workers.approvals": state });
-		expect(await approvalsBeforeTool({ name: "bash", arguments: {} }, api, ctx)).toBeUndefined();
+		expect(
+			await approvalsBeforeTool({ name: "bash", arguments: {} }, api, ctx),
+		).toBeUndefined();
 	});
 	test("requireFor match without approval → block + pending raised", async () => {
 		const state: ApprovalsState = { requests: [], requireFor: ["bash"] };
 		const { api, pendingRaises } = fakeApi({ "klh.workers.approvals": state });
-		const r = await approvalsBeforeTool({ name: "bash", arguments: { cmd: "rm" } }, api, ctx, (req) =>
-			pendingRaises.push(req),
+		const r = await approvalsBeforeTool(
+			{ name: "bash", arguments: { cmd: "rm" } },
+			api,
+			ctx,
+			(req) => pendingRaises.push(req),
 		);
 		expect(r?.block).toContain("requires approval");
 		expect(pendingRaises.length).toBe(1);
@@ -218,16 +296,33 @@ test.describe("approvals", () => {
 		const args = { cmd: "rm" };
 		const state: ApprovalsState = {
 			requests: [
-				{ id: "apr-1", tool: "bash", argsPreview: JSON.stringify(args), at: 1, status: "approved", decidedAt: 2 },
+				{
+					id: "apr-1",
+					tool: "bash",
+					argsPreview: JSON.stringify(args),
+					at: 1,
+					status: "approved",
+					decidedAt: 2,
+				},
 			],
 			requireFor: ["bash"],
 		};
 		const { api } = fakeApi({ "klh.workers.approvals": state });
-		expect(await approvalsBeforeTool({ name: "bash", arguments: args }, api, ctx)).toBeUndefined();
+		expect(
+			await approvalsBeforeTool({ name: "bash", arguments: args }, api, ctx),
+		).toBeUndefined();
 	});
 	test("decide() flips status; unknown id rejected", async () => {
 		const doc: { requests: ApprovalRequest[]; requireFor: string[] } = {
-			requests: [{ id: "apr-9", tool: "bash", argsPreview: "{}", at: 1, status: "pending" }],
+			requests: [
+				{
+					id: "apr-9",
+					tool: "bash",
+					argsPreview: "{}",
+					at: 1,
+					status: "pending",
+				},
+			],
 			requireFor: [],
 		};
 		const writer = createApprovalsWriter(
@@ -263,7 +358,16 @@ test.describe("announce", () => {
 		expect(posts.length).toBe(1);
 		expect(posts[0].url).toBe("http://hub.local:4111/workers/announce");
 		const body = JSON.parse(String(posts[0].init.body)) as {
-			workers: Array<{ sid: string; label: string; state: string; task: string; origin: { kind: string }; compute: { hub_id: string }; rights: unknown[]; reported_by?: string }>;
+			workers: Array<{
+				sid: string;
+				label: string;
+				state: string;
+				task: string;
+				origin: { kind: string };
+				compute: { hub_id: string };
+				rights: unknown[];
+				reported_by?: string;
+			}>;
 			asOf: number;
 			errors: unknown[];
 		};
@@ -298,7 +402,11 @@ test.describe("announce", () => {
 // ---------- defaults ----------
 test.describe("defaults", () => {
 	test("OpenRouter port defaults", () => {
-		expect(DEFAULTS).toEqual({ maxSteps: 40, maxToolCalls: 200, warnAtFraction: 0.8 });
+		expect(DEFAULTS).toEqual({
+			maxSteps: 40,
+			maxToolCalls: 200,
+			warnAtFraction: 0.8,
+		});
 		expect(DOOM_DEFAULTS).toEqual({ observe: 2, block: 3, stop: 6 });
 	});
 });
