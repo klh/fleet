@@ -68,6 +68,8 @@ decision-grade: it has to change what you would do. When a verdict flips
   isolation observations. Keep live inference, recovery and sandbox drills
   separate; never substitute a fast filesystem fixture for those results.
 
+- **Local 35B review as an immediate cloud-review replacement (W2874, 2026-11-08)** - full W2872 review input was rejected at context admission (400). A smaller W2874 patch passed that check but its default 16k output budget exceeded Metal admission: 23.1GB resident plus 5.7GB projected KV exceeded the configured 28GB cap, surfaced through LiteLLM as 503/Buckle502. An explicit 8192-output-token experiment retained the complete input and ran, but falsely blocked on absence of mechanical coverage proof even though the review prompt says proof runs after a provisional PASS. This one trial establishes admission feasibility, not review-quality parity. Keep local review opt-in for fitting payloads; require held-out quality evaluation before replacing the current reviewer. Do not truncate review input, raise GPU limits blindly, or retry deterministic admission errors.
+
 - **Speculative decoding, 4B draft → big target (MLX)** — verified no win at
   4B scale; the verdict does not extrapolate to 30B+ (see W242: re-bench when
   an MTP-capable 30B+ resident model exists). Replaced by: don't burn lanes
