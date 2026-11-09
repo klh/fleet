@@ -160,6 +160,15 @@ function registerWorker(store: GovernorStore, rest: string[]): void {
 	const p = registerPayload(rest);
 	const sid =
 		p.sid ?? die("usage: workers register --as <sid> ... | register '<json>'");
+	// W2886 review (01a186a5): registration is a SELF-report, never a
+	// third-party write — the canonical process identity (SUSPENDERS_SID,
+	// the same channel dispatch/bootstrap bind to) must match the sid being
+	// announced, or a live caller could overwrite another worker's row.
+	// Unset (manual CLI/tests) stays permissive, same trust posture as the
+	// rest of this bus.
+	const callerSid = process.env.SUSPENDERS_SID;
+	if (callerSid && callerSid !== sid)
+		die(`workers register: caller ${callerSid} cannot register as ${sid}`);
 	ensureWorkerRegistry(store);
 	const now = Date.now();
 	const prior = store

@@ -12,7 +12,11 @@ const COORD = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
 
 test.describe("@api", () => {
 	const world = scratchWorld({ prefix: "coord-workers-" });
-	const env = { HOME: world.home, GOVERNOR_STORE_URL: "local" };
+	const env = {
+		HOME: world.home,
+		GOVERNOR_STORE_URL: "local",
+		SUSPENDERS_SID: "",
+	};
 
 	test.afterAll(() => world.clean());
 
@@ -71,6 +75,56 @@ test.describe("@api", () => {
 		expect(azure?.class).toBe("remote");
 		expect(azure?.reported_by).toBe("hub:announce");
 		expect(azure?.rights).toEqual(["read-only"]);
+	});
+
+	test("workers register: caller sid cannot register as (or overwrite) another sid", async () => {
+		const seed = await runCliAsync(
+			COORD,
+			["workers", "register", "--as", "fixture-victim", "--name", "Victim"],
+			{ cwd: world.repo, env },
+		);
+		expect(seed.code).toBe(0);
+		const attack = await runCliAsync(
+			COORD,
+			[
+				"workers",
+				"register",
+				"--as",
+				"fixture-victim",
+				"--name",
+				"Overwritten",
+			],
+			{ cwd: world.repo, env: { ...env, SUSPENDERS_SID: "fixture-attacker" } },
+		);
+		expect(attack.code).toBe(2);
+		expect(attack.err).toContain("cannot register as");
+		const listed = await runCliAsync(
+			COORD,
+			["workers", "--json", "--local-only"],
+			{ cwd: world.repo, env },
+		);
+		const out = JSON.parse(listed.out) as {
+			workers: Array<{ sid: string; name: string | null }>;
+		};
+		expect(out.workers.find((w) => w.sid === "fixture-victim")?.name).toBe(
+			"Victim",
+		);
+	});
+
+	test("workers register: caller sid cannot self-claim owner rights over a sid it does not hold", async () => {
+		const claim = await runCliAsync(
+			COORD,
+			[
+				"workers",
+				"register",
+				"--as",
+				"fixture-other",
+				"--owner-sid",
+				"fixture-attacker",
+			],
+			{ cwd: world.repo, env: { ...env, SUSPENDERS_SID: "fixture-attacker" } },
+		);
+		expect(claim.code).toBe(2);
 	});
 
 	test("workers register: owner_sid is a one-time claim, a later heartbeat cannot hijack it", async () => {
