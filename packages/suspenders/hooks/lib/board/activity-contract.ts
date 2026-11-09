@@ -9,12 +9,18 @@
 import * as z from "zod/mini";
 import { ACTIVITY_BIN_MS, DURATION_SCALE_MS } from "./activity-scale.ts";
 
-/** Raw /api/spend-series point: [ts, fresh, cached, out]. */
-export const ActivityPointSchema = z.tuple([
-	z.number(),
-	z.number(),
-	z.number(),
-	z.number(),
+/** Raw /api/spend-series point: [ts, fresh, cached, out] or, since W2591,
+ *  [ts, fresh, cached, out, binMs] — the 5th element is the point's own
+ *  grain (explicit truthful resolution metadata, owner #103978: never
+ *  infer it from timestamp gaps). Absent = per-request-precise source. */
+export const ActivityPointSchema = z.union([
+	z.tuple([
+		z.number(),
+		z.number(),
+		z.number(),
+		z.number(),
+		z.optional(z.number()),
+	]),
 ]);
 
 /** AttemptTimeline (hooks/board/attempt-timeline.ts), W2267.4.2.1: the
@@ -58,7 +64,9 @@ export const AttemptTimelineSchema = z.object({
 });
 
 export const CardActivitySchema = z.looseObject({
-	/** raw points, oldest→newest; [] = honest empty. */
+	/** raw points, oldest→newest; [] = honest empty. 5th element (when
+	 *  present) = the point's own grain in ms — coarse archive rows carry
+	 *  60000; fine fresh rows carry their bin; absent = request-precise. */
 	points: z.array(ActivityPointSchema),
 	/** elapsed wall ms (spend.wall_ms) — null/0 = hairline invisible. */
 	wallMs: z.nullable(z.number()),

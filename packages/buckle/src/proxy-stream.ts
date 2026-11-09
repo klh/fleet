@@ -155,6 +155,14 @@ export function streamResponse(
 		// openai response.failed|incomplete) is non-success even when a
 		// terminal marker follows it.
 		streamInBand = sniffer.failureKind();
+		// W2579: the live output/reasoning evidence split — a deadline kill
+		// never reaches the terminal reduction, so the receipt's role-only
+		// classification reads this snapshot before any reduction.
+		const evidence = sniffer.outputEvidence();
+		const roleOnly =
+			streamFailureKind === "timeout" &&
+			evidence.outputFrames === 0 &&
+			evidence.roleFrames === 0;
 		record(
 			deps,
 			ctx,
@@ -175,7 +183,10 @@ export function streamResponse(
 				: drainedCut
 					? { kind: "drain_cut" }
 					: streamFailed
-						? { kind: "failed", failureKind: streamFailureKind }
+						? {
+								kind: "failed",
+								failureKind: roleOnly ? "timeout_role_only" : streamFailureKind,
+							}
 						: streamInBand !== null
 							? { kind: "in_band", failureKind: streamInBand }
 							: streamTruncated
@@ -226,7 +237,9 @@ export function streamResponse(
 							? `stream_failed:${streamInBand}`
 							: streamTruncated
 								? "stream_truncated"
-								: `stream_failed:${streamFailureKind ?? "unknown"}`,
+								: roleOnly
+									? "stream_failed:timeout_role_only"
+									: `stream_failed:${streamFailureKind ?? "unknown"}`,
 			...(success
 				? {}
 				: {
@@ -249,13 +262,16 @@ export function streamResponse(
 					drainedCut,
 					streamTruncated,
 					streamInBand,
+					roleOnly,
 				),
 				bytes_in: bytesIn,
 				chunks_in: chunksIn,
 				last_chunk_ms: lastChunkMs,
 				// W2260: semantic | ping_only | none — 200-then-incomplete vs
 				// ping-only activity vs a true no-byte stall, without payload.
-				activity: streamActivityOf(sniffer.framesSeen(), pingDrops),
+				// W2579: role_only — frames arrived but never carried usable
+				// output or reasoning (the C235 shape).
+				activity: streamActivityOf(sniffer.framesSeen(), pingDrops, evidence),
 				// W2260: a failed/truncated stream that delivered ZERO
 				// client-visible semantic frames could be retried without
 				// duplicating output; once semantic bytes flowed, a retry
@@ -277,7 +293,7 @@ export function streamResponse(
 		// makes a truncated stream traceable ACROSS hops without payload.
 		if (!success)
 			console.warn(
-				`buckle: stream ended incomplete rid=${ctx.rid} terminal=${terminalOf(streamFailed, streamFailureKind, streamCancelled, drainedCut, streamTruncated, streamInBand)} activity=${streamActivityOf(sniffer.framesSeen(), pingDrops)} bytes=${bytesIn} chunks=${chunksIn} last_ms=${lastChunkMs ?? "-"} upstream=${hop.upstreamRequestId ?? "-"} call=${hop.litellmCallId ?? "-"} candidate=${result.candidateId}`,
+				`buckle: stream ended incomplete rid=${ctx.rid} terminal=${terminalOf(streamFailed, streamFailureKind, streamCancelled, drainedCut, streamTruncated, streamInBand, roleOnly)} activity=${streamActivityOf(sniffer.framesSeen(), pingDrops, evidence)} bytes=${bytesIn} chunks=${chunksIn} last_ms=${lastChunkMs ?? "-"} upstream=${hop.upstreamRequestId ?? "-"} call=${hop.litellmCallId ?? "-"} candidate=${result.candidateId}`,
 			);
 		if (ctx.admitted)
 			observe(deps, ctx, "lane.request.ended", {

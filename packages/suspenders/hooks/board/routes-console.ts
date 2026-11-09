@@ -33,6 +33,7 @@ import {
 	networkPayload,
 	topologyPayload,
 } from "./network-overview.ts";
+import { runnerPayload } from "./runner-overview.ts";
 // W183.2 — the settings form's preference editor picks from the same
 // merged catalog /api/executors serves (one source, both surfaces)
 import { executorFeed } from "./routes-data.ts";
@@ -86,6 +87,10 @@ export async function handleConsole(
 		// W858.10.3: the Network overview payload — read model + local spoke
 		// probe (cached probes; the browser never fetches :4101 itself)
 		return json(await networkPayload());
+	if (url.pathname === "/api/console/runner" && req.method === "GET")
+		// W2869.2.1: the Fleet runner card — read-only run listing over the
+		// W2869.2 control-plane API (never the durable/executor code directly)
+		return json(await runnerPayload());
 	if (url.pathname === "/api/console/flow" && req.method === "GET")
 		// W2673.1: the gateway flow feed — windowed senders/targets/attention
 		// (window = seconds: 60|300|600; anything else normalizes to 300)

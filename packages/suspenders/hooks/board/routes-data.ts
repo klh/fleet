@@ -37,6 +37,8 @@ import { pollMemoBody } from "./poll-memo.ts";
 import { recoverySnapshot } from "./recovery.ts";
 import { setupFeed } from "./setup-cache.ts";
 import {
+	childrenOf,
+	depEdges,
 	taskShape,
 	tasks,
 	workSpendSeriesPayload,
@@ -287,16 +289,26 @@ export async function handleData(
 		return json({
 			ok: true,
 			projects: projectList(),
-			task: taskShape(
-				w,
-				openN,
-				unblockedBy(),
-				undefined,
-				itemAttribution(db as unknown as Database, p).get(id) ?? null,
-				failureNote,
-				undefined,
-				signalFor(p, id),
-			),
+			// W2267.5 drawer-only detail: the full description + split children
+			// ride /api/task (one item), NEVER /api/tasks — descriptions are
+			// multi-KB and a per-item children query would be N+1 on the 1s poll
+			task: {
+				description: w.description ?? null,
+				why_parallel: w.why_parallel ?? null,
+				children: childrenOf(p, id),
+				...taskShape(
+					w,
+					openN,
+					unblockedBy(),
+					// W2267.5: the drawer renders the full dependency graph — real
+					// depEdges for this item, never the empty default
+					depEdges().get(`${p}\u0000${id}`),
+					itemAttribution(db as unknown as Database, p).get(id) ?? null,
+					failureNote,
+					undefined,
+					signalFor(p, id),
+				),
+			},
 			events: workEvents(p, id),
 			trace: traceForWork(p, id, w.parent_id),
 			decisions: taskDecisions(p, id),

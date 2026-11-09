@@ -14,6 +14,8 @@ import "./klh-network-card.ts";
 // W2673 — the live gateway flow card defines <klh-gateway-flow-card> (same
 // bundle + pattern: SSR host on /console/buckle, live poll of the flow feed)
 import "./klh-gateway-flow-card.ts";
+// W2869.2.1 — the read-only Fleet runner card defines <klh-runner-card>
+import "./klh-runner-card.ts";
 
 // interleaves separator strings between rendered parts (flatMap, never
 // nested arrays — the parts array goes straight into lit-html)

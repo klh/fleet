@@ -26,6 +26,7 @@ import type { ExecutorEntry } from "../board/executor-catalog.ts";
 // W858.10.3: the Network overview payload (type-only — erased at runtime;
 // the card component owns the DOM)
 import type { NetworkPayload } from "../board/network-overview.ts";
+import type { RunnerPayload } from "../board/runner-overview.ts";
 import { type ServiceProbe, withRecovery } from "../board/service-probe.ts";
 // W669.11: the console data cards ride klh-console-cards (UI law) — pages
 // emit static card hosts + esc(JSON) data attributes (klh-service-row
@@ -111,6 +112,9 @@ export interface BeltView {
 	/** W858.10.3: the /api/console/network payload — SSR seed for the
 	 *  Network overview card; the card re-fetches live every 10s. */
 	network: NetworkPayload | null;
+	/** W2869.2.1: the /api/console/runner payload — SSR seed for the Fleet
+	 *  runner card; the card re-fetches live every 10s. */
+	runner: RunnerPayload | null;
 	/** W1294.2.1: the belt read feed answered 200 for its chunk set — the
 	 *  belt page emits the topology/model-access script tags only then, so a
 	 *  stale runtime home degrades gracefully instead of 404-console-erroring
@@ -220,6 +224,9 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 		`<section class="panel" aria-label="Fleet model inventory"><h2>Fleet model inventory</h2><p class="dimpl">Models exposed through registered hubs and providers.</p><belt-model-inventory></belt-model-inventory><div id="modelaccess" aria-live="polite">Checking model access…</div></section>` +
 		(v.network
 			? `<klh-network-card heading="Buckle route summary" data="${esc(JSON.stringify(v.network))}"></klh-network-card>`
+			: "") +
+		(v.runner
+			? `<klh-runner-card heading="Fleet runner" data="${esc(JSON.stringify(v.runner))}"></klh-runner-card>`
 			: "") +
 		healthHtml(
 			v.health.filter((p) =>
