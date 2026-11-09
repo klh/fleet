@@ -78,6 +78,7 @@ import { cmdSettings } from "../coord/settings.ts";
 import { setRest } from "../coord/shared.ts";
 import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
+import { cmdHub, cmdWorkers } from "../coord/workers.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
 
@@ -518,6 +519,20 @@ const VERBS: VerbSpec[] = [
 		help: "Durable runner control; owner comes from the verified user credential",
 		lax: true,
 		run: (p) => cmdRunner(p.rest),
+	}),
+	defineVerb({
+		name: "workers",
+		usage:
+			"usage: workers [--as <sid>] [--json] [--local-only] | workers register --as <sid> [--name n] [--description d] [--purpose p] [--origin-kind k] [--origin-id id] [--compute-kind k] [--host h] [--region r] [--hub-id id] [--owner-sid sid] [--state s] [--task t] [--activity json] — federated worker inventory (W2886)",
+		lax: true,
+		run: (p) => cmdWorkers(p.rest),
+	}),
+	defineVerb({
+		name: "hub",
+		usage:
+			"usage: hub <name> workers [--as <sid>] [--json] [--token <path>] — that hub's own authoritative worker answer only (W2886)",
+		lax: true,
+		run: (p) => cmdHub(p.rest),
 	}),
 ];
 
