@@ -323,3 +323,98 @@ test("admitModel: a dotfile model pin is owner intent — kev never consulted @u
 		kev.close();
 	}
 });
+
+test("admitModel: W2860 plaid route model unserved falls back to default_models, kev never asked @unit", async () => {
+	declareHubChain(["glm-5.3-flash"]);
+	let kevAsked = 0;
+	const hub = serveStub(catalog(["glm-5.3-flash"]));
+	const kev = serveStub((_req) => {
+		kevAsked++;
+		return new Response("x", { status: 500 });
+	});
+	process.env[KEV] = kev.url;
+	process.env.SUSPENDERS_BUCKLE_FRONT = hub.url;
+	let store: ReturnType<typeof openStore> | null = null;
+	try {
+		store = openStore();
+		const out = await admitModel({
+			store,
+			project: "w2860-proj",
+			sid: "w2860-plaid",
+			item: "W2860T",
+			pick: pickOf("claude-opus-5", "ikea"),
+			bin: "/usr/local/bin/claude",
+			routePin: undefined,
+			posture: "plaid",
+			quota: new Map(),
+			wireEndpoints: unknownEndpoints,
+			routeName: "ikea-sonnet",
+			routeAdmission: new RouteAdmission(
+				false,
+				async () => null,
+				() => null,
+			),
+			governanceRefusals: [],
+			launchWaits: [],
+			hubPick: "ikea",
+			kevResolve: resolveAt(hub.url),
+		});
+		expect(out.verdict).toBe("proceed");
+		if (out.verdict === "proceed") expect(out.pick.model).toBe("glm-5.3-flash");
+		expect(kevAsked).toBe(0);
+	} finally {
+		delete process.env.SUSPENDERS_BUCKLE_FRONT;
+		try {
+			store?.close();
+		} catch {}
+		hub.close();
+		kev.close();
+	}
+});
+
+test("admitModel: W2860 plaid route model already served stands untouched @unit", async () => {
+	let kevAsked = 0;
+	const hub = serveStub(catalog(["claude-opus-5", "glm-5.3-flash"]));
+	const kev = serveStub((_req) => {
+		kevAsked++;
+		return new Response("x", { status: 500 });
+	});
+	process.env[KEV] = kev.url;
+	process.env.SUSPENDERS_BUCKLE_FRONT = hub.url;
+	let store: ReturnType<typeof openStore> | null = null;
+	try {
+		store = openStore();
+		const out = await admitModel({
+			store,
+			project: "w2860-proj",
+			sid: "w2860-plaid-served",
+			item: "W2860T2",
+			pick: pickOf("claude-opus-5", "ikea"),
+			bin: "/usr/local/bin/claude",
+			routePin: undefined,
+			posture: "plaid",
+			quota: new Map(),
+			wireEndpoints: unknownEndpoints,
+			routeName: "ikea-sonnet",
+			routeAdmission: new RouteAdmission(
+				false,
+				async () => null,
+				() => null,
+			),
+			governanceRefusals: [],
+			launchWaits: [],
+			hubPick: "ikea",
+			kevResolve: resolveAt(hub.url),
+		});
+		expect(out.verdict).toBe("proceed");
+		if (out.verdict === "proceed") expect(out.pick.model).toBe("claude-opus-5");
+		expect(kevAsked).toBe(0);
+	} finally {
+		delete process.env.SUSPENDERS_BUCKLE_FRONT;
+		try {
+			store?.close();
+		} catch {}
+		hub.close();
+		kev.close();
+	}
+});

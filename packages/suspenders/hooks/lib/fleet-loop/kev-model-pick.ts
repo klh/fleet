@@ -61,6 +61,11 @@ export const kevModelPick = async (o: {
 	resolve?: (label: string, oneOff: string[]) => Promise<HubLocation | null>;
 	catalogTimeoutMs?: number;
 	decisionTimeoutMs?: number;
+	/** W2860: plaid routes are an operator-deliberate pick (health/quota
+	 *  placement, not a free choice) — the serving-reality check and
+	 *  default_models fallback still apply, but kev is never asked to
+	 *  override a route pin with a "better" model. */
+	skipDecision?: boolean;
 }): Promise<KevModelPick | null> => {
 	const env = o.env ?? process.env;
 	const resolve = o.resolve ?? resolveHub;
@@ -94,6 +99,16 @@ export const kevModelPick = async (o: {
 			reason: `hub ${hub.label} serves an empty catalog — static pick stands`,
 			offerings: [],
 		};
+	// W2860: a plaid route is a deliberate health/quota pick, not a free
+	// choice — if the hub already serves it, it stands untouched; skip
+	// straight past the kev-ask and the default_models fallback below.
+	if (o.skipDecision && o.model && offerings.includes(o.model))
+		return {
+			model: o.model,
+			via: "fallback",
+			reason: `hub ${hub.label} serves the route's pinned model directly — stands`,
+			offerings,
+		};
 	// deterministic fallback first (the numbers stay authoritative — kev only
 	// breaks fuzzy ties, kev-placement law): the static rung when this hub
 	// actually serves it, else the head of the live catalog.
@@ -108,6 +123,7 @@ export const kevModelPick = async (o: {
 			: `hub ${hub.label} offerings — head ${fallbackModel} (catalog order)`,
 		offerings,
 	});
+	if (o.skipDecision) return fallback();
 	const d = await kevTypedDecision({
 		state: `hub ${hub.label} live /v1/models offerings: ${options.join(", ")}\n${o.state}`,
 		question:
