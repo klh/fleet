@@ -1,5 +1,31 @@
 import { problem } from "./citizenship.ts";
 
+/** Explicit hub wiring needs only a port; the forwarded bearer stays on loopback. */
+export function resolveWorkerInventoryOrigin(
+	listenPort: number,
+	inventoryPort: string | undefined,
+	desktopOrigin: string | undefined,
+): string | undefined {
+	if (inventoryPort) {
+		const port = Number(inventoryPort);
+		if (!/^[0-9]{1,5}$/.test(inventoryPort) || port < 1 || port > 65_535)
+			throw new Error("runner inventory port must be between 1 and 65535");
+		if (port === listenPort)
+			throw new Error("runner inventory port must differ from Buckle's port");
+		return `http://127.0.0.1:${port}`;
+	}
+	if (!desktopOrigin) return undefined;
+	const url = new URL(desktopOrigin);
+	if (
+		url.protocol !== "http:" ||
+		!["127.0.0.1", "[::1]"].includes(url.hostname)
+	)
+		return undefined;
+	if (Number(url.port || "80") === listenPort)
+		throw new Error("runner inventory port must differ from Buckle's port");
+	return desktopOrigin;
+}
+
 /** The listener shares the gateway host. Never forward a caller bearer off-host. */
 export function workerInventoryRelay(
 	base: string,

@@ -52,6 +52,10 @@ export function renderEnv(
 	version?: string,
 ): string {
 	assertLocalPortReservations(hub, name);
+	if (hub.runner_inventory_port === (hub.buckle_port ?? 4111))
+		throw new Error(
+			`hub ${name}: runner_inventory_port must differ from buckle_port`,
+		);
 	// W1302.3: the origin/ref shape gate moved to deploy/hub-ref-preflight.ts
 	// (shared with the activation preflight — ONE shape gate, one error set)
 	const { origin, ref } = resolveHubOrigin(hub, version);
@@ -62,6 +66,7 @@ export function renderEnv(
 		if (v !== undefined) lines.push(`${key}=${String(v)}`);
 	};
 	kv("HUB_BUCKLE_PORT", hub.buckle_port);
+	kv("HUB_RUNNER_INVENTORY_PORT", hub.runner_inventory_port);
 	kv("HUB_BUCKLE_BIND", hub.bind);
 	kv("HUB_FLEET_REF", ref);
 	kv("HUB_FLEET_REPO_URL", origin);

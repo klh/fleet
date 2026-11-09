@@ -100,6 +100,7 @@ export const HubSchema = z
 		token_file: opt("PATH of a 0600 file holding the hub front token"),
 		version_override: opt("Reviewed canary ref for this hub only"),
 		ports: Ports.optional(),
+		runner_inventory_port: z.number().int().min(1).max(65535).optional(),
 		health_ports: HealthPorts.optional(),
 		binds: Binds.optional(),
 		allowed_hosts: strs("Host header allowlist"),
