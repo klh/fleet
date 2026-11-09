@@ -26,6 +26,7 @@ import {
 import { readEffectiveUpstreams } from "./console-upstreams.ts";
 import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
 import { networkPayload } from "./network-overview.ts";
+import { runnerPayload } from "./runner-overview.ts";
 import { probeAll, withRecovery } from "./service-probe.ts";
 
 // ─── W147 console: data gathering for the console pages ───────────────────
@@ -97,6 +98,8 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		// W858.10.3: the Network overview payload as the card's SSR seed
 		// (cached probes shared — no extra fan-out)
 		network: await networkPayload(),
+		// W2869.2.1: the Fleet runner card's SSR seed
+		runner: await runnerPayload(),
 	};
 };
 
