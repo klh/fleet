@@ -28,6 +28,7 @@ import {
 	stalenessUnit,
 } from "./jobs-local.ts";
 import { contradictionUnit, distillUnit } from "./jobs-llm.ts";
+import { verifyUnit } from "./jobs-verify.ts";
 import { acquireLease, releaseLease } from "./lease.ts";
 import { ensureDistillSchema } from "./schema.ts";
 import { type DistillSink, syncEntries } from "./sink.ts";
@@ -42,6 +43,7 @@ const UNITS: Record<Job, { unit: Unit; prepare?: Prepare; llm: boolean }> = {
 	dedupe: { unit: dedupeUnit, llm: false },
 	contradiction: { unit: contradictionUnit, llm: true },
 	distill: { unit: distillUnit, llm: true },
+	verify: { unit: verifyUnit, llm: true },
 };
 
 export interface DistillDeps {

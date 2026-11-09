@@ -50,6 +50,13 @@ export const knowledgeIdOf = (ref: string | null): number | null => {
 	return m?.[1] ? Number(m[1]) : null;
 };
 
+/** IKEA-origin content never leaves the machine: topic carrying the
+ *  `finding.ikea*` coord-fact prefix, or an explicit origin_system. */
+export const isIkeaLocal = (
+	row: Pick<KnowledgeRow, "topic" | "origin_system">,
+): boolean =>
+	row.origin_system === "ikea" || /^finding\.ikea/i.test(row.topic.trim());
+
 const LIVE = new Set(["active", "candidate"]);
 
 /** Mirror changed knowledge rows into entry nodes. Returns rows indexed. */
@@ -107,7 +114,7 @@ export interface CandidateDraft {
 
 export interface ProposalDraft {
 	knowledgeId: number;
-	kind: "distill-dedupe" | "distill-contradiction";
+	kind: "distill-dedupe" | "distill-contradiction" | "distill-verify";
 	score: number;
 	reason: string;
 	payload: Record<string, unknown>;
