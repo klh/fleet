@@ -33,7 +33,7 @@ async function boundedBody(response: Response): Promise<unknown> {
 	const timer = setTimeout(() => {
 		expired = true;
 		void reader.cancel().catch(() => {});
-	// Diagnostic reads must stay below the review walk's fast-failure threshold.
+		// Diagnostic reads must stay below the review walk's fast-failure threshold.
 	}, 250);
 	try {
 		for (;;) {
