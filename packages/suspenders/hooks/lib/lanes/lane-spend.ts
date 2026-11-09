@@ -69,12 +69,18 @@ export interface ItemSpend {
 	groups: Map<string, GroupSpend>;
 }
 
-/** One spend-over-time point: an attributed hour bucket's tokens. */
+/** One spend-over-time point: an attributed bucket's tokens. */
 export interface ItemSpendPoint {
 	t: number; // bucket start ms (UTC)
 	fresh: number; // non-cache prompt tokens (in)
 	cached: number; // cacheR + cacheC
 	out: number;
+	/** W2591: the bucket's own grain — how this point was aggregated. A
+	 *  per-request reduction emits the bucket width it binned at; a
+	 *  persisted coarse row carries its historical grain. Consumers NEVER
+	 *  infer resolution from timestamp gaps (sparse precise requests and
+	 *  coarse minute buckets can have identical gaps) — they read this. */
+	binMs?: number;
 }
 
 /** One completed Buckle request with usage, kept at request precision. */
@@ -393,11 +399,15 @@ export function itemSpendSeries(
 }
 
 /** Attribute each request to the work item owning its lane at that instant,
- * then reduce into one-minute buckets. Gaps remain gaps in the wire shape. */
+ * then reduce into fixed-width buckets (default: the W887 one-minute spark
+ * grain; W2591 lets the caller choose finer — route_audit rows are
+ * millisecond-precise). Gaps remain gaps in the wire shape; every point
+ * carries its own `binMs` so consumers never guess the grain from gaps. */
 export function itemRequestSpendSeries(
 	rows: LaneRequestSpendRow[],
 	windows: Map<string, ClaimWindow[]>,
 	cap = 120,
+	bucketMs = REQUEST_SPARK_BUCKET_MS,
 ): Map<string, ItemSpendPoint[]> {
 	const bySid = new Map<string, LaneRequestSpendRow[]>();
 	for (const r of rows) {
@@ -413,8 +423,7 @@ export function itemRequestSpendSeries(
 			for (const r of bySid.get(w.sid) ?? []) {
 				if (r.ts < w.start || r.ts >= w.end || used.has(r)) continue;
 				used.add(r);
-				const t =
-					Math.floor(r.ts / REQUEST_SPARK_BUCKET_MS) * REQUEST_SPARK_BUCKET_MS;
+				const t = Math.floor(r.ts / bucketMs) * bucketMs;
 				const p = buckets.get(t) ?? { t, fresh: 0, cached: 0, out: 0 };
 				p.fresh += r.inTok;
 				p.cached += r.cacheR + r.cacheC;
@@ -425,7 +434,10 @@ export function itemRequestSpendSeries(
 		if (buckets.size)
 			out.set(
 				work,
-				[...buckets.values()].sort((a, b) => a.t - b.t).slice(-cap),
+				[...buckets.values()]
+					.sort((a, b) => a.t - b.t)
+					.slice(-cap)
+					.map((p) => ({ ...p, binMs: bucketMs })),
 			);
 	}
 	return out;

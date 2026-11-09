@@ -22,7 +22,10 @@ import {
 	upsertEdge,
 	upsertNode,
 } from "../hooks/lib/knowledge/distill/graph.ts";
-import { DRIFT_REASON } from "../hooks/lib/knowledge/distill/jobs-local.ts";
+import {
+	DRIFT_REASON,
+	MISSING_SOURCE_REASON,
+} from "../hooks/lib/knowledge/distill/jobs-local.ts";
 import {
 	acquireLease,
 	releaseLease,
@@ -276,6 +279,36 @@ test("staleness marks hash drift after a source edit and clears its own mark", a
 		expect(
 			db.query("SELECT stale_at FROM knowledge WHERE id = ?").get(id).stale_at,
 		).toBeNull();
+	} finally {
+		w.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("staleness proposes retire-or-repoint when the source file is gone", async () => {
+	const dir = tmp();
+	const db = knowledgeDb();
+	const id = addEntry(db, {
+		topic: "gone source",
+		fact: "points at a file that no longer exists",
+		sourceRef: "nope/gone.ts",
+		sourceHash: "a".repeat(64),
+	});
+	const w = world(db, { logDir: dir, cfg: { repo_roots: [dir] } });
+	try {
+		await runOnce(w.deps, { jobs: ["staleness"] });
+		const row = db
+			.query("SELECT stale_at, stale_reason FROM knowledge WHERE id = ?")
+			.get(id);
+		expect(row.stale_at).not.toBeNull();
+		expect(row.stale_reason).toBe(MISSING_SOURCE_REASON);
+		expect(
+			db
+				.query(
+					"SELECT knowledge_id, kind FROM knowledge_proposals WHERE knowledge_id = ?",
+				)
+				.all(id),
+		).toEqual([{ knowledge_id: id, kind: "distill-missing-source" }]);
 	} finally {
 		w.close();
 		rmSync(dir, { recursive: true, force: true });

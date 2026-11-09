@@ -54,7 +54,7 @@ export const measureSpark = (page: Page, scope: string): Promise<SparkGeom> =>
 			barWidths: boxes.map((b) => b.width),
 			axisLabel:
 				plot?.querySelector(".ksparkaxis span:last-child")?.textContent ?? "",
-			axisExpected: `${fmt(windowEnd)} · ${binMin}m/bin`,
+			axisExpected: `${fmt(windowEnd)} · ${binMin} bins`,
 		};
 		function rectLeft(): number {
 			return (
