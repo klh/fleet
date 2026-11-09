@@ -471,3 +471,10 @@ binary also lacked user-mode networking, and the first offline Ubuntu
 boot waited for networking. Direct boot with a masked network wait let
 the guest enforce a 50% CPU quota. APT's no-download mode then refused the
 local packages, so the next offline fixture used dpkg on the staged files.
+
+The follow-up offline x86-64 QEMU run completed eight of ten seeded
+HTTP trials. Alpine rep 1 returned terminal `failed` on stop, and Alpine
+rep 2 returned `runner.desktop_image_unavailable` after the same image had
+run successfully. BLAM emitted no verdict. No production timeout was
+changed and no failed pair was dropped. The evidence does not establish
+the cause of the stop failure or the failed image inspection.

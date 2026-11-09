@@ -1510,3 +1510,8 @@ One software-emulated sample demonstrates functionality only. The native
 Desktop run and this guest differ in platform, runtime and resource caps.
 The guest receipt SHA-256 is
 `a04c2a03e83233c065ba018050d885cba955eaaf5d4684fe8ba6a9eff4639b20`.
+
+The same NAS guest separately passed the crash fixture. A replacement
+worker reopened the job after SIGKILL, read the marker from the original
+sandbox, revoked the old and replacement keys, and removed the container.
+The paired latency run in that guest was incomplete and has no verdict.
