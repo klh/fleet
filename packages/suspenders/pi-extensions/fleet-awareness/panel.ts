@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { executeAction } from "./actions.ts";
 import { readSource, type Run } from "./client.ts";
+import { dualShort } from "../../hooks/lib/wallclock.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Snapshot } from "./contracts.ts";
@@ -84,10 +85,7 @@ async function showRunnerHistory(ctx: ExtensionCommandContext, run: Run) {
 				ctx,
 				`Runner ${selected.runId}`,
 				visible
-					.map(
-						(event) =>
-							`${new Date(event.created_at).toLocaleTimeString()}  ${event.kind}`,
-					)
+					.map((event) => `${dualShort(event.created_at)}  ${event.kind}`)
 					.join("\n") || "No events yet",
 			);
 			if (
