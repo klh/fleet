@@ -14,8 +14,8 @@ import { z } from "zod";
 import type { GovernorStore } from "../lib/govdb/govdb.ts";
 import { listLiveTargets, type SessionTarget } from "./addressing.ts";
 import { hubTopology, stackHubsByLabel } from "./hubs.ts";
-import { arg, db, die, dim, green } from "./shared.ts";
 import { verbContract, wantsJson } from "./json-out.ts";
+import { arg, db, die, dim, green } from "./shared.ts";
 
 const activitySchema = z.object({
 	at: z.number(),

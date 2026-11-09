@@ -1,4 +1,3 @@
-import { ensureWorkerHeartbeatSchema } from "./worker-heartbeat.ts";
 // controller.ts — W2869.2: the runner control plane. Admission parses
 // the durable spec ONCE (identity is immutable — root #117690), takes
 // the distributed lease, and writes the control row; every later action
@@ -39,6 +38,7 @@ import {
 } from "./rights.ts";
 import type { RunnerStore } from "./store.ts";
 import { heldSubmissions, RunnerSubmissionSchema } from "./submissions.ts";
+import { ensureWorkerHeartbeatSchema } from "./worker-heartbeat.ts";
 
 const JOBS_DDL = `
 CREATE TABLE IF NOT EXISTS runner_jobs (

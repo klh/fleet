@@ -30,10 +30,7 @@ import {
 	ToolTask,
 } from "@earendil-works/pi-durable";
 import { createLogger, type Logger } from "@klh/buckle/src/log";
-import {
-	type AnnounceOptions,
-	type Announcer,
-} from "./announce.ts";
+import type { AnnounceOptions, Announcer } from "./announce.ts";
 import {
 	type ApprovalRequest,
 	type ApprovalsWriter,

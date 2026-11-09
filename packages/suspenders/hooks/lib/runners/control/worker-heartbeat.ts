@@ -46,7 +46,12 @@ export function recordWorkerHeartbeat(
 		WHERE excluded.epoch > runner_worker_heartbeats.epoch
 		   OR (excluded.epoch = runner_worker_heartbeats.epoch
 		       AND excluded.updated_at >= runner_worker_heartbeats.updated_at)`,
-		state, now, runId, controllerSid, epoch, freshAfter,
+		state,
+		now,
+		runId,
+		controllerSid,
+		epoch,
+		freshAfter,
 	);
 	return result.changes === 1;
 }

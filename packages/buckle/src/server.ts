@@ -387,7 +387,9 @@ export function buildDeps(
 		ingest.unref();
 	}
 	return {
-		workerInventory: opts.runnerInventoryOrigin ? workerInventoryRelay(opts.runnerInventoryOrigin) : undefined,
+		workerInventory: opts.runnerInventoryOrigin
+			? workerInventoryRelay(opts.runnerInventoryOrigin)
+			: undefined,
 		router,
 		policy,
 		ledger,
@@ -563,7 +565,9 @@ export async function boot(): Promise<
 		);
 	const runner = setting("runner");
 	const runnerUrl = runner.desktop ? new URL(runner.control_url) : undefined;
-	const localRunner = runnerUrl && runnerUrl.protocol === "http:" &&
+	const localRunner =
+		runnerUrl &&
+		runnerUrl.protocol === "http:" &&
 		["127.0.0.1", "[::1]"].includes(runnerUrl.hostname);
 	return startServer({
 		port,

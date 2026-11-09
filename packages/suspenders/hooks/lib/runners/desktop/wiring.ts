@@ -22,7 +22,6 @@ import {
 	type RunnerController,
 } from "../control/controller.ts";
 import { getLease, type LeaseToken, revokeLease } from "../control/leases.ts";
-import { recordWorkerHeartbeat } from "../control/worker-heartbeat.ts";
 import {
 	type JobAction,
 	makeRunnerAuthorizer,
@@ -30,6 +29,7 @@ import {
 	type RunnerAuthorizer,
 } from "../control/rights.ts";
 import type { RunnerStore } from "../control/store.ts";
+import { recordWorkerHeartbeat } from "../control/worker-heartbeat.ts";
 import { openDurableJob } from "../durable/job.ts";
 import {
 	type CredentialManager,
@@ -216,11 +216,21 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 
 	const startHeartbeat = (runId: string, token: LeaseToken): void => {
 		const lease = getLease(deps.store, runId);
-		if (!lease || lease.state !== "active" || lease.epoch !== token.epoch) return;
-		const identity = { runId, epoch: token.epoch, controllerSid: lease.controller_sid };
+		if (lease?.state !== "active" || lease.epoch !== token.epoch) return;
+		const identity = {
+			runId,
+			epoch: token.epoch,
+			controllerSid: lease.controller_sid,
+		};
 		const publish = () => {
 			const at = Date.now();
-			recordWorkerHeartbeat(deps.store, identity, { state: "running" }, at, at - ttlMs);
+			recordWorkerHeartbeat(
+				deps.store,
+				identity,
+				{ state: "running" },
+				at,
+				at - ttlMs,
+			);
 		};
 		const entry: HeartbeatEntry = {
 			// The heartbeat fences the CAPTURED token — never a fresh lookup;

@@ -5,7 +5,11 @@ import { createExecutorBindings } from "../hooks/lib/runners/api/bindings.ts";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 
-export function apiWorld(options: Partial<Pick<Parameters<typeof createRunnerApi>[0], "identity" | "allowedHosts">> = {}) {
+export function apiWorld(
+	options: Partial<
+		Pick<Parameters<typeof createRunnerApi>[0], "identity" | "allowedHosts">
+	> = {},
+) {
 	const world = scratchWorld({ prefix: "runner-api-" });
 	const db = new Database(":memory:");
 	const store = sqliteStore(db);

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { createRegistry } from "@earendil-works/pi-durable";
 import { scratchWorld, serveStub } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
+import { listRunnerWorkers } from "../hooks/lib/runners/api/listing.ts";
 import { RunnerSpecSchema } from "../hooks/lib/runners/control/control-state.ts";
 import { ensureRunnerReaderSchema } from "../hooks/lib/runners/control/cursors.ts";
 import {
@@ -19,7 +20,6 @@ import {
 	RUNNER_SCOPES,
 	type RunnerActor,
 } from "../hooks/lib/runners/control/rights.ts";
-import { listRunnerWorkers } from "../hooks/lib/runners/api/listing.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 import { containerNameOf } from "../hooks/lib/runners/desktop/docker-executor.ts";
 import {
@@ -245,8 +245,16 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 		expect(ps.stdout.toString().trim()).toBe(containerNameOf(runId));
-			const reader = { keyId: spec.owner, kind: "api_key", scopes: ["buckle:runner:READ_"] };
-		await expect.poll(() => listRunnerWorkers(store, reader).workers.map((worker) => worker.sid)).toEqual([runId]);
+		const reader = {
+			keyId: spec.owner,
+			kind: "api_key",
+			scopes: ["buckle:runner:READ_"],
+		};
+		await expect
+			.poll(() =>
+				listRunnerWorkers(store, reader).workers.map((worker) => worker.sid),
+			)
+			.toEqual([runId]);
 		expect(revokeLease(store, runId, Date.now()).ok).toBe(true);
 		expect(listRunnerWorkers(store, reader).workers).toEqual([]);
 		await new Promise((r) => setTimeout(r, 5_000));
