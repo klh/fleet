@@ -179,6 +179,44 @@ test.describe("@api", () => {
 		]);
 	});
 
+	test("--json: stack credential goes only to its own Buckle origin", async () => {
+		let catalogCalls = 0;
+		const other = serveStub((req) => {
+			if (new URL(req.url).pathname !== "/v1/models") return new Response("ok");
+			catalogCalls++;
+			return new Response("wrong front", { status: 401 });
+		});
+		try {
+			writeFileSync(TOKEN, "test-key\n");
+			writeFileSync(
+				HUBS,
+				JSON.stringify({ TestHub: { candidates: [other.url] } }),
+			);
+			writeFileSync(
+				STACK,
+				JSON.stringify({
+					hubs: {
+						TestHub: {
+							host: "127.0.0.1",
+							buckle_port: hub.port,
+							token_file: TOKEN,
+						},
+					},
+				}),
+			);
+			const p = await runCliAsync(
+				join(import.meta.dir, "..", "hooks", "bin", "coord.ts"),
+				["hubs", "--json"],
+				{ env: { HOME: home, SUSPENDERS_HUBS_FILE: HUBS, KLH_STACK: STACK } },
+			);
+			expect(p.code).toBe(0);
+			expectHubListing(JSON.parse(p.out));
+			expect(catalogCalls).toBe(0);
+		} finally {
+			other.close();
+		}
+	});
+
 	test("--json: wrong-scope token reports models null, never a guess", async () => {
 		const badToken = join(home, "bad.key");
 		writeFileSync(badToken, "wrong-key\n");
