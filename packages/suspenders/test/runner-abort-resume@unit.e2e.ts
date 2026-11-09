@@ -50,7 +50,7 @@ test("aborting a parked run during resume preserves its held submissions @unit",
 				runId,
 			),
 		).toMatchObject({
-			state: "stopping",
+			state: "stopped",
 			held_interrupts_json: expect.stringContaining("held-1"),
 		});
 	} finally {
