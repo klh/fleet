@@ -34,7 +34,17 @@ const ROOT = join(import.meta.dir, "..");
 // No pins: W1294.13 repaired the route-preflight instance (the original
 // pin is dropped with it). A new dead import lands as a red row — repair
 // it or pin it here with the owning item.
-const KNOWN_DEAD: string[] = [];
+// Vendored fork trees (chord/pi-durable) import upstream siblings fleet
+// does not vendor (telemetry/ai) — pristine corpus, pinned with the owning
+// item (W2852/W2902); a "repair" here is a fork divergence, not a fix.
+const KNOWN_DEAD: string[] = [
+	"packages/chord/test/telemetry-sqlite-store.test.ts -> ../../telemetry/test/store-conformance.ts (missing-target)",
+	"packages/chord/test/telemetry-sqlite.test.ts -> ../../telemetry/src/testing/index.ts (missing-target)",
+	"packages/pi-durable/test/provider-session-cache-e2e.test.ts -> ../../ai/src/api/openai-codex-responses.ts (missing-target)",
+	"packages/pi-durable/test/provider-session-cache-e2e.test.ts -> ../../ai/test/oauth.ts (missing-target)",
+	"packages/pi-durable/test/system-order-cache-e2e.test.ts -> ../../ai/src/api/anthropic-messages.ts (missing-target)",
+	"packages/pi-durable/test/system-order-cache-e2e.test.ts -> ../../ai/test/oauth.ts (missing-target)",
+];
 
 // The synthetic tree the teeth build: every accepted import form plus one
 // dead variant per detector.
