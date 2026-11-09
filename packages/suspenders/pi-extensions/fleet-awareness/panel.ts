@@ -57,26 +57,67 @@ async function showOverview(
 		>((tui, theme, keybindings, done) => {
 			let tab = initial,
 				offset = 0,
-				closed = false;
+				closed = false,
+				refreshing = false;
+			const refreshPanel = async () => {
+				if (closed || refreshing) return;
+				refreshing = true;
+				tui.requestRender();
+				try {
+					await refresh();
+				} finally {
+					refreshing = false;
+					if (!closed) tui.requestRender();
+				}
+			};
+			if (!getSnapshot()) queueMicrotask(() => void refreshPanel());
 			clock = setInterval(() => tui.requestRender(), 1000); // redraw age only; no data polling
 			return {
 				invalidate() {},
 				render(width) {
 					const snapshot = getSnapshot();
-					if (!snapshot)
-						return [
-							truncateToWidth(
-								"Fleet data unavailable; r refresh, Esc close",
-								width,
-							),
-						];
-					const lines = renderSnapshot(snapshot, tab, width),
-						height = Math.max(2, (process.stdout.rows ?? 24) - 10);
-					offset = Math.min(offset, Math.max(0, lines.length - 6 - height));
+					const lines = snapshot ? renderSnapshot(snapshot, tab, width) : [];
+					const fit = (line: string) => truncateToWidth(line, width);
+					const title = lines[0] ?? `FLEET / ${tab.toUpperCase()}`;
+					const masthead = fit(
+						`◈  ${title}${refreshing ? "  ·  SYNCING" : ""}`,
+					);
+					const tabs = TABS.map((name, index) =>
+						name === tab
+							? theme.fg(
+									"accent",
+									width < 54
+										? `[${index + 1}]`
+										: `[${index + 1} ${name.toUpperCase()}]`,
+								)
+							: theme.fg(
+									"dim",
+									width < 54 ? String(index + 1) : `${index + 1} ${name}`,
+								),
+					).join("  ");
+					const rule = theme.fg("dim", "─".repeat(Math.max(0, width)));
+					const height = Math.max(2, (process.stdout.rows ?? 24) - 11);
+					const body = snapshot
+						? lines.slice(6)
+						: [
+								fit(
+									refreshing
+										? "Reading Fleet sources…"
+										: "Fleet data unavailable",
+								),
+							];
+					offset = Math.min(offset, Math.max(0, body.length - height));
 					return [
-						theme.fg("accent", lines[0]),
-						...lines.slice(1, 6),
-						...lines.slice(6 + offset, 6 + offset + height),
+						fit(tabs),
+						rule,
+						theme.fg("accent", masthead),
+						...(snapshot
+							? lines.slice(1, 3).map((line) => theme.fg("dim", line))
+							: []),
+						...body.slice(offset, offset + height),
+						rule,
+						theme.fg("dim", fit("←→ Tabs  ↑↓ Scroll  r Refresh  Esc Close")),
+						theme.fg("dim", fit("k Knowledge  c Consult  i Item  a Answers")),
 					];
 				},
 				handleInput(data) {
@@ -86,10 +127,7 @@ async function showOverview(
 					) {
 						closed = true;
 						done(null);
-					} else if (matchesKey(data, "r"))
-						void refresh().then(() => {
-							if (!closed) tui.requestRender();
-						});
+					} else if (matchesKey(data, "r")) void refreshPanel();
 					else if (matchesKey(data, "k")) {
 						closed = true;
 						done("knowledge");
@@ -108,8 +146,19 @@ async function showOverview(
 						const i = (["1", "2", "3", "4", "5"] as const).findIndex((key) =>
 							matchesKey(data, key),
 						);
-						if (i >= 0) {
-							tab = TABS[i];
+						const direction = matchesKey(data, "left")
+							? -1
+							: matchesKey(data, "right")
+								? 1
+								: 0;
+						if (i >= 0 || direction) {
+							tab =
+								TABS[
+									i >= 0
+										? i
+										: (TABS.indexOf(tab) + direction + TABS.length) %
+											TABS.length
+								];
 							offset = 0;
 						}
 					}
@@ -198,7 +247,6 @@ export async function openFleet(
 		throw new Error(
 			"Use /fleet [overview|work|routes|attention|peers|knowledge|consult|item|consults]",
 		);
-	if (!getSnapshot()) await refresh();
 	for (;;) {
 		const choice = await showOverview(
 			ctx,

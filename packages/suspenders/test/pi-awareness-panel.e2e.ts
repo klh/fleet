@@ -75,9 +75,12 @@ test("Pi panel switches tabs, refreshes explicitly and releases redraw timer on 
 						result = value;
 					},
 				);
-				expect(panel.render(100)[0]).toContain("OVERVIEW");
+				expect(panel.render(100)[0]).toContain("[1 OVERVIEW]");
+				expect(panel.render(100)[2]).toContain("OVERVIEW");
+				panel.handleInput("\u001b[C");
+				expect(panel.render(100)[0]).toContain("[2 WORK]");
 				panel.handleInput("3");
-				expect(panel.render(100)[0]).toContain("ROUTES");
+				expect(panel.render(100)[2]).toContain("ROUTES");
 				panel.handleInput("r");
 				await Promise.resolve();
 				panel.handleInput(Key.escape);
@@ -100,5 +103,66 @@ test("Pi panel switches tabs, refreshes explicitly and releases redraw timer on 
 	expect(refreshes).toBe(1);
 	const before = renders;
 	await new Promise((resolve) => setTimeout(resolve, 1050));
+	expect(renders).toBe(before);
+});
+
+test("Pi panel captures navigation while its first Fleet read is pending @unit", async () => {
+	const { openFleet } = await import(
+		"../pi-extensions/fleet-awareness/panel.ts"
+	);
+	const { Key, visibleWidth } = await import("@earendil-works/pi-tui");
+	const pending = Promise.withResolvers<void>();
+	let renders = 0;
+	const ctx = {
+		cwd: "/fixture",
+		hasUI: true,
+		ui: {
+			custom: async (
+				factory: (
+					tui: { requestRender(): void },
+					theme: { fg(color: string, text: string): string },
+					bindings: { matches(data: string): boolean },
+					done: (value: null) => void,
+				) => {
+					render(width: number): string[];
+					handleInput(data: string): void;
+				},
+			) => {
+				const closed = Promise.withResolvers<null>();
+				const panel = factory(
+					{
+						requestRender: () => {
+							renders++;
+						},
+					},
+					{ fg: (_color, text) => text },
+					{ matches: (data) => data === Key.escape },
+					closed.resolve,
+				);
+				await Promise.resolve();
+				expect(panel.render(80)[2]).toContain("SYNCING");
+				panel.handleInput("3");
+				expect(panel.render(80)[2]).toContain("ROUTES");
+				expect(panel.render(22).every((line) => visibleWidth(line) <= 22)).toBe(
+					true,
+				);
+				panel.handleInput(Key.escape);
+				return closed.promise;
+			},
+		},
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
+	await openFleet(
+		"",
+		ctx,
+		() => null,
+		() => pending.promise,
+		async () => {
+			throw new Error("unexpected CLI call");
+		},
+		null,
+	);
+	const before = renders;
+	pending.resolve();
+	await Promise.resolve();
 	expect(renders).toBe(before);
 });
