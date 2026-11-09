@@ -291,12 +291,23 @@ export const openRunnerController = (deps: {
 							"executor-absent: no durable adapter bound — control row unchanged",
 					};
 				}
+				if (signals.has(runId))
+					return { ok: false, reason: "runner: start already in progress" };
 				const controller = new AbortController();
 				signals.set(runId, controller);
-				await deps.durable.start(specOf(row), { signal: controller.signal });
-				await deps.durable.submit(runId, text, {
-					requestId: submission.requestId,
-				});
+				try {
+					await deps.durable.start(specOf(row), { signal: controller.signal });
+					controller.signal.throwIfAborted();
+					await deps.durable.submit(runId, text, {
+						requestId: submission.requestId,
+					});
+					controller.signal.throwIfAborted();
+				} catch (error) {
+					if (signals.get(runId) === controller) signals.delete(runId);
+					if (controller.signal.aborted)
+						return { ok: false, reason: "runner: start aborted" };
+					throw error;
+				}
 				setState(runId, "running", now());
 				record(runId, "started", { by: actor.sid });
 				return { ok: true, state: "running" };
@@ -468,6 +479,7 @@ export const openRunnerController = (deps: {
 			// later step is independent + bounded with errors recorded.
 			const leaseRow = getLease(deps.store, runId);
 			const revoked = revokeLease(deps.store, runId, now());
+			setState(runId, "stopping", now());
 			signals.get(runId)?.abort();
 			signals.delete(runId);
 			const cleanupErrors: string[] = [];
@@ -487,7 +499,6 @@ export const openRunnerController = (deps: {
 				const err = await bounded(deps.durable.stop(runId), "executor stop");
 				if (err) cleanupErrors.push(err);
 			}
-			setState(runId, "stopping", now());
 			record(runId, "abort", {
 				by: actor.sid,
 				leaseRevoked: revoked.ok,
