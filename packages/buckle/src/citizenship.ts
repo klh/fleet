@@ -5,6 +5,7 @@
 // families. The gate (gov/middleware.ts), the wire handlers, the admin API
 // and servicemon all code to this module — one source of truth per pattern.
 import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
+import { type EndpointSpec, methodsOf } from "./endpoints.ts";
 
 export const PROBLEM_SLUGS: Record<number, string> = {
 	400: "bad_request",
@@ -78,6 +79,26 @@ export function problem(p: ProblemInput): Response {
 export function allowOf(path: string): string | null {
 	if (path === "/repo-policy/manifest" || path === "/v1/workers")
 		return "GET, OPTIONS";
+	// W914: non-admin surfaces derive from the registry (the one front-door
+	// table); admin + federation rows below stay hand-declared. /v1/workers
+	// stays hand-declared above — main serves it but this lineage's registry
+	// has no row for it yet.
+	if (
+		!path.startsWith("/v1/admin") &&
+		path !== "/federation" &&
+		!path.startsWith("/federation/")
+	) {
+		const methods = methodsOf(path);
+		if (methods.length > 0) {
+			const set = new Set<string>();
+			for (const m of methods) {
+				set.add(m);
+				if (m === "GET") set.add("HEAD");
+			}
+			set.add("OPTIONS");
+			return [...set].join(", ");
+		}
+	}
 	if (path === "/health" || path === "/v1/models") return "GET, HEAD, OPTIONS";
 	if (path === "/status" || path === "/metrics") return "GET, HEAD, OPTIONS";
 	if (path === "/.well-known/jwks.json") return "GET, HEAD, OPTIONS";
@@ -153,6 +174,21 @@ export function methodNotAllowed(path: string): Response {
 		why: `allows: ${allow}`,
 		instance: path,
 		headers: { allow },
+	});
+}
+
+/** W914: a pending registration is versioned but NOT served at this head
+ *  (the handler lands with its owning lane). The wire 404s honestly
+ *  instead of advertising, in Allow, a method the head refuses. */
+export function pending404(
+	spec: EndpointSpec,
+	method: string,
+	path: string,
+): Response {
+	return problem({
+		status: 404,
+		code: "buckle.no_route",
+		why: `${method} ${path} registered, pending:${spec.pending} — not served at this head`,
 	});
 }
 
