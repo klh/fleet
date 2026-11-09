@@ -122,15 +122,33 @@ drivers/executors announce on connect and on change — heartbeat keeps it
 fresh: `{sid, name, description, purpose, trigger, compute: {kind, host,
 region}, started_at, activity}`.
 
-**Trigger archetypes (owner-set 2026-11-09)** — `trigger: {kind, spec}` is
-part of the registration; the cockpit shows it in fiddle headers and badges
-tree rows:
+**Durable sessions are BRIEF-DRIVEN (owner ruling 2026-11-09c).** The
+long-running session in the worker carries standing instructions and drives
+itself: "wake 2×/day and check X", "poll GitHub every 5m", "on new
+feature-request issue: break it down into a plan, ask the creator if details
+are missing, create the work in a named branch, ensure it works, open a PR,
+reply to the issue". The archetypes become WAKE POLICIES inside the brief,
+not runtime modes. `trigger: {kind, spec}` in the registration = the brief's
+declared wake policy (cron ⏰ / event ⚡ / user ◉); the cockpit renders it in
+fiddle headers and badges tree rows.
 
-| Kind | Wake | Plane bones already present | Missing |
-|---|---|---|---|
-| `cron` ⏰ | schedule — e.g. wake, gather reports, auto-fix CVEs | parked-digest lifecycle (W2869 design) | WHO fires cron: executor-side timer (tolerates hub-dark/Mac-sleep) vs hub-side scheduler — W2888 decision |
-| `event` ⚡ | plane event — new Jira/GitHub issue → remote inference on the data → act | WS subscribe held open (W303), control catch-up, resume controls | event-source adapters; backlog semantics while worker down |
-| `user` ◉ | connected interface requests work | queued-message delivery on resume | agent-SDK-compatible request surface (OpenRouter agent SDK as candidate shape) | This is what lets a hub answer "I am running 4
+pi durable must provide FOUR PRIMITIVE FAMILIES to briefs:
+
+1. **Wake primitives** — timer sleep, poll loop, event subscription; the
+   session requests them, the supervisor provides (scheduler locus: prefer
+   executor-side timers — tolerate hub-dark/Mac-sleep).
+2. **Brief persistence** — standing instructions survive host death and
+   re-bind on resume (capsule pattern; `work` capsules are the precedent).
+3. **Outbound ask** — session-originated questions that block on reply
+   (consult semantics: ask → wait → resume).
+4. **Agent loop** — plan → named branch → implement → verify → PR → respond;
+   already proven by the runners (W2884 lineage).
+
+**Reference acceptance scenario (owner's words):** latest feature-request
+issue → break down into a plan → ask the creator for missing details →
+create work in a named branch → ensure it works → open a PR → respond to the
+issue with "feature implemented in this branch". This is the e2e test for
+the whole stack (durable session + inference + git + PR + comms). This is what lets a hub answer "I am running 4
 long-lived remote sessions: 2 from this azure VM, 1 from this on-prem VM,
 1 from this aws box." The microVM substrate (W2865 lineage) implements this
 in its cloned-VM bootstrap; unregistered sessions are the hub's problem to
