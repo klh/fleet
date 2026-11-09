@@ -3,7 +3,7 @@
 // gate. The merge ladder defers medium/high candidates until the tier's
 // approvals exist; THIS minter is how a human fills a slot. It binds the
 // signature to the EXACT candidate — project|branch|commit|tier — using the
-// ONE approval definition (lib/approvals.ts, risk flavor): HMAC-signed,
+// ONE approval definition (lib/gates/approvals.ts, risk flavor): HMAC-signed,
 // single-use, 24h expiry. A lane cannot self-approve (same refusal as
 // approve-destructive: agent approval never fills a human slot).
 //
@@ -14,7 +14,11 @@
 // is what the gate demands. The ladder counts WITHOUT consuming; it burns
 // approvals only after a successful guarded merge.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { approvalSig, approvalsDir, secretFile } from "../lib/approvals.ts";
+import {
+	approvalSig,
+	approvalsDir,
+	secretFile,
+} from "../lib/gates/approvals.ts";
 import {
 	candidatePaths,
 	classifyRiskTier,
