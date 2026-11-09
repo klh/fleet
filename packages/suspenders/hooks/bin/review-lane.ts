@@ -208,7 +208,13 @@ const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
 const base = parsedArgs.parsed.flag("--base");
 if (base && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base))
 	throw new Error("review base must be a full Git commit SHA");
-const boundContext = reviewContext(repo, boundBranch, base ?? undefined);
+// Match fleet-loop's default integration branch; callers of a custom
+// integration branch pass its exact SHA.
+const boundContext = reviewContext(
+	repo,
+	boundBranch,
+	base ?? "refs/heads/main",
+);
 const priorBlocking = priorBlockingReviewLines(
 	db,
 	project,

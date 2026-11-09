@@ -528,9 +528,7 @@ test("W2754 knobs: unset or junk → default, an integer overrides, conf row win
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "x" })).toBe(30);
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" })).toBe(7);
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "0" })).toBe(0);
-	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" }, 12)).toBe(
-		12,
-	);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" }, 12)).toBe(12);
 });
 test("W2754: deterministic-proof park refuses re-drive while fresh, advisory deduped per stamp", () => {
 	const f = capFixture();
@@ -671,6 +669,15 @@ test("W2754 base-move settle: an out-of-base receipt defers re-review until the 
 		"requested through Buckle",
 	);
 	expect(f.launches).toHaveLength(1);
+	const args = f.launches[0];
+	expect(args[args.indexOf("--base") + 1]).toBe(f.context.base);
+	expect(args[args.indexOf("--request-key") + 1]).toBe(f.key);
+	expect(f.key).not.toBe(
+		reviewRequestKey(f.options.project, f.options.item, {
+			...f.context,
+			base: "c".repeat(40),
+		}),
+	);
 	// a same-base receipt (or no receipt) is not a base move — launches
 	f.db.run("DELETE FROM events");
 	const req2 = requestOf(f);

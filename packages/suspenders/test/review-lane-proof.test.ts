@@ -122,6 +122,7 @@ function learnProject(): void {
 }
 
 interface Case {
+	unrelatedHead?: boolean;
 	name: string;
 	keptChild?: boolean;
 	// branch-tip file contents, relative to the fixture repo root
@@ -168,6 +169,13 @@ async function runCase(
 		);
 	}
 
+	if (c.unrelatedHead) {
+		expect(git(["checkout", "-b", `unrelated-${id}`]).code).toBe(0);
+		await Bun.write(join(REPO, "src.ts"), "export const base = 99;\n");
+		expect(git(["add", "src.ts"]).code).toBe(0);
+		expect(git(["commit", "-m", "unrelated conflicting work"]).code).toBe(0);
+	}
+
 	const stub = Bun.serve({
 		port: 0,
 		fetch:
@@ -203,6 +211,7 @@ async function runCase(
 	const errText = await new Response(p.stderr).text();
 	await p.exited;
 	stub.stop(true);
+	if (c.unrelatedHead) git(["checkout", "main"]);
 	if (p.exitCode !== 0)
 		console.error("review-lane stderr:", errText.slice(0, 800));
 	expect(p.exitCode).toBe(wantExit);
@@ -1040,7 +1049,30 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		}
 	});
 
-	test("base changed at spawn releases old review lease as ERROR before any mint", async () => {
+	test("manual review publishes a main-bound receipt from an unrelated checkout", async () => {
+		const { id } = await runCase({
+			name: "manual-main-base",
+			files: { "src.ts": "export const base = 2;\n" },
+			want: "skipped",
+			unrelatedHead: true,
+		});
+		const db = new Database(DB_PATH, { readonly: true });
+		try {
+			const row = db
+				.query(
+					"SELECT payload FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+				)
+				.get(id) as { payload: string };
+			expect(JSON.parse(JSON.parse(row.payload).receipt)).toMatchObject({
+				base: git(["rev-parse", "main"]).out.trim(),
+				verdict: "PASS",
+			});
+		} finally {
+			db.close();
+		}
+	});
+
+	test("a scheduled base that differs from its request key fails before any mint", async () => {
 		const item = addWork("stale scheduled review fixture");
 		git(["checkout", "-b", `suspenders/${item}`]);
 		await Bun.write(join(REPO, "stale.md"), "Candidate fixture.\n");
@@ -1080,7 +1112,11 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					);
 					git(["add", "REVIEW.md"]);
 					git(["commit", "-m", "changed integration base"]);
-					child = Bun.spawn(args, {
+					const tampered = [...args];
+					const baseIndex = tampered.indexOf("--base");
+					expect(baseIndex).toBeGreaterThan(0);
+					tampered[baseIndex + 1] = git(["rev-parse", "main"]).out.trim();
+					child = Bun.spawn(tampered, {
 						cwd: repo,
 						env: childEnv,
 						stdout: "pipe",
