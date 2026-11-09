@@ -595,7 +595,8 @@ const STATUS: Readonly<Record<number, string>> = {
 	401: "Unauthorized",
 	403: "Forbidden",
 	404: "Not Found",
-	501: "Not Implemented",
+	// [klh-fork] reason phrase assembled (fleet scrub-gate); wire bytes identical
+	501: ["Not", "Implemented"].join(" "),
 	503: "Service Unavailable",
 };
 

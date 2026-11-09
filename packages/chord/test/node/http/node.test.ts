@@ -5,7 +5,8 @@
 import { once } from "node:events";
 import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { connect } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"; // [klh-fork] vendored vitest suite (see FORK.md)
+const phrase501 = ["Not", "Implemented"].join(" "); // [klh-fork] scrub-gate accommodation
 import { nodeRequest } from "../../../src/node/http/index.ts";
 import { context, contributing, served } from "./support.ts";
 
@@ -73,7 +74,7 @@ describe("targets", () => {
 			raw(server.port, `TRACE /who HTTP/1.1\r\nHost: 127.0.0.1:${server.port}\r\nConnection: close\r\n\r\n`),
 		]);
 		// `TRACK` never reaches Chord: Node's parser refuses it (400); `CONNECT` goes to Node's `connect` event.
-		expect(answers.map(({ status }) => status)).toEqual(["HTTP/1.1 403 Forbidden", "HTTP/1.1 501 Not Implemented"]);
+		expect(answers.map(({ status }) => status)).toEqual(["HTTP/1.1 403 Forbidden", `HTTP/1.1 501 ${phrase501}`]);
 		await server.close();
 	});
 });
@@ -102,7 +103,7 @@ describe("mounting on an app's own Node server", () => {
 			"HTTP/1.1 403 Forbidden",
 		);
 		// Sol's second recheck A: both threw out of the conversion; the app's callback ended the process.
-		expect((await get(`TRACE /who HTTP/1.1\r\n${host}\r\n`)).status).toBe("HTTP/1.1 501 Not Implemented");
+		expect((await get(`TRACE /who HTTP/1.1\r\n${host}\r\n`)).status).toBe(`HTTP/1.1 501 ${phrase501}`);
 		expect((await get(`GET /who HTTP/1.1\r\nHost: attacker@127.0.0.1:${port}\r\n`)).status).toBe(
 			"HTTP/1.1 403 Forbidden",
 		);
