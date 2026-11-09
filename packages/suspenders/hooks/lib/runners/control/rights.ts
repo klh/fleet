@@ -6,9 +6,10 @@
 // model request and tool boundary. The authorizer is injected so a
 // store-server adapter can swap the default (keyring scopes) without
 // touching this contract.
+
+import { hasScope } from "@klh/buckle/src/gov/scopes.ts";
 import { fenceCheck, type LeaseToken } from "./leases.ts";
 import type { RunnerStore } from "./store.ts";
-import { hasScope } from "@klh/buckle/src/gov/scopes.ts";
 
 export type JobAction =
 	| "open"

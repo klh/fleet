@@ -354,7 +354,8 @@ const bindCredential = async (
 		try {
 			await revokeById(ctx, minted.keyId);
 		} catch (cleanupErr) {
-			const cleanup = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+			const cleanup =
+				cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
 			throw new CredentialError(
 				`credential mint: binding failed — ${message}; CLEANUP ALSO FAILED — ${cleanup}`,
 			);
@@ -364,7 +365,9 @@ const bindCredential = async (
 			receipt.revokedAt = ctx.now();
 			persistReceipts(ctx);
 		}
-		throw new CredentialError(`credential mint: binding failed (key revoked) — ${message}`);
+		throw new CredentialError(
+			`credential mint: binding failed (key revoked) — ${message}`,
+		);
 	}
 };
 

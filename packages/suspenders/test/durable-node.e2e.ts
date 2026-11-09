@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
-import { randomUUID } from "node:crypto";
 import { realNode } from "./durable-node.fixtures.ts";
 
 test("Durable foundation reopens under real Node with no Bun global @unit", async () => {

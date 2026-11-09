@@ -7,10 +7,9 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { hostname } from "node:os";
-import { git, command } from "../paired/live.ts";
+import { command, git } from "../paired/live.ts";
 import type { RunnerReceipt } from "./contracts.ts";
 import { evaluateRunner } from "./evaluate.ts";
 

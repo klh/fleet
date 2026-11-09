@@ -4,9 +4,9 @@ import {
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { executeAction } from "./actions.ts";
 import type { Run } from "./client.ts";
 import type { Snapshot } from "./contracts.ts";
-import { executeAction } from "./actions.ts";
 import { renderSnapshot, TABS, type Tab } from "./presentation.ts";
 import { plain } from "./safe-text.ts";
 

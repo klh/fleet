@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safeUrl } from "./safe-text.ts";
+
 const label = z.string().max(400);
 const count = z.number().int().nonnegative();
 const CandidateSchema = z

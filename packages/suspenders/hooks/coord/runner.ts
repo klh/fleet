@@ -1,5 +1,5 @@
-import { defineVerb, runCli } from "../lib/verb-kit.ts";
 import { runRunnerCommand } from "../lib/runners/api/cli-command.ts";
+import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const shared = ["--url", "--key-file"];
 const descriptions: Record<string, string> = {

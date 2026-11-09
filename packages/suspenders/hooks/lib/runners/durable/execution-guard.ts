@@ -1,9 +1,9 @@
 import {
 	createRegistry,
 	defineExtension,
+	type HarnessOptions,
 	hook,
 	ToolTask,
-	type HarnessOptions,
 } from "@earendil-works/pi-durable";
 import type { Authorize, JobSpec } from "./contracts.ts";
 import { fencedModels } from "./fenced-models.ts";

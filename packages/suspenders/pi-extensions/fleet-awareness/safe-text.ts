@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from "node:util";
-import { redactSecrets } from "../../hooks/lib/knowledge/secret-redaction.ts";
 import { BUILTIN_RULES, redactMatches } from "../../hooks/lib/gates/scrub.ts";
+import { redactSecrets } from "../../hooks/lib/knowledge/secret-redaction.ts";
 
 const credentialRules = BUILTIN_RULES.filter((rule) =>
 	/key|token/.test(rule.name),

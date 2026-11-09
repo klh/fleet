@@ -1,4 +1,4 @@
-import { z, ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { readWireJson } from "./wire.ts";
 
 const IdentitySchema = z.object({

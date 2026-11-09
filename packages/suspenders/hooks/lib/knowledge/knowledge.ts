@@ -6,7 +6,7 @@
 // trust-as-permission-to-act (mechanical hash check), and prose-card output.
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { glyphFor } from "./confidence.ts";
 

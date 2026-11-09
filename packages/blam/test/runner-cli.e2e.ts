@@ -1,6 +1,6 @@
+import { join, resolve } from "node:path";
 import { runCli, scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
-import { join, resolve } from "node:path";
 
 test.describe("runner CLI actual workspace smoke @unit", () => {
 	test("records both real workspace strategies and replays NDJSON", () => {

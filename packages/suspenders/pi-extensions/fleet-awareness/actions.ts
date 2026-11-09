@@ -1,10 +1,10 @@
 import {
-	ActionSchema,
-	ActionResultSchema,
 	type ActionResult,
+	ActionResultSchema,
+	ActionSchema,
 } from "./action-schemas.ts";
-import { PeersSchema, type Peer } from "./contracts.ts";
-import { readSource, type Run } from "./client.ts";
+import { type Run, readSource } from "./client.ts";
+import { type Peer, PeersSchema } from "./contracts.ts";
 import { cleanValue, plain } from "./safe-text.ts";
 
 export function resolveSelf(

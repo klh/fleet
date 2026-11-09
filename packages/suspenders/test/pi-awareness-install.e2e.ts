@@ -1,13 +1,13 @@
-import { scratchWorld } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
 import {
+	appendFileSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
-	appendFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 
 test("Pi awareness install bundles for Node, stays private/idempotent and preserves edits @unit", async () => {
 	const { installPiAwareness } = await import(

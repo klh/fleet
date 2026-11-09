@@ -17,10 +17,7 @@ export interface RunOptions {
 	maxBytes?: number;
 }
 
-export type RunArgv = (
-	argv: string[],
-	opts?: RunOptions,
-) => Promise<RunOutput>;
+export type RunArgv = (argv: string[], opts?: RunOptions) => Promise<RunOutput>;
 
 const DEFAULT_RUN_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_BYTES = 1024 * 1024;

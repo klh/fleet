@@ -3,9 +3,9 @@ import type { z } from "zod";
 import {
 	HubsSchema,
 	PeersSchema,
-	WorkSchema,
-	type Source,
 	type Snapshot,
+	type Source,
+	WorkSchema,
 } from "./contracts.ts";
 export type Run = (
 	command: string,

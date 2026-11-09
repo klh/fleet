@@ -1,7 +1,7 @@
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, delimiter, join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
-import { writeFileSync, realpathSync, existsSync } from "node:fs";
-import { join, delimiter, basename } from "node:path";
 import { installPiAwareness } from "../scripts/install/install-pi-awareness.ts";
 
 test("Node Pi SDK discovers Fleet registration and disposes during real startup without an unhandled rejection @unit", async () => {

@@ -7,14 +7,15 @@
 // Rendering rides the real install-services.ts subprocess — the exact
 // mechanism the step uses — so parity covers the wiring, not just the
 // emitter. Field-equivalence, not byte-equality: the emitter reformats.
-import { expect, test } from "@playwright/test";
+
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "@playwright/test";
 import { execa } from "execa";
 import {
-	TEMPLATE_DIR,
 	defaultRenderValues,
+	TEMPLATE_DIR,
 } from "../scripts/install/install-services.ts";
 import { parsePlistXml, project } from "./plist-fields.ts";
 

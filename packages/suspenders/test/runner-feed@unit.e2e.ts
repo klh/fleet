@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { apiWorld } from "./runner-api.fixture.ts";
 import { recordRunnerEvent } from "../hooks/lib/runners/control/cursors.ts";
+import { apiWorld } from "./runner-api.fixture.ts";
 
 test("reader pages stay bounded and independent, detach does not abort @unit", async () => {
 	const world = apiWorld();

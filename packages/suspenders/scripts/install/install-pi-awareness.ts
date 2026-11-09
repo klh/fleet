@@ -3,8 +3,9 @@ import { chmodSync, existsSync, lstatSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
+import { z } from "zod";
+
 const MetadataSchema = z.strictObject({
 	type: z.literal("module"),
 	fleetManaged: z.literal("fleet-awareness-v1"),

@@ -1,8 +1,8 @@
 import { ZodError } from "zod";
-import { runnerRoute } from "./routes.ts";
-import type { RunnerApiDependencies } from "./types.ts";
 import { RunnerAuthError } from "../control/rights.ts";
 import { reportRunnerFailure } from "./diagnostics.ts";
+import { runnerRoute } from "./routes.ts";
+import type { RunnerApiDependencies } from "./types.ts";
 
 const statuses: Readonly<Record<string, number>> = {
 	"runner.unauthorized": 401,

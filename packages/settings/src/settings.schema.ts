@@ -4,6 +4,7 @@
 // unknown key anywhere fails loud with the prettified zod error.
 import { z } from "zod";
 import { HubsSchema } from "./settings.hubs.ts";
+import { RunnerSettingsSchema } from "./settings.runner.ts";
 import {
 	BoardSchema,
 	BuckleSchema,
@@ -17,7 +18,6 @@ import {
 	TelemetrySchema,
 } from "./settings.sections.ts";
 import { StackSections } from "./settings.stack.ts";
-import { RunnerSettingsSchema } from "./settings.runner.ts";
 
 export const SettingsSchema = z
 	.object({

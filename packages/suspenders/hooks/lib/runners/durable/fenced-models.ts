@@ -1,5 +1,5 @@
-import type { Models } from "@earendil-works/pi-ai/models";
 import type { FetchFunction } from "@earendil-works/pi-ai";
+import type { Models } from "@earendil-works/pi-ai/models";
 import type { Authorize, JobSpec } from "./contracts.ts";
 
 /** The initial runner supports Buckle's HTTP OpenAI wire only. No WebSocket escape. */

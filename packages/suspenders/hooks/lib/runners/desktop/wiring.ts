@@ -8,40 +8,40 @@
 // durable job fences the executor's CURRENT lease token (execute rides
 // nothing user-shaped — root #117699).
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import {
 	createRegistry,
 	defineExtension,
 	defineTool,
 	type HarnessOptions,
 } from "@earendil-works/pi-durable";
-import { openDurableJob } from "../durable/job.ts";
+import { z } from "zod";
+import { type RunnerSpec, RunnerSpecSchema } from "../control/control-state.ts";
+import {
+	type DurableAdapter,
+	openRunnerController,
+	type RunnerController,
+} from "../control/controller.ts";
+import { getLease, type LeaseToken, revokeLease } from "../control/leases.ts";
 import {
 	type JobAction,
 	makeRunnerAuthorizer,
 	type RunnerActor,
 	type RunnerAuthorizer,
 } from "../control/rights.ts";
-import {
-	openRunnerController,
-	type DurableAdapter,
-	type RunnerController,
-} from "../control/controller.ts";
-import { getLease, revokeLease, type LeaseToken } from "../control/leases.ts";
-import { RunnerSpecSchema, type RunnerSpec } from "../control/control-state.ts";
 import type { RunnerStore } from "../control/store.ts";
-import { canonicalSeedDigest, scanSeedDir } from "./seed.ts";
+import { openDurableJob } from "../durable/job.ts";
 import {
-	createDesktopDockerExecutor,
-	resolvedPolicyDigest,
-	type DesktopContainer,
-	type DesktopExecutorDeps,
-} from "./docker-executor.ts";
-import {
-	createCredentialManager,
 	type CredentialManager,
 	type CredentialManagerDeps,
+	createCredentialManager,
 } from "./credentials.ts";
+import {
+	createDesktopDockerExecutor,
+	type DesktopContainer,
+	type DesktopExecutorDeps,
+	resolvedPolicyDigest,
+} from "./docker-executor.ts";
+import { canonicalSeedDigest, scanSeedDir } from "./seed.ts";
 
 /** The pi-durable runtime the durable job rides (job.ts Runtime mirror). */
 type LeafRuntime = Pick<
@@ -263,9 +263,17 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 			const current = getLease(deps.store, runId);
 			if (current?.epoch === lease.token.epoch && current.state === "active")
 				revokeLease(deps.store, runId, Date.now());
-			if (credentials.list().some((receipt) =>
-				receipt.runId === runId && receipt.epoch === lease.token.epoch && receipt.revokedAt === null,
-			)) await credentials.revoke(runId, lease.token.epoch);
+			if (
+				credentials
+					.list()
+					.some(
+						(receipt) =>
+							receipt.runId === runId &&
+							receipt.epoch === lease.token.epoch &&
+							receipt.revokedAt === null,
+					)
+			)
+				await credentials.revoke(runId, lease.token.epoch);
 			throw err;
 		}
 		tokens.set(runId, lease.token);
@@ -489,7 +497,8 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	return {
 		controller: {
 			...controller,
-			admit: (input) => admitAndStart({ ...input, seedRoot: deps.container.seedRoot }),
+			admit: (input) =>
+				admitAndStart({ ...input, seedRoot: deps.container.seedRoot }),
 		},
 		executor,
 		credentials,

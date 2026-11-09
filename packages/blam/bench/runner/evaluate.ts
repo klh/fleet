@@ -1,6 +1,6 @@
 import { gatePromotion } from "../../src/promotion.ts";
-import { pairedLift, type PairedRep } from "../paired/types.ts";
-import { RunnerReceiptSchema, type RunnerReceipt } from "./contracts.ts";
+import { type PairedRep, pairedLift } from "../paired/types.ts";
+import { type RunnerReceipt, RunnerReceiptSchema } from "./contracts.ts";
 
 /** Nearest-rank quantiles; null is missing, never a zero sample. */
 export function distribution(values: (number | null)[]) {

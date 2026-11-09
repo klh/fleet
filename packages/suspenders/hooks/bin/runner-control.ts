@@ -1,19 +1,21 @@
 #!/usr/bin/env bun
 import { settings } from "@klh/settings";
+import { runnerHostConfig } from "../lib/runners/service/config.ts";
 import { loadDesktopRuntimeConfig } from "../lib/runners/service/desktop-config.ts";
 import {
 	checkDesktopImage,
 	checkDesktopMintAuthority,
 } from "../lib/runners/service/desktop-preflight.ts";
-import { runnerHostConfig } from "../lib/runners/service/config.ts";
-import { readRunnerProfiles } from "../lib/runners/service/profiles.ts";
 import { desktopRuntime } from "../lib/runners/service/desktop-runtime.ts";
 import { runRunnerService } from "../lib/runners/service/process.ts";
+import { readRunnerProfiles } from "../lib/runners/service/profiles.ts";
 
 if (process.argv.length === 2) {
 	try {
 		const config = settings({ mode: "service" }).runner;
-		await runRunnerService(await desktopRuntime(config, runnerHostConfig(config).stateDir));
+		await runRunnerService(
+			await desktopRuntime(config, runnerHostConfig(config).stateDir),
+		);
 		process.exit(0);
 	} catch {
 		console.error("runner.start_failed");

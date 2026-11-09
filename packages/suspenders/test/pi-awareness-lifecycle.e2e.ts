@@ -1,9 +1,9 @@
-import { scratchWorld } from "@klh/test-kit";
-import { expect, test } from "@playwright/test";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 
 test("Pi factory starts no IO and binds actual two-argument lifecycle with cancellation @unit", async () => {
 	const { default: awareness } = await import(

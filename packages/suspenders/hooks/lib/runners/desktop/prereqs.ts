@@ -60,7 +60,7 @@ export const detectDesktopPrereqs = async (deps?: {
 		"image",
 		"inspect",
 		"--format",
-		"{{join .RepoDigests \",\"}}",
+		'{{join .RepoDigests ","}}',
 		image,
 	]);
 	const sbx = await run(["sbx", "--version"]);
@@ -87,10 +87,7 @@ const finishReport = async (
 		error: sbx.code === 0 ? null : asText(sbx.stderr),
 	};
 	return {
-		ok:
-			dockerCheck.present &&
-			imageCheck.present &&
-			imageCheck.pinned,
+		ok: dockerCheck.present && imageCheck.present && imageCheck.pinned,
 		docker: dockerCheck,
 		image: imageCheck,
 		sbx: sbxCheck,
@@ -98,10 +95,7 @@ const finishReport = async (
 	};
 };
 
-const missingOf = (
-	docker: PrereqCheck,
-	image: PrereqCheck,
-): string[] => {
+const missingOf = (docker: PrereqCheck, image: PrereqCheck): string[] => {
 	const missing: string[] = [];
 	if (!docker.present) {
 		missing.push(`docker binary/daemon (${docker.error ?? "not found"})`);

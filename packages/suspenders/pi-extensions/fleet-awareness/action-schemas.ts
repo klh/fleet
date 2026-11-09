@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 const text = z
 	.string()
 	.trim()

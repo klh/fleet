@@ -31,7 +31,9 @@ export interface LeaseRow {
 }
 
 export type FenceVerdict = { ok: true } | { ok: false; reason: string };
-export type AdmitVerdict = { ok: true; token: LeaseToken } | { ok: false; reason: string };
+export type AdmitVerdict =
+	| { ok: true; token: LeaseToken }
+	| { ok: false; reason: string };
 
 export const ensureRunnerLeaseSchema = (store: RunnerStore): void => {
 	store.run(LEASES_DDL);
@@ -57,7 +59,8 @@ export function admitLease(
 	);
 	if (fresh.changes === 1) return { ok: true, token: { epoch: 1 } };
 	const row = getLease(store, input.runId);
-	if (!row) return { ok: false, reason: "runner: lease row vanished mid-admission" };
+	if (!row)
+		return { ok: false, reason: "runner: lease row vanished mid-admission" };
 	const staleAt = input.now - input.ttlMs;
 	if (row.state === "active" && row.updated_at > staleAt) {
 		return {
@@ -74,7 +77,11 @@ export function admitLease(
 		row.epoch,
 		staleAt,
 	);
-	if (took.changes !== 1) return { ok: false, reason: "runner: lease takeover raced another controller" };
+	if (took.changes !== 1)
+		return {
+			ok: false,
+			reason: "runner: lease takeover raced another controller",
+		};
 	return { ok: true, token: { epoch: row.epoch + 1 } };
 }
 
@@ -90,7 +97,8 @@ export function fenceCheck(
 ): FenceVerdict {
 	const row = getLease(store, runId);
 	if (!row) return { ok: false, reason: "runner: no lease for this run" };
-	if (row.state !== "active") return { ok: false, reason: "runner: lease revoked" };
+	if (row.state !== "active")
+		return { ok: false, reason: "runner: lease revoked" };
 	if (row.epoch !== token.epoch) {
 		return {
 			ok: false,
@@ -111,7 +119,11 @@ export function fenceCheck(
 
 /** Controller-side revoke: state flip + epoch bump in one CAS. Any
  *  executor still holding the old epoch fences on its next check. */
-export function revokeLease(store: RunnerStore, runId: string, now: number): FenceVerdict {
+export function revokeLease(
+	store: RunnerStore,
+	runId: string,
+	now: number,
+): FenceVerdict {
 	const row = getLease(store, runId);
 	if (row?.state !== "active") {
 		return { ok: false, reason: "runner: no active lease to revoke" };
@@ -123,6 +135,7 @@ export function revokeLease(store: RunnerStore, runId: string, now: number): Fen
 		runId,
 		row.epoch,
 	);
-	if (flipped.changes !== 1) return { ok: false, reason: "runner: revoke raced another controller" };
+	if (flipped.changes !== 1)
+		return { ok: false, reason: "runner: revoke raced another controller" };
 	return { ok: true };
 }

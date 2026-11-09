@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
-import { RunnerSettingsSchema } from "@klh/settings";
-import { scratchWorld } from "@klh/test-kit";
 import { chmod, link, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { RunnerSettingsSchema } from "@klh/settings";
+import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { loadDesktopRuntimeConfig } from "../hooks/lib/runners/service/desktop-config.ts";
 
 test("desktop runner requires explicit private seed and separate mint credential @unit", async () => {

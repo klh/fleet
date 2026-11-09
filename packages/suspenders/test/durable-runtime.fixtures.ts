@@ -1,11 +1,12 @@
-import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import {
 	createRegistry,
 	defineExtension,
 	defineTool,
 } from "@earendil-works/pi-durable";
 import { z } from "zod";
+
 const Args = z.strictObject({ value: z.literal("ok") });
 
 /** Deterministic protocol fixture; its synthetic usage is never benchmark evidence. */

@@ -13,6 +13,15 @@ import {
 import { join } from "node:path";
 import { execa } from "execa";
 import { ensureShims } from "../ensure-shims.ts";
+import { registerLaunchdPreflight } from "../install-preflight.ts";
+import {
+	ensurePreferHubLine,
+	gitToplevel,
+	resolvePreferHubLabel,
+} from "../lib/prefer-hub-line.ts";
+import { sourcePaths, syncHarness } from "../sync-harness.ts";
+import { upgradeGateway } from "../upgrade-gateway.ts";
+import { activateGateway } from "./install-activate-gateway.ts";
 import { migrateConf } from "./install-conf-migrate.ts";
 import { wireConnections } from "./install-connections.ts";
 import {
@@ -25,7 +34,6 @@ import {
 	type StepStatus,
 } from "./install-contract.ts";
 import { registerLaunchd } from "./install-launchd.ts";
-import { registerLaunchdPreflight } from "../install-preflight.ts";
 import {
 	downloadModels,
 	refreshSupervisor,
@@ -36,14 +44,6 @@ import {
 	registerSkills,
 	releaseNotify,
 } from "./install-wire-steps.ts";
-import {
-	ensurePreferHubLine,
-	gitToplevel,
-	resolvePreferHubLabel,
-} from "../lib/prefer-hub-line.ts";
-import { sourcePaths, syncHarness } from "../sync-harness.ts";
-import { upgradeGateway } from "../upgrade-gateway.ts";
-import { activateGateway } from "./install-activate-gateway.ts";
 
 export interface StepContext {
 	dryRun: boolean;

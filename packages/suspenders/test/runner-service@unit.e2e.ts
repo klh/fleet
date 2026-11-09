@@ -1,12 +1,12 @@
-import { expect, test } from "@playwright/test";
-import { scratchWorld } from "@klh/test-kit";
+import { chmod, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeFile, symlink, chmod } from "node:fs/promises";
+import { RunnerSettingsSchema } from "@klh/settings";
+import { scratchWorld } from "@klh/test-kit";
+import { expect, test } from "@playwright/test";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
+import { runnerHostConfig } from "../hooks/lib/runners/service/config.ts";
 import { openRunnerHost } from "../hooks/lib/runners/service/host.ts";
 import { readRunnerProfiles } from "../hooks/lib/runners/service/profiles.ts";
-import { runnerHostConfig } from "../hooks/lib/runners/service/config.ts";
-import { RunnerSettingsSchema } from "@klh/settings";
 
 test("runner host uses only an explicit loopback port and the configured identity authority @unit", async () => {
 	const authority = Bun.serve({

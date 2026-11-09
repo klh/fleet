@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { readReceipts, type RunnerReceipt } from "../bench/runner/contracts.ts";
+import { type RunnerReceipt, readReceipts } from "../bench/runner/contracts.ts";
 import { distribution, evaluateRunner } from "../bench/runner/evaluate.ts";
 
 function receipt(rep: number, arm: "baseline" | "candidate"): RunnerReceipt {

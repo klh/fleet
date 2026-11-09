@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite";
 import { scratchWorld } from "@klh/test-kit";
+import { createRunnerApi } from "../hooks/lib/runners/api/api.ts";
+import { createExecutorBindings } from "../hooks/lib/runners/api/bindings.ts";
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
-import { createExecutorBindings } from "../hooks/lib/runners/api/bindings.ts";
-import { createRunnerApi } from "../hooks/lib/runners/api/api.ts";
 
 export function apiWorld() {
 	const world = scratchWorld({ prefix: "runner-api-" });

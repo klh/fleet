@@ -1,5 +1,5 @@
-import { expandHome, type RunnerSettingsSchema } from "@klh/settings";
 import { resolve } from "node:path";
+import { expandHome, type RunnerSettingsSchema } from "@klh/settings";
 import { readRunnerCredential } from "../api/credential.ts";
 import { existingEntry } from "../durable/private-paths.ts";
 

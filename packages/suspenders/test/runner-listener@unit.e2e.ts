@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
 import { serveStub } from "@klh/test-kit";
-import { apiWorld } from "./runner-api.fixture.ts";
-import { openRunnerListener } from "../hooks/lib/runners/api/listener.ts";
+import { expect, test } from "@playwright/test";
 import { createRunnerIdentity } from "../hooks/lib/runners/api/identity.ts";
+import { openRunnerListener } from "../hooks/lib/runners/api/listener.ts";
+import { apiWorld } from "./runner-api.fixture.ts";
 
 test("real loopback runner listener verifies live identity and rejects foreign hosts @unit", async () => {
 	const world = apiWorld();

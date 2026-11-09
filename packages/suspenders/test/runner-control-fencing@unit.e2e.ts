@@ -1,6 +1,14 @@
-import { expect, test } from "@playwright/test";
 import { Database } from "bun:sqlite";
+import { expect, test } from "@playwright/test";
 import { digestOf } from "../hooks/lib/runners/control/control-state.ts";
+import {
+	type DurableAdapter,
+	openRunnerController,
+} from "../hooks/lib/runners/control/controller.ts";
+import {
+	ensureRunnerReaderSchema,
+	recordRunnerEvent,
+} from "../hooks/lib/runners/control/cursors.ts";
 import {
 	admitLease,
 	ensureRunnerLeaseSchema,
@@ -9,19 +17,11 @@ import {
 	revokeLease,
 } from "../hooks/lib/runners/control/leases.ts";
 import {
-	ensureRunnerReaderSchema,
-	recordRunnerEvent,
-} from "../hooks/lib/runners/control/cursors.ts";
-import {
 	makeRunnerAuthorizer,
-	RunnerAuthError,
 	RUNNER_SCOPES,
 	type RunnerActor,
+	RunnerAuthError,
 } from "../hooks/lib/runners/control/rights.ts";
-import {
-	openRunnerController,
-	type DurableAdapter,
-} from "../hooks/lib/runners/control/controller.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 
 const digest = () => digestOf(`fixture-${Math.random()}`);
@@ -84,10 +84,20 @@ test.describe("distributed lease + fencing (W2869.2)", () => {
 		const store = memoryStore();
 		const runId = crypto.randomUUID();
 		expect(
-			admitLease(store, { runId, controllerSid: "c1", now: now(), ttlMs: 60_000 }),
+			admitLease(store, {
+				runId,
+				controllerSid: "c1",
+				now: now(),
+				ttlMs: 60_000,
+			}),
 		).toEqual({ ok: true, token: { epoch: 1 } });
 		expect(
-			admitLease(store, { runId, controllerSid: "c2", now: now(), ttlMs: 60_000 }),
+			admitLease(store, {
+				runId,
+				controllerSid: "c2",
+				now: now(),
+				ttlMs: 60_000,
+			}),
 		).toEqual({
 			ok: false,
 			reason: "runner: lease held by c1 (epoch 1, fresh)",
@@ -206,9 +216,13 @@ test.describe("controller flow (W2869.2)", () => {
 		});
 		expect(res).toEqual({
 			ok: false,
-			reason: "executor-absent: no durable adapter bound — control row unchanged",
+			reason:
+				"executor-absent: no durable adapter bound — control row unchanged",
 		});
-		const { job } = await ctl.read({ runId: spec.runId, actor: controlActor() });
+		const { job } = await ctl.read({
+			runId: spec.runId,
+			actor: controlActor(),
+		});
 		expect(job.state).toBe("cold");
 	});
 });
@@ -230,7 +244,10 @@ test.describe("durable executor flow (W2869.2)", () => {
 			`start:${spec.runId}`,
 			`submit:${spec.runId}:go`,
 		]);
-		const aborted = await ctl.abort({ runId: spec.runId, actor: controlActor() });
+		const aborted = await ctl.abort({
+			runId: spec.runId,
+			actor: controlActor(),
+		});
 		expect(aborted).toEqual({ ok: true, state: "stopping" });
 		expect(durable.calls).toEqual([
 			`start:${spec.runId}`,
@@ -303,7 +320,10 @@ test.describe("per-reader cursors (W2869.2)", () => {
 			actor: readOnly(),
 		});
 		expect(reattach.events).toEqual([]);
-		const { job } = await ctl.read({ runId: spec.runId, actor: controlActor() });
+		const { job } = await ctl.read({
+			runId: spec.runId,
+			actor: controlActor(),
+		});
 		expect(job.state).toBe("cold");
 	});
 });
