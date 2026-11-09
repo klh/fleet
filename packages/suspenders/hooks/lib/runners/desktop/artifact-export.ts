@@ -1,5 +1,7 @@
-// artifact-export.ts — W2869.3: bounded nofollow artifact export from the
-// paused sandbox. The workspace rides `docker cp <paused>:/workspace/. -`
+// artifact-export.ts — W2869.3: bounded nofollow artifact export. The
+// workspace rides `docker exec <id> tar --format=ustar --blocking-factor=1
+// -C /workspace -cf - .` — root #117946: docker cp does NOT see tmpfs
+// content (paused or not), the exec route is the only trusted export —
 // as a ustar byte stream walked at HEADER granularity: each entry size is
 // read from the tar header before its data crosses, any entry crossing the
 // cap aborts the export mid-stream (proc killed, dest tree discarded), and
@@ -142,7 +144,7 @@ class StreamReader {
 
 export interface ExportOptions {
 	dockerBin: string;
-	/** Name or id of the FROZEN (paused) run container. */
+	/** Name or id of the run container — exec-tar export needs no freeze. */
 	containerRef: string;
 	destDir: string;
 	capBytes: number;
@@ -193,11 +195,18 @@ export const exportArtifacts = async (
 	opts: ExportOptions,
 ): Promise<ExportTally> => {
 	await mkdir(opts.destDir, { recursive: true });
+	// Root #117946: the ONLY export route that sees tmpfs content — exec-tar
+	// over fixed trusted argv, no shell, no freeze.
 	const proc = await opts.run([
 		opts.dockerBin,
-		"cp",
-		`${opts.containerRef}:/workspace/.`,
-		"-",
+		"exec",
+		opts.containerRef,
+		"tar",
+		"--format=ustar",
+		"--blocking-factor=1",
+		"-C", "/workspace",
+		"-cf", "-",
+		".",
 	]);
 	const reader = new StreamReader(proc.stream);
 	const tally: ExportTally = { files: 0, bytes: 0 };
@@ -215,6 +224,17 @@ export const exportArtifacts = async (
 		reader.close();
 		await rm(opts.destDir, { recursive: true, force: true });
 		throw err;
+	}
+	// tar's exit code is part of the receipt — a non-zero tar exit after a
+	// clean stream is a warn-only failure: refuse and discard the dest tree.
+	const code = await proc.exit;
+	if (code !== 0) {
+		proc.kill();
+		reader.close();
+		await rm(opts.destDir, { recursive: true, force: true });
+		throw new ArtifactRefusalError(
+			`artifact-export: tar exited ${code} — export refused`,
+		);
 	}
 	return tally;
 };

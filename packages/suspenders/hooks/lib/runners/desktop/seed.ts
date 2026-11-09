@@ -7,7 +7,7 @@
 // a newer seed root only backs runs admitted after the swap, and a
 // materialized snapshot must re-hash exactly to the spec's digest or
 // start refuses (no silent fallback).
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { digestOf } from "../control/control-state.ts";
 
@@ -27,14 +27,14 @@ const SEED_MAX_FILES = 2_000;
 const SEED_MAX_BYTES = 64 * 1024 * 1024;
 export const IMAGE_PIN = /@sha256:[a-f0-9]{64}$/;
 
-/** Canonical seed digest: entries sorted by path, each file reduced to
- *  its own sha256 — stable across mtime/dir-listing noise. */
+/** Canonical seed digest: canonical JSON of path-sorted {path, digest}
+ *  pairs — a newline in a filename cannot alias two distinct file sets
+ *  (root #117936). */
 export const canonicalSeedDigest = (files: readonly SeedFile[]): string => {
 	const entries = files
 		.map((f) => ({ path: f.path, digest: digestOf(f.bytes) }))
-		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-		.map((e) => `${e.path} ${e.digest}`);
-	return digestOf(entries.join("\n"));
+		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+	return digestOf(JSON.stringify(entries));
 };
 
 /** Walk the seed root recursively; symlinks skipped, caps fail loud. */
@@ -54,11 +54,26 @@ export const scanSeedDir = async (root: string): Promise<SeedFile[]> => {
 				await walk(abs, rel);
 				continue;
 			}
-			const bytes = await readFile(abs);
-			total += bytes.byteLength;
+			// Root #117936: size checked from lstat BEFORE the bulk read (a
+			// FIFO/device would hang the read — regular files only), and the
+			// post-read byte count must match the stat (a raced mutation
+			// refuses the seed).
+			if (!entry.isFile()) {
+				throw new Error(
+					`desktop-runner: seed entry ${rel} is not a regular file — refusing`,
+				);
+			}
+			const st = await stat(abs);
+			total += st.size;
 			if (files.length >= SEED_MAX_FILES || total > SEED_MAX_BYTES) {
 				throw new Error(
 					`desktop-runner: seed exceeds caps (${SEED_MAX_FILES} files / ${SEED_MAX_BYTES} bytes) — refusing`,
+				);
+			}
+			const bytes = await readFile(abs);
+			if (bytes.byteLength !== st.size) {
+				throw new Error(
+					`desktop-runner: seed entry ${rel} mutated during scan (${st.size} → ${bytes.byteLength} bytes) — refusing`,
 				);
 			}
 			files.push({ path: rel, bytes });

@@ -3,7 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import { z } from "zod";
-import type { RunnerSpec } from "../control/control-state.ts";
+import { digestOf, type RunnerSpec } from "../control/control-state.ts";
 import {
 	IMAGE_PIN,
 	canonicalSeedDigest,
@@ -34,6 +34,9 @@ export interface DesktopExecutorDeps {
 	tmpMb?: number;
 	stopTimeoutS?: number;
 	submitTimeoutMs?: number;
+	/** Container uid:gid for the unprivileged `--user` pair; tmpfs mounts
+	 *  are chowned to match so the non-root user can write /workspace. */
+	uid?: number;
 	submitCommand?: readonly string[];
 	resumeCommand?: readonly string[];
 	idleCommand?: readonly string[];
@@ -51,6 +54,7 @@ const DEFAULTS = {
 	stopTimeoutS: 10,
 	submitTimeoutMs: 30_000,
 	artifactCapBytes: 32 * 1024 * 1024,
+	uid: 1000,
 } as const;
 
 const CONTAINER_RECORD = "executor.json";
@@ -60,6 +64,17 @@ export const containerNameOf = (runId: string): string =>
 
 const dockerGone = (r: { code: number; stderr: string }): boolean =>
 	r.code !== 0 && /No such container/.test(r.stderr);
+
+const containerGone = async (ctx: Ctx, ref: string): Promise<boolean> => {
+	const r = await ctx.run([
+		ctx.dockerBin,
+		"inspect",
+		"-f",
+		"{{.State.Running}}",
+		ref,
+	]);
+	return dockerGone(r);
+};
 
 /** The crash-reopen record: bit-for-bit argv + seed mount so a relaunched
  *  container is behaviorally identical to the one it replaces. */
@@ -71,6 +86,9 @@ export const ExecutorRecordSchema = z.strictObject({
 	seedDir: z.string().min(1),
 	argv: z.array(z.string()),
 	expired: z.boolean(),
+	/** Stamped on the first successful tool dispatch — a run that has
+	 *  executed at least once may never silently relaunch empty. */
+	executed: z.boolean(),
 	startedAt: z.number(),
 });
 export type ExecutorRecord = z.infer<typeof ExecutorRecordSchema>;
@@ -120,6 +138,7 @@ interface Ctx {
 		stopTimeoutS: number;
 		submitTimeoutMs: number;
 		artifactCapBytes: number;
+		uid: number;
 	};
 }
 
@@ -194,6 +213,7 @@ const relaunchArgv = (ctx: Ctx, spec: RunnerSpec): string[] => {
 		"run", "-d", "--name", name, "--rm", "--read-only",
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
+		"--user", `${lim.uid}:${lim.uid}`,
 		"--network", "none",
 	];
 	const resources = [
@@ -203,12 +223,14 @@ const relaunchArgv = (ctx: Ctx, spec: RunnerSpec): string[] => {
 		"--pids-limit", String(lim.pidsLimit),
 	];
 	const mounts = [
-		"--tmpfs", `/tmp:rw,noexec,nosuid,size=${lim.tmpMb}m`,
-		"--tmpfs", `/workspace:rw,noexec,nosuid,size=${lim.workMb}m`,
+		"--tmpfs", `/tmp:rw,noexec,nosuid,size=${lim.tmpMb}m,uid=${lim.uid},gid=${lim.uid}`,
+		"--tmpfs", `/workspace:rw,noexec,nosuid,size=${lim.workMb}m,uid=${lim.uid},gid=${lim.uid}`,
 		"-v", `${seedDir}:/seed:ro`,
 	];
 	const idle = ctx.deps.idleCommand ?? ["sleep", "infinity"];
-	return [ctx.dockerBin, ...isolation, ...resources, ...mounts, ...idle, ctx.image];
+	// docker run: IMAGE before COMMAND — the idle command is the container
+	// command riding the image, never the reverse (root #117912.1).
+	return [ctx.dockerBin, ...isolation, ...resources, ...mounts, ctx.image, ...idle];
 };
 
 const containerRunning = async (
@@ -224,6 +246,37 @@ const containerRunning = async (
 	]);
 	return r.code === 0 && r.stdout.trim() === "true";
 };
+
+/** The executable policy digest — recomputed from the ACTUAL resolved
+ *  launch parameters (digest-pinned image + isolation limits) so a spec
+ *  minted against different limits refuses at start instead of launching
+ *  a weaker sandbox (root #117939). */
+export const canonicalPolicyDigest = (
+	lim: {
+		memoryMb: number;
+		cpus: number;
+		pidsLimit: number;
+		workMb: number;
+		tmpMb: number;
+		uid: number;
+	},
+	image: string,
+): string =>
+	digestOf(
+		JSON.stringify({
+			image,
+			network: "none",
+			readOnlyRoot: true,
+			capDropAll: true,
+			noNewPrivileges: true,
+			user: `${lim.uid}:${lim.uid}`,
+			memoryMb: lim.memoryMb,
+			cpus: lim.cpus,
+			pidsLimit: lim.pidsLimit,
+			workMb: lim.workMb,
+			tmpMb: lim.tmpMb,
+		}),
+	);
 
 const startRun = async (
 	ctx: Ctx,
@@ -243,6 +296,12 @@ const startRun = async (
 	if (seedDigest !== spec.seedDigest) {
 		throw new Error(
 			`desktop-runner: seed drift — seed root digests to ${seedDigest}, spec binds ${spec.seedDigest} — a newer seed is a newer runId`,
+		);
+	}
+	const policy = canonicalPolicyDigest(ctx.limits, ctx.image);
+	if (policy !== spec.policyDigest) {
+		throw new Error(
+			`desktop-runner: policy drift — actual launch parameters digest to ${policy}, spec binds ${spec.policyDigest} — refuse to launch a weaker sandbox`,
 		);
 	}
 	const existing = await loadRecord(ctx, spec.runId);
@@ -283,6 +342,7 @@ const launchContainer = async (
 		seedDir,
 		argv,
 		expired: false,
+		executed: false,
 		startedAt: Date.now(),
 	};
 	await saveRecord(ctx, record);
@@ -403,6 +463,15 @@ const ensureRunning = async (
 	}
 	const alive = await containerRunning(ctx, record.containerName);
 	if (alive) return record;
+	// Root #117942: /workspace tmpfs survives only while the SAME container
+	// lives. A container lost after at least one executed tool call is
+	// workspace-lost — relaunching would hand the model an empty /workspace
+	// as if its files never existed. Refuse; the durable job fails closed.
+	if (record.executed && (await containerGone(ctx, record.containerId))) {
+		throw new Error(
+			`desktop-runner: workspace-lost — container ${record.containerName} died after tool execution; /workspace state is unrecoverable — run fails closed`,
+		);
+	}
 	const restarted = await ctx.run([
 		ctx.dockerBin,
 		"start",
@@ -440,27 +509,20 @@ const copyOutRun = async (
 	destDir: string,
 ): Promise<{ files: number; bytes: number }> => {
 	const fresh = await ensureRunning(ctx, runId);
-	const paused = await ctx.run([ctx.dockerBin, "pause", fresh.containerId]);
-	if (paused.code !== 0) {
-		throw new Error(
-			`desktop-runner: freeze failed — ${paused.stderr.trim()}`,
-		);
-	}
-	try {
-		return await exportArtifacts({
-			dockerBin: ctx.dockerBin,
-			containerRef: fresh.containerId,
-			destDir,
-			capBytes: ctx.limits.artifactCapBytes,
-			run: ctx.stream,
-		});
-	} finally {
-		await ctx.run([ctx.dockerBin, "unpause", fresh.containerId]);
-	}
+	// Root #117946: no freeze — a paused tmpfs is invisible to the export
+	// and the exec route reads the LIVE workspace safely under the per-run
+	// lock (dispatch and export serialize).
+	return await exportArtifacts({
+		dockerBin: ctx.dockerBin,
+		containerRef: fresh.containerId,
+		destDir,
+		capBytes: ctx.limits.artifactCapBytes,
+		run: ctx.stream,
+	});
 };
 
-/** The one desktop container carrier: constrained lifecycle + bounded
- *  tool dispatch + frozen streamed artifact export. The DurableAdapter
+/** The one desktop carrier: constrained lifecycle + bounded tool dispatch
+ *  + exec-tar artifact export under the per-run lock. The DurableAdapter
  *  composition over the HOST-side durable job lives in wiring.ts. */
 export const createDesktopDockerExecutor = (
 	deps: DesktopExecutorDeps,
