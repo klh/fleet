@@ -16,7 +16,8 @@ export type BuckleResource =
 	| "spoke"
 	| "store"
 	| "knowledge"
-	| "dataplane";
+	| "dataplane"
+	| "runner";
 
 /** All concrete scopes; root = this exact list, no wildcards.
  *  W154 adds the spoke pair: federation pull surfaces (policy manifest,
@@ -46,6 +47,8 @@ export const ALL_SCOPES: readonly string[] = [
 	"buckle:knowledge:CONSULT_",
 	"buckle:dataplane:READ_",
 	"buckle:dataplane:WRITE_",
+	"buckle:runner:READ_",
+	"buckle:runner:WRITE_",
 ];
 
 /** Normalize+validate one scope string; null when not buckle-shaped.

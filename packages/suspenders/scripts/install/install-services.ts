@@ -67,6 +67,8 @@ export interface Schedule {
 
 export interface ServiceSpec {
 	name: string;
+	/** Render only when explicitly requested with --service. */
+	explicitOnly?: boolean;
 	/** Fully-qualified launchd label override (W284); darwin only — the unit
 	 *  file name and the Label key ride it. Default com.suspenders.<name>. */
 	label?: string;
@@ -151,6 +153,7 @@ const KNOWN_MANIFEST_KEYS = new Set([
 ]);
 const KNOWN_SERVICE_KEYS = new Set([
 	"name",
+	"explicitOnly",
 	"label",
 	"abandonProcessGroup",
 	"bunEntry",
@@ -404,6 +407,11 @@ export function loadManifest(path = MANIFEST_PATH): ServiceSpec[] {
 			logs: { out: logOut, err: (rawLogs.err as string) ?? logOut },
 			placeholders: (entry.placeholders ?? []) as string[],
 		};
+		if (entry.explicitOnly !== undefined) {
+			if (typeof entry.explicitOnly !== "boolean")
+				throw new Error(`${path}: explicitOnly must be a boolean`);
+			spec.explicitOnly = entry.explicitOnly;
+		}
 		if (entry.cwd !== undefined) spec.cwd = entry.cwd as string;
 		if (entry.label !== undefined) spec.label = entry.label as string;
 		if (entry.abandonProcessGroup !== undefined)
@@ -978,7 +986,7 @@ function main(argv: string[]): number {
 							`unknown service "${n}" (have: ${all.map((s) => s.name).join(" ")})`,
 						),
 				)
-			: all;
+			: all.filter((spec) => !spec.explicitOnly);
 	const values = defaultRenderValues(overrides);
 	const t0 = performance.now();
 	const rendered = specs.map((spec) => ({
