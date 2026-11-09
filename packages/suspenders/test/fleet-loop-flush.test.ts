@@ -20,6 +20,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { approvalSig, riskApprovalSrc } from "../hooks/lib/gates/approvals.ts";
+import { projectIdentity } from "../hooks/lib/govdb/govdb.ts";
 
 const LOOP = join(import.meta.dir, "..", "hooks", "bin", "fleet-loop.ts");
 const WORK = join(import.meta.dir, "..", "hooks", "bin", "work.ts");
@@ -291,7 +293,7 @@ describe("fleet-loop flush mode (W641)", () => {
 		rmSync(repo, { recursive: true, force: true });
 	});
 
-	test("W1303.5: medium-tier product change defers with a deduped NEED_DECISION (gate on)", async () => {
+	test("medium-tier merge defers until its exact signed approval is present", async () => {
 		const repo = await base();
 		const item = mint(repo);
 		const head = await laneBranch(repo, item);
@@ -306,6 +308,33 @@ describe("fleet-loop flush mode (W641)", () => {
 		// second cycle re-defers without duplicating the decision
 		flushGated(repo);
 		expect(events(repo, "NEED_DECISION")).toBe(1);
+		const home = join(repo, ".test-home");
+		const secret = "a".repeat(64);
+		mkdirSync(join(home, ".claude"), { recursive: true, mode: 0o700 });
+		writeFileSync(join(home, ".claude", ".skill-review-secret"), secret, {
+			mode: 0o600,
+		});
+		const dir = join(home, ".claude-insights", ".approvals");
+		mkdirSync(dir, { recursive: true, mode: 0o700 });
+		const file = join(dir, "fixture.approval");
+		const src = riskApprovalSrc(
+			projectIdentity(repo),
+			`suspenders/${item}`,
+			head,
+			"medium",
+		);
+		const ts = Math.floor(Date.now() / 1000);
+		writeFileSync(
+			file,
+			`src=${src}\nts=${ts}\nsig=${approvalSig(src, ts, secret)}\n`,
+			{ mode: 0o600 },
+		);
+		expect(flushGated(repo).code).toBe(0);
+		expect(
+			g(repo, ["merge-base", "--is-ancestor", head, "main"]).exitCode,
+		).toBe(0);
+		expect(log(repo)).toContain(`RISK-CONSUMED suspenders/${item} — 1/1`);
+		expect(existsSync(file)).toBe(false);
 		rmSync(repo, { recursive: true, force: true });
 	});
 

@@ -202,7 +202,7 @@ export function poolRowsOf(models: HubModelRow[]): HubPoolRow[] {
 }
 
 /** Stack hub profiles by lowercased label (hubTopology's keying). */
-function stackHubsByLabel(): Map<string, HubProfile> {
+export function stackHubsByLabel(): Map<string, HubProfile> {
 	const out = new Map<string, HubProfile>();
 	try {
 		for (const [label, hub] of Object.entries(loadStack().hubs))

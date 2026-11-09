@@ -9,12 +9,17 @@
  * (@see docs/design/pi/fleet-cockpit-tui.md pattern table).
  */
 
-import { defineDoc } from "@klh/pi-durable";
+import { defineDoc } from "@earendil-works/pi-durable";
 
 // ---------- wake policies ----------
 /** One wake source: timer (every N s), poll (interval + probe descriptor), or subscribe (plane event filter). */
 export type WakePolicy =
-	| { readonly kind: "timer"; readonly everyS: number; readonly prompt: string; readonly label: string }
+	| {
+			readonly kind: "timer";
+			readonly everyS: number;
+			readonly prompt: string;
+			readonly label: string;
+	  }
 	| {
 			readonly kind: "poll";
 			readonly everyS: number;
@@ -76,7 +81,11 @@ export const BudgetDoc = defineDoc<BudgetState>({
 // ---------- doom-loop ladder ----------
 /** Consecutive-identical-round counter per tool signature. Ladder: observe@2 → block@3 → stop@6 (OpenRouter defaults). */
 export type DoomState = {
-	readonly thresholds: { readonly observe: number; readonly block: number; readonly stop: number };
+	readonly thresholds: {
+		readonly observe: number;
+		readonly block: number;
+		readonly stop: number;
+	};
 };
 
 export const DoomDoc = defineDoc<DoomState>({
@@ -113,13 +122,19 @@ export const ApprovalsDoc = defineDoc<ApprovalsState>({
 	history: "latest",
 	fork: "initial",
 	initial: () => ({ requests: [], requireFor: [] }),
-	checkpointWhen: (value) => value.requests.every((r) => r.status !== "pending"),
+	checkpointWhen: (value) =>
+		value.requests.every((r) => r.status !== "pending"),
 });
 
 /** Stable signature of a tool round, for doom counting: name + args + result head. */
-export function roundSignature(calls: readonly { name: string; args: unknown; resultHead: string }[]): string {
+export function roundSignature(
+	calls: readonly { name: string; args: unknown; resultHead: string }[],
+): string {
 	const parts = calls
-		.map((c) => `${c.name}:${stableStringify(c.args)}:${c.resultHead.slice(0, 200)}`)
+		.map(
+			(c) =>
+				`${c.name}:${stableStringify(c.args)}:${c.resultHead.slice(0, 200)}`,
+		)
 		.sort()
 		.join("|");
 	return hash32(parts).toString(36);

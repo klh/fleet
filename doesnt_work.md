@@ -1,5 +1,53 @@
 # doesnt_work.md — the negative-results ledger
 
+## Runner API identity admission (W2879)
+
+Identity checks consumed inference admission slots and returned 429 while a
+generation was running. Preserve authentication, scope and enterprise veto,
+then exempt only the identity GET from model admission. A real occupied-slot
+regression covers the distinction. The old whoami Bun suite fails in setup
+because it supplies YAML to the JSON-only parser; its assertions are not proof.
+The new Playwright case checks denial and revocation with the canonical kit.
+Docker commit also excludes mounted tmpfs contents: never use that snapshot
+as proof of artifact export. Desktop export requires an actual tmpfs witness.
+
+The first identity adapter also mapped authority 429/503 failures to 401,
+misdiagnosing unavailable capacity as bad credentials. Keep those failures as
+`runner.identity_unavailable` (503), with a safe correlation trace. Raw cleanup
+exceptions could leak credential-shaped provider text through event payloads;
+bank fixed labels instead. Control keys need proxy READ for the existing
+identity endpoint, never proxy WRITE; a generation attempt is proven 403.
+
+## Durable hook errors are not transport authorization (W2869.1)
+
+Pinned Durable 1.5.0 swallowed a throwing beforeProviderRequest guard: the
+negative fixture observed two HTTP model requests despite execute denial.
+The tool hook blocked the effect, but the submission still completed. Replace
+provider-hook enforcement with a fenced fetch at actual dispatch; the final
+regression observes zero HTTP requests for pre-dispatch denial. Reject unsupported
+transport APIs, keep key revocation and an abort watchdog as independent backstops.
+Also, ReadOnlySession is a read mode, not a writer lock: the pinned README
+explicitly states no cross-process locking. Use external writer exclusion and
+controller fencing. A Models object has prototype methods: spreading it lost
+getAuth and produced a fault; a bound proxy preserves those methods. Synthetic
+fixture tokens remain test data and never become performance evidence.
+
+## Pi awareness is functionality, not a startup optimization (W2875)
+
+The 12-pair real-Node SDK probe added 13.39 ms to median ready time;
+BLAM correctly refused promotion as a speed improvement. Keep this overhead
+baseline for later variants; do not infer token savings from registration or
+stubbed CLI calls. An initial SDK test invoked Bun's `node` shim and therefore
+did not prove Node compatibility; resolving the real Node executable fixed
+the test. Full GLM-5.3 review first consumed 16,000 output tokens without a
+verdict; one explicit 32,768-budget retry returned PASS. Repeating the same
+truncated request is not review progress. The proof harness still skips
+Playwright-only diffs; the 15 focused specs were executed separately.
+Manual claims without a lane-context baseline inspect only the last commit
+at completion, missing ledgers in earlier commits (W2876). Keep the ledgers
+with the final product change until original mint provenance is supported;
+do not disable the documentation gate or fabricate a dispatched context.
+
 Optimizations we actually tried that did not deliver, with the failure
 mechanism and the standing rule that replaced them. Complements
 [benchmarks.md](benchmarks.md) (the winners). Every row must be
@@ -7,6 +55,18 @@ decision-grade: it has to change what you would do. When a verdict flips
 (new numbers), move the row to benchmarks.md with the date.
 
 ## LLM serving
+
+- **Promoting a seed fork on mean wall time alone (W2882).** Twelve live pairs improved mean wall time but used more tokens and increased p95 latency. The runner evaluator now keeps the measured lift and declines promotion on either regression. The original and rescored reports retain both decisions.
+
+- **Promoting one-shot Docker prewarm on admission alone (W2883).** Twelve pairs cut admission p50 by 168 ms, while full lifecycle p50 increased by 1.7 ms and only five pairs improved wall time. BLAM declined promotion. The live recovery canary also exposed two gaps the deterministic provider missed: Pi Durable requires an environment callback or no environment option, and lease-checked abort fails after revocation. The corrected runtime omits the unused callback and closes the local harness and Docker sandbox after fencing.
+
+- **Workspace-clone speed as a proxy for agent/token savings (W2870)** —
+  the measured 12-pair local clone/worktree probe performs zero model calls.
+  It establishes a workspace-startup delta only; it cannot establish cache
+  hits, token savings, isolation or durable recovery. BLAM now labels this
+  infrastructure-only and refuses agentic promotion with missing usage or
+  isolation observations. Keep live inference, recovery and sandbox drills
+  separate; never substitute a fast filesystem fixture for those results.
 
 - **Speculative decoding, 4B draft → big target (MLX)** — verified no win at
   4B scale; the verdict does not extrapolate to 30B+ (see W242: re-bench when
@@ -365,3 +425,34 @@ budget artifact, not looping.
   the arms comparable; the zero-out attribution mass still floors
   med_out_per_min (0*) — all floors, never rates. See
   [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
+# W2904 — winnerless benchmark rows
+
+The desktop bake-off (2026-11-09) produced medians without a decision
+rule: numbers that could not pick a winner between arms, and no schema to
+say when two arms count as equal. W2904 fixes the shape, not the
+arithmetic: a summary without a `verdict` block is now schema-invalid, and
+the `tied` verdict is explicit rather than implied by eyeballing. Related
+dead ends kept on record from the same bake-off: `archlinux:base` (no
+arm64 manifest — cannot be an arm on Docker Desktop), split
+install+clone across two containers (no filesystem persistence — one
+container per bed), and `--net=enabled` (bogus docker flag; `--net=host`
+is the real one).
+
+## W2939 — Docker startup measurement exclusions
+
+The first corrected-timing run paired an emulated x86 Alpine image with
+native ARM Bun. Docker Desktop silently selected the resident x86 image for
+the Alpine manifest. Discard that comparison (receipt SHA-256
+`7a6e5b78f198cdb018406c5054ab60cdd74235fb3f078813ece61c6c0332974a`).
+The live harness now resolves and records each native image identity before
+sampling, and sets Docker's platform explicitly. It rejected the original
+Alpine arm before emitting any samples. Earlier driver timing also included
+container removal, which made it unsuitable for first-ready comparisons.
+
+## W2940 — Artifact receipt integrity
+
+Counting samples alone accepted a duplicated trial in place of a missing
+trial. The replay audit now checks each arm and repetition exactly once.
+Live runs with missing or failed repetitions no longer emit a verdict.
+Image IDs in diagnostic output also left the receipt incomplete, so the
+native platform and resolved image IDs now travel with the samples.
