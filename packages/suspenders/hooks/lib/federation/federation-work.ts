@@ -31,6 +31,10 @@ export interface WorkFeedItem {
 	state: string;
 	owner_sid: string | null;
 	updated_at: number | null;
+	/** W2869 seam: runner-session state (RUNNER-RUNNING/RUNNER-PAUSED/
+	 *  RUNNER-PARKED) once runner.* events exist; always null until that
+	 *  lands — never fabricated from work_items state. */
+	runner_state: string | null;
 }
 
 /** The /federation/work wire: one hub's own open work. */
@@ -126,6 +130,7 @@ export function localWorkFeed(
 				? r.owner_sid
 				: null,
 		updated_at: typeof r.updated_at === "number" ? r.updated_at : null,
+		runner_state: null,
 	}));
 	return {
 		hub: localHubLabel(opts.env ?? process.env),
@@ -158,6 +163,7 @@ export function parseWorkFeed(
 					? r.owner_sid
 					: null,
 			updated_at: typeof r.updated_at === "number" ? r.updated_at : null,
+			runner_state: typeof r.runner_state === "string" ? r.runner_state : null,
 		});
 	}
 	const total = typeof raw.total === "number" ? raw.total : items.length;
@@ -332,5 +338,29 @@ export async function federatedWorkView(
 		local,
 		peers,
 		generated_at: new Date().toISOString(),
+	};
+}
+
+// ─── W2878 viewer gate ───────────────────────────────────────────────────────
+// originator view: narrow a view to one owner's lanes across every hub (local
+// + peers) — self-asserted sid, no new token surface (mirrors the existing
+// `work mine --as <sid>` CLI idiom: knowing a lane's own sid is the bar).
+// Admin callers never filter (the route skips this call entirely for them).
+// Degraded peer rows (feed === null) pass through unfiltered — there is
+// nothing to narrow on a last-known-less edge.
+export function filterViewToOwner(
+	view: FedWorkView,
+	viewerSid: string,
+): FedWorkView {
+	const keep = (items: WorkFeedItem[]): WorkFeedItem[] =>
+		items.filter((it) => it.owner_sid === viewerSid);
+	return {
+		...view,
+		local: { ...view.local, items: keep(view.local.items) },
+		peers: view.peers.map((p) =>
+			p.feed === null
+				? p
+				: { ...p, feed: { ...p.feed, items: keep(p.feed.items) } },
+		),
 	};
 }

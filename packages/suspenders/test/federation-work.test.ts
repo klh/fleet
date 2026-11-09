@@ -13,6 +13,7 @@ import { federationWorkPage } from "../hooks/bin/federation-work-html.ts";
 import { handleFederationWork } from "../hooks/board/routes-federation.ts";
 import {
 	type FedWorkRow,
+	filterViewToOwner,
 	localWorkFeed,
 	parseWorkFeed,
 	pullFederatedWork,
@@ -226,6 +227,80 @@ describe("workEdgeToken precedence", () => {
 	});
 });
 
+describe("filterViewToOwner", () => {
+	const view = {
+		me: "lab",
+		generated_at: "t0",
+		local: {
+			hub: "lab",
+			generated_at: "t0",
+			items: [
+				{
+					id: "W1",
+					title: "mine",
+					state: "CLAIMED",
+					owner_sid: "s1",
+					updated_at: 1,
+				},
+				{
+					id: "W2",
+					title: "theirs",
+					state: "READY",
+					owner_sid: "s2",
+					updated_at: 1,
+				},
+			],
+			total: 2,
+			trunc: false,
+		},
+		peers: [
+			{
+				label: "nas",
+				ok: true,
+				degraded: false,
+				seeded: false,
+				reason: null,
+				url: "u",
+				via: "v",
+				pulled_at: "t0",
+				feed: {
+					hub: "nas",
+					generated_at: "t0",
+					items: [
+						{
+							id: "N1",
+							title: "mine-too",
+							state: "CLAIMED",
+							owner_sid: "s1",
+							updated_at: 1,
+						},
+					],
+					total: 1,
+					trunc: false,
+				},
+			},
+			{
+				label: "down",
+				ok: false,
+				degraded: true,
+				seeded: false,
+				reason: "boom",
+				url: null,
+				via: null,
+				pulled_at: null,
+				feed: null,
+			},
+		],
+	} as Parameters<typeof filterViewToOwner>[0];
+
+	test("narrows local + peer feeds to the owner, leaves degraded rows alone", () => {
+		const filtered = filterViewToOwner(view, "s1");
+		expect(filtered.local.items.map((i) => i.id)).toEqual(["W1"]);
+		expect(filtered.peers[0]?.feed?.items.map((i) => i.id)).toEqual(["N1"]);
+		expect(filtered.peers[1]?.feed).toBeNull();
+	});
+});
+
 describe("board serve + view routes", () => {
 	test("/federation/work serves the local feed (fixture store)", async () => {
 		const res = await handleFederationWork(
@@ -278,6 +353,37 @@ describe("board serve + view routes", () => {
 	});
 });
 
+describe("viewer gate: handleFederationWork", () => {
+	test("?viewer=<sid> narrows the local view to that owner's lanes", async () => {
+		const res = await handleFederationWork(
+			new Request("http://b.local/api/federation-work?viewer=lane-x"),
+			new URL("http://b.local/api/federation-work?viewer=lane-x"),
+			fixtureStore(),
+		);
+		const body = (await res.json()) as { local: { items: { id: string }[] } };
+		expect(body.local.items.map((i) => i.id)).toEqual(["W1", "W2"]);
+	});
+
+	test("admin bearer overrides an explicit viewer filter", async () => {
+		process.env.BUCKLE_ADMIN_KEY = "w2878-test-admin";
+		try {
+			const res = await handleFederationWork(
+				new Request("http://b.local/api/federation-work?viewer=lane-x", {
+					headers: { authorization: "Bearer w2878-test-admin" },
+				}),
+				new URL("http://b.local/api/federation-work?viewer=lane-x"),
+				fixtureStore(),
+			);
+			const body = (await res.json()) as {
+				local: { items: { id: string }[] };
+			};
+			expect(body.local.items.map((i) => i.id)).toEqual(["W1", "Z1", "W2"]);
+		} finally {
+			delete process.env.BUCKLE_ADMIN_KEY;
+		}
+	});
+});
+
 describe("federationWorkPage", () => {
 	const view = {
 		me: "lab",
@@ -305,6 +411,12 @@ describe("federationWorkPage", () => {
 	test("page renders local scope + escaping", () => {
 		expect(html).toContain("Federated work — me=lab");
 		expect(html).toContain("a&lt;b&gt;");
+	});
+	test("hub dropdown present, no runner yet = placeholder, no viewer banner by default", () => {
+		expect(html).toContain('<select id="hubsel" name="hub">');
+		expect(html).toContain('<option value="all" selected>all hubs</option>');
+		expect(html).toContain('<td class="runner">—</td>');
+		expect(html).not.toContain('class="viewer"');
 	});
 });
 
@@ -339,6 +451,56 @@ describe("page degraded edge section", () => {
 	test("degraded peer renders its honest reason", () => {
 		expect(dhtml).toContain("nas — their work</h2>");
 		expect(dhtml).toContain("degraded: resolve failed: boom");
+	});
+});
+
+describe("federationWorkPage: hub filter + viewer banner", () => {
+	const twoHub = {
+		me: "lab",
+		generated_at: "t0",
+		local: {
+			hub: "lab",
+			generated_at: "t0",
+			items: [],
+			total: 0,
+			trunc: false,
+		},
+		peers: [
+			{
+				label: "nas",
+				ok: true,
+				degraded: false,
+				seeded: false,
+				reason: null,
+				url: "u",
+				via: "v",
+				pulled_at: "t0",
+				feed: {
+					hub: "nas",
+					generated_at: "t0",
+					items: [],
+					total: 0,
+					trunc: false,
+				},
+			},
+		],
+	} as unknown as Parameters<typeof federationWorkPage>[0];
+
+	test("hub=<peer label> renders only that section", () => {
+		const html = federationWorkPage(twoHub, { hub: "nas" });
+		expect(html).not.toContain("<h2>LOCAL");
+		expect(html).toContain("nas — their work");
+	});
+	test("hub=<local label> renders only LOCAL", () => {
+		const html = federationWorkPage(twoHub, { hub: "lab" });
+		expect(html).toContain("<h2>LOCAL — lab");
+		expect(html).not.toContain("nas — their work</h2>");
+	});
+	test("viewer banner: originator vs admin", () => {
+		const originator = federationWorkPage(twoHub, { viewerSid: "s1" });
+		expect(originator).toContain("originator view — lanes owned by s1");
+		const admin = federationWorkPage(twoHub, { admin: true, viewerSid: "s1" });
+		expect(admin).toContain("admin view — every lane");
 	});
 });
 
