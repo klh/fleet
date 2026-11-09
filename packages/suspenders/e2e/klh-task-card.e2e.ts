@@ -170,6 +170,67 @@ async function mount(
 		.waitFor({ state: "visible" });
 }
 
+type SegRect = {
+	text: string;
+	tag: string;
+	left: number;
+	right: number;
+	bottom: number;
+};
+
+type RailCard = {
+	id: string;
+	cardLeft: number;
+	cardRight: number;
+	cardBottom: number;
+	segs: SegRect[];
+};
+
+/** W2267.5: every footer rail control's rect, per card, from the live DOM. */
+async function railGeometry(page: Page): Promise<RailCard[]> {
+	return page.evaluate((hostId) => {
+		const host = document.getElementById(hostId);
+		const cards = [...(host?.querySelectorAll("klh-task-card") ?? [])];
+		return cards.map((c) => {
+			const root = c.shadowRoot;
+			const cardBox = c.getBoundingClientRect();
+			const segs = [...(root?.querySelectorAll("footer .seg") ?? [])].map(
+				(s) => {
+					const r = s.getBoundingClientRect();
+					return {
+						text: (s.textContent ?? "").trim(),
+						tag: s.tagName.toLowerCase(),
+						left: r.left,
+						right: r.right,
+						bottom: r.bottom,
+					};
+				},
+			);
+			return {
+				id: (c as { card: { id: string } }).card.id,
+				cardLeft: cardBox.left,
+				cardRight: cardBox.right,
+				cardBottom: cardBox.bottom,
+				segs,
+			};
+		});
+	}, HOST_ID);
+}
+
+/** Assert one rail control's rect stays inside its card (1px border slack). */
+function expectSegInside(s: SegRect, c: RailCard, width: number): void {
+	const where = `${c.id} ${s.tag} "${s.text}" (${width}px)`;
+	expect(s.left, `${where} left inside card`).toBeGreaterThanOrEqual(
+		c.cardLeft - 1,
+	);
+	expect(s.right, `${where} right inside card`).toBeLessThanOrEqual(
+		c.cardRight + 1,
+	);
+	expect(s.bottom, `${where} bottom inside card`).toBeLessThanOrEqual(
+		c.cardBottom + 1,
+	);
+}
+
 test("renders every state fixture with the SIGNAL hierarchy", {
 	tag: "@ui",
 }, async ({ page, board }) => {
@@ -494,8 +555,68 @@ test("renders at narrow width without clipping the footer", {
 	const h = await card
 		.locator("footer .seg.retry")
 		.evaluate((n) => n.getBoundingClientRect().height);
-	expect(h).toBeGreaterThanOrEqual(32);
+	expect(h).toBe(28);
 	await page.screenshot({ path: `${SHOTS}/3-failed-300.png` });
+});
+
+test("rail geometry: every footer control stays inside the card at 300/320px", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	// W2267.5: the selects carry .seg themselves — direct flex children. The
+	// compact column (~300–320px) must bound EVERY rail control: no rect may
+	// cross the card's left/right/bottom edge, and each state keeps exactly
+	// ONE visible Prompt (READY/FAILED/DONE/CLAIMED-with-catalog rails).
+	await page.goto(`${board.BASE}/`);
+	for (const width of [300, 320]) {
+		await mount(page, [fx(0), fx(3), fx(4), fx(1)], { width });
+		const g = await railGeometry(page);
+		expect(g).toHaveLength(4);
+		for (const c of g) {
+			expect(
+				c.segs.filter((s) => s.text === "Prompt ↗"),
+				`${c.id} exactly one Prompt (${width}px)`,
+			).toHaveLength(1);
+			for (const s of c.segs) expectSegInside(s, c, width);
+		}
+		const ready = g.find((c) => c.id === "W2267");
+		expect(
+			ready?.segs.filter((s) => s.tag === "select") ?? [],
+			`READY rail renders its selects (${width}px)`,
+		).toHaveLength(2);
+	}
+});
+
+test("footer uses one compact control scale with inset labels", {
+	tag: "@ui",
+}, async ({ page, board }) => {
+	await page.goto(`${board.BASE}/`);
+	await mount(page, [fx(0), fx(1), fx(3)], { width: 300 });
+	const controls = await page
+		.locator(`#${HOST_ID} klh-task-card`)
+		.evaluateAll((cards) =>
+			cards.flatMap((card) =>
+				[...(card.shadowRoot?.querySelectorAll("footer .seg") ?? [])].map(
+					(control) => {
+						const style = getComputedStyle(control);
+						return {
+							height: control.getBoundingClientRect().height,
+							font: style.fontSize,
+							padding: style.paddingLeft,
+							top: style.borderTopWidth,
+							bottom: style.borderBottomWidth,
+						};
+					},
+				),
+			),
+		);
+	expect(controls.length).toBeGreaterThan(5);
+	for (const control of controls) {
+		expect(control.height).toBe(28);
+		expect(parseFloat(control.font)).toBeLessThanOrEqual(10.5);
+		expect(control.padding).toBe("8px");
+		expect(control.top).toBe("0px");
+		expect(control.bottom).toBe("0px");
+	}
 });
 
 test("assembled failed+split cards at 380/600, both themes (#100499)", {

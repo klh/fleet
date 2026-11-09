@@ -10,7 +10,8 @@
 //     semantics and no corrupted events,
 // and bank terminal=upstream_eof, ok:1, activity=semantic.
 // The true-stall sibling proves pings do NOT mask a real stall: a silent
-// upstream trips the idle deadline and the receipt says upstream_deadline.
+// upstream trips the idle deadline and the receipt says
+// upstream_deadline_role_only (W2579: message_start-only, no usable output).
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,18 +63,19 @@ function startPingUpstream(quietMs: number) {
 			if (req.method !== "POST" || path !== "/v1/messages")
 				return new Response("not found", { status: 404 });
 			audit.posts++;
-			return new Response(
-				pingStream(quietMs, audit, t0),
-				{
-					headers: {
-						"content-type": "text/event-stream",
-						"cache-control": "no-cache",
-					},
+			return new Response(pingStream(quietMs, audit, t0), {
+				headers: {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache",
 				},
-			);
+			});
 		},
 	});
-	return { url: `http://127.0.0.1:${server.port}`, audit, close: () => server.stop(true) };
+	return {
+		url: `http://127.0.0.1:${server.port}`,
+		audit,
+		close: () => server.stop(true),
+	};
 }
 
 /** The SSE body: message_start, then valid pings until quietMs has passed,
@@ -174,10 +176,7 @@ async function openClient(port: number): Promise<ClientAudit> {
 	return a;
 }
 
-function writeRequest(
-	socket: Bun.TCPSocket,
-	port: number,
-): void {
+function writeRequest(socket: Bun.TCPSocket, port: number): void {
 	const body = JSON.stringify({
 		model: "claude-sonnet-5",
 		stream: true,
@@ -292,13 +291,14 @@ test("W2260 true stall: no bytes at all trips the idle deadline", async () => {
 			string,
 			unknown
 		>;
-		expect(row.err).toBe("stream_failed:timeout");
+		expect(row.err).toBe("stream_failed:timeout_role_only");
 		expect(row.ok).toBe(0);
 		const receipt = JSON.parse(String(row.stream_receipt ?? "{}"));
-		expect(receipt.terminal).toBe("upstream_deadline");
-		// the mock emits message_start then stalls — one semantic frame, so
-		// the receipt says semantic (retry is NOT eligible past first byte)
-		expect(receipt.activity).toBe("semantic");
+		expect(receipt.terminal).toBe("upstream_deadline_role_only");
+		// the mock emits message_start then stalls — one frame, NO usable
+		// output or reasoning: the C235 role-only shape (W2579). Retry is
+		// still NOT eligible past first byte.
+		expect(receipt.activity).toBe("role_only");
 		expect(receipt.retry_eligible).toBe(false);
 	} finally {
 		buckle.stop(true);
@@ -307,7 +307,8 @@ test("W2260 true stall: no bytes at all trips the idle deadline", async () => {
 });
 
 /** The stall mock: message_start then silence — the 188-bytes-then-idle
- *  incident shape (activity semantic, past the retry boundary). */
+ *  incident shape (W2579: activity role_only — the frame carried no
+ *  usable output, past the retry boundary). */
 function startSilentUpstream() {
 	const server = Bun.serve({
 		port: 0,
@@ -338,6 +339,8 @@ function startSilentUpstream() {
 			);
 		},
 	});
-	return { url: `http://127.0.0.1:${server.port}`, close: () => server.stop(true) };
+	return {
+		url: `http://127.0.0.1:${server.port}`,
+		close: () => server.stop(true),
+	};
 }
-

@@ -16,6 +16,7 @@ import {
 	evidenceCheck,
 	evidencePatternsOf,
 } from "./work-fence.ts";
+import { manualCompletionBaseline } from "./manual-completion-baseline.ts";
 
 type CompletionStore = Pick<GovernorStore, "query" | "run">;
 
@@ -552,21 +553,26 @@ export function prepareCompletion(
 			);
 	}
 
+	const manual =
+		!crossRepo && !context
+			? manualCompletionBaseline(db, o.project, o.item, sha)
+			: null;
+	const originalBaseline = context?.baseline ?? manual?.sha;
 	let baseline: string | null = null;
 	let diffBase: string | null = null;
 	let paths: string[];
 	let diffText: string;
 	if (crossRepo) {
 		({ diffBase, paths, diffText } = crossRepoEvidence(shaRepo, o.item, sha));
-	} else if (context?.baseline) {
+	} else if (originalBaseline) {
 		baseline = git(
 			top,
 			"rev-parse",
 			"--verify",
-			`${context.baseline}^{commit}`,
+			`${originalBaseline}^{commit}`,
 		);
 		git(top, "merge-base", "--is-ancestor", baseline, sha);
-		git(top, "merge-base", "--is-ancestor", sha, "HEAD");
+		git(manual?.tree ?? top, "merge-base", "--is-ancestor", sha, "HEAD");
 		paths = git(top, "diff", "--name-only", baseline, sha)
 			.split("\n")
 			.filter(Boolean);

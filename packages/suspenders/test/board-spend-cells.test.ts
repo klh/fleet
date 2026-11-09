@@ -362,36 +362,41 @@ describe("measured-width spark windows (W1203)", () => {
 		const sparkSvg =
 			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
 		const last = Date.now();
+		const t0 = Math.floor(last / 30_000) * 30_000; // 30s-grid aligned newest
 		const narrow = sparkSvg(
 			[
-				[last - 60 * 60_000, 100, 0, 0],
-				[last - 30 * 60_000, 30, 0, 0],
-				[last, 0, 40, 10],
+				[t0 - 60 * 60_000, 100, 0, 0],
+				[t0 - 30 * 60_000, 30, 0, 0],
+				[t0, 0, 40, 10],
 			],
 			180,
 			28,
 		); // 60m span < 90m window → left-aligned short data
 		const wide = sparkSvg(
 			[
-				[last - 240 * 60_000, 100, 0, 0],
-				[last - 179 * 60_000, 20, 0, 0], // first in-window point → bin 0
-				[last - 30 * 60_000, 30, 0, 0],
-				[last, 0, 40, 10],
+				[t0 - 240 * 60_000, 100, 0, 0],
+				[t0 - 179 * 60_000, 20, 0, 0], // first in-window point → its own slot
+				[t0 - 30 * 60_000, 30, 0, 0],
+				[t0, 0, 40, 10],
 			],
 			360,
 			28,
 		); // 240m span > 180m window → end-pinned
-		expect(narrow.attrs["data-bin-min"]).toBe("3");
-		expect(wide.attrs["data-bin-min"]).toBe("3");
-		// the first bar's data-at IS the window start — wider track, more history
+		expect(narrow.attrs["data-bin-min"]).toBe("30-second");
+		expect(wide.attrs["data-bin-min"]).toBe("30-second");
 		const nb = narrow.children.filter((n) => n.tag === "rect");
 		const wb = wide.children.filter((n) => n.tag === "rect");
 		// narrow track left-aligns the short span (start = first point);
-		// wide track end-pins the 180m window (start = last − window)
-		expect(Number(nb[0].attrs["data-at"])).toBe(last - 60 * 60_000);
-		expect(Number(wb[0].attrs["data-at"])).toBe(last - 180 * 60_000);
-		expect(narrow.attrs["data-window-end"]).toBe(String(last + 30 * 60_000));
-		expect(wide.attrs["data-window-end"]).toBe(String(last));
+		// wide track end-pins the 180m window (start = last − window) — the
+		// first in-window point rides its OWN 30s slot, not a forced slot 0
+		const nbAt = Number(nb[0].attrs["data-at"]);
+		const wbAt = Number(wb[0].attrs["data-at"]);
+		expect(Math.abs(nbAt - (t0 - 60 * 60_000))).toBeLessThanOrEqual(30_000);
+		expect(Math.abs(wbAt - (t0 - 179 * 60_000))).toBeLessThanOrEqual(30_000);
+		// the LABELED window IS the plotted one: narrow left-aligns at its
+		// first point (start + 180×30s), wide end-pins (start = last − 180m)
+		expect(narrow.attrs["data-window-end"]).toBe(String(t0 + 30 * 60_000));
+		expect(wide.attrs["data-window-end"]).toBe(String(t0));
 		expect(wide.attrs.width).toBe("360");
 		expect(wide.attrs.viewBox).toBe("0 0 360 28");
 	});
@@ -399,20 +404,22 @@ describe("measured-width spark windows (W1203)", () => {
 	test("the newest point rides the last bin when the span divides the window", () => {
 		const sparkSvg =
 			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
-		const t0 = Date.now() - 90 * 60_000;
+		const t0 = Math.floor((Date.now() - 90 * 60_000) / 30_000) * 30_000;
 		const pts: number[][] = [
 			[t0, 10, 0, 0],
 			[t0 + 90 * 60_000, 0, 5, 1],
 		];
-		const chart = sparkSvg(pts, 180, 28); // 30 bins × 3m = the 90m span
+		// W2591: 180px → 90min viewport at 30s = 180 slots × 1px
+		const chart = sparkSvg(pts, 180, 28);
 		const bars = chart.children.filter((n) => n.tag === "rect");
 		expect(bars).toHaveLength(2);
-		// unclamped slot 30 would drop the newest point (pre-W1203 behavior)
-		expect(bars[1].attrs.x).toBe("175.0"); // 29×6 + (6−4)/2
+		// the newest hugs the right edge: last slot x = (179)×1 + (1−1)/2
+		expect(bars[1].attrs.x).toBe("179.0");
 		expect(chart.attrs["data-window-end"]).toBe(String(t0 + 90 * 60_000));
+		expect(chart.attrs["data-bin-min"]).toBe("30-second");
 	});
 
-	test("bars keep a fixed pixel width at every track width", () => {
+	test("bars fill their slot at fine rungs, keep the cap where wide", () => {
 		const sparkSvg =
 			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
 		const t0 = Date.now() - 16 * 60 * 60_000;
@@ -421,27 +428,33 @@ describe("measured-width spark windows (W1203)", () => {
 			[t0 + 8 * 60 * 60_000, 30, 0, 0],
 			[t0 + 16 * 60 * 60_000, 0, 40, 10],
 		];
+		// W2591: 16h spans bin coarser than 3m — e.g. 360px → 5h viewport
+		// at the 60s rung = 300 slots of 1.2px → the bar clamps to 1.2px
 		for (const w of [180, 224, 360]) {
 			const chart = sparkSvg(pts, w, 28);
 			const bars = chart.children.filter((n) => n.tag === "rect");
 			expect(bars.length).toBeGreaterThan(0);
-			for (const bar of bars) expect(bar.attrs.width).toBe("4.0");
+			for (const bar of bars) {
+				const bw = Number(bar.attrs.width);
+				expect(bw).toBeGreaterThanOrEqual(0.5);
+				expect(bw).toBeLessThanOrEqual(4);
+			}
 		}
 	});
 
-	test("a track narrower than one bin paints nothing", () => {
+	test("a track narrower than one pixel paints nothing", () => {
 		const sparkSvg =
 			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
 		const t0 = Date.now() - 90 * 60_000;
-		const chart = sparkSvg([[t0, 10, 0, 0]], 3, 28);
+		const chart = sparkSvg([[t0, 10, 0, 0]], 0, 28);
 		expect(chart.children).toHaveLength(0);
-		expect(chart.attrs.width).toBe("3");
+		expect(chart.attrs.width).toBe("0");
 	});
 
 	test("pre-window points drop instead of piling into the first bin", () => {
 		const sparkSvg =
 			evalSpark<(p: number[][], w: number, h: number) => SparkNode>("sparkSvg");
-		const last = Date.now();
+		const last = Math.floor(Date.now() / 30_000) * 30_000;
 		const pts: number[][] = [
 			[last - 8 * 60 * 60_000, 900, 0, 0], // 8h-old spike
 			[last - 60_000, 10, 5, 1],
@@ -450,7 +463,8 @@ describe("measured-width spark windows (W1203)", () => {
 		const bars = chart.children.filter((n) => n.tag === "rect");
 		expect(bars).toHaveLength(2); // one bin: fresh + cached rects
 		expect(bars[0].attrs["data-fresh"]).toBe("10"); // the spike never lands
-		expect(bars[0].attrs.x).toBe("175.0"); // and the newest hugs the right edge
+		// W2591: 30s slots at 180px — the newest hugs its 1px right edge
+		expect(bars[0].attrs.x).toBe("179.0");
 	});
 
 	test("paintSparks sizes to the measured track and labels the window", () => {
@@ -460,7 +474,8 @@ describe("measured-width spark windows (W1203)", () => {
 		expect(h.painted[0].attrs.width).toBe("180");
 		expect(h.axis.style.display).toBe("flex");
 		expect(h.axis.firstElementChild.textContent).toMatch(/\d/);
-		expect(h.axis.lastElementChild.textContent).toMatch(/m\/bin$/);
+		// W2591: the axis names the ACTUAL bin width, never a fake constant
+		expect(h.axis.lastElementChild.textContent).toMatch(/ bins$/);
 	});
 
 	test("a narrow track repaint hides the sparkline and drops the axis", () => {

@@ -555,7 +555,9 @@ function pollExecutionTrace(){ feeds.kick('exec', !task.execution && !task.execu
 function renderDrawer(){
   if (!task.id) return;
   var d = task.data;
-  setText(byId('drawerTitle'), d ? d.task.id + ' — ' + String(d.task.title || '').slice(0, 70) : 'task ' + task.id);
+  // W2267.5: full title in the drawer header — the compact cards truncate;
+  // the drawer is where the complete text belongs
+  setText(byId('drawerTitle'), d ? d.task.id + ' — ' + String(d.task.title || '') : 'task ' + task.id);
   var body = byId('drawerBody');
   if (!d) {
     if (!task.err) return; // keep the loading row
@@ -572,16 +574,34 @@ function renderDrawer(){
   var t = d.task;
   var meta = '<div class="r"><span class="dim">state</span> ' + taskPill(displayState(t)) + '</div>' +
     '<div class="r"><span class="dim">owner</span> ' + esc(t.owner_label || (t.owner_sid ? String(t.owner_sid).slice(0, 12) : '') || 'unclaimed') + '</div>' +
+    (t.model ? '<div class="r"><span class="dim">model</span> <span class="mono">' + esc(String(t.model)) + '</span></div>' : '') +
+    (t.executor ? '<div class="r"><span class="dim">executor</span> <span class="mono">' + esc(String(t.executor)) + '</span></div>' : '') +
+    (t.locality ? '<div class="r"><span class="dim">host</span> <span class="mono">' + esc(String(t.locality)) + '</span></div>' : '') +
     (t.origin ? '<div class="r"><span class="dim">origin</span> <span class="mono">' + esc(String(t.origin)) + '</span></div>' : '') +
     '<div class="r"><span class="dim">project</span> <span class="mono">' + esc(t.project || '?') + '</span></div>' +
     (t.requires ? '<div class="r"><span class="dim">needs</span> <span class="rq mono">' + esc(String(t.requires)) + '</span></div>' : '') +
     (t.scope ? '<div class="r"><span class="dim">scope</span> <span class="mono">' + esc(String(t.scope)) + '</span></div>' : '') +
     (t.parent_id ? '<div class="r"><span class="dim">parent</span> ' + esc(t.parent_id) + '</div>' : '') +
+    (t.why_parallel ? '<div class="r"><span class="dim">split context</span> ' + esc(String(t.why_parallel)) + '</div>' : '') +
     '<div class="r"><span class="dim">age</span> ' + ago(t.age_s) + '</div>' +
     '<div class="r"><span class="dim">open decisions</span> ' + (t.open_decisions || 0) + '</div>';
   if (t.state === 'WAITING') meta += '<div class="r"><span class="dim">waiting for</span> ' + esc(t.wait_kind || 'external') + '</div>' +
     '<div class="r"><span class="dim">reason</span> ' + esc(t.wait_reason || '') + '</div>' +
     (t.wait_until_utc ? '<div class="r"><span class="dim">earliest wake</span> ' + esc(t.wait_until_utc) + '</div>' : '');
+  // W2267.5: complete description — compact cards truncate, the drawer owns
+  // the full field (pre-wrap so owner-authored line breaks survive)
+  var descr = '';
+  if (t.description && String(t.description).trim()) descr = '<div class="feed"><h2>Description</h2><p class="descFull">' + esc(String(t.description)) + '</p></div>';
+  // W2267.5: dependency graph — blocked_by/waiting_on edges + split children
+  var bb = t.blocked_by || [], wo = t.waiting_on || [], ch = t.children || [];
+  var dep = '';
+  if (bb.length || wo.length || ch.length) {
+    dep = '<div class="feed"><h2>Dependency graph</h2>';
+    if (bb.length) dep += '<div class="r"><span class="dim">blocked by</span> ' + bb.map(function(x){ return '<span class="mono rq">' + esc(String(x)) + '</span>'; }).join(' ') + '</div>';
+    if (wo.length) dep += '<div class="r"><span class="dim">waiting on</span> ' + wo.map(function(x){ return '<span class="mono rq">' + esc(String(x)) + '</span>'; }).join(' ') + '</div>';
+    if (ch.length) dep += '<div class="r"><span class="dim">children</span> ' + ch.map(function(x){ return '<span class="mono rq" title="' + esc(String(x.title || '')) + '">' + esc(String(x.id)) + '</span>'; }).join(' ') + '</div>';
+    dep += '</div>';
+  }
   var failure = t.failure_note ? '<div class="feed failure-detail"><h2>' + (t.state === 'WAITING' ? 'Previous failure' : 'Failure reason') + '</h2><p>' + esc(String(t.failure_note)) + '</p>' + (t.tail && t.tail.text ? '<h3>Recent output excerpt</h3><p>' + esc(String(t.tail.text)) + '</p>' : '') + '</div>' : '';
   var decs = '';
   var dl = d.decisions || [];
@@ -603,7 +623,7 @@ function renderDrawer(){
     '<div class="drawerAction"><label for="asop">Second opinion</label><div class="drawerActionControls">' +
     '<select id="asop" aria-label="second-opinion executor">' + execOptions(defaultPick(t)) + '</select>' +
     '<button type="button" class="retry" id="asopBtn">Request review</button></div></div>';
-  var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' + failure +
+  var html = '<div class="feed"><h2>Details</h2>' + meta + '</div>' + descr + dep + failure +
     spendStripHtml(t, 'kspend-drawer') +
     '<div class="feed"><h2>Linked decisions</h2>' + decs + '</div>' +
     '<div class="feed"><h2>Actions</h2>' + acts + '</div>';

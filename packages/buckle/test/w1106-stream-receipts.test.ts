@@ -121,7 +121,7 @@ describe("W1106 stream receipts", () => {
 		}
 	});
 
-	test("silent mid-stream upstream → terminal upstream_deadline (typed)", async () => {
+	test("silent mid-stream upstream → typed deadline terminal, role-only class", async () => {
 		const upstream = await startMockUpstream(
 			() =>
 				new Response(
@@ -154,12 +154,52 @@ describe("W1106 stream receipts", () => {
 			const audit = deps.ledger.auditRows()[0] ?? {};
 			expect(audit.ok).toBe(0);
 			expect(audit.error_code).toBe("stream_failed");
-			expect(audit.err).toBe("stream_failed:timeout");
+			// W2579: message_start carried no usable output and no reasoning —
+			// the C235 role-only shape classes distinctly from a mid-content
+			// stall, in err AND terminal AND activity.
+			expect(audit.err).toBe("stream_failed:timeout_role_only");
 			const receipt = receiptOf(audit);
-			expect(receipt.terminal).toBe("upstream_deadline");
+			expect(receipt.terminal).toBe("upstream_deadline_role_only");
+			expect(receipt.activity).toBe("role_only");
 		} finally {
 			upstream.close();
 		}
+	});
+
+	test("stall AFTER real output → generic deadline classes (W2579 boundary)", async () => {
+		// text_delta DID flow before the stall — mid-content, not role-only
+		const body =
+			'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":1}}}\n\n' +
+			'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}\n\n';
+		const upstream = await startMockUpstream(
+			() =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(c) {
+							c.enqueue(enc.encode(body));
+						},
+					}),
+					{ headers: sseHeaders },
+				),
+		);
+		const deps = testDeps(poolOf(upstream.url), {
+			policy: { num_retries: 1, stream_idle_timeout_s: 0.1 },
+		});
+		const res = await createApp(deps).fetch(
+			new Request(`${upstream.url}/v1/messages`, {
+				method: "POST",
+				body: JSON.stringify({ model: "claude-sonnet-5", stream: true }),
+			}),
+		);
+		expect(res.status).toBe(200);
+		await res.text();
+		await Bun.sleep(20);
+		const audit = deps.ledger.auditRows()[0] ?? {};
+		expect(audit.err).toBe("stream_failed:timeout");
+		const receipt = receiptOf(audit);
+		expect(receipt.terminal).toBe("upstream_deadline");
+		expect(receipt.activity).toBe("semantic");
+		upstream.close();
 	});
 });
 

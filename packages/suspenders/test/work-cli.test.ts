@@ -781,46 +781,95 @@ describe("dep-merge ancestor gate (W60)", () => {
 		writeFileSync(join(REPO, "w60-base.txt"), "base");
 		g("add", "w60-base.txt");
 		commit("w60 base");
-		g("checkout", "-q", "-b", "w60-side");
-		writeFileSync(join(REPO, "w60-side.txt"), "side");
-		g("add", "w60-side.txt");
-		commit("w60 side");
-		const sha = g("rev-parse", "HEAD").stdout.toString().trim();
-		g("checkout", "-q", "main");
-
+		const finishBranch = (id: string, sid: string, file: string) => {
+			const take = work("take", id, "--as", sid);
+			expect(take.code, take.err).toBe(0);
+			const tree = take.out.match(/worktree: (.+)/)?.[1] ?? "";
+			const token = take.out.match(/claim token: ([a-f0-9]{48})/)?.[1] ?? "";
+			const epoch = take.out.match(/claim epoch: (\d+)/)?.[1] ?? "";
+			const baseline = g("-C", tree, "rev-parse", "HEAD")
+				.stdout.toString()
+				.trim();
+			writeFileSync(
+				join(tree, file),
+				"export const dependencyProduct = true;\n",
+			);
+			expect(g("-C", tree, "add", file).exitCode).toBe(0);
+			expect(
+				g(
+					"-C",
+					tree,
+					"-c",
+					"user.name=Fixture",
+					"-c",
+					"user.email=fixture@example.invalid",
+					"commit",
+					"-qm",
+					"Implement real dependency product",
+				).exitCode,
+			).toBe(0);
+			writeFileSync(
+				join(tree, file),
+				"export const dependencyProduct = true;\nexport const hardened = true;\n",
+			);
+			expect(g("-C", tree, "add", file).exitCode).toBe(0);
+			expect(
+				g(
+					"-C",
+					tree,
+					"-c",
+					"user.name=Fixture",
+					"-c",
+					"user.email=fixture@example.invalid",
+					"commit",
+					"-qm",
+					"Harden dependency product in a second commit",
+				).exitCode,
+			).toBe(0);
+			const sha = g("-C", tree, "rev-parse", "HEAD").stdout.toString().trim();
+			const result = workIn(
+				tree,
+				"done",
+				id,
+				"--as",
+				sid,
+				"--token",
+				token,
+				"--claim-epoch",
+				epoch,
+				"--sha",
+				sha,
+				"--summary",
+				"Implemented the dependency product on its own registered claim branch to verify merge gating.",
+			);
+			if (result.code === 0)
+				expect(
+					JSON.parse(work("show", id, "--json").out).completion.baseline_sha,
+				).toBe(baseline);
+			return { sha, result };
+		};
 		const dep = idOf(work("add", "dep lane (merge gate)").out);
 		const depOn = idOf(work("add", "dependent lane (merge gate)").out);
 		expect(work("block", depOn, "--on", dep).code).toBe(0);
-
-		// dep lands DONE with the unmerged sha — done output names the gated dependent
-		const d = finishAs(dep, "lane-w60", sha);
-		expect(d.code).toBe(0);
+		const first = finishBranch(dep, "lane-w60", "w60-side.ts");
+		const sha = first.sha;
+		const d = first.result;
+		expect(d.code, d.err).toBe(0);
+		expect(JSON.parse(work("show", dep, "--json").out).result_sha).toBe(sha);
 		expect(d.out).toContain(`dep ${dep} done but unmerged (sha not on main)`);
 		expect(d.out).toContain(`${depOn} stays gated`);
-
-		// take refuses with the spec-exact note
 		const t = work("take", depOn, "--as", "lane-w60b");
 		expect(t.code).toBe(2);
 		expect(t.err).toContain(`dep ${dep} done but unmerged (sha not on main)`);
-
-		// ready excludes the item and prints the why-note
 		expect(work("ready").out).toContain(`${depOn} stays gated`);
 		expect(work("ready").out).not.toContain(`· ${depOn}`);
-
-		// fail-open: an unverifiable sha (unknown object) is NOT a verified
-		// negative — the dep counts and the dependent unblocks
 		const dep2 = idOf(work("add", "failopen dep lane").out);
 		const depOn2 = idOf(work("add", "failopen dependent lane").out);
 		expect(work("block", depOn2, "--on", dep2).code).toBe(0);
-		g("checkout", "-q", "-b", "w60-missing-object");
-		const missingSha = productCommit(
-			"Real dependency product before object loss",
-		);
-		g("checkout", "-q", "main");
-		const d2 = finishAs(dep2, "lane-w60c", missingSha);
-		expect(d2.code).toBe(0);
-		// Model unavailable Git evidence AFTER a genuine verified completion,
-		// rather than accepting an invented SHA at the completion boundary.
+		const missing = finishBranch(dep2, "lane-w60c", "w60-missing.ts");
+		const missingSha = missing.sha;
+		expect(missing.result.code, missing.result.err).toBe(0);
+		// Lose the object only AFTER genuinely verified completion.
 		rmSync(
 			join(
 				REPO,
@@ -833,11 +882,10 @@ describe("dep-merge ancestor gate (W60)", () => {
 		const available = work("ready");
 		expect(available.out).toContain(depOn2);
 		expect(work("take", depOn2, "--as", "lane-w60d").code).toBe(0);
-
-		// merging the side branch makes the sha an ancestor — gate opens
-		g("merge", "-q", "--no-edit", "w60-side");
+		// Merge the exact registered product branch; the first dependency opens.
+		g("merge", "-q", "--no-edit", `suspenders/${dep}`);
 		expect(work("take", depOn, "--as", "lane-w60e").code).toBe(0);
-	});
+	}, 15_000);
 });
 
 describe("report — W892 supervisor micro-metrics", () => {
