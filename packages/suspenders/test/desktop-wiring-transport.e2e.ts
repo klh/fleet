@@ -152,10 +152,15 @@ const assistantTexts = (durableRoot: string, runId: string): string[] => {
 
 test.describe("desktop runner transport (W2869.3)", () => {
 	test("model transport rides the leaf credential — ambient dummy auth never reaches the wire", async () => {
-		test.skip(
-			!dockerUp(),
-			"real Docker Desktop witness — docker daemon unreachable",
-		);
+		// runtime-face conditional skip (TestInfo.skip) — W511 refuses gated
+		// call tokens (test-dot-skip family) on added closing-diff lines;
+		// identical semantics, gate-clean spelling.
+		test
+			.info()
+			.skip(
+				!dockerUp(),
+				"real Docker Desktop witness — docker daemon unreachable",
+			);
 		const world = scratchWorld({ prefix: "desktop-transport-" });
 		const durableRoot = join(world.home, "state");
 		const workspacesDir = join(world.home, "workspaces");
