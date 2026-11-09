@@ -155,13 +155,24 @@ Mapping (owner's four families → pi-durable):
 | Activity cursor | `pi.durable.entry/submission/checkpoint` events, `watchTaskGraph` | solved (cockpit can surface the task graph directly) |
 | **Wake primitives** | **none built-in** | **the build item** — a durable extension providing timer/poll/subscribe tasks (executor-side; tolerates hub-dark) |
 
-Adopted patterns: tool **replay-safety declarations** (only idempotent tools
-retry after interruption), **doom-loop detection + maxCost stop conditions**
-(from OpenRouter Agent SDK — guards for unattended workers). OpenRouter
-Agent SDK itself is a client-side loop library overlapping pi-durable's
-loop — its role in our stack: optional client for user-driven surfaces
-riding OpenRouter-routed legs, and a source of loop-guard ideas, not the
-runtime.
+**Adopted patterns (OpenRouter callModel doc set, owner-directed
+inspiration — pi-durable is the runtime):**
+
+| OpenRouter pattern | Port to pi-durable |
+|---|---|
+| stop conditions (`stepCountIs`, `hasToolCall('finish')`, `maxCost`, `maxTokensUsed`) | GenerationTask-hook guards: step/token/cost caps + `finish`-tool convention |
+| doom-loop ladder (observe@2 → block@3 → stop@6; repeated calls/broken calls/repeated text) | document-backed repeat counters (checkpointed, replay-safe) + steer injection |
+| approval gates + StateAccessor | `beforeTool` block hook + approvals DOC — approval state survives restarts; pending approvals surface as plane events, cockpit renders, owner approves from fiddle |
+| async tools (sync/background/deferred + uniform task tool) | child tasks already durable; port the uniform task tool (model checks/steers/cancels background work) + turn-boundary result injection; `deferred` maps onto cross-hub asks |
+| MCP tools (remote servers as first-class tools) | `pi-mcp` package — event-archetype adapters (GitHub/Jira) become attached MCP servers; wake extension subscribes, MCP tools act |
+| nextTurnParams (tools reshape next turn — skills/plugins) | beforeRequest hook + doc-driven instruction injection |
+| streaming | pi-durable deferred persistence — parity |
+
+THE BUILD ITEM CRYSTALLIZES: one durable extension, **`pi-durable-workers`**,
+bundling wake tasks (timer/poll/subscribe), budget guards, doom-loop ladder,
+approvals doc, uniform task tool, MCP attachment, and announce/heartbeat.
+Plus tool **replay-safety declarations** (only idempotent tools retry after
+interruption — pi-durable native requirement).
 
 **Reference acceptance scenario (owner's words):** latest feature-request
 issue → break down into a plan → ask the creator for missing details →
