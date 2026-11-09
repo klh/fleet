@@ -22,6 +22,7 @@ import {
 	type RunnerController,
 } from "../control/controller.ts";
 import { getLease, type LeaseToken, revokeLease } from "../control/leases.ts";
+import { recordWorkerHeartbeat } from "../control/worker-heartbeat.ts";
 import {
 	type JobAction,
 	makeRunnerAuthorizer,
@@ -214,6 +215,13 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	};
 
 	const startHeartbeat = (runId: string, token: LeaseToken): void => {
+		const lease = getLease(deps.store, runId);
+		if (!lease || lease.state !== "active" || lease.epoch !== token.epoch) return;
+		const identity = { runId, epoch: token.epoch, controllerSid: lease.controller_sid };
+		const publish = () => {
+			const at = Date.now();
+			recordWorkerHeartbeat(deps.store, identity, { state: "running" }, at, at - ttlMs);
+		};
 		const entry: HeartbeatEntry = {
 			// The heartbeat fences the CAPTURED token — never a fresh lookup;
 			// after revoke/takeover the fence fails and the heartbeat stops
@@ -224,6 +232,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 						runId,
 						actor: { sid: deps.executorSid, scopes: [], leaseToken: token },
 					})
+					.then(publish)
 					.catch(() => stopHeartbeat(runId));
 			}, heartbeatIntervalMs),
 			token,

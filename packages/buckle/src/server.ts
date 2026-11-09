@@ -6,6 +6,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { setting } from "@klh/settings";
 import { z } from "zod";
 import { loadAccountPolicy } from "./account-policy.ts";
 import { RpcAdmission } from "./admission.ts";
@@ -58,6 +59,7 @@ import { servicemon } from "./servicemon.ts";
 import { StreamBreaker, streamBreakerConfig } from "./stream-breaker.ts";
 import type { Dialect } from "./upstreams.ts";
 import { loadUpstreams } from "./upstreams.ts";
+import { workerInventoryRelay } from "./worker-inventory.ts";
 
 const serverLog = createLogger("server");
 
@@ -134,6 +136,7 @@ export const ServerDataOptsSchema = z.object({
 export type ServerDataOpts = z.infer<typeof ServerDataOptsSchema>;
 
 export interface ServerOpts extends ServerDataOpts {
+	runnerInventoryOrigin?: string;
 	/** W7 repo-policy gate: explicit path for the row file; defaults chain
 	 *  BUCKLE_REPO_POLICY → local-llm dir → the committed repo-policy.yaml. */
 	repoPolicyPath?: string;
@@ -384,6 +387,7 @@ export function buildDeps(
 		ingest.unref();
 	}
 	return {
+		workerInventory: opts.runnerInventoryOrigin ? workerInventoryRelay(opts.runnerInventoryOrigin) : undefined,
 		router,
 		policy,
 		ledger,
@@ -557,8 +561,13 @@ export async function boot(): Promise<
 				`loaded (entry sha256 ${overlay.manifest.sha256.slice(0, 12)}…)` +
 				(gov ? ` gov seam: ${Object.keys(gov).join(", ")}` : " gov seam: none"),
 		);
+	const runner = setting("runner");
+	const runnerUrl = runner.desktop ? new URL(runner.control_url) : undefined;
+	const localRunner = runnerUrl && runnerUrl.protocol === "http:" &&
+		["127.0.0.1", "[::1]"].includes(runnerUrl.hostname);
 	return startServer({
 		port,
+		runnerInventoryOrigin: localRunner ? runner.control_url : undefined,
 		...(rootKey || adaptation || gov
 			? {
 					auth: {

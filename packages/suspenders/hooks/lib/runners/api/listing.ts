@@ -1,6 +1,7 @@
 import { hasScope } from "@klh/buckle/src/gov/scopes.ts";
 import { z } from "zod";
 import { RunnerSpecSchema } from "../control/control-state.ts";
+import { DEFAULT_LEASE_TTL_MS } from "../control/controller.ts";
 import { JobStateSchema } from "../control/lifecycle.ts";
 import type { RunnerStore } from "../control/store.ts";
 import type { RunnerIdentity } from "./identity.ts";
@@ -49,5 +50,48 @@ export function listRunnerJobs(
 			};
 		}),
 		nextCursor: rows.length > 100 ? rows[99].run_id : null,
+	};
+}
+
+/** This listener reports only its own fresh, owner-visible runners. */
+export function listRunnerWorkers(
+	store: RunnerStore,
+	identity: RunnerIdentity,
+	now = Date.now(),
+) {
+	requireRunnerScope(identity, false);
+	const cutoff = now - DEFAULT_LEASE_TTL_MS;
+	const admin = hasScope(identity.scopes, "buckle:admin:READ_");
+	const rows = store.all<{ run_id: string; state: string }>(
+		`SELECT h.run_id, j.state FROM runner_worker_heartbeats h
+		 JOIN runner_leases l ON l.run_id = h.run_id
+		  AND l.controller_sid = h.controller_sid AND l.epoch = h.epoch
+		 JOIN runner_jobs j ON j.run_id = h.run_id
+		 WHERE l.state = 'active' AND l.updated_at >= ? AND h.updated_at >= ?
+		  AND j.state IN ('running', 'parked')
+		  AND (? = 1 OR json_extract(j.spec_json, '$.owner') = ?)
+		 ORDER BY h.updated_at DESC, h.run_id LIMIT 100`,
+		cutoff,
+		cutoff,
+		admin ? 1 : 0,
+		identity.keyId,
+	);
+	return {
+		workers: rows.map(({ run_id, state }) => ({
+			sid: run_id,
+			name: null,
+			class: "remote",
+			origin: { kind: "runner", id: run_id },
+			compute: null,
+			inference: [],
+			owner_sid: null,
+			rights: ["read-only"],
+			state,
+			task: null,
+			activity: [],
+			reported_by: "runner",
+		})),
+		asOf: now,
+		errors: [],
 	};
 }

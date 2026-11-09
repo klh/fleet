@@ -9,7 +9,7 @@
  *   (5) uniform task — workers_task spawn/check/steer/cancel for child work
  *   (6) MCP attach   — remote servers attach as tools upstream (pi-mcp); this
  *                      extension treats them like any tool (gates/counters)
- *   (7) announce     — hub heartbeat per the W2886 contract (createAnnouncer)
+ *   (7) announce     — optional host-owned publisher
  *
  * The extension is pure data (tools/sections/hooks); side-effectful runtime
  * pieces (wake timers, announcer) start through `startWorkers`. v1 note:
@@ -33,7 +33,6 @@ import { createLogger, type Logger } from "@klh/buckle/src/log";
 import {
 	type AnnounceOptions,
 	type Announcer,
-	createAnnouncer,
 } from "./announce.ts";
 import {
 	type ApprovalRequest,
@@ -210,11 +209,8 @@ const noRuntimeBridge = {
 
 export type WorkersRuntimeOptions = DurableWorkersOptions & {
 	readonly conversationId: string;
-	readonly label?: string;
-	/** Hub endpoint for announce; omitted = announce disabled (hub-dark by default). */
-	readonly hubUrl?: string;
-	readonly token?: string;
-	readonly announceEveryS?: number;
+	/** Fleet publishes inventory from the lease-owning controller. */
+	readonly announcer?: Announcer;
 };
 
 export type WorkersRuntime = {
@@ -240,9 +236,7 @@ export async function startWorkers(
 		throw new Error(`pi-durable-workers: no conversation ${conversationId}`);
 	const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 	const log = options.logger ?? createLogger("workers");
-	log.info(
-		`startWorkers booting for ${conversationId}${options.hubUrl ? ` → ${options.hubUrl}` : " (announce off)"}`,
-	);
+	log.info(`startWorkers booting for ${conversationId}`);
 
 	// approvals: seed requireFor durably + writer bridged onto this harness
 	const approvals = createApprovalsWriter(
@@ -269,18 +263,7 @@ export async function startWorkers(
 		wakeOptions,
 	);
 
-	// announce (optional; hub-dark tolerant)
-	const announcer = options.hubUrl
-		? createAnnouncer({
-				hubUrl: options.hubUrl,
-				token: options.token,
-				conversationId,
-				label: options.label ?? conversationId.slice(0, 12),
-				everyS: options.announceEveryS,
-				fetchImpl,
-				logger: log,
-			})
-		: null;
+	const announcer = options.announcer ?? null;
 
 	return {
 		approvals,

@@ -7,7 +7,7 @@ import {
 	SinceSchema,
 } from "./contracts.ts";
 import type { RunnerIdentity } from "./identity.ts";
-import { listRunnerJobs } from "./listing.ts";
+import { listRunnerJobs, listRunnerWorkers } from "./listing.ts";
 import {
 	requireRunnerOwner,
 	requireRunnerScope,
@@ -22,6 +22,8 @@ export async function runnerRoute(
 	identity: RunnerIdentity,
 ) {
 	const url = new URL(request.url);
+	if (url.pathname === "/v1/workers" && request.method === "GET")
+		return { status: 200, body: listRunnerWorkers(deps.store, identity) };
 	if (url.pathname === "/v1/runner/runs" && request.method === "GET")
 		return {
 			status: 200,

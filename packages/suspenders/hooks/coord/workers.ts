@@ -332,6 +332,7 @@ export async function fetchHubWorkers(
 		if (!key) return null;
 		const response = await fetch(new URL("/v1/workers", base), {
 			headers: { Authorization: `Bearer ${key}` },
+			redirect: "error",
 			signal: AbortSignal.timeout(2000),
 		});
 		if (!response.ok) return null;
