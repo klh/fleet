@@ -2,35 +2,35 @@ import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
 import { writeFileSync, realpathSync, existsSync } from "node:fs";
 import { join, delimiter, basename } from "node:path";
+import { installPiAwareness } from "../scripts/install/install-pi-awareness.ts";
 
 test("Node Pi SDK discovers Fleet registration and disposes during real startup without an unhandled rejection @unit", async () => {
 	const world = scratchWorld({ prefix: "pi-sdk-" });
 	try {
-		const entry = join(world.home, "awareness.mjs");
-		const built = await Bun.build({
-			entrypoints: [
-				new URL("../pi-extensions/fleet-awareness/index.ts", import.meta.url)
-					.pathname,
-			],
-			target: "node",
-			format: "esm",
-			outdir: world.home,
-			naming: "awareness.mjs",
+		expect(await installPiAwareness({ piHome: world.home })).toMatchObject({
+			status: "ok",
 		});
-		expect(built.success).toBe(true);
+		for (const command of ["coord", "work"])
+			writeFileSync(
+				join(world.home, command),
+				"#!/bin/sh\n/bin/sleep 0.1\nprintf '[]'\n",
+				{ mode: 0o700 },
+			);
 		const sdk = import.meta.resolve("@earendil-works/pi-coding-agent");
 		const probe = join(world.home, "probe.mjs");
 		writeFileSync(
 			probe,
 			`import {createAgentSession,DefaultResourceLoader,SessionManager,SettingsManager,ModelRuntime} from ${JSON.stringify(sdk)};
-import awareness from ${JSON.stringify(entry)};
-let starts=0,calls=0;
+let statusWrites=0;
 const settingsManager=SettingsManager.inMemory({compaction:{enabled:false},retry:{enabled:false}});
-const resourceLoader=new DefaultResourceLoader({cwd:process.cwd(),agentDir:process.cwd(),settingsManager,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,extensionFactories:[(pi)=>{awareness({...pi,exec:async()=>{calls++;await new Promise(r=>setTimeout(r,25));return {stdout:'[]',stderr:'',code:0,killed:false,truncated:false}}});pi.on('session_start',()=>{starts++})}]});
+const resourceLoader=new DefaultResourceLoader({cwd:process.cwd(),agentDir:process.cwd(),settingsManager,noSkills:true,noPromptTemplates:true,noThemes:true});
 await resourceLoader.reload();
 const modelRuntime=await ModelRuntime.create({authPath:process.cwd()+'/auth.json',modelsPath:process.cwd()+'/models.json'});
 const {session}=await createAgentSession({cwd:process.cwd(),agentDir:process.cwd(),resourceLoader,settingsManager,modelRuntime,sessionManager:SessionManager.inMemory(process.cwd()),noTools:true});
-try{await session.bindExtensions({});const tools=session.getAllTools().map(t=>t.name);session.dispose();await new Promise(r=>setTimeout(r,50));console.log(JSON.stringify({runtime:typeof Bun,starts,calls,tools,errors:resourceLoader.getExtensions().errors}));}finally{session.dispose()}
+let tools;try{await session.bindExtensions({uiContext:{setStatus:()=>{statusWrites++}}});tools=session.getAllTools().map(t=>t.name);}finally{session.dispose()}
+await new Promise(r=>setTimeout(r,250));
+const loaded=resourceLoader.getExtensions();
+console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,command:loaded.extensions.some(e=>e.commands.has("fleet")),errors:loaded.errors}));
 `,
 		);
 		const node =
@@ -48,6 +48,7 @@ try{await session.bindExtensions({});const tools=session.getAllTools().map(t=>t.
 			);
 		const child = Bun.spawn([node, probe], {
 			cwd: world.home,
+			env: { HOME: world.home, PATH: world.home },
 			stdout: "pipe",
 			stderr: "pipe",
 		});
@@ -60,8 +61,8 @@ try{await session.bindExtensions({});const tools=session.getAllTools().map(t=>t.
 		const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}");
 		expect(result).toMatchObject({
 			runtime: "undefined",
-			starts: 1,
-			calls: 3,
+			command: true,
+			statusWrites: 0,
 			errors: [],
 		});
 		expect(result.tools).toContain("fleet");

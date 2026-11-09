@@ -32,10 +32,16 @@ export default function fleetAwareness(
 		controller = new AbortController();
 		const mine = ++generation,
 			signal = controller.signal;
-		const ui = ctx.hasUI ? ctx.ui : null;
 		const next = await loadSnapshot(pi.exec.bind(pi), ctx.cwd, null, signal);
 		if (generation !== mine || signal.aborted) return;
 		snapshot = next;
+		let ui;
+		try {
+			ui = ctx.hasUI ? ctx.ui : null;
+		} catch {
+			// Direct SDK disposal can invalidate the context without a shutdown event.
+			return;
+		}
 		ui?.setStatus("fleet-awareness", `/fleet | ${next.work.state}`);
 	}
 	pi.on("session_start", (_event, ctx) => {
