@@ -55,7 +55,6 @@ export {
 	qltyFixMergedFiles,
 } from "./merge-qlty.ts";
 
-import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import {
 	candidatePaths,
 	classifyRiskTier,
@@ -63,6 +62,7 @@ import {
 	type RiskClassification,
 	riskApprovalsOf,
 } from "../gates/risk-tier.ts";
+import { reviewEvalsAfterMerge } from "./review-evals.ts";
 import type { LoopDeps } from "./runtime.ts";
 
 // W1183: the ladder reports what ACTUALLY happened — never a count of

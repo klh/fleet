@@ -14,7 +14,11 @@
 // is what the gate demands. The ladder counts WITHOUT consuming; it burns
 // approvals only after a successful guarded merge.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { approvalSig, approvalsDir, secretFile } from "../lib/gates/approvals.ts";
+import {
+	approvalSig,
+	approvalsDir,
+	secretFile,
+} from "../lib/gates/approvals.ts";
 import {
 	candidatePaths,
 	classifyRiskTier,
