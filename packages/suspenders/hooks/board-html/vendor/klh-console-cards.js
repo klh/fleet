@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-f18bcbfe556b7350.js";import{u}from"./lit-dd2d5e033598fb9b.js";import{T,R}from"./lit-4d58b154a05c60be.js";var p=(a)=>{if(a===null||!Number.isFinite(a))return"—";if(Math.abs(a)>=1e6)return`${(a/1e6).toFixed(1)}M`;if(Math.abs(a)>=1000)return`${(a/1000).toFixed(1)}k`;return String(a)},N=(a)=>a===null?"unknown":a<90?`${a}s`:`${Math.round(a/60)}m`,_=(a)=>{if(a===null)return 1;if(a>=100)return 4;if(a>=20)return 3;if(a>=5)return 2;return 1},P=r`
+import{r,e,t,n}from"./lit-f18bcbfe556b7350.js";import{u}from"./lit-dd2d5e033598fb9b.js";import{T,R}from"./lit-22703ef594dc5221.js";var p=(a)=>{if(a===null||!Number.isFinite(a))return"—";if(Math.abs(a)>=1e6)return`${(a/1e6).toFixed(1)}M`;if(Math.abs(a)>=1000)return`${(a/1000).toFixed(1)}k`;return String(a)},N=(a)=>a===null?"unknown":a<90?`${a}s`:`${Math.round(a/60)}m`,_=(a)=>{if(a===null)return 1;if(a>=100)return 4;if(a>=20)return 3;if(a>=5)return 2;return 1},P=r`
 	.hrow {
 		display: flex;
 		gap: 8px;
