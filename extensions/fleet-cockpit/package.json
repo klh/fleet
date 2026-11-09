@@ -1,0 +1,9 @@
+{
+  "name": "@klh/pi-fleet-cockpit",
+  "version": "0.1.0",
+  "keywords": ["pi-package"],
+  "description": "Fleet cockpit TUI for pi — five plane-only data sources (fleet --json, governance, work ready/report, workers --json, runner list --json)",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
