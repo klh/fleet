@@ -132,17 +132,36 @@ not runtime modes. `trigger: {kind, spec}` in the registration = the brief's
 declared wake policy (cron ⏰ / event ⚡ / user ◉); the cockpit renders it in
 fiddle headers and badges tree rows.
 
-pi durable must provide FOUR PRIMITIVE FAMILIES to briefs:
+**pi-durable (source-verified 2026-11-09) already provides the machinery.**
+`@earendil-works/pi-durable` (experimental): Harness with atomic commits,
+conversations (immutable entries) + typed Documents (`defineDoc`), durable
+Tasks (checkpoint-per-step state machines, child tasks with `waiting` +
+`on:` + `failFast/allSettled`, bottom-up abort), extensions (named
+tools/sections/hooks/tasks), storage (SQLite WAL survives process crash —
+newest commit may be lost on host death; JSONL fsync mode), multi-client
+connect (watch / steer / follow-up input), `watchTaskGraph()` live task
+graph, provider hooks (`beforeProviderRequest`/`afterResponse`) and
+`pi.durable.phase` telemetry with attempt/resumed.
 
-1. **Wake primitives** — timer sleep, poll loop, event subscription; the
-   session requests them, the supervisor provides (scheduler locus: prefer
-   executor-side timers — tolerate hub-dark/Mac-sleep).
-2. **Brief persistence** — standing instructions survive host death and
-   re-bind on resume (capsule pattern; `work` capsules are the precedent).
-3. **Outbound ask** — session-originated questions that block on reply
-   (consult semantics: ask → wait → resume).
-4. **Agent loop** — plan → named branch → implement → verify → PR → respond;
-   already proven by the runners (W2884 lineage).
+Mapping (owner's four families → pi-durable):
+
+| Need | pi-durable | Verdict |
+|---|---|---|
+| Brief persistence | Documents + task checkpoints + reopen-resume | solved |
+| Agent loop | the Harness is the loop | solved |
+| Outbound ask | child task `waiting`/`on:` durable block (no code runs while waiting) | solved locally; cross-hub bridge = small gap |
+| Announce/heartbeat | extension (hooks + heartbeat task) — NOT a wrapper | solved: extension |
+| Inference legs | provider hooks + phase telemetry | solved |
+| Activity cursor | `pi.durable.entry/submission/checkpoint` events, `watchTaskGraph` | solved (cockpit can surface the task graph directly) |
+| **Wake primitives** | **none built-in** | **the build item** — a durable extension providing timer/poll/subscribe tasks (executor-side; tolerates hub-dark) |
+
+Adopted patterns: tool **replay-safety declarations** (only idempotent tools
+retry after interruption), **doom-loop detection + maxCost stop conditions**
+(from OpenRouter Agent SDK — guards for unattended workers). OpenRouter
+Agent SDK itself is a client-side loop library overlapping pi-durable's
+loop — its role in our stack: optional client for user-driven surfaces
+riding OpenRouter-routed legs, and a source of loop-guard ideas, not the
+runtime.
 
 **Reference acceptance scenario (owner's words):** latest feature-request
 issue → break down into a plan → ask the creator for missing details →
