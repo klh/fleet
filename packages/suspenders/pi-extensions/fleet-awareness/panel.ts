@@ -5,10 +5,110 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { executeAction } from "./actions.ts";
-import type { Run } from "./client.ts";
+import { readSource, type Run } from "./client.ts";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { Snapshot } from "./contracts.ts";
 import { renderSnapshot, TABS, type Tab } from "./presentation.ts";
 import { plain } from "./safe-text.ts";
+
+const RunnerList = z.object({
+	runs: z
+		.array(
+			z.object({
+				runId: z.uuid(),
+				state: z.string().max(40),
+				model: z.string().max(200),
+			}),
+		)
+		.max(100),
+	nextCursor: z.uuid().nullable(),
+});
+const RunnerPage = z.object({
+	events: z
+		.array(
+			z.object({
+				id: z.number().int(),
+				kind: z.string().max(200),
+				created_at: z.number().int(),
+			}),
+		)
+		.max(32),
+});
+
+async function showRunnerHistory(ctx: ExtensionCommandContext, run: Run) {
+	const listed = await readSource(
+		run,
+		"coord",
+		["runner", "list", "--json"],
+		ctx.cwd,
+		RunnerList,
+	);
+	if (!listed.value)
+		return ctx.ui.notify("Runner history unavailable", "warning");
+	const { runs, nextCursor } = listed.value;
+	if (!runs.length)
+		return ctx.ui.notify("No runner jobs visible to this credential", "info");
+	const labels = runs.map((job) =>
+		plain(`${job.runId}  ${job.state}  ${job.model}`),
+	);
+	const label = await ctx.ui.select(
+		nextCursor ? "Runner jobs · first page" : "Runner jobs",
+		labels,
+	);
+	const selected = runs[labels.indexOf(label ?? "")];
+	if (!selected) return;
+	const reader = randomUUID();
+	const args = [selected.runId, "--reader", reader, "--json"];
+	const events = new Map<
+		number,
+		z.infer<typeof RunnerPage>["events"][number]
+	>();
+	try {
+		let operation: "attach" | "replay" = "attach";
+		for (;;) {
+			const page = await readSource(
+				run,
+				"coord",
+				["runner", operation, ...args],
+				ctx.cwd,
+				RunnerPage,
+			);
+			if (!page.value)
+				return ctx.ui.notify("Runner events unavailable", "warning");
+			for (const event of page.value.events) events.set(event.id, event);
+			const visible = [...events.values()].slice(-32);
+			for (const id of events.keys())
+				if (id < (visible[0]?.id ?? 0)) events.delete(id);
+			await showText(
+				ctx,
+				`Runner ${selected.runId}`,
+				visible
+					.map(
+						(event) =>
+							`${new Date(event.created_at).toLocaleTimeString()}  ${event.kind}`,
+					)
+					.join("\n") || "No events yet",
+			);
+			if (
+				(await ctx.ui.select("Runner history", ["Refresh", "Close"])) !==
+				"Refresh"
+			)
+				return;
+			operation = "replay";
+		}
+	} finally {
+		const detached = await readSource(
+			run,
+			"coord",
+			["runner", "detach", ...args],
+			ctx.cwd,
+			z.object({ ok: z.literal(true) }),
+		);
+		if (!detached.value)
+			ctx.ui.notify("Runner reader detach could not be confirmed", "warning");
+	}
+}
 
 async function showText(
 	ctx: ExtensionCommandContext,
@@ -235,6 +335,7 @@ export async function openFleet(
 ): Promise<void> {
 	if (!ctx.hasUI) throw new Error("Use the fleet tool for headless access");
 	const command = args.trim();
+	if (command === "runners") return showRunnerHistory(ctx, run);
 	const direct = (["knowledge", "consult", "item", "consults"] as const).find(
 		(value) => value === command,
 	);
@@ -245,7 +346,7 @@ export async function openFleet(
 	const tab = TABS.find((value) => value === command);
 	if (command && !tab)
 		throw new Error(
-			"Use /fleetpanel [overview|work|routes|attention|peers|knowledge|consult|item|consults]",
+			"Use /fleetpanel [overview|work|routes|attention|peers|knowledge|consult|item|consults|runners]",
 		);
 	for (;;) {
 		const choice = await showOverview(

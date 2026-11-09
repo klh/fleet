@@ -1,5 +1,60 @@
 import { expect, test } from "@playwright/test";
 
+test("Pi runner history uses one reader and detaches after a failed replay @unit", async () => {
+	const { openFleet } = await import(
+		"../pi-extensions/fleet-awareness/panel.ts"
+	);
+	const runId = crypto.randomUUID();
+	const calls: string[][] = [];
+	const notices: string[] = [];
+	const ctx = {
+		cwd: "/fixture",
+		hasUI: true,
+		ui: {
+			select: async (_title: string, choices: string[]) => choices[0],
+			custom: async () => undefined,
+			notify: (text: string) => notices.push(text),
+		},
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext;
+	await openFleet(
+		"runners",
+		ctx,
+		() => null,
+		async () => {},
+		async (command, args) => {
+			expect(command).toBe("coord");
+			calls.push(args);
+			const payload =
+				args[1] === "list"
+					? {
+							runs: [{ runId, state: "running", model: "fixture" }],
+							nextCursor: null,
+						}
+					: args[1] === "detach"
+						? { ok: true }
+						: { events: [] };
+			return {
+				stdout: JSON.stringify(payload),
+				stderr: "",
+				code: args[1] === "replay" ? 1 : 0,
+				killed: false,
+			};
+		},
+		null,
+	);
+	expect(calls.map((args) => args[1])).toEqual([
+		"list",
+		"attach",
+		"replay",
+		"detach",
+	]);
+	const reader = calls[1][4];
+	expect(reader).toMatch(/^[0-9a-f-]{36}$/);
+	for (const args of calls.slice(1))
+		expect(args.slice(2)).toEqual([runId, "--reader", reader, "--json"]);
+	expect(notices).toEqual(["Runner events unavailable"]);
+});
+
 test("Pi panel distinguishes reachable catalogs from inference and preserves narrow terminals @unit", async () => {
 	const { renderSnapshot } = await import(
 		"../pi-extensions/fleet-awareness/presentation.ts"

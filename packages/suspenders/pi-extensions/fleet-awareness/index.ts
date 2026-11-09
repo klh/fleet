@@ -99,7 +99,7 @@ export default function fleetAwareness(
 	});
 	pi.registerCommand("fleetpanel", {
 		description:
-			"Fleet terminal overview, routes, work, knowledge and consults",
+			"Fleet terminal overview, routes, work, knowledge, consults and runner history",
 		async handler(args, ctx) {
 			const { openFleet } = await import("./panel.ts");
 			await openFleet(
