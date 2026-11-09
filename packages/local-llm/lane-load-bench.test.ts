@@ -38,9 +38,9 @@ describe("pctl", () => {
 describe("benchConcurrency", () => {
 	test("registry cap wins, default 4", () => {
 		expect(benchConcurrency({ ...firstSpecialist(), maxInflight: 2 })).toBe(2);
-		expect(benchConcurrency({ ...firstSpecialist(), maxInflight: undefined })).toBe(
-			4,
-		);
+		expect(
+			benchConcurrency({ ...firstSpecialist(), maxInflight: undefined }),
+		).toBe(4);
 	});
 });
 
@@ -97,9 +97,7 @@ describe("generateOnce + benchPort vs stub", () => {
 				if (new URL(req.url).pathname === "/health")
 					return Response.json({ ok: true });
 				const body = await req.text();
-				const reply = body.includes("JSON")
-					? '{"ok":true,"n":7}'
-					: "STATUS=ok";
+				const reply = body.includes("JSON") ? '{"ok":true,"n":7}' : "STATUS=ok";
 				return new Response(
 					`data: ${JSON.stringify({
 						choices: [{ delta: { content: reply } }],
