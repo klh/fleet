@@ -16,6 +16,18 @@ export async function checkDesktopMintAuthority(baseUrl: string, key: string) {
 		throw new Error("runner.desktop_mint_authority_required");
 }
 
+/** Use the same daemon for preflight, execution and artifact export. */
+export function runnerDockerArgv(
+	argv: readonly string[],
+	platform = process.platform,
+): string[] {
+	const daemon =
+		platform === "linux"
+			? ["--host", "unix:///var/run/docker.sock"]
+			: ["--context", "desktop-linux"];
+	return [argv[0] ?? "docker", ...daemon, ...argv.slice(1)];
+}
+
 /** Inspect only the local Desktop cache. No pulls, containers, or model calls. */
 export async function checkDesktopImage(image: string) {
 	if (!/^[^\s@]+@sha256:[a-f0-9]{64}$/.test(image))
@@ -23,16 +35,15 @@ export async function checkDesktopImage(image: string) {
 	try {
 		const { stdout } = await execute(
 			"docker",
-			[
-				"--context",
-				"desktop-linux",
+			runnerDockerArgv([
+				"docker",
 				"image",
 				"inspect",
 				"--format",
 				"{{.Id}}",
 				"--",
 				image,
-			],
+			]).slice(1),
 			{ timeout: 5000, maxBuffer: 4096, killSignal: "SIGKILL" },
 		);
 		const imageId = stdout.trim();
