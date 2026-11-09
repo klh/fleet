@@ -69,6 +69,29 @@ function sedPass(
 test.describe("registerLaunchd parity (W490.2)", () => {
 	const outDir = mkdtempSync(join(tmpdir(), "w490-parity-"));
 
+	test("runner control renders only on explicit selection", async () => {
+		const { stdout } = await execa("bun", [
+			join(SCRIPTS, "install", "install-services.ts"),
+			"--target",
+			"darwin",
+			"--service",
+			"runner-control",
+			"--bun",
+			FIXTURE.bun,
+			"--home",
+			FIXTURE.home,
+			"--prefix",
+			FIXTURE.prefix,
+		]);
+		const plist = parsePlistXml(stdout);
+		expect(plist.Label).toBe("com.suspenders.runner-control");
+		expect(plist.ProgramArguments).toEqual([
+			FIXTURE.bun,
+			join(FIXTURE.prefix, "bin", "runner-control.ts"),
+		]);
+		expect(plist.RunAtLoad).toBe(true);
+	});
+
 	test("install-services.ts renders the template file set via the step mechanism", async () => {
 		await execa(
 			"bun",

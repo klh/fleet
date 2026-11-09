@@ -34,3 +34,10 @@ Run `coord runner health --json` from a separate process with the configured
 runner credential. This checks authenticated access to the job store and
 returns only the control readiness result. The desktop acceptance run also
 needs an actual model submission, tool result and credential revocation.
+
+The standard launchd install and its activation receipt omit the runner.
+To stage its unit from a reviewed installation, render
+`install-services.ts --target darwin --service runner-control --out <staging>`
+with the approved installed prefix. Verify that the unit targets the
+installed `bin/runner-control.ts` before registering it. Keep keys in private
+files and use the independent health command after activation.

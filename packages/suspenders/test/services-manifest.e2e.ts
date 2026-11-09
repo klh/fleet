@@ -38,7 +38,7 @@ const FIXTURE: RenderValues = {
 	beltToken: "fixture-belt-token",
 };
 
-const services = loadManifest();
+const services = loadManifest().filter((service) => !service.explicitOnly);
 const byName = (name: string): ServiceSpec => {
 	const spec = services.find((s) => s.name === name);
 	if (spec === undefined)
