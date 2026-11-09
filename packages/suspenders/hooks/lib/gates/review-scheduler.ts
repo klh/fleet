@@ -953,6 +953,8 @@ export function scheduleReview(o: {
 		...(spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS
 			? ["--fallback-models", spawnEnv.SUSPENDERS_REVIEW_FALLBACK_MODELS]
 			: []),
+		"--base",
+		o.context.base,
 		"--request-key",
 		key,
 		"--request-token",

@@ -489,3 +489,22 @@ test("W1243.1.1.1: unresolved mention and genuine finding stay fail-closed", () 
 	expect(midline.blocking).toEqual(["B1-no-coverage-proof"]);
 	expect(midline.resolved).toEqual([]);
 });
+
+test("an explicitly bound review base survives an unrelated checkout", () => {
+	const { repo, git, context } = fixture();
+	git("checkout", "-b", "unrelated");
+	writeFileSync(
+		join(repo, "packages/app/value.ts"),
+		"export const value = 99;\n",
+	);
+	git("add", "packages/app/value.ts");
+	git("commit", "-m", "unrelated conflicting work");
+
+	expect(() => reviewContext(repo, "suspenders/W1")).toThrow(
+		"git merge-tree failed",
+	);
+	const bound = reviewContext(repo, "suspenders/W1", context.base);
+	expect(bound.commit).toBe(context.commit);
+	expect(bound.base).toBe(context.base);
+	expect(bound.instructions).toEqual(context.instructions);
+});

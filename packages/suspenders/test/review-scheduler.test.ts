@@ -108,6 +108,9 @@ test("exact context schedules once, never direct provider or repeated per cycle"
 	scheduleReview({ ...f.options, spawn: f.spawn });
 	expect(f.launches).toHaveLength(1);
 	expect(f.launches[0]).toContain("--buckle");
+	const baseFlag = f.launches[0].indexOf("--base");
+	expect(baseFlag).toBeGreaterThan(0);
+	expect(f.launches[0][baseFlag + 1]).toBe(f.context.base);
 	expect(f.launches[0]).not.toContain("--llm-url");
 	const request = JSON.parse(
 		(

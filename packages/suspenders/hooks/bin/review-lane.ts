@@ -71,7 +71,7 @@ import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 const spec = defineVerb({
 	name: "review",
 	usage:
-		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>]) [--fallback-models <csv>]",
+		"usage: bun review-lane.ts --item <Wn> --project <p> --executor <name> (--buckle <model> | --bin <path> | --belt <m>:<p>[:<model>] | --llm-url <url> [--llm-model <m>]) [--base <commit-sha>] [--fallback-models <csv>]",
 	flags: [
 		"--item",
 		"--project",
@@ -82,6 +82,7 @@ const spec = defineVerb({
 		"--llm-model",
 		"--buckle",
 		"--fallback-models",
+		"--base",
 		"--request-key",
 		"--request-token",
 	],
@@ -204,7 +205,10 @@ const thread: string[] = (
 // exists, else the kept child's parent-named branch (split --keep rebinds the
 // tree's lane-context, not the branch) — never a blind suspenders/<item>.
 const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
-const boundContext = reviewContext(repo, boundBranch);
+const base = parsedArgs.parsed.flag("--base");
+if (base && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(base))
+	throw new Error("review base must be a full Git commit SHA");
+const boundContext = reviewContext(repo, boundBranch, base ?? undefined);
 const priorBlocking = priorBlockingReviewLines(
 	db,
 	project,
