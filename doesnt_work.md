@@ -456,3 +456,7 @@ trial. The replay audit now checks each arm and repetition exactly once.
 Live runs with missing or failed repetitions no longer emit a verdict.
 Image IDs in diagnostic output also left the receipt incomplete, so the
 native platform and resolved image IDs now travel with the samples.
+
+## Codex asynchronous test evidence (W2877, 2026-11-08)
+
+The previous reader rejected direct Playwright invocations and ignored owned PTY completion, while accepting partial passing summaries before process exit. Four reproductions failed before the repair; six focused Playwright cases and 60 adjacent claim/source-closure cases pass after it. The replacement accepts a narrow literal single-command grammar, correlates only owned read-only completion calls, and requires successful structured exit. Foreign or reused sessions, stdin mutation and ambiguous scripts invalidate pending evidence. Mixed tool batches remain unsupported; rerun as a single literal command. No performance or model-quality improvement is inferred.
