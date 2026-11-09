@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
 	createCoordRegistrationClient,
-	toWirePayload,
+	toRegisterArgs,
 	type WorkerAnnouncement,
 } from "../src/registration.ts";
 
@@ -20,26 +20,40 @@ const announcement: WorkerAnnouncement = {
 	ownerSid: "autow2888-p1",
 	state: "running",
 	task: "W2888",
-	activity: "registering",
+	activity: [{ at: 1, kind: "registering" }],
 };
 
-test("toWirePayload maps camelCase fields to the agreed snake_case wire shape", () => {
-	expect(toWirePayload(announcement)).toEqual({
-		sid: "autow2888-p1",
-		name: "pi-durable-worker",
-		description: "test worker",
-		purpose: "wake-on-timer",
-		origin_kind: "session",
-		origin_id: "autow2888-p1",
-		compute_kind: "hub",
-		compute_host: "muramasa",
-		compute_region: "local",
-		hub_id: "muramasa",
-		owner_sid: "autow2888-p1",
-		state: "running",
-		task: "W2888",
-		activity: "registering",
-	});
+test("toRegisterArgs emits --as plus one flag per field, matching the real receiver's argv shape", () => {
+	expect(toRegisterArgs(announcement)).toEqual([
+		"--as",
+		"autow2888-p1",
+		"--name",
+		"pi-durable-worker",
+		"--description",
+		"test worker",
+		"--purpose",
+		"wake-on-timer",
+		"--origin-kind",
+		"session",
+		"--origin-id",
+		"autow2888-p1",
+		"--compute-kind",
+		"hub",
+		"--host",
+		"muramasa",
+		"--region",
+		"local",
+		"--hub-id",
+		"muramasa",
+		"--owner-sid",
+		"autow2888-p1",
+		"--state",
+		"running",
+		"--task",
+		"W2888",
+		"--activity",
+		JSON.stringify(announcement.activity),
+	]);
 });
 
 test("register() reports ok on a zero exit", async () => {
