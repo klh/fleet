@@ -18,7 +18,11 @@ export function scrubText(text: string): string {
 /** W1106: typed stream terminal for the audit receipt — who ended the
  *  stream, from the body-free evidence at this hop. EOF without the
  *  dialect's protocol terminal banks upstream_eof_truncated (#55420); an
- *  in-band failure body outranks a terminal marker that follows (#55446). */
+ *  in-band failure body outranks a terminal marker that follows (#55446).
+ *  W2579: a deadline kill on a stream that never carried usable output
+ *  NOR reasoning (the C235 role-only shape) banks
+ *  upstream_deadline_role_only, distinct from a stalled-mid-content
+ *  stream's upstream_deadline. */
 export function terminalOf(
 	failed: boolean,
 	kind: string | null,
@@ -26,12 +30,14 @@ export function terminalOf(
 	drained: boolean,
 	truncated: boolean,
 	inBand: string | null,
+	roleOnly = false,
 ): string {
 	if (cancelled) return "downstream_cancel";
 	if (drained) return "gateway_restarting";
 	if (inBand !== null) return `in_band_error:${inBand}`;
 	if (!failed) return truncated ? "upstream_eof_truncated" : "upstream_eof";
-	if (kind === "timeout") return "upstream_deadline";
+	if (kind === "timeout")
+		return roleOnly ? "upstream_deadline_role_only" : "upstream_deadline";
 	return `upstream_error:${kind ?? "unknown"}`;
 }
 

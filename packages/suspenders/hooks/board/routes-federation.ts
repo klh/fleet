@@ -11,9 +11,12 @@ import { federationWorkPage } from "../bin/federation-work-html.ts";
 import { readCapped } from "../lib/federation/federation.ts";
 import {
 	federatedWorkView,
+	filterViewToOwner,
 	type GovernorStore,
 	localWorkFeed,
 } from "../lib/federation/federation-work.ts";
+import { tokenOk } from "../lib/host-guard.ts";
+import { adminKey } from "../lib/lanes/lane-auth.ts";
 
 type ClassCell = {
 	in_tok: number;
@@ -128,6 +131,26 @@ function workFeedAuthorized(req: Request): boolean {
 	return shaEqual(got, expected);
 }
 
+// W2878 viewer gate: the board-page VIEWER side (not the hub-to-hub serve
+// auth above). Admin = the board's own write-token (W264 host-guard cookie
+// or header — "the operator at this board is the authority", the
+// observation-serving.ts precedent) OR a presented bearer matching the
+// already-configured buckle admin key (belt.env BUCKLE_ADMIN_KEY) — both
+// EXISTING credentials, no new token surface. Admin sees every lane
+// unfiltered; everyone else may narrow to their own sid (?viewer=<sid>, the
+// `work mine --as` idiom) but never widens past it.
+function isAdminViewer(req: Request): boolean {
+	if (tokenOk(req)) return true;
+	const presented = (req.headers.get("authorization") ?? "").replace(
+		/^Bearer\s+/i,
+		"",
+	);
+	const expected = adminKey();
+	return (
+		presented.length > 0 && expected !== null && shaEqual(presented, expected)
+	);
+}
+
 export async function handleFederationWork(
 	req: Request,
 	url: URL,
@@ -149,19 +172,33 @@ export async function handleFederationWork(
 			);
 		}
 	}
-	if (url.pathname === "/api/federation-work") {
+	if (
+		url.pathname === "/api/federation-work" ||
+		url.pathname === "/federation-work"
+	) {
+		const admin = isAdminViewer(req);
+		const viewerSid = url.searchParams.get("viewer");
+		let view: Awaited<ReturnType<typeof federatedWorkView>>;
 		try {
-			return Response.json(await federatedWorkView({ store }));
+			view = await federatedWorkView({ store });
 		} catch (e) {
-			return Response.json(
-				{ error: { code: "view_failed", message: String(e) } },
-				{ status: 500 },
-			);
+			return url.pathname === "/api/federation-work"
+				? Response.json(
+						{ error: { code: "view_failed", message: String(e) } },
+						{ status: 500 },
+					)
+				: new Response(`federation view failed: ${String(e)}`, {
+						status: 500,
+					});
 		}
-	}
-	if (url.pathname === "/federation-work")
+		if (!admin && viewerSid) view = filterViewToOwner(view, viewerSid);
+		if (url.pathname === "/api/federation-work") return Response.json(view);
 		return new Response(
-			federationWorkPage(await federatedWorkView({ store })),
+			federationWorkPage(view, {
+				hub: url.searchParams.get("hub"),
+				viewerSid,
+				admin,
+			}),
 			{
 				headers: {
 					"content-type": "text/html; charset=utf-8",
@@ -169,5 +206,6 @@ export async function handleFederationWork(
 				},
 			},
 		);
+	}
 	return null;
 }

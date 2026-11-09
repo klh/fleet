@@ -45,10 +45,26 @@ export class StreamSemantics {
 	private usable = false;
 	private reasoning = false;
 	private limited = false;
+	/** W2579: running count of frames that carried usable-output evidence
+	 *  (text/tool/refusal) vs reasoning-only evidence. The receipt's
+	 *  role-only classification needs the live split at an idle-deadline
+	 *  kill — before any terminal reduces the booleans. */
+	private outputFrames = 0;
+	private roleFrames = 0;
 
 	/** Observe one parsed SSE data frame. Transport-only frames (pings) are
-	 *  never handed here — callers filter them before observing. */
+	 *  never handed here — callers filter them before observing. W2579 also
+	 *  counts the frame that FIRST flipped each boolean: usable-output
+	 *  evidence vs reasoning-only evidence. */
 	observe(value: unknown, dialect: "anthropic" | "openai"): void {
+		const usableBefore = this.usable;
+		const reasoningBefore = this.reasoning;
+		this.observeFrame(value, dialect);
+		if (this.usable && !usableBefore) this.outputFrames++;
+		else if (this.reasoning && !reasoningBefore) this.roleFrames++;
+	}
+
+	private observeFrame(value: unknown, dialect: "anthropic" | "openai"): void {
 		const r = rec(value);
 		if (dialect === "anthropic") {
 			const block = rec(r.content_block);
@@ -130,5 +146,12 @@ export class StreamSemantics {
 			: this.reasoning
 				? "reasoning_only"
 				: "empty_response";
+	}
+
+	/** W2579: the live output/reasoning frame split at ANY point in the
+	 *  stream — an idle-deadline kill never reaches the terminal reduction,
+	 *  so the receipt's role-only classification reads this instead. */
+	outputEvidence(): { outputFrames: number; roleFrames: number } {
+		return { outputFrames: this.outputFrames, roleFrames: this.roleFrames };
 	}
 }
