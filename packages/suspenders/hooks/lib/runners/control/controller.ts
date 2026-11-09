@@ -471,6 +471,7 @@ export const openRunnerController = (deps: {
 			signals.get(runId)?.abort();
 			signals.delete(runId);
 			const cleanupErrors: string[] = [];
+
 			if (deps.revokeCredential) {
 				const err = await bounded(
 					deps.revokeCredential(runId, {
@@ -479,6 +480,7 @@ export const openRunnerController = (deps: {
 					}),
 					"credential revoke",
 				);
+
 				if (err) cleanupErrors.push(err);
 			}
 			if (deps.durable) {
@@ -489,7 +491,11 @@ export const openRunnerController = (deps: {
 			record(runId, "abort", {
 				by: actor.sid,
 				leaseRevoked: revoked.ok,
-				credentialRevoked: Boolean(deps.revokeCredential),
+				credentialRevoked:
+					Boolean(deps.revokeCredential) &&
+					!cleanupErrors.some((error) =>
+						error.startsWith("credential revoke "),
+					),
 				cleanupErrors,
 			});
 			return { ok: true, state: "stopping" };
@@ -538,7 +544,11 @@ export const openRunnerController = (deps: {
 				record(runId, "fence-revoked", {
 					watchdog: true,
 					epoch: captured.epoch,
-					credentialRevoked: Boolean(deps.revokeCredential),
+					credentialRevoked:
+						Boolean(deps.revokeCredential) &&
+						!cleanupErrors.some((error) =>
+							error.startsWith("credential revoke "),
+						),
 					cleanupErrors,
 				});
 			};

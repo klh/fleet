@@ -9,6 +9,9 @@ test("cleanup errors cannot expose provider bodies or credentials through the fe
 		await world.request("alice", "/runs", { runId, profile: "standard" });
 		const controller = openRunnerController({
 			store: world.store,
+			async revokeCredential() {
+				throw new Error("fixture-secret-provider-body");
+			},
 			durable: {
 				async start() {},
 				async submit() {},
@@ -26,6 +29,8 @@ test("cleanup errors cannot expose provider bodies or credentials through the fe
 		const body = await response.text();
 		expect(body).not.toContain("fixture-secret-provider-body");
 		expect(body).toContain("executor stop failed");
+		expect(body).toContain("credential revoke failed");
+		expect(body).toContain('credentialRevoked\\":false');
 	} finally {
 		world.close();
 	}
