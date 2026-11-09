@@ -56,8 +56,18 @@ export const AdminTeamSchema = z.object({
 	spend_ceiling: finite.optional(),
 });
 
+// W2790 POST /v1/admin/token-budgets {subject, monthly_tokens, weights?} —
+// subject = mint name exact, `prefix*`, or `actor:<id>`; weights are
+// per-model-group positive multipliers (default 1 for unlisted groups).
+export const AdminTokenBudgetSchema = z.object({
+	subject: nonEmpty,
+	monthly_tokens: z.number().int().positive(),
+	weights: z.record(z.string(), z.number().finite().positive()).optional(),
+});
+
 export type AdminDrainBody = z.infer<typeof AdminDrainSchema>;
 export type AdminVerifyBody = z.infer<typeof AdminVerifySchema>;
 export type AdminIssueKeyBody = z.infer<typeof AdminIssueKeySchema>;
 export type AdminEnrollBody = z.infer<typeof AdminEnrollSchema>;
 export type AdminTeamBody = z.infer<typeof AdminTeamSchema>;
+export type AdminTokenBudgetBody = z.infer<typeof AdminTokenBudgetSchema>;

@@ -22,9 +22,11 @@ import { CountTokensBodySchema, estimatedCountTokens } from "./count-tokens.ts";
 import { principalOf } from "./gov/federation.ts";
 import { beginInflight } from "./gov/inflight.ts";
 import { acquireOccupancy } from "./gov/occupancy.ts";
+import { checkTokenBudget } from "./gov/token-budgets.ts";
 import { hintFromHeaders } from "./hints.ts";
 import { hopFromBaggage, laneFromBaggage } from "./hop.ts";
 import { admitHopContract, HOP_CONTRACT_HEADER } from "./hop-deadline.ts";
+import { clampRetryAfter } from "./http-kit.ts";
 import {
 	INGRESS_BODY_TIMEOUT_MS,
 	IngressBodyError,
@@ -232,6 +234,36 @@ export async function proxy(
 		return deny(deps, ctx, verdict.status, verdict.why, verdict.code, "denied");
 	}
 	if (verdict.acct !== undefined) ctx.acct = verdict.acct;
+	// W2790 per-key monthly token budget: reserve the weighted input
+	// estimate against the calendar-month ceiling BEFORE any routing — cap
+	// denies keyed (429 budget_exceeded, zero outbound), ≥80% warns on the
+	// response header. Unbudgeted credentials (the lane default) pass with
+	// zero overhead beyond the row lookup.
+	const budget = checkTokenBudget(
+		principalOf(req),
+		model,
+		req.headers.get("content-length") === null
+			? JSON.stringify(body).length
+			: Number(req.headers.get("content-length")),
+	);
+	if (budget.status === "denied") {
+		const resp = deny(
+			deps,
+			ctx,
+			429,
+			`monthly token budget exceeded for ${budget.subject} — used ${String(budget.used)} of ${String(budget.ceiling)} this month (resets ${budget.resetIso})`,
+			"buckle.budget_exceeded",
+			"denied",
+		);
+		// a month-scale quota must never sleep a client for weeks — clamp to
+		// the gate's configured retry-after max (http-kit law)
+		resp.headers.set(
+			"retry-after",
+			String(clampRetryAfter(budget.retryAfterS)),
+		);
+		return resp;
+	}
+	ctx.tokenBudget = budget.status === "ok" ? budget : null;
 	// W2617: classify once at ingress from the AUTHENTICATED mint name —
 	// lane keys (dispatch-minted auto*/review*/ramp*) vs everything else.
 	// The router's pool queues and cold-mark answers key off this class.
