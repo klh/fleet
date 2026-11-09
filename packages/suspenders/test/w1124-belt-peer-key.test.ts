@@ -18,13 +18,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSTALL_CONTRACT } from "../scripts/install/install-contract.ts";
 import {
+	retireBuckleUpstreamsEnv,
+	wireBeltRowSettings,
+} from "../scripts/lib/belt-row-settings.ts";
+import {
 	BELT_ROW_URL,
 	BELT_UPSTREAM_KEY_VAR,
+	beltRowBlock,
 	ensureBeltUpstreamKey,
 	readBeltEnvVar,
 	verifyBeltPeerWiring,
 	wireBeltRow,
-	wireBuckleUpstreamsEnv,
 } from "../scripts/lib/belt-upstream-key.ts";
 import { parsePlistXml } from "./plist-fields.ts";
 
@@ -159,7 +163,6 @@ describe("W1124.2 belt peer key (installer face)", () => {
 		expect(Object.keys(groups).sort()).toEqual(["belt", "glm-local"]);
 		scrub();
 	});
-
 	test("belt row: patches a wrong row; kept when wired; unparseable refused", () => {
 		const home = tmp();
 		const override = join(home, "upstreams.yaml");
@@ -172,7 +175,7 @@ describe("W1124.2 belt peer key (installer face)", () => {
 		const patched = readFileSync(override, "utf8");
 		expect(patched).toContain(`api_key_env: ${BELT_UPSTREAM_KEY_VAR}`);
 		expect(patched.split("- url:").length).toBe(2);
-		writeFileSync(override, `${beltRowBlockText()}`, { mode: 0o600 });
+		writeFileSync(override, `${beltRowBlock()}`, { mode: 0o600 });
 		expect(wireBeltRow(override).status).toBe("kept");
 		const broken = join(home, "broken.yaml");
 		writeFileSync(broken, "groups: [unclosed\n", { mode: 0o600 });
@@ -181,51 +184,71 @@ describe("W1124.2 belt peer key (installer face)", () => {
 		expect(readFileSync(broken, "utf8")).toBe("groups: [unclosed\n");
 		scrub();
 	});
-
-	test("BUCKLE_UPSTREAMS env: appends once, replaces stale, refuses duplicates", () => {
+	test("W2760 belt row: lands in settings.json, idempotent, fail closed", () => {
 		const home = tmp();
-		const beltEnv = writeBeltEnv(home, "A=1\n", 0o600);
-		const override = join(home, "upstreams.yaml");
-		expect(wireBuckleUpstreamsEnv(beltEnv, override).status).toBe("wired");
-		expect(readBeltEnvVar(beltEnv, "BUCKLE_UPSTREAMS")).toBe(override);
-		const bytes = readFileSync(beltEnv, "utf8");
-		expect(wireBuckleUpstreamsEnv(beltEnv, override).status).toBe("kept");
-		expect(readFileSync(beltEnv, "utf8")).toBe(bytes);
-		const stale = wireBuckleUpstreamsEnv(beltEnv, join(home, "other.yaml"));
-		expect(stale.status).toBe("wired");
-		expect(readBeltEnvVar(beltEnv, "BUCKLE_UPSTREAMS")).toBe(
-			join(home, "other.yaml"),
+		const settings = join(home, "settings.json");
+		// absent file seeds settings.json with the authenticated row
+		expect(wireBeltRowSettings(settings).status).toBe("wired");
+		let doc = JSON.parse(readFileSync(settings, "utf8")) as {
+			upstreams: { groups: Record<string, unknown[]> };
+		};
+		expect(doc.upstreams.groups.belt?.length).toBe(1);
+		expect(wireBeltRowSettings(settings).status).toBe("kept");
+		// operator sections are preserved
+		const withRows = join(home, "settings2.json");
+		writeFileSync(
+			withRows,
+			JSON.stringify({ upstreams: { groups: { "glm-local": [{}] } } }),
+			{ mode: 0o600 },
 		);
-		const dupes = writeBeltEnv(
-			home,
-			"BUCKLE_UPSTREAMS=/a\nBUCKLE_UPSTREAMS=/b\n",
-			0o600,
-		);
-		expect(wireBuckleUpstreamsEnv(dupes, override).status).toBe("failed");
+		expect(wireBeltRowSettings(withRows).status).toBe("wired");
+		doc = JSON.parse(readFileSync(withRows, "utf8"));
+		expect(Object.keys(doc.upstreams.groups).sort()).toEqual([
+			"belt",
+			"glm-local",
+		]);
+		// unparseable bytes are refused — never guesses over operator content
+		const broken = join(home, "broken.json");
+		writeFileSync(broken, "{nope", { mode: 0o600 });
+		expect(wireBeltRowSettings(broken).status).toBe("failed");
 		scrub();
 	});
 
-	test("verifyBeltPeerWiring: names every unwired face", () => {
+	test("W2760 retire: BUCKLE_UPSTREAMS pins drop from env files, idempotent", () => {
+		const home = tmp();
+		const beltEnv = writeBeltEnv(home, "A=1\nBUCKLE_UPSTREAMS=/tmp/x.yaml\n");
+		expect(retireBuckleUpstreamsEnv(beltEnv).status).toBe("wired");
+		expect(readFileSync(beltEnv, "utf8")).toBe("A=1\n");
+		expect(retireBuckleUpstreamsEnv(beltEnv).status).toBe("kept");
+		const dupes = writeBeltEnv(
+			home,
+			"BUCKLE_UPSTREAMS=/a\nBUCKLE_UPSTREAMS=/b\n",
+		);
+		expect(retireBuckleUpstreamsEnv(dupes).status).toBe("failed");
+		expect(retireBuckleUpstreamsEnv(join(home, "absent.env")).status).toBe(
+			"kept",
+		);
+		scrub();
+	});
+
+	test("W2760 verifyBeltPeerWiring: parity probe over the settings law home", () => {
 		const home = tmp();
 		const beltEnv = writeBeltEnv(home, "A=1\n", 0o644);
-		const override = join(home, "upstreams.yaml");
+		const settings = join(home, "settings.json");
 		const before = verifyBeltPeerWiring(
-			{ beltEnvPath: beltEnv, overridePath: override },
+			{ beltEnvPath: beltEnv, overridePath: settings },
 			{},
 		);
 		expect(before.ok).toBe(false);
-		expect(before.reasons.length).toBe(4);
+		expect(before.reasons.length).toBe(3);
 		ensureBeltUpstreamKey(beltEnv);
-		wireBeltRow(override);
-		wireBuckleUpstreamsEnv(beltEnv, override);
+		wireBeltRowSettings(settings);
+		retireBuckleUpstreamsEnv(beltEnv);
 		const after = verifyBeltPeerWiring(
-			{ beltEnvPath: beltEnv, overridePath: override },
-			{ BUCKLE_UPSTREAMS: override },
+			{ beltEnvPath: beltEnv, overridePath: settings },
+			{},
 		);
 		expect(after.ok).toBe(true);
 		scrub();
 	});
 });
-
-const beltRowBlockText = (): string =>
-	`groups:\n  belt:\n    - url: ${BELT_ROW_URL}\n      dialect: anthropic\n      adapter: anthropic\n      api_key_env: ${BELT_UPSTREAM_KEY_VAR}\n`;

@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { migrateYamlConf } from "../../hooks/lib/kernel-conf.ts";
+import { retireBuckleUpstreamsEnv } from "../lib/belt-row-settings.ts";
 import type { StepContext, StepResult } from "./install-run.ts";
 import { cutOverSettings } from "./install-settings-cutover.ts";
 
@@ -33,42 +34,81 @@ export const CONF_BASES = [
 	join(".claude", "local-llm", "repo-policy"),
 ] as const;
 
-/** The launchd env file is not fleet config, but its explicit path must
- * follow the upstreams file moved by this step. Leave custom paths alone. */
+/** The launchd env file is not fleet config; W2760 retires the spoke BUCKLE_UPSTREAMS pin
+ *  entirely — settings.json owns the chain now, and a lingering pin would
+ *  shadow it (a pin always wins). Retires in place; custom vars untouched. */
 function reconcileSpokeUpstreamsEnv(home: string): boolean {
+	const r = retireBuckleUpstreamsEnv(
+		join(home, ".claude", "local-llm", "buckle-spoke.env"),
+	);
+	if (r.status === "failed") throw new Error(r.note);
+	return r.status === "wired";
+}
+
+/** W2760: fold the LLM-plane side files (local-llm upstreams.json,
+ *  routing-policy.json) into the settings.json law homes. Idempotent — a
+ *  section already present in settings.json WINS (the operator moved
+ *  deliberately); a side file that is not JSON content is skipped (the
+ *  ONE-parser law has no yaml leg). Originals stay on disk, read-only. */
+function foldLlmPlaneConf(home: string): {
+	folded: string[];
+	skipped: string[];
+} {
 	const llm = join(home, ".claude", "local-llm");
-	const env = join(llm, "buckle-spoke.env");
-	const yaml = join(llm, "upstreams.yaml");
-	const json = join(llm, "upstreams.json");
-	if (!existsSync(env) || !existsSync(json)) return false;
-	const prefix = "BUCKLE_UPSTREAMS=";
-	let changed = false;
-	const updated = readFileSync(env, "utf8")
-		.split("\n")
-		.map((line) => {
-			if (!line.startsWith(prefix)) return line;
-			const raw = line.slice(prefix.length);
-			const quote = raw[0] === "'" || raw[0] === '"' ? raw[0] : "";
-			const value = quote && raw.endsWith(quote) ? raw.slice(1, -1) : raw;
-			if (value !== yaml) return line;
-			changed = true;
-			return `${prefix}${quote}${json}${quote}`;
-		})
-		.join("\n");
-	if (!changed) return false;
-	const mode = statSync(env).mode & 0o777;
-	if (mode !== 0o600)
-		throw new Error(
-			`buckle-spoke.env must be mode 600 (got ${mode.toString(8)})`,
-		);
-	const temporary = `${env}.tmp-${crypto.randomUUID()}`;
+	const settings = join(home, ".config", "klh", "settings.json");
+	const sources: Array<[string, "upstreams" | "routing_policy"]> = [
+		[join(llm, "upstreams.json"), "upstreams"],
+		[join(llm, "routing-policy.json"), "routing_policy"],
+	];
+	const folded: string[] = [];
+	const skipped: string[] = [];
+	if (!existsSync(settings)) return { folded, skipped };
+	let doc: Record<string, unknown>;
 	try {
-		writeFileSync(temporary, updated, { mode: 0o600, flag: "wx" });
-		renameSync(temporary, env);
-	} finally {
-		if (existsSync(temporary)) unlinkSync(temporary);
+		doc = JSON.parse(readFileSync(settings, "utf8")) as Record<string, unknown>;
+	} catch {
+		return { folded, skipped: sources.map(([p]) => p) };
 	}
-	return true;
+	let dirty = false;
+	for (const [path, section] of sources) {
+		if (doc[section] !== undefined) {
+			skipped.push(`${section}:settings-holds`);
+			continue;
+		}
+		if (!existsSync(path)) continue;
+		let side: unknown;
+		try {
+			side = JSON.parse(readFileSync(path, "utf8"));
+		} catch {
+			skipped.push(`${section}:non-json`);
+			continue;
+		}
+		if (!side || typeof side !== "object" || Array.isArray(side)) {
+			skipped.push(`${section}:non-object`);
+			continue;
+		}
+		doc[section] = side;
+		folded.push(section);
+		dirty = true;
+	}
+	if (dirty) {
+		const mode = statSync(settings).mode & 0o777;
+		if (mode !== 0o600)
+			throw new Error(
+				`settings.json must be mode 600 (got ${mode.toString(8)})`,
+			);
+		const temporary = `${settings}.tmp-${crypto.randomUUID()}`;
+		try {
+			writeFileSync(temporary, `${JSON.stringify(doc, null, 2)}\n`, {
+				mode: 0o600,
+				flag: "wx",
+			});
+			renameSync(temporary, settings);
+		} finally {
+			if (existsSync(temporary)) unlinkSync(temporary);
+		}
+	}
+	return { folded, skipped };
 }
 
 export async function migrateConf(ctx: StepContext): Promise<StepResult> {
@@ -104,11 +144,25 @@ export async function migrateConf(ctx: StepContext): Promise<StepResult> {
 			note: `conf migrate failed for buckle-spoke.env: ${error instanceof Error ? error.message : String(error)}`,
 		};
 	}
+	let fold: { folded: string[]; skipped: string[] } = {
+		folded: [],
+		skipped: [],
+	};
+	try {
+		fold = foldLlmPlaneConf(ctx.home);
+	} catch (error) {
+		return {
+			status: "failed",
+			note: `conf migrate failed folding LLM-plane conf into settings.json: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
 	const parts: string[] = [];
 	if (migrated.length > 0) parts.push(`migrated ${migrated.join(", ")}`);
 	if (kept.length > 0) parts.push(`kept ${kept.length} json`);
 	if (absent.length > 0) parts.push(`${absent.length} absent`);
 	if (spokeRepointed) parts.push("repointed buckle-spoke.env");
+	if (fold.folded.length > 0)
+		parts.push(`folded ${fold.folded.join(", ")} into settings.json`);
 	// W2582: after the yaml legs, cut machine conf over to settings.json —
 	// the install owns the cutover (an un-run `coord settings migrate` no
 	// longer strands a stack.json the settings file would mask).
@@ -122,6 +176,6 @@ export async function migrateConf(ctx: StepContext): Promise<StepResult> {
 	return {
 		status: "ok",
 		note: `W1253 conf migrate: ${parts.join("; ") || "nothing to do"}`,
-		detail: `migrated=[${migrated.join(", ")}] kept=[${kept.join(", ")}] absent=[${absent.join(", ")}]`,
+		detail: `migrated=[${migrated.join(", ")}] kept=[${kept.join(", ")}] absent=[${absent.join(", ")}] folded=[${fold.folded.join(", ")}] skipped=[${fold.skipped.join(", ")}]`,
 	};
 }

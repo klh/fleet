@@ -1,4 +1,6 @@
 // @klh/settings — the ONE per-install settings surface. Import from here.
+
+export { type CliIo, runSettingsCli } from "./settings.cli.ts";
 export {
 	coerceEnv,
 	ENV_BY_NAME,
@@ -9,6 +11,7 @@ export {
 	SECRET_ENV,
 } from "./settings.env-map.ts";
 export { type Hub, HubSchema } from "./settings.hubs.ts";
+export { SCHEMA_FILE, settingsJsonSchemaText } from "./settings.jsonschema.ts";
 export {
 	type DistillConfig,
 	DistillConfigSchema,
@@ -18,18 +21,24 @@ export {
 	PressureProbeSchema,
 } from "./settings.distill.ts";
 export {
+	KNOB_FAMILY_PREFIXES,
+	KNOB_REGISTRY,
 	type KnobHome,
 	type KnobHomeKind,
 	knobHome,
-	KNOB_FAMILY_PREFIXES,
-	KNOB_REGISTRY,
 } from "./settings.knob-registry.ts";
-export { SCHEMA_FILE, settingsJsonSchemaText } from "./settings.jsonschema.ts";
+export {
+	jsonSiblingOf,
+	type LlmConfEnv,
+	type LlmConfSource,
+	resolvePolicyDoc,
+	resolveUpstreamsDoc,
+} from "./settings.llm-conf.ts";
 export {
 	FOLD_INTO_FLEET_LOOP,
-	migrate,
 	type MigrateInput,
 	type MigrateResult,
+	migrate,
 } from "./settings.migrate.ts";
 export { renderHubSettings, stripOverlays } from "./settings.overlay.ts";
 export { fromLegacyProfile, toLegacyProfile } from "./settings.project.ts";
@@ -58,5 +67,4 @@ export {
 	SettingsSchema,
 	settingsIssues,
 } from "./settings.schema.ts";
-export { runSettingsCli, type CliIo } from "./settings.cli.ts";
 export { deepMerge, getPath, setPath, unsetPath } from "./settings.tree.ts";
