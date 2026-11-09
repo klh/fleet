@@ -8,7 +8,7 @@ import {
 	containerNameOf,
 	resolvedPolicyDigest,
 } from "../hooks/lib/runners/desktop/docker-executor.ts";
-import { DESKTOP_RUNNER_IMAGE as image } from "../hooks/lib/runners/desktop/prereqs.ts";
+import { DESKTOP_RUNNER_IMAGE } from "../hooks/lib/runners/desktop/prereqs.ts";
 import {
 	canonicalSeedDigest,
 	scanSeedDir,
@@ -30,7 +30,7 @@ async function until(ready: () => boolean, failure: string) {
 	}
 }
 
-export async function runSandboxCanary() {
+export async function runSandboxCanary(image = DESKTOP_RUNNER_IMAGE) {
 	const imageId = await checkDesktopImage(image);
 	const home = await mkdtemp(join(tmpdir(), "runner-live-sandbox-"));
 	const seedRoot = join(home, "seed");

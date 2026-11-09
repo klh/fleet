@@ -1476,3 +1476,26 @@ The replay verifier checks every arm and repetition, the shared bed metadata,
 both native image identities, and the reported median, p95 and verdict. The
 second run contains 14 samples and two image identity records. The earlier
 native run remains readable with zero embedded identity records.
+
+## Runner HTTP to first tool result (W2937)
+
+Five seeded pairs on native ARM64 Docker Desktop, seed 2937. Both pinned
+images ran the same fixture model request and read the same mounted seed
+through the runner's sandbox tool. The measured interval starts at HTTP
+admission and ends when the fixture upstream receives the verified tool
+result. All ten runs revoked the minted key and removed their container.
+
+| Native arm | Median | p95 |
+| --- | ---: | ---: |
+| Alpine `bc214871…` | 180 ms | 182 ms |
+| Bun `9114c058…` | 186 ms | 234 ms |
+
+Verdict **tied** under the predeclared 5% median band. No image promotion.
+These are fixture transport and execution measurements. They do not measure
+provider latency, model quality, token savings or remote host performance.
+
+Reproduce with `bun packages/suspenders/test/runner-live-sandbox.bench.ts`
+and the bed name followed by the two resident digest-pinned image references.
+BLAM replay validated ten samples and two native image identities. The
+replayed receipt SHA-256 was
+`fd33ac8b5b049391156b9f7b5a701f3f90925ae6647a8166932d53311174ee63`.
