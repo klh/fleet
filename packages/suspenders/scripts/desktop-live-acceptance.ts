@@ -1,14 +1,17 @@
 // desktop-live-acceptance.ts — W2869.3 live acceptance: a REAL Pi Durable
-// model+tool run through the desktop hub buckle (:4111) with a freshly
-// minted scoped key, ledger-correlated usage, and the revoke fence proven
-// on the live wire (next served call after revoke = 401).
+// model+tool run through the desktop hub buckle (:4111) where the LEAF
+// owns transport — the run's per-run credential (minted by admitAndStart)
+// rides every model call via the Models facade, the usage ledger carries
+// THAT key's rows, and the revoke fence proves the next served call 401s
+// on the same material (root #118378/#118527). The ambient provider auth
+// is deliberately a dummy: if it ever reaches the wire, the hub 401s.
 //
 // Prereqs: desktop hub up (stack.json hubs.desktop), Docker running for
 // the container leg, `bun run scripts/desktop-live-acceptance.ts` from
 // packages/suspenders. Machine conf is read from its designated homes
 // (stack.json → deploy dir → HUB_BUCKLE_ENV_FILE → BUCKLE_ROOT_KEY);
-// values stay in process memory — nothing is printed. The minted key is
-// revoked before exit; test keys are never left behind.
+// values stay in process memory — nothing is printed. The leaf credential
+// is revoked before exit; test keys are never left behind.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -61,23 +64,8 @@ for (const c of candidates) {
 }
 if (!hub) throw new Error("no reachable desktop hub candidate");
 console.log("hub reachable, models:", modelsList.length);
-const run8 = crypto.randomUUID().slice(0, 8);
-const mintRes = await fetch(new URL("/v1/admin/keys", hub), {
-	method: "POST",
-	headers: {
-		authorization: `Bearer ${adminKey}`,
-		"content-type": "application/json",
-	},
-	body: JSON.stringify({
-		name: `w28693-live-${run8}`,
-		scopes: ["buckle:proxy:WRITE_"],
-	}),
-	signal: AbortSignal.timeout(5000),
-});
-if (!mintRes.ok)
-	throw new Error(`mint failed: ${mintRes.status} ${await mintRes.text()}`);
-const minted = (await mintRes.json()) as { key_id: string; key: string };
-console.log("minted key_id:", minted.key_id);
+// The leaf mints its own per-run credential inside admitAndStart (root
+// #118378: transport is leaf-owned); the script never holds a parallel key.
 const { createModels, createProvider } = await import("@earendil-works/pi-ai");
 const openai = await import(
 	`file://${join(pkgD, "node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js")}`
@@ -92,9 +80,12 @@ const provider = createProvider({
 	auth: {
 		apiKey: {
 			name: "belt-live",
+			// DUMMY ambient auth — the leaf facade MUST inject the per-run
+			// credential (root #118378); if the dummy ever reaches the wire
+			// the hub 401s and the ledger check below fails.
 			resolve: async () => ({
-				auth: { apiKey: minted.key },
-				source: "w28693-live",
+				auth: { apiKey: "bksk_dummy_ambient_not_leaf" },
+				source: "w28693-dummy-ambient",
 			}),
 		},
 	},
@@ -197,6 +188,13 @@ const actor = {
 };
 await leaf.admitAndStart({ spec, actor, seedRoot: join(world, "seed") });
 console.log("admitted epoch-1");
+const leafCred = leaf.credentials.resolve(runId);
+if (!leafCred) {
+	throw new Error(
+		"no live leaf credential after admit — transport cannot be leaf-owned",
+	);
+}
+console.log("leaf credential minted:", leafCred.keyId);
 await leaf.controller.submit({
 	runId,
 	text: "Reply with exactly the word ALIVE and nothing else.",
@@ -271,7 +269,7 @@ const toolOut = await leaf.executor.dispatchTool(
 console.log("tool half ok:", toolOut.code === 0, toolOut.stdout.trim());
 // ledger correlation: the hub's usage ledger must carry THIS key's request
 const ledRes = await fetch(
-	new URL(`/v1/admin/requests?limit=50&key=${minted.key_id}`, hub),
+	new URL(`/v1/admin/requests?limit=50&key=${leafCred.keyId}`, hub),
 	{
 		headers: { authorization: `Bearer ${adminKey}` },
 		signal: AbortSignal.timeout(5000),
@@ -286,7 +284,7 @@ const ledBody = (await ledRes.json()) as {
 		cache_r?: number;
 	}[];
 };
-const led = (ledBody.requests ?? []).filter((r) => r.actor === minted.key_id);
+const led = (ledBody.requests ?? []).filter((r) => r.actor === leafCred.keyId);
 console.log(
 	"ledger rows for key:",
 	led.length,
@@ -307,13 +305,15 @@ console.log(
 		assistant: assistantText.includes("ALIVE"),
 		tool: toolOut.code === 0 && toolOut.stdout.includes("live-acceptance"),
 		ledger: led.length > 0,
-		key_id: minted.key_id,
+		key_id: leafCred.keyId,
 	}),
 );
-// revoke fence on the LIVE hub: revoke the minted key, expect 401 on the
-// very next served call with the same key material
+// revoke fence on the LIVE hub: the production fence = stopRun revokes the
+// run's own credential; here we revoke the leaf credential and expect 401
+// on the very next served call with the SAME material the run served with
+// (root #118527 fence witness, now on the leaf-owned key).
 const revRes = await fetch(
-	new URL(`/v1/admin/keys/${minted.key_id}/revoke`, hub),
+	new URL(`/v1/admin/keys/${leafCred.keyId}/revoke`, hub),
 	{
 		method: "POST",
 		headers: { authorization: `Bearer ${adminKey}` },
@@ -324,7 +324,7 @@ console.log("revoke status:", revRes.status);
 const served = await fetch(new URL("/v1/chat/completions", hub), {
 	method: "POST",
 	headers: {
-		authorization: `Bearer ${minted.key}`,
+		authorization: `Bearer ${leafCred.key}`,
 		"content-type": "application/json",
 	},
 	body: JSON.stringify({
@@ -341,7 +341,7 @@ console.log(
 );
 // revoke the leftover probe keys too (test keys are never left behind)
 for (const staleId of ["a1859746c5a8", "6a3b322e790f", "b8dca8e4fdc3"]) {
-	if (staleId === minted.key_id) continue;
+	if (staleId === leafCred.keyId) continue;
 	const r = await fetch(new URL(`/v1/admin/keys/${staleId}/revoke`, hub), {
 		method: "POST",
 		headers: { authorization: `Bearer ${adminKey}` },

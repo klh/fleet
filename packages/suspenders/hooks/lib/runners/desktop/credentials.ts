@@ -50,6 +50,21 @@ export interface CredentialManager {
 	): Promise<{ key: string; receipt: CredentialReceipt }>;
 	revoke(runId: string, epoch: number): Promise<void>;
 	list(): CredentialReceipt[];
+	/** The raw key material for the run's live credential — process-memory
+	 *  only. After a process loss the raw key is gone (receipts persist
+	 *  keyId by design, never bearer material): resolve returns undefined
+	 *  and `ensure` re-mints for the persisted epoch. Root #118378/#118409. */
+	resolve(
+		runId: string,
+	): { key: string; keyId: string; epoch: number } | undefined;
+	/** Idempotent live-key acquisition for a run+epoch: returns the held
+	 *  raw key, or re-mints for the epoch (best-effort revoking the stale
+	 *  keyId first). Recover's re-arm path — a restarted leaf cannot serve
+	 *  model transport without it. */
+	ensure(
+		runId: string,
+		epoch: number,
+	): Promise<{ key: string; keyId: string; epoch: number }>;
 }
 
 export interface CredentialManagerDeps {
@@ -141,6 +156,10 @@ interface CredCtx {
 	timeoutMs: number;
 	journal: Promise<void> | null;
 	receipts: Map<string, CredentialReceipt>;
+	/** Process-memory raw keys keyed keyOf(runId, epoch) — receipts
+	 *  persist keyId by design, NEVER bearer material. Dies with the
+	 *  process; ensure() re-arms after a loss. */
+	rawKeys: Map<string, { key: string; receipt: CredentialReceipt }>;
 	urlOf(path: string): string;
 }
 
@@ -153,6 +172,7 @@ const mkCredCtx = (deps: CredentialManagerDeps): CredCtx => ({
 	timeoutMs: deps.timeoutMs ?? 10_000,
 	journal: null,
 	receipts: new Map<string, CredentialReceipt>(),
+	rawKeys: new Map<string, { key: string; receipt: CredentialReceipt }>(),
 	urlOf: (path: string) => `${deps.baseUrl}${path}`,
 });
 
@@ -375,6 +395,7 @@ const revokeKey = async (
 	}
 	await revokeById(ctx, receipt.keyId);
 	receipt.revokedAt = ctx.now();
+	ctx.rawKeys.delete(keyOf(runId, epoch));
 	persistReceipts(ctx);
 };
 
@@ -385,12 +406,52 @@ export const createCredentialManager = (
 	deps: CredentialManagerDeps,
 ): CredentialManager => {
 	const ctx = mkCredCtx(deps);
+	/** One mint+bind; the raw key is then held in process memory ONLY. */
+	const mintFor = async (runId: string, epoch: number) => {
+		await ensureLoaded(ctx);
+		const minted = await mintOnce(ctx, runId, epoch);
+		await bindCredential(ctx, runId, epoch, minted);
+		ctx.rawKeys.set(keyOf(runId, epoch), {
+			key: minted.key,
+			receipt: minted.receipt,
+		});
+		return minted;
+	};
 	return {
 		mint: async (runId, epoch) => {
-			await ensureLoaded(ctx);
-			const minted = await mintOnce(ctx, runId, epoch);
-			await bindCredential(ctx, runId, epoch, minted);
+			const minted = await mintFor(runId, epoch);
 			return { key: minted.key, receipt: minted.receipt };
+		},
+		resolve: (runId) => {
+			let best: { key: string; keyId: string; epoch: number } | undefined;
+			for (const receipt of ctx.receipts.values()) {
+				if (receipt.runId !== runId || receipt.revokedAt !== null) continue;
+				const raw = ctx.rawKeys.get(keyOf(runId, receipt.epoch));
+				if (!raw) continue;
+				if (!best || receipt.epoch > best.epoch) {
+					best = { key: raw.key, keyId: receipt.keyId, epoch: receipt.epoch };
+				}
+			}
+			return best;
+		},
+		ensure: async (runId, epoch) => {
+			await ensureLoaded(ctx);
+			const held = ctx.rawKeys.get(keyOf(runId, epoch));
+			if (held) return { key: held.key, keyId: held.receipt.keyId, epoch };
+			// Post-loss re-arm: the receipt survives the process, the raw
+			// key does not. Root #118603: NEVER mint a replacement while a
+			// stale key's death is unconfirmed — a live-but-unrecorded key
+			// would leave TWO usable proxy credentials for one run/epoch.
+			// A failed/timed-out revoke throws and mints nothing.
+			const receipt = ctx.receipts.get(keyOf(runId, epoch));
+			if (receipt && receipt.revokedAt === null) {
+				await revokeById(ctx, receipt.keyId);
+				receipt.revokedAt = ctx.now();
+				ctx.rawKeys.delete(keyOf(runId, epoch));
+				persistReceipts(ctx);
+			}
+			const minted = await mintFor(runId, epoch);
+			return { key: minted.key, keyId: minted.keyId, epoch };
 		},
 		revoke: (runId, epoch) => revokeKey(ctx, runId, epoch),
 		list: () => [...ctx.receipts.values()],

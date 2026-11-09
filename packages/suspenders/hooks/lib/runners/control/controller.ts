@@ -68,7 +68,11 @@ export const DEFAULT_LEASE_TTL_MS = 60_000;
 
 export interface DurableAdapter {
 	start(spec: RunnerSpec, opts: { signal: AbortSignal }): Promise<void>;
-	submit(runId: string, text: string): Promise<void>;
+	submit(
+		runId: string,
+		text: string,
+		opts?: { requestId?: string },
+	): Promise<void>;
 	resume(runId: string): Promise<void>;
 	stop(runId: string): Promise<void>;
 }
@@ -109,10 +113,7 @@ export interface RunnerController {
 		runId: string;
 		actor: RunnerActor;
 	}): Promise<{ cursor: number; events: RunnerEvent[] }>;
-	detach(input: {
-		runId: string;
-		actor: RunnerActor;
-	}): Promise<void>;
+	detach(input: { runId: string; actor: RunnerActor }): Promise<void>;
 	/** The manual revoke-stop: abort + lease revoke + credential backstop. */
 	stopWithRevocation(input: {
 		runId: string;
@@ -242,7 +243,10 @@ export const openRunnerController = (deps: {
 				const racedSpec = raced
 					? RunnerSpecSchema.parse(JSON.parse(raced.spec_json))
 					: null;
-				if (!racedSpec || JSON.stringify(racedSpec) !== JSON.stringify(parsed)) {
+				if (
+					!racedSpec ||
+					JSON.stringify(racedSpec) !== JSON.stringify(parsed)
+				) {
 					revokeLease(deps.store, parsed.runId, at);
 					throw new Error(
 						"runner: concurrent admission bound a different spec — lease released",
@@ -277,7 +281,8 @@ export const openRunnerController = (deps: {
 				if (!deps.durable) {
 					return {
 						ok: false,
-						reason: "executor-absent: no durable adapter bound — control row unchanged",
+						reason:
+							"executor-absent: no durable adapter bound — control row unchanged",
 					};
 				}
 				const controller = new AbortController();

@@ -48,6 +48,7 @@ type LeafRuntime = Pick<
 	HarnessOptions,
 	"models" | "registry" | "env" | "settings" | "onReport"
 >;
+type LeafModels = LeafRuntime extends { models: infer M } ? M : never;
 
 interface HeartbeatEntry {
 	timer: ReturnType<typeof setInterval>;
@@ -283,12 +284,15 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 			jobs.set(spec.runId, job);
 		},
 
-		async submit(runId, text) {
+		async submit(runId, text, opts) {
 			const job = jobs.get(runId);
 			if (!job) {
 				throw new Error(`desktop-runner: no live durable job for ${runId}`);
 			}
-			await job.submit({ requestId: randomUUID(), text });
+			// Root #118412: HTTP replay dedupe rides the caller's requestId —
+			// the adapter passes it through to the durable submission dedupe;
+			// only a caller-supplied requestId is idempotent-replay-safe.
+			await job.submit({ requestId: opts?.requestId ?? randomUUID(), text });
 		},
 		async resume(runId) {
 			await jobs.get(runId)?.resume();
@@ -302,6 +306,51 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 			}
 			await executor.stop(runId);
 		},
+	};
+
+	/** Per-run Models facade — model transport is LEAF-OWNED (root #118378):
+	 *  every request method pi-durable's harness calls (streamSimple /
+	 *  completeSimple / fetchDeferred / cancelDeferred) rides transformHeaders,
+	 *  applied AFTER auth assembly, so overriding `authorization` wins. A
+	 *  missing credential throws LOUD — never a silent ambient-key fallback. */
+	const modelsFor = (runId: string): LeafModels => {
+		const base = deps.runtime.models;
+		const leafKey = (): string => {
+			const cred = credentials.resolve(runId);
+			if (!cred) {
+				throw new Error(
+					`runner: no live per-run credential for ${runId} — model transport refused (leaf-owned)`,
+				);
+			}
+			return cred.key;
+		};
+		const withLeafAuth = <O extends object>(
+			options: O | undefined,
+		): O & {
+			transformHeaders: (
+				headers: Record<string, string>,
+			) => Record<string, string>;
+		} => ({
+			...options,
+			transformHeaders: (headers) => ({
+				...headers,
+				authorization: `Bearer ${leafKey()}`,
+			}),
+		});
+		// Object.create PRESERVES the base Models prototype chain — pi-durable's
+		// generation task calls models.getAuth.bind(...) — a PROTOTYPE method on
+		// pi-ai's ModelsImpl; a {...base} spread drops it and the run faults
+		// before any model call (live-hub diag 2026-11-09).
+		const facade = Object.create(base) as LeafModels;
+		facade.streamSimple = (model, context, options) =>
+			base.streamSimple(model, context, withLeafAuth(options));
+		facade.completeSimple = (model, context, options) =>
+			base.completeSimple(model, context, withLeafAuth(options));
+		facade.fetchDeferred = (model, handle, options) =>
+			base.fetchDeferred(model, handle, withLeafAuth(options));
+		facade.cancelDeferred = (model, handle, options) =>
+			base.cancelDeferred(model, handle, withLeafAuth(options));
+		return facade;
 	};
 
 	const mkRuntime = (runId: string): LeafRuntime => {
@@ -318,7 +367,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 				tools: [containerToolOf({ executor, runId, authorize })],
 			}),
 		);
-		return { ...deps.runtime, registry };
+		return { ...deps.runtime, registry, models: modelsFor(runId) };
 	};
 
 	controller = openRunnerController({
@@ -365,6 +414,11 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 						)?.spec_json ?? "",
 					),
 				);
+				// Post-loss re-arm (root #118409/#118378): the restarted leaf holds
+				// no raw key — ensure() re-mints for the PERSISTED epoch, and only
+				// after the stale keyId's death is CONFIRMED (root #118603). A
+				// failed ensure refuses the reattach loud; a run never serves keyless.
+				await credentials.ensure(runId, leaseRow.epoch);
 				const job = await openDurableJob({
 					root: deps.durableRoot,
 					spec,
