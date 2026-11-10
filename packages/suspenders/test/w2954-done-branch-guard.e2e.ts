@@ -179,6 +179,7 @@ test("W2954 re-anchoring exactly to the banked DONE sha is honored", () => {
 		"-m",
 		"candidate drift",
 	).out;
+	expect(driftSha).not.toBe(doneSha);
 	const toDrift = git(
 		world.repo,
 		"-c",
