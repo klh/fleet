@@ -17,6 +17,7 @@ import {
 	protectedFamily,
 	protectedFamilyRefusal,
 } from "./protected-family.ts";
+import { liveReviewLeg, liveReviewRefusal } from "./review-live-dedup.ts";
 import { parkReviewRequest, reviewTransportPark } from "./review-park.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
@@ -55,6 +56,11 @@ interface Request {
 	 *  carried the reviewWireParkMarker reason); admission refuses while
 	 *  now - stamp < SUSPENDERS_REVIEW_WIRE_PARK_MS. */
 	wire_park_at?: number;
+	/** W2955: the (project, item) the request belongs to — the branch-level
+	 *  dedup probe matches on these; legacy rows lack them and stay invisible
+	 *  to the probe (degrades to pre-W2955 admission). */
+	project?: string;
+	item?: string;
 }
 /** W1243: capped transport backoff — 1m doubling to a 15m ceiling. */
 const backoffMs = (deferred: number): number =>
@@ -156,10 +162,7 @@ export const reviewWireParkMarker = "wire-model fallback";
 
 /** W2792.1 knob (conf row wins, env fills, default 1h; 0 disables):
  *  SUSPENDERS_REVIEW_WIRE_PARK_MS. */
-const WireParkKnobSchema = z.union([
-	z.literal("0"),
-	z.string().regex(/^\d+$/),
-]);
+const WireParkKnobSchema = z.union([z.literal("0"), z.string().regex(/^\d+$/)]);
 export function reviewWireParkMs(
 	env: NodeJS.ProcessEnv,
 	confVal?: number,
@@ -210,10 +213,7 @@ export function newestOutOfBaseReceipt(
  *  re-review waits this long past the newest out-of-base receipt before its
  *  first knock — landing waves coalesce into one re-review per window instead
  *  of one per ladder pass. SUSPENDERS_REVIEW_BASE_SETTLE_MS. */
-const SettleKnobSchema = z.union([
-	z.literal("0"),
-	z.string().regex(/^\d+$/),
-]);
+const SettleKnobSchema = z.union([z.literal("0"), z.string().regex(/^\d+$/)]);
 export function reviewBaseSettleMs(
 	env: NodeJS.ProcessEnv,
 	confVal?: number,
@@ -849,12 +849,25 @@ export function scheduleReview(o: {
 		// re-reviewing per ladder pass (reviews-per-landing → 1/window).
 		const settleMs = reviewBaseSettleMs(env, o.settings?.().reviewBaseSettleMs);
 		if (settleMs > 0 && (!old || old.state === "ERROR")) {
-			const newest = newestOutOfBaseReceipt(o.db, o.project, o.item, o.context.commit, o.context.base);
+			const newest = newestOutOfBaseReceipt(
+				o.db,
+				o.project,
+				o.item,
+				o.context.commit,
+				o.context.base,
+			);
 			const settleAt = newest === null ? 0 : newest + settleMs;
 			if (settleAt > now) {
 				const settled: Request = old
 					? { ...old, state: "ERROR", nextAt: settleAt }
-					: { state: "ERROR", attempts: 0, deferred: 0, leaseUntil: 0, token, nextAt: settleAt };
+					: {
+							state: "ERROR",
+							attempts: 0,
+							deferred: 0,
+							leaseUntil: 0,
+							token,
+							nextAt: settleAt,
+						};
 				o.db
 					.query(
 						"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
@@ -863,6 +876,12 @@ export function scheduleReview(o: {
 				return `review re-review deferred until ${new Date(settleAt).toISOString()} (base-move settle)`;
 			}
 		}
+		// W2955: trigger dedup — one live review per (branch, label-event).
+		// A later label event re-keys the request (commit/base/instructions),
+		// so a landing wave would spend a fresh model leg while the previous
+		// leg still holds its lease. Ride the live receipt instead.
+		const live = liveReviewLeg(o.db, o.project, o.item, key, now);
+		if (live) return liveReviewRefusal(o.item, live);
 		// W1243: no artificial default ceiling — the reviewer is unbounded and
 		// the real constraint is upstream capacity, not scheduler slots (the
 		// 2-slot default starved the merge ladder during the 2026-10-23 ERROR
@@ -899,6 +918,8 @@ export function scheduleReview(o: {
 			state: "RUNNING",
 			attempts: (old?.attempts ?? 0) + 1,
 			deferred: old?.deferred,
+			project: o.project,
+			item: o.item,
 			leaseUntil: now + 25 * 60_000,
 			token,
 			nextAt: 0,
