@@ -29,6 +29,22 @@ order, queue time, model stream time, compaction, tool time and cache
 usage separately. The driver omits the client output cap on the wire.
 The provider default remains unverified.
 
+There is no model-turn or aggregate command-count ceiling. The run
+deadline is 20 minutes, with per-command timeouts and output limits.
+A deadline exit is a censored observation. Use `BLAM_PI_THINKING=off`,
+`low` (default), or `medium` to vary effort independently. The settings
+receipt hashes the brief and pretask and the wire receipt records the
+actual thinking mode and effort. Reject comparisons when the requested
+treatment did not reach the provider.
+
+For a static-analysis treatment, run Qlty metrics without plugins on a
+separate pristine clone of the pinned base. Give the model a bounded
+list of function names and metrics in the pretask. Record Qlty version,
+runtime, analyzed paths, and the pretask hash. Do not run host analysis
+against the candidate checkout or include results from the private judge.
+Keep effort, brief and tool mode fixed when comparing this treatment
+with the original pretask.
+
 For grading, point `SWE_ORACLE_DIR` at the private directory containing
 the original SWE-bench instance record and its generated `eval.sh`.
 Run `grade.sh <exported patch> <unique label>`. It applies the patch in

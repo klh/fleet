@@ -55,15 +55,28 @@ if (!admin) throw Error("Audit authority unavailable");
 const arm = process.argv[5];
 if (arm !== "serial" && arm !== "parallel" && arm !== "smoke")
 	throw Error("Expected serial, parallel or smoke");
+const thinkingLevel = process.env.BLAM_PI_THINKING ?? "low";
+if (
+	thinkingLevel !== "off" &&
+	thinkingLevel !== "low" &&
+	thinkingLevel !== "medium"
+)
+	throw Error("BLAM_PI_THINKING must be off, low or medium");
+const brief = arm === "smoke" ? "" : await Bun.file(process.argv[3]).text();
+const pretask = arm === "smoke" ? "" : await Bun.file(process.argv[4]).text();
 console.log(
 	JSON.stringify({
 		event: "pair-settings",
 		arm,
+		thinkingLevel,
+		briefSha256: Bun.CryptoHasher.hash("sha256", brief, "hex"),
+		pretaskSha256: Bun.CryptoHasher.hash("sha256", pretask, "hex"),
 		contextWindow: 65536,
 		maxTokens: 32768,
 		reserveTokens: 16384,
 		maxTokensField,
 		wireOutputCap: null,
+		maxTurns: null,
 	}),
 );
 const lane = `w2960-pi-${crypto.randomUUID()}`;
@@ -222,11 +235,7 @@ try {
 									elapsedMs: Math.round(toolStarted - started),
 								}),
 							);
-							if (
-								typeof raw.command !== "string" ||
-								raw.command.length > 10000 ||
-								toolCalls > 100
-							)
+							if (typeof raw.command !== "string" || raw.command.length > 10000)
 								throw Error("Invalid or excessive tool request");
 							const out = await guest(lane, raw.command, 24000, 45);
 							console.log(
@@ -312,8 +321,6 @@ try {
 								)
 							)
 								throw Error("Invalid inspection batch");
-							if (toolCalls + raw.commands.length > 100)
-								throw Error("Command budget exhausted");
 							const inspect = async (command: string) => {
 								const id = ++toolCalls,
 									at = performance.now();
@@ -381,8 +388,8 @@ try {
 		const conversation = await harness.root(ctx, {
 			agent: {
 				model: { provider, modelId: model },
-				maxTurns: 60,
-				thinkingLevel: "low",
+				maxTurns: null,
+				thinkingLevel,
 			},
 		});
 		const submission = await conversation.submit(
@@ -391,9 +398,9 @@ try {
 				requestId: lane,
 				content:
 					"Fix this Sphinx issue in the repository. Identify the likely failing code path with a few targeted reads, then make the smallest source edit you can test. Use the verified offline test environment. Preserve public behavior. If a targeted test fails, use its output to refine the patch. " +
-					(await Bun.file(process.argv[3]).text()) +
+					brief +
 					"\n\n" +
-					(await Bun.file(process.argv[4]).text()),
+					pretask,
 			},
 			ctx,
 		);
