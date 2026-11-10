@@ -1764,6 +1764,57 @@ thinking setting. The first live parallel request used `max_tokens:
 8192`. Both arms use the same original pretask, 48,000-token context
 window, and compaction policy.
 
+The corrected parallel arm ended unanswered at 135.599 s before any
+tool calls. Its first stream terminated with `output_token_limit` after
+135.306 s. Buckle trace `61aa6099a1974ed9a29ab0d6a51866c4` confirms
+the in-band error, one upstream attempt, and zero queue wait. There is
+no usage footer, so the SDK's zero total is missing evidence rather than
+zero token use. The scoped key was revoked. The wrapper exited zero
+because it received an SDK result, despite that result being unanswered.
+The Buckle SSE guard can synthesize this exact code when a length
+terminal arrives without usable text or a named tool call. The
+client-side error therefore does not prove the upstream emitted a
+native error frame. Preserve this distinction in the replay verdict.
+
+The corrected serial arm ended unanswered at 242.328 s with 11
+commands and no production patch. Its fourth request received the
+same `output_token_limit` terminal. The 22,804 reported tokens cover
+completed requests only. Both corrected-arm keys were revoked.
+
+### Parent context reuse
+
+Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
+distinct conversations. Both saw the checkpoint, excluded later
+parent messages, and stayed isolated when one child reset its context.
+No model calls or Fleet dispatch were involved.
+
+An isolated llama.cpp 0.9.0 slot save/restore on Qwen3 1.7B restored
+710 computed tokens into each of two slots. The worker suffixes
+processed 7 and 8 fresh tokens. A cold control processed 717 and
+returned the same greedy output as the corresponding warm branch.
+The 81,440,572-byte snapshot was deleted after the test. Warm timings
+did not consistently beat the cold control.
+
+The native Buckle Z.AI Flash route was primed with a unique synthetic
+3,951-token prefix and then given two concurrent branches under
+distinct scoped credentials. Both answered correctly and each
+reported 3,904 cached input tokens out of 3,956. Their fresh input
+was 52 tokens each. All three credentials were revoked. Full prefixes
+were resent. The /v1/responses probe returned no_route for both full
+GLM-5.3 and Flash, so provider-side branching by handle was not tested.
+These probes do not establish real worker cache hit rate or patch quality.
+
+For the on-prem Flash arm, pin the serving engine, model revision,
+cache dtype and parallel topology. The model has 34 KDA layers and
+11 sparse MLA layers. Keep the parent prefix, tool ordering and chat
+template identical, append child briefs, and route children to the
+same serving replica. Compare cold and warm fan-out at the same
+concurrency. Record fresh prefill, cached tokens, cache memory,
+checkpoint reuse, eviction, queue time and first useful tool. Keep
+latency and capacity estimates separate from measured cluster results.
+The LMCache Flash recipe is a starting point on its documented H200
+setup. Verify hybrid-state behavior on the actual target configuration.
+
 ## MicroVM runner evaluation
 
 W2958 tracks the seed artifact. W2959 tracks the real Xeon backend and
