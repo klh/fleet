@@ -478,3 +478,11 @@ rep 2 returned `runner.desktop_image_unavailable` after the same image had
 run successfully. BLAM emitted no verdict. No production timeout was
 changed and no failed pair was dropped. The evidence does not establish
 the cause of the stop failure or the failed image inspection.
+
+No further attempt bought a passing second-arm A/B: the stop failure and
+the image-unavailable failure did not repeat identically across reruns, so
+they could not be bisected from receipts alone, and no genuine second
+Docker-capable host was available to replace the NAS/QEMU fixture. Closing
+disposition: report the Desktop-only tied result as the decision-grade
+evidence this item can produce, and record provisioning a real second
+Linux host as a separate infra decision, not a retry of this measurement.

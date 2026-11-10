@@ -1515,3 +1515,15 @@ The same NAS guest separately passed the crash fixture. A replacement
 worker reopened the job after SIGKILL, read the marker from the original
 sandbox, revoked the old and replacement keys, and removed the container.
 The paired latency run in that guest was incomplete and has no verdict.
+
+**Disposition.** No second machine passed the Docker-native preflight this
+item requires (Synology bare Docker rejects the CPU CFS limit), so the only
+non-Desktop evidence is the NAS-hosted QEMU guest — a local, software-emulated
+fixture, not a separate host, and it is kept labeled that way throughout this
+entry. Its own paired BLAM run is unresolved (8/10, two unexplained failures
+above), so it cannot stand as a second arm of the ready/useful A/B either.
+The decision-grade result this item can support is Desktop-only: native ARM64
+Docker Desktop ties Alpine vs Bun on both first-ready (W2939/W2940) and HTTP
+admission-to-tool-result (above). A true cross-host A/B needs a real second
+Docker-capable machine; that is an infra gap, not a measurement one — see
+[doesnt_work.md](doesnt_work.md), "W2937 — Runner fixture exclusions".
