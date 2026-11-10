@@ -1877,6 +1877,23 @@ key was revoked and both containers were removed. It was quicker than
 the low-effort diagnostic without the map, but neither patch passed.
 One run per treatment cannot establish a Qlty speed effect.
 
+The medium-effort treatment with five exact, verified base-source
+excerpts reached its first edit at 283.575 s and finished at 411.372 s
+after 28 model requests and 38 guest commands. The private judge
+accepted the patch with 3/3 target checks and 59/59 regressions.
+Pi reported 36,296 fresh input, 719,168 cached input and 22,233
+output tokens. The scoped key was revoked and both containers were
+removed. This is the first accepted completion baseline for this
+replay. The medium run with the original pretask was rejected at 2/3
+and took 511.462 s. The treatments ran sequentially with one trial
+each, so their results do not establish a general speed or quality
+advantage. A low-effort arm with the same excerpts is the next
+comparison.
+
+Pretask SHA-256: `7f258f067092fd6b6ec9c56988a8c0beb7eb90a2d2ab6ab6dbc3934a909f7f51`.
+Accepted patch SHA-256: `0e26312a1e170b5dac5bb970dd186e71f5faf0ae3745f45e0b724f774859475c`.
+Private judge receipt SHA-256: `13a7e69591e4b846d2ae49da76d3e72b4110939cdc254f1492285956def0a91c`.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
