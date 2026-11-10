@@ -38,10 +38,13 @@ loopback-only, dependency-free:
 - Denial is real: a missing or wrong bearer is a 401
   `invalid_request_error/invalid_api_key`.
 
-Run standalone: `bun run deploy/phase0-testbed/vllm-stub.ts` is not an
-entrypoint — the stub starts via `startVllmStub()` from the e2e spec or a
-compose service command (`bun run deploy/phase0-testbed/vllm-stub-main.ts`
-style wrapper is the edge arm's wiring decision).
+Run standalone: `startVllmStub()` from the e2e spec, or the compose
+entrypoint `bun run deploy/phase0-testbed/vllm-stub-main.ts` (edge arm's
+wiring): env `STUB_HOST` (default loopback; compose passes `0.0.0.0` so
+peer containers on the internal bridge reach the service-name route),
+`STUB_PORT=8191`, `STUB_TOKEN` (the inner Buckle's `api_key_env` reads the
+SAME var), optional `STUB_MODEL`. No published port — the stub is
+reachable only inside the rehearsal network, `/__log` included.
 
 ## Inner-Buckle contract (`upstreams.testbed.json`)
 
@@ -58,13 +61,29 @@ style wrapper is the edge arm's wiring decision).
   the governance gate — that refusal IS the private-bind rehearsal; never
   bypass it.
 
-## Credentials (three, none crossing a hop boundary)
+## Credentials (four, none crossing a hop boundary)
 
 | Hop | Credential | Lifetime |
 | --- | --- | --- |
-| client → APIM stand-in | test bearer | compose-up, torn down after |
+| client → APIM stand-in | test subscription key/bearer | compose-up, torn down after |
+| APIM stand-in → edge Buckle | stand-in bearer for the APIM policy tier | compose-up, torn down after |
 | edge Buckle → inner Buckle | `bksk_` key minted from the inner Buckle admin API at up | revoked at teardown; the revocation receipt is the cleanup evidence (W2932 pattern) |
 | inner Buckle → stub | `STUB_TOKEN` env | compose-up only |
+
+## Routing-classification reality (01a186a5 Docker proofs #121222–#121230)
+
+Compose service-name routes classify as CLOUD by the gate's residency
+classifier (`kindOfHost` knows only loopback as local) — the rehearsal is
+single-network with zero real egress, so the test-only posture is either
+`BUCKLE_PREFS` with `allow_cloud:true` (isolated internal bridge keeps it
+safe) or, preferred, explicit residency tags:
+`BUCKLE_RESIDENCY_LOCALITY=hub-local` + `BUCKLE_RESIDENCY_REGIONS=pilot`
+with matching `BUCKLE_POLICY` tags on the rows. Mismatched residency
+advertises the model but answers 503 `no_healthy_fit` with
+`X-Klh-Attempts: 0` — that IS the residency denial rehearsal; accept on
+inference, never on catalog. The real Azure→private-on-prem boundary still
+needs explicit approved routing/residency design before deployment; never
+decrease trust from an HTTP allowlist or enable a global cloud fallback.
 
 ## Correlation
 
@@ -95,6 +114,8 @@ one internal network with the four services (client is run ad hoc, not a
 service), ONLY the edge port published (free-picked at up-time), resource
 caps (buckle 512m / 256 pids, stub and stand-in smaller), and no
 `x-klh-hop-contract` stamping. Contract inputs it consumes from here: the
-stub service (this directory, port 8190 on the internal network) and the
-upstream rows file above mounted read-only at the inner Buckle's
-`BUCKLE_UPSTREAMS` path.
+stub service (`deploy/phase0-testbed/vllm-stub-main.ts`, env names above,
+port 8191 on the internal network) and the upstream rows file above
+mounted read-only at the inner Buckle's `BUCKLE_UPSTREAMS` path. Both
+authenticated Buckles need `BUCKLE_BIND=0.0.0.0` + a writable
+`BUCKLE_DB` path inside the container (01a186a5 #121222).

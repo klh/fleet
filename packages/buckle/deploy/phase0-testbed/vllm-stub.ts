@@ -41,6 +41,7 @@ export interface StubLogEntry {
 export interface VllmStub {
 	url: string;
 	port: number;
+	hostname: string;
 	model: string;
 	token: string;
 	/** Rehearsal journal, oldest first. */
@@ -49,6 +50,10 @@ export interface VllmStub {
 	stop(): Promise<void>;}
 
 export interface VllmStubOptions {
+	/** Bind host. Default loopback (tests); compose passes STUB_HOST=0.0.0.0
+	 *  via vllm-stub-main.ts so peer containers on the internal bridge can
+	 *  reach the service-name route (01a186a5 #121171 finding). */
+	hostname?: string;
 	/** Fixed port (compose/testbed); omit for an ephemeral loopback port. */
 	port?: number;
 	/** Bearer the stub accepts. Default "test-stub-token". */
@@ -71,6 +76,7 @@ const clamp = (value: number, lo: number, hi: number): number =>
 export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 	const token = opts.token ?? "test-stub-token";
 	const model = opts.model ?? "test-model";
+	const hostname = opts.hostname ?? "127.0.0.1";
 	const entries: StubLogEntry[] = [];
 	let counter = 0;
 
@@ -107,7 +113,7 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 	});
 
 	const server = Bun.serve({
-		hostname: "127.0.0.1",
+		hostname,
 		port: opts.port ?? 0,
 		async fetch(req) {
 			const url = new URL(req.url);
@@ -269,6 +275,7 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 	return {
 		url: `http://127.0.0.1:${server.port}`,
 		port: server.port ?? opts.port ?? 0,
+		hostname,
 		model,
 		token,
 		log: () => [...entries],

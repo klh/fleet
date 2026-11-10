@@ -10,7 +10,7 @@
 // 401 denial at the gate, zero-fallback on stub outage + recovery without a
 // gate restart, header-strip correlation, revoked-key denial.
 import { expect, test } from "@playwright/test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startVllmStub, type VllmStub } from "../deploy/phase0-testbed/vllm-stub.ts";
@@ -122,6 +122,10 @@ test.describe("phase0 rehearsal inner arm", () => {
 	test.afterAll(async () => {
 		gate?.stop();
 		await stub?.stop();
+		// no test droppings left behind (01a186a5 #121234): the temp gate
+		// home (db/policy/prefs/upstreams rows) and the env token both go
+		rmSync(dir, { recursive: true, force: true });
+		delete process.env.STUB_TOKEN;
 	});
 
 	test("discovery: the served model id is the wire id", async () => {
