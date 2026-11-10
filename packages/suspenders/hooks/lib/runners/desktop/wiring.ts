@@ -78,7 +78,7 @@ const SandboxToolArgsSchema = z.strictObject({
 const containerToolOf = (deps: {
 	executor: DesktopContainer;
 	runId: string;
-	authorize: AuthorizeFn;
+	captureFence: (runId: string) => () => Promise<void>;
 }) =>
 	defineTool({
 		name: "desktop_sandbox_exec",
@@ -97,7 +97,8 @@ const containerToolOf = (deps: {
 		async execute(args, api, context) {
 			void api;
 			void context;
-			await deps.authorize("execute", { runId: deps.runId });
+			const fence = deps.captureFence(deps.runId);
+			await fence();
 			// pi-durable hands execute() untyped args — parse against the
 			// declared parameters (schema law: wire-facing shape via zod).
 			const parsed = SandboxToolArgsSchema.parse(args);
@@ -105,6 +106,7 @@ const containerToolOf = (deps: {
 				stdin: parsed.stdin,
 				timeoutMs: parsed.timeoutMs,
 			});
+			await fence();
 			return {
 				output: [
 					{
@@ -125,22 +127,22 @@ const containerToolOf = (deps: {
  *  from lanes/humans never pass through here; they ride controller
  *  methods with their own scopes. */
 
-const leaseFence =
+export const captureRunnerLeaseFence =
 	(
-		getController: () => RunnerController,
+		getController: () => Pick<RunnerController, "fence">,
 		executorSid: string,
-		tokens: Map<string, LeaseToken>,
-	): AuthorizeFn =>
-	async (action, { runId }) => {
-		void action;
+		tokens: ReadonlyMap<string, LeaseToken>,
+	) =>
+	(runId: string): (() => Promise<void>) => {
 		const token = tokens.get(runId);
 		if (!token) {
 			throw new Error(`runner: no captured lease token for ${runId}`);
 		}
-		await getController().fence({
-			runId,
-			actor: { sid: executorSid, scopes: [], leaseToken: token },
-		});
+		return () =>
+			getController().fence({
+				runId,
+				actor: { sid: executorSid, scopes: [], leaseToken: token },
+			});
 	};
 
 export interface DesktopLeafDeps {
@@ -204,7 +206,13 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	const heartbeats = new Map<string, HeartbeatEntry>();
 	const watchdogs = new Map<string, { stop(): void }>();
 	let controller: RunnerController;
-	const authorize = leaseFence(() => controller, deps.executorSid, tokens);
+	const captureFence = captureRunnerLeaseFence(
+		() => controller,
+		deps.executorSid,
+		tokens,
+	);
+	const authorize: AuthorizeFn = async (_action, { runId }) =>
+		captureFence(runId)();
 
 	const stopHeartbeat = (runId: string): void => {
 		const entry = heartbeats.get(runId);
@@ -406,7 +414,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		registry.install(
 			defineExtension({
 				name: "fleet-desktop-sandbox",
-				tools: [containerToolOf({ executor, runId, authorize })],
+				tools: [containerToolOf({ executor, runId, captureFence })],
 			}),
 		);
 		return { ...deps.runtime, registry, models: modelsFor(runId) };
