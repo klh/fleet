@@ -1859,6 +1859,24 @@ would have applied, so this run does not isolate the effect of
 removing that cap. It does show that a model-declared completion
 still needs the private oracle.
 
+The next parallel arm changed the requested effort from low to medium
+and kept the same brief, pretask, route and tool mode. The route
+returned HTTP 200 with medium effort on the wire. It finished at
+511.462 s after 43 requests and 60 commands. The private judge scored
+2/3 target checks and 59/59 regressions. Pi reported 47,898 fresh input,
+1,289,344 cached input and 26,209 output tokens. The scoped key was
+revoked. This serially scheduled, single-repeat comparison provides no
+accepted patch from either effort setting.
+
+A low-effort arm appended a Qlty 0.649.0 function map generated from
+three unchanged base-revision files without plugins. It finished in
+260.819 s with 37 model requests and 47 commands. The private judge
+scored 0/3 target checks and 59/59 regressions. Pi reported 24,623
+fresh input, 580,352 cached input and 10,882 output tokens. The scoped
+key was revoked and both containers were removed. It was quicker than
+the low-effort diagnostic without the map, but neither patch passed.
+One run per treatment cannot establish a Qlty speed effect.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
