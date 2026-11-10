@@ -1,0 +1,206 @@
+# deploy/phase0-rehearsal/compose.yaml — local two-Buckle rehearsal topology
+# (W2968). Four services on one internal network behind a single
+# loopback-published edge port:
+#
+#   host client -> apim-sim (edge stand-in) -> edge-buckle -> inner-buckle -> stub
+#
+# The edge stand-in SIMULATES the Azure APIM policy shape (identity gate,
+# quota, correlation-id mint, raw stream passthrough). It is NOT APIM —
+# the real APIM policy is validated in the live Phase 0 exit test only.
+#
+# Discipline inherited from the hub compose (W451/W697) and the W2968 lane
+# proofs:
+#   - oven/bun:1 digest-pinned (the one bun across stack, testbed included)
+#   - read-only rootfs + tmpfs /tmp scratch, cap_drop ALL,
+#     no-new-privileges, init (SIGTERM forwarding + reaping)
+#   - ONE published port, loopback-bound, dynamic (picked free at up);
+#     everything behind it sits on an internal network (publishes nothing)
+#   - explicit BUCKLE_DB per container (writable tmpfs; HOME=/tmp alone
+#     is not enough — the db fails to open without it)
+#   - BUCKLE_HTTP_UPSTREAM_HOSTS egress allowlists name exact Compose DNS
+#     neighbors only (plain http otherwise refuses non-loopback upstreams)
+#   - credentials never in compose literals: fixture secrets arrive via
+#     --env-file at up (verify.ts generates them, random per run)
+#   - ephemeral state: no named volumes; compose down removes everything
+#   - test-only prefs (allow_cloud:true): Compose DNS names classify as
+#     cloud in the routing decision (kindOfHost trusts loopback only);
+#     the isolated internal bridge + inherit_defaults:false keep real
+#     egress at zero — the pref unlocks the hop, the network bounds it
+
+name: phase0-rehearsal
+
+x-bun-image: &bun-image oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  stop_grace_period: 10s
+
+networks:
+  ingress:
+    driver: bridge
+  backend:
+    internal: true
+
+services:
+  # The APIM stand-in — a SIMULATION of the APIM policy shape: bearer gate,
+  # token-bucket quota, client-header strip + correlation-id mint, raw
+  # stream passthrough (the buffer-response="false" equivalent). Fixed
+  # target only: no generic proxying, no redirects, no path rewriting.
+  apim-sim:
+    <<: *hardening
+    image: *bun-image
+    logging: *logging
+    networks: [ingress, backend]
+    ports:
+      # THE one published port. Loopback-bound, dynamic host port (free
+      # at up); verify discovers it via `docker compose port`.
+      - "127.0.0.1::8191"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          pids: 128
+    working_dir: /src/fleet
+    command: bun packages/suspenders/deploy/phase0-rehearsal/apim-sim.ts
+    volumes:
+      # source mount — the entrypoint lives in the git-pulled checkout
+      - ../../../../:/src/fleet:ro
+    environment:
+      FLEET_VERSION: ${FLEET_VERSION:-local}
+      APIM_PORT: "8191"
+      APIM_BIND: 0.0.0.0
+      # client->sim credential (fixture from --env-file, random per run)
+      APIM_AUTH_TOKEN: ${APIM_AUTH_TOKEN:?}
+      # fixed-target upstream: the edge Buckle (never a generic proxy)
+      APIM_UPSTREAM: http://edge-buckle:8192
+      APIM_QUOTA_REQUESTS: ${APIM_QUOTA_REQUESTS:-60}
+      APIM_QUOTA_WINDOW_MS: ${APIM_QUOTA_WINDOW_MS:-60000}
+      # sim->edge hop credential (minted at up; force-recreate injects it)
+      APIM_EDGE_KEY: ${APIM_EDGE_KEY:-}
+    depends_on:
+      edge-buckle:
+        condition: service_started
+    restart: ""
+  edge-buckle:
+    <<: *hardening
+    image: *bun-image
+    logging: *logging
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          pids: 256
+    working_dir: /src/fleet/packages/buckle
+    command: bun run src/server.ts
+    environment:
+      FLEET_VERSION: ${FLEET_VERSION:-local}
+      HOME: /tmp
+      BUCKLE_PORT: "8192"
+      BUCKLE_BIND: 0.0.0.0
+      # explicit per-container db on the writable tmpfs (writable HOME
+      # alone is not enough — the db fails to open without BUCKLE_DB)
+      BUCKLE_DB: /tmp/buckle.sqlite
+      BUCKLE_HUB_ID: phase0-edge
+      BUCKLE_AUTH: "on"
+      # fixture root key (from --env-file; dies with the stack)
+      BUCKLE_ROOT_KEY: ${EDGE_ROOT_KEY:?}
+      # edge serves ONLY the pilot group: one row, whole-pool override
+      BUCKLE_UPSTREAMS: /etc/klh/upstreams-edge.json
+      # per-hop tier policy (fixture class): the named key phase0-verify
+      # reaches ONLY the fixture-edge provider row + test-model group —
+      # without it the mandatory default class (zai/openrouter allowlist)
+      # scopes every selection to zero (tier_no_upstream)
+      BUCKLE_REPO_TIER_POLICY: /etc/klh/tier-policy-edge.json
+      # test-only prefs (mounted file): Docker DNS names classify as cloud,
+      # the pref unlocks the hop, the isolated internal net bounds it
+      BUCKLE_PREFS: /etc/klh/buckle-prefs.json
+      # egress law: plain http only to the exact Compose DNS neighbor
+      BUCKLE_HTTP_UPSTREAM_HOSTS: inner-buckle
+      # edge->inner scoped hop credential (minted at up, injected by
+      # force-recreate; buckle reads api_key_env names at request time)
+      EDGE_INNER_KEY: ${EDGE_INNER_KEY:-}
+    volumes:
+      - ../../../../:/src/fleet:ro
+      - ./upstreams-edge.json:/etc/klh/upstreams-edge.json:ro
+      - ./tier-policy-edge.json:/etc/klh/tier-policy-edge.json:ro
+      - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
+    depends_on:
+      inner-buckle:
+        condition: service_started
+    restart: ""
+  inner-buckle:
+    <<: *hardening
+    image: *bun-image
+    logging: *logging
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          pids: 256
+    working_dir: /src/fleet/packages/buckle
+    command: bun run src/server.ts
+    environment:
+      FLEET_VERSION: ${FLEET_VERSION:-local}
+      HOME: /tmp
+      BUCKLE_PORT: "8193"
+      BUCKLE_BIND: 0.0.0.0
+      BUCKLE_DB: /tmp/buckle.sqlite
+      BUCKLE_HUB_ID: phase0-inner
+      BUCKLE_AUTH: "on"
+      BUCKLE_ROOT_KEY: ${INNER_ROOT_KEY:?}
+      BUCKLE_UPSTREAMS: /etc/klh/upstreams-inner.json
+      # per-hop tier policy (fixture class): phase0-verify reaches ONLY the
+      # fixture-inner provider row + test-model group
+      BUCKLE_REPO_TIER_POLICY: /etc/klh/tier-policy-inner.json
+      # test-only prefs (mounted file): Docker DNS names classify as cloud,
+      # the pref unlocks the hop, the isolated internal net bounds it
+      BUCKLE_PREFS: /etc/klh/buckle-prefs.json
+      # egress law: plain http only to the exact Compose DNS neighbor
+      BUCKLE_HTTP_UPSTREAM_HOSTS: stub
+      STUB_TOKEN: ${STUB_TOKEN:?}
+    volumes:
+      - ../../../../:/src/fleet:ro
+      - ./upstreams-inner.json:/etc/klh/upstreams-inner.json:ro
+      - ./tier-policy-inner.json:/etc/klh/tier-policy-inner.json:ro
+      - ./buckle-prefs.json:/etc/klh/buckle-prefs.json:ro
+    depends_on:
+      stub:
+        condition: service_started
+    restart: ""
+  # The vLLM stand-in — Pi's committed W2969 testbed stub. Serves the
+  # pinned test-model with paced JSON+SSE (include_usage terminal chunk);
+  # /__log is the correlation terminal, internal-only (verify reads it
+  # via compose exec). STUB_MODEL defaults to test-model.
+  stub:
+    <<: *hardening
+    image: *bun-image
+    logging: *logging
+    networks: [backend]
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          pids: 128
+    working_dir: /src/fleet
+    command: bun packages/buckle/deploy/phase0-testbed/vllm-stub-main.ts
+    volumes:
+      # source mount — Pi's entrypoint + lib live in the checkout (W2969)
+      - ../../../../:/src/fleet:ro
+    environment:
+      FLEET_VERSION: ${FLEET_VERSION:-local}
+      STUB_HOST: 0.0.0.0
+      STUB_PORT: "8191"
+      STUB_TOKEN: ${STUB_TOKEN:?}
+    restart: ""

@@ -1,0 +1,15 @@
+{
+	"version": 1,
+	"inherit_defaults": false,
+	"groups": {
+		"test-model": [
+			{
+				"url": "http://inner-buckle:8193/v1",
+				"dialect": "openai",
+				"provider": "fixture-edge",
+				"buckle": true,
+				"api_key_env": "EDGE_INNER_KEY"
+			}
+		]
+	}
+}
