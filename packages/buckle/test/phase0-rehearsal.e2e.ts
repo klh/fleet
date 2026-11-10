@@ -271,15 +271,21 @@ test.describe("phase0 rehearsal inner arm", () => {
 		expect(through.status).toBe(200);
 		await through.text();
 		const entry = stub.log()[before];
+		// client ids are stripped — but the gate ISSUES its own W3C traceparent
+		// on outbound hops (W1086/W1118 telemetry): the through-gate traceId is
+		// the gate's id (correlates gate ledger row <-> stub journal), never
+		// the client's
 		expect(entry?.requestId).toBeNull();
+		expect(entry?.traceId).toMatch(/^[0-9a-f]{32}$/);
 
-		// control: DIRECT to the stub the header arrives verbatim — the null
-		// above is the gate stripping, not the stub ignoring headers
+		// control: DIRECT to the stub the headers arrive verbatim — the nulls
+		// above are the gate stripping, not the stub ignoring headers
 		const direct = await fetch(`${stub.url}/v1/chat/completions`, {
 			method: "POST",
 			headers: {
 				authorization: `Bearer ${stub.token}`,
 				"x-klh-request-id": "forged-client-id",
+				traceparent: `00-${"a".repeat(32)}-${"b".repeat(16)}-01`,
 			},
 			body: JSON.stringify({
 				model: MODEL,
@@ -289,6 +295,7 @@ test.describe("phase0 rehearsal inner arm", () => {
 		expect(direct.status).toBe(200);
 		const directEntry = stub.log().at(-1);
 		expect(directEntry?.requestId).toBe("forged-client-id");
+		expect(directEntry?.traceId).toBe("a".repeat(32));
 	});
 
 	test("revoked-key denial", async () => {

@@ -29,6 +29,10 @@ export interface StubLogEntry {
 	keyFp: string | null;
 	/** x-klh-request-id or x-request-id exactly as received, null when absent. */
 	requestId: string | null;
+	/** W3C trace id parsed from a RECEIVED traceparent header, else raw
+	 *  x-trace-id, else null — never synthesized by the stub (additive
+	 *  correlation face, C390). */
+	traceId: string | null;
 	stream: boolean;
 	/** stream_options.include_usage as received. */
 	includeUsage: boolean;
@@ -70,6 +74,14 @@ const sha16 = (input: string): string => {
 		.join("");
 };
 
+/** W3C traceparent: `00-<32hex trace-id>-<16hex span-id>-<flags>` — the
+ *  trace-id segment only, null when the header is malformed/absent. */
+const parseTraceId = (traceparent: string | null): string | null => {
+	if (!traceparent) return null;
+	const traceId = traceparent.split("-")[1] ?? "";
+	return /^[0-9a-f]{32}$/.test(traceId) ? traceId : null;
+};
+
 const clamp = (value: number, lo: number, hi: number): number =>
 	Math.min(hi, Math.max(lo, value));
 
@@ -97,6 +109,8 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 			requestId:
 				req.headers.get("x-klh-request-id") ??
 				req.headers.get("x-request-id"),
+			traceId: parseTraceId(req.headers.get("traceparent")) ??
+				req.headers.get("x-trace-id"),
 			stream: body?.stream === true,
 			includeUsage:
 				(body?.stream_options as Record<string, unknown> | undefined)
