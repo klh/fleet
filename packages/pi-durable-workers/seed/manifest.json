@@ -4,20 +4,20 @@
 	"name": "klh/pi-durable-seed",
 	"version": "2.2.0",
 	"source": {
-		"revision": "21b1f465cf6e79ad9797dddf60eb5841b5fed76b",
+		"revision": "adca1d4ce0cc73d0bdf5296ac9b1a94663c434f4",
 		"dirty": false,
 		"package": "@klh/pi-durable-workers"
 	},
 	"base_image": "oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
-	"runtime_image": "klh/pi-durable-seed@sha256:7136c6f66e20ebf26b3633863da69e87c618893c9d0d0e4a7e3b58ada730c60e",
+	"runtime_image": "klh/pi-durable-seed@sha256:29e27c838d5af46550490fda6464caee693b245473f770170ab25b9d751da121",
 	"platform": "linux/amd64",
 	"seed": {
-		"digest": "84f867f812302556199bc443e955462efe07362dd7537be0b32a822a6e311452",
+		"digest": "26bdabc2001cad629385e16d736f011bc566b4043c87025820bab48504fd00a6",
 		"files": 16,
-		"bytes": 82228
+		"bytes": 82879
 	},
 	"policy": {
-		"digest": "126dbf1c90d0ea62fea154b2db0f1338760374ed9d1df36e2b8980245068d332",
+		"digest": "e991b5ae443a1a9ae7eb20df56d97a05bc01080c07fdadc7c9241fdf0dacd9a9",
 		"user": "1000:1000",
 		"memory_mb": 512,
 		"cpus": 1,
@@ -55,8 +55,44 @@
 			"version": "2.2.0"
 		},
 		{
+			"name": "ambr",
+			"version": "0.6.1"
+		},
+		{
+			"name": "bat",
+			"version": "0.25.0-2+b2"
+		},
+		{
+			"name": "eza",
+			"version": "0.21.0-1+b1"
+		},
+		{
+			"name": "fd-find",
+			"version": "10.2.0-1+b5"
+		},
+		{
+			"name": "fzf",
+			"version": "0.60.3-1+b2"
+		},
+		{
 			"name": "git",
-			"version": "2.47.3"
+			"version": "1:2.47.3-0+deb13u1"
+		},
+		{
+			"name": "jq",
+			"version": "1.7.1-6+deb13u4"
+		},
+		{
+			"name": "ripgrep",
+			"version": "14.1.1-1+b4"
+		},
+		{
+			"name": "sd",
+			"version": "1.0.0-3+b6"
+		},
+		{
+			"name": "unzip",
+			"version": "6.0-29+deb13u1"
 		},
 		{
 			"name": "zod",
@@ -134,8 +170,8 @@
 		},
 		{
 			"path": "src/index.ts",
-			"sha256": "d2571eb2fdb19c0e14ccb07f588079f6abdc0a8b45f7b853f6d18c424913e5ea",
-			"bytes": 9400
+			"sha256": "ede2ca4e6aca25054754007a3d38291444cd5bbcf7a9bab5c75083d8f1a6f2f8",
+			"bytes": 9757
 		},
 		{
 			"path": "src/approvals.ts",
@@ -144,8 +180,8 @@
 		},
 		{
 			"path": "src/seed-readiness.ts",
-			"sha256": "d69cab6e3257513fcd230c051d6c39bf85b370ff4b2e9f52caad05c1707423e3",
-			"bytes": 4114
+			"sha256": "cb17d1b21c8651322742c7a395020d5c39c4f1ebc22319a41c42360b2394dc1a",
+			"bytes": 4408
 		},
 		{
 			"path": "src/tasks.ts",
@@ -153,5 +189,5 @@
 			"bytes": 3938
 		}
 	],
-	"built_at": "2026-11-10T13:30:09.581Z"
+	"built_at": "2026-11-10T19:21:01.779Z"
 }

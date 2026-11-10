@@ -79,9 +79,13 @@ docker rm seed-rootfs
 #   - the seed bundle volume mounted read-only at /seed
 ```
 
-The manifest's `seed.digest` and `policy.digest` bind UNCHANGED — the disk
-image is the same payload bytes; a provider that hashes the disk records the
-disk digest alongside the manifest (an extension field, never a replacement).
+The disk build must preserve the guest binaries and the `fd` and `bat`
+symlinks. OCI export does not carry the image configuration. The VM boot
+configuration must set the same working directory, UID/GID, environment
+(including `PI_DURABLE_SEED_SPEEDY=1`), and readiness command. Run the
+readiness and Speedy probes before admitting a lane. Record the bootable
+disk digest alongside the originating seed and policy digests. A passing
+OCI smoke alone is not evidence that a VM booted.
 
 ## Azure/provider-hosted import (Phase 1 prerequisite)
 
@@ -89,8 +93,10 @@ W2958 explicitly does NOT write to any cloud. When the Phase 1 APIM/Buckle
 inference path is verified (W2937 evidence, W2783 owner gate), the import is
 provider-native: push the OCI image to the provider's registry from the
 machine that holds `manifest.json`, then reference the pushed digest in the
-provider's runner profile. The pin remains `name@sha256:<digest>` — registry
-push does not change the image config digest.
+provider's runner profile. Record the registry's returned manifest digest
+and verify its image config digest matches the local build. These digests
+identify different objects and can differ. Verify the pull and readiness
+on the target before using that profile.
 
 ## Arch note for the W2960 matched comparison
 
