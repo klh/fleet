@@ -761,6 +761,12 @@
           "minimum": 1,
           "maximum": 168
         },
+        "review_model": {
+          "description": "Primary reviewer model (W2948; SUSPENDERS_REVIEW_MODEL and the completion author's lane model fact both win over it)",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "review_fallback_models": {
           "description": "Reviewer secondary-model ladder CSV (SUSPENDERS_REVIEW_FALLBACK_MODELS; the env var stays the override)",
           "type": "string",

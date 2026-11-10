@@ -17,6 +17,7 @@ import {
 	protectedFamily,
 	protectedFamilyRefusal,
 } from "./protected-family.ts";
+import { selectReviewModel } from "./review-model-select.ts";
 import { parkReviewRequest, reviewTransportPark } from "./review-park.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
@@ -156,10 +157,7 @@ export const reviewWireParkMarker = "wire-model fallback";
 
 /** W2792.1 knob (conf row wins, env fills, default 1h; 0 disables):
  *  SUSPENDERS_REVIEW_WIRE_PARK_MS. */
-const WireParkKnobSchema = z.union([
-	z.literal("0"),
-	z.string().regex(/^\d+$/),
-]);
+const WireParkKnobSchema = z.union([z.literal("0"), z.string().regex(/^\d+$/)]);
 export function reviewWireParkMs(
 	env: NodeJS.ProcessEnv,
 	confVal?: number,
@@ -210,10 +208,7 @@ export function newestOutOfBaseReceipt(
  *  re-review waits this long past the newest out-of-base receipt before its
  *  first knock — landing waves coalesce into one re-review per window instead
  *  of one per ladder pass. SUSPENDERS_REVIEW_BASE_SETTLE_MS. */
-const SettleKnobSchema = z.union([
-	z.literal("0"),
-	z.string().regex(/^\d+$/),
-]);
+const SettleKnobSchema = z.union([z.literal("0"), z.string().regex(/^\d+$/)]);
 export function reviewBaseSettleMs(
 	env: NodeJS.ProcessEnv,
 	confVal?: number,
@@ -665,13 +660,24 @@ export function scheduleReview(o: {
 	// fresh model.health facts) re-pins to the freshest healthy group,
 	// loudly; the request records repinned_from (never a silent alias — the
 	// W1302.6 wire audit grades the new pin as itself).
-	let model = env.SUSPENDERS_REVIEW_MODEL || pin?.value;
-	let repinnedFrom: string | null = null;
+	// W2948: one auditable selection — env override, author lane fact, the
+	// machine-conf primary (fleet_loop.review_model), then a SAFE rung of the
+	// configured fallback ladder. Never an invented model.
+	const live = o.settings?.();
 	// W2571: a protected-family item is pinned full-5.3-only BEFORE any
 	// health/fallback layer runs — the model-health repin is skipped
 	// entirely (stale health facts re-pinned glm-5.3 to flash, root
 	// #102182) and a non-full-class pin refuses loudly instead of launching.
 	const protectedItem = protectedFamily(o.db, o.project, o.item);
+	const choice = selectReviewModel({
+		env,
+		pin: pin?.value,
+		confModel: live?.reviewModel,
+		fallbackModels: live?.reviewFallbackModels,
+		protectedItem,
+	});
+	let model = choice.model;
+	let repinnedFrom: string | null = null;
 	if (protectedItem) {
 		if (!model || wireModelMatch(model, PROTECTED_REVIEW_CLASS) !== "match")
 			return protectedFamilyRefusal(model);
@@ -683,8 +689,7 @@ export function scheduleReview(o: {
 			model = rePin.model;
 		}
 	}
-	if (!model)
-		return "review unavailable: configure SUSPENDERS_REVIEW_MODEL or restore original lane model fact";
+	if (!model) return choice.diagnosis;
 	const key = reviewRequestKey(o.project, o.item, o.context);
 	const token = randomUUID();
 	const now = Date.now();
@@ -849,12 +854,25 @@ export function scheduleReview(o: {
 		// re-reviewing per ladder pass (reviews-per-landing → 1/window).
 		const settleMs = reviewBaseSettleMs(env, o.settings?.().reviewBaseSettleMs);
 		if (settleMs > 0 && (!old || old.state === "ERROR")) {
-			const newest = newestOutOfBaseReceipt(o.db, o.project, o.item, o.context.commit, o.context.base);
+			const newest = newestOutOfBaseReceipt(
+				o.db,
+				o.project,
+				o.item,
+				o.context.commit,
+				o.context.base,
+			);
 			const settleAt = newest === null ? 0 : newest + settleMs;
 			if (settleAt > now) {
 				const settled: Request = old
 					? { ...old, state: "ERROR", nextAt: settleAt }
-					: { state: "ERROR", attempts: 0, deferred: 0, leaseUntil: 0, token, nextAt: settleAt };
+					: {
+							state: "ERROR",
+							attempts: 0,
+							deferred: 0,
+							leaseUntil: 0,
+							token,
+							nextAt: settleAt,
+						};
 				o.db
 					.query(
 						"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
@@ -981,7 +999,7 @@ export function scheduleReview(o: {
 				);
 			});
 		}
-		return `review requested through Buckle (${model})${
+		return `review requested through Buckle (${model}) via ${choice.source ?? "unknown"}${
 			repinnedFrom ? ` — re-pinned from ${repinnedFrom} (group DOWN)` : ""
 		}`;
 	} catch {
