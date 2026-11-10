@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"classes": [
+		{
+			"id": "phase0-edge-fixture",
+			"tier": "fixture",
+			"general": true,
+			"keys": ["phase0-verify"],
+			"providers": ["fixture-edge"],
+			"groups": ["test-model"]
+		}
+	]
+}

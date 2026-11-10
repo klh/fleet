@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"classes": [
+		{
+			"id": "phase0-inner-fixture",
+			"tier": "fixture",
+			"general": true,
+			"keys": ["phase0-verify"],
+			"providers": ["fixture-inner"],
+			"groups": ["test-model"]
+		}
+	]
+}
