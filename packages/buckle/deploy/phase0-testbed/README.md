@@ -128,8 +128,11 @@ trusted peers for zero loss-recovery benefit — rejected; the deviation
 (Bun/vLLM h3 servers absent) is recorded here rather than forced. The
 Docker Desktop compose must publish the edge port as `443/tcp` **and**
 `443/udp` for the h3 leg (Docker Desktop forwards UDP fine at rehearsal
-scale); the verify script's h3 probe rides the Caddy container itself (the
-macOS system curl has no h3).
+scale). Verified h3 probe tools on this Mac (2026-11-10): Homebrew curl
+8.23.0 (`/opt/homebrew/opt/curl/bin/curl`, ngtcp2/nghttp3) — live h3
+proven (`--http3-only`, `proto=3`); xh 0.26.3 has NO h3 (the `--http3`
+flag is rejected — fine for the h1 rehearsal legs); Apple system curl has
+no h3. So the verify script's h3 probe is brew curl, no container needed.
 
 ## Compose wiring (edge arm — placeholder)
 
