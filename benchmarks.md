@@ -1561,3 +1561,78 @@ request setting on a plain-text turn. It does not measure an agentic
 patch or establish how the upstream accounts for a tool-heavy failed
 turn. Use the same 8,192 limit in both arms of the next comparison and
 record per-request stop reasons and usage.
+
+## Pi Durable delegation
+
+Track supervisor and worker results separately from container startup and
+microVM performance. The comparison is a single Pi Durable runner versus
+a Pi Durable supervisor that launches separate Pi Durable workers and
+joins their patches. Judge both with the same private oracle, fixture
+revision, model route, and aggregate budget. Record total parent and child
+usage, completion, and isolation outcomes. Local worker sessions do not
+establish Fleet dispatch or restart-safe admission. W2971 and W2973
+track the Fleet integration and matched benchmark.
+
+Measure four orchestration arms on a larger held-out task: one session
+with serial tools, one session with parallel tools and Fleet locks,
+one Pi supervisor with independent Pi workers, and peer Pi lanes with
+Fleet coordination. Pin the total budget and judge the integrated patch.
+Include lock wait, file conflicts, worktree reconciliation and review
+in elapsed time. Keep multi-level delegation a separate arm. The pinned
+SDK exposes `toolExecution` with parallel and sequential modes. Actual
+tool overlap requires asynchronous dispatch and timestamped tool results.
+
+The initial local Relay fan-out completed in 230.980 s with 70,929
+reported tokens across supervisor and workers. The supervisor settled,
+but the trace worker was unanswered and produced no assigned patch.
+Claim and cache patches imported cleanly, for 15/22 overall. The earlier
+single-runner control on the same fixture and model passed 22/22 in
+157.893 s with 45,074 reported tokens. These are diagnostic observations,
+not a matched aggregate-budget comparison. The worker arm overlapped
+with a separate routing test and used separate briefs and independent
+per-run limits. No Fleet dispatch or microVM was involved.
+
+The larger canonical fixture is SWE-bench Verified
+`sphinx-doc__sphinx-9461` at `939c7bb7ff7c53a4d27df067cea637540f0e1dad`.
+Its reference change spans three source files. The official evaluation
+spec has 3 fail-to-pass and 59 pass-to-pass checks. Keep the official
+patches and tests outside agent worktrees and verify the evaluator
+controls before collecting timings. The case is public, so treat
+possible training overlap as a limitation.
+
+With SWE-bench 4.1.0 and the pinned amd64 evaluator image, the base
+failed all three target checks and passed all 59 regressions. The
+reference passed 62/62. The first serial Pi arm used the official issue
+brief and Buckle's native OpenAI-compatible route. It reached the 450 s
+deadline without a source edit. The tool sandbox was writable, ran as
+UID 1000, and had Python available. The scoped key was revoked and the
+container removed. This is a timed-out baseline with no accepted patch.
+The driver did not retain per-turn telemetry on timeout, so the delay
+cannot yet be attributed to inference, tool execution or exploration.
+
+
+The instrumented serial retry and parallel-tool arm used the same
+fixture, model route and 8,192-token per-call limit.
+
+| Sphinx arm | Wall time | Tool calls | Reported tokens | Result |
+| --- | ---: | ---: | ---: | --- |
+| Serial tools | 237.982 s | 30 | 210,554 | Unanswered, no patch |
+| Parallel tools with read-only inspection and Fleet-locked writes | 450.256 s | 23 | 233,857 | Deadline, no patch |
+
+Parallel starts 1–2 ms apart overlapped calls lasting about 80–290 ms.
+One 162 s gap between command groups dominated those savings. The trace
+does not isolate model generation from routing delay. No speed or cost
+per accepted patch can be reported. Both scoped keys were revoked.
+Parallel tool-end logging reused the latest call counter, so the early
+overlap evidence relies on start timestamps and measured durations.
+
+## MicroVM runner evaluation
+
+W2958 tracks the seed artifact. W2959 tracks the real Xeon backend and
+the tool-guest lifecycle. Compare microVM and Docker tool execution with
+the same seed and tool payload. Measure cold and warm start, first useful
+tool result, guest replacement, stale-lease rejection and independent
+supervisor recovery. Record the host, hypervisor, image and policy with
+each result. The Docker Desktop seed and recovery tests above are
+container evidence. No hardware-backed microVM comparison is recorded
+here yet.
