@@ -38,7 +38,12 @@ const SELF = "tests/test-framework-guard.test.ts";
 // parked/W2654, carried by W2739's rebase) re-pins DOWN on top
 // (635 → 605 at the W2812 rebase integration — this tree carries both
 // waves, re-pinned at its own measured landing count).
-const PIN = 605;
+// W2822 rebase (merge of parked/W2814, the W2799 full-corpus playwright
+// port, onto main at the W2822 rebase integration): main's remaining
+// .test.ts corpus ports to .e2e.ts; the 28 conflicted rename families
+// resolve to main @unit.e2e.ts naming — measured by THIS guard's own git
+// ls-files counting at the closing sha of the W2822 merge onto main.
+const PIN = 235;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
