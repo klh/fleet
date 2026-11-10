@@ -20,7 +20,10 @@ import {
 import { decideRuntimeSync } from "../scripts/lib/runtime-sync.ts";
 import { carryGenerationPinned } from "../scripts/lib/post-merge-carry.ts";
 import { runPostMergeSync } from "../scripts/lib/post-merge-runner.ts";
-import { suspendersPrefix } from "../scripts/lib/post-merge-live.ts";
+import {
+	readBootstrapPrefix,
+	suspendersPrefix,
+} from "../scripts/lib/post-merge-live.ts";
 import type { PostMergeRunnerDeps } from "../scripts/lib/post-merge-labels.ts";
 import type { CarryDeps } from "../scripts/lib/post-merge-carry.ts";
 import type { ActivationReceipt } from "../scripts/lib/service-drift.ts";
@@ -926,6 +929,86 @@ test("suspendersPrefix: settings row wins, ~/ default expands, env stays overrid
 		if (hadHome === undefined) delete process.env.HOME;
 		else process.env.HOME = hadHome;
 		resetSettingsCache();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---------- W2950: the upgrade-window bootstrap prefix read ----------
+
+// The machine settings.json may carry keys an OLDER installed generation's
+// schema does not know (live witness: generation-ea80700 rejected `runner`
+// and degraded the whole document to defaults). The bootstrap reads ONLY
+// the leaf it consumes, tolerantly: unknown keys pass, a present-but-
+// invalid prefix refuses (fail closed), absence falls to the default.
+test.describe("readBootstrapPrefix (W2950)", () => {
+	const OLD = {
+		runner: { control_url: "http://127.0.0.1:7810", state_dir: "/tmp/r" },
+		paths: { suspenders_prefix: "/opt/prefix" },
+	};
+	test("unknown settings keys pass — a newer source's keys are not invalid FOR the bootstrap", () => {
+		expect(readBootstrapPrefix(OLD, undefined)).toEqual({
+			kind: "ok",
+			prefix: "/opt/prefix",
+		});
+	});
+	test("absence falls to the schema default; env stays the override", () => {
+		expect(readBootstrapPrefix({}, undefined)).toEqual({
+			kind: "ok",
+			prefix: "~/.claude/hooks/suspenders",
+		});
+		expect(readBootstrapPrefix(OLD, "/env/prefix")).toEqual({
+			kind: "ok",
+			prefix: "/env/prefix",
+		});
+	});
+	test("present-but-invalid prefix refuses (fail closed, never a silent default)", () => {
+		const verdict = readBootstrapPrefix(
+			{ paths: { suspenders_prefix: 42 } },
+			undefined,
+		);
+		expect(verdict.kind).toBe("refuse");
+		if (verdict.kind === "refuse")
+			expect(verdict.reason).toContain("invalid paths.suspenders_prefix");
+	});
+	test("a non-object paths section refuses", () => {
+		expect(readBootstrapPrefix({ paths: "/not/a/dir" }, undefined).kind).toBe(
+			"refuse",
+		);
+	});
+});
+
+test("suspendersPrefix reads the machine file tolerantly and fails closed (W2950)", () => {
+	const dir = mkdtempSync(join(tmpdir(), "w2950-prefix-"));
+	const file = join(dir, "settings.json");
+	const hadSettings = process.env.KLH_SETTINGS;
+	const hadPrefix = process.env.SUSPENDERS_PREFIX;
+	process.env.KLH_SETTINGS = file;
+	delete process.env.SUSPENDERS_PREFIX;
+	try {
+		// keys an older installed generation's schema rejects still publish
+		writeFileSync(
+			file,
+			JSON.stringify({
+				runner: { control_url: "http://127.0.1:7810" },
+				paths: { suspenders_prefix: "/opt/prefix" },
+			}),
+		);
+		expect(suspendersPrefix()).toBe("/opt/prefix");
+		// a present-but-invalid prefix refuses the sync loudly
+		writeFileSync(file, JSON.stringify({ paths: { suspenders_prefix: 7 } }));
+		expect(() => suspendersPrefix()).toThrow(
+			/invalid paths\.suspenders_prefix/,
+		);
+		// malformed JSON refuses rather than publishing onto an unknown posture
+		writeFileSync(file, "{not json");
+		expect(() => suspendersPrefix()).toThrow(
+			/machine settings\.json unreadable/,
+		);
+	} finally {
+		if (hadSettings === undefined) delete process.env.KLH_SETTINGS;
+		else process.env.KLH_SETTINGS = hadSettings;
+		if (hadPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = hadPrefix;
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
