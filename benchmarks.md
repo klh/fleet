@@ -1849,6 +1849,16 @@ oracle. This single serial-first Docker pair cannot rank time or tokens
 per accepted patch, or substitute for the Pi microVM versus OpenHands
 comparison.
 
+A fresh low-effort parallel arm with the turn and command-count caps
+removed reached a source edit at 63.975 s and finished at 351.490 s.
+It made 47 model requests and 52 guest commands. The private judge
+scored 0/3 target checks and 59/59 regressions. Pi reported 29,889
+fresh input, 647,104 cached input and 12,540 output tokens. The
+scoped key was revoked. It finished before the previous turn cap
+would have applied, so this run does not isolate the effect of
+removing that cap. It does show that a model-declared completion
+still needs the private oracle.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
