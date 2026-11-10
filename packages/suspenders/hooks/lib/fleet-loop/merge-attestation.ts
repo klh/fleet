@@ -16,8 +16,8 @@
 // the cost of one branch-side repair round (apply the transform ON the
 // branch, re-complete, one fresh review of the normalized bytes). The
 // single-pass alternative — normalize BEFORE the first review and bind the
-// receipt to that candidate's digest — is the follow-up the coordinator
-// tracks separately; it is NOT implemented here.
+// receipt to that candidate's digest — belongs to a separate item the
+// coordinator tracks; it is outside this predicate's scope.
 const gitq = (repo: string, args: string[]): string => {
 	const p = Bun.spawnSync(["git", ...args], {
 		cwd: repo,
