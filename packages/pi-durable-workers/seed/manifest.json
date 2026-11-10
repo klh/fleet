@@ -1,0 +1,157 @@
+{
+	"schema_version": 1,
+	"kind": "pi-durable-seed",
+	"name": "klh/pi-durable-seed",
+	"version": "2.2.0",
+	"source": {
+		"revision": "21b1f465cf6e79ad9797dddf60eb5841b5fed76b",
+		"dirty": false,
+		"package": "@klh/pi-durable-workers"
+	},
+	"base_image": "oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+	"runtime_image": "klh/pi-durable-seed@sha256:7136c6f66e20ebf26b3633863da69e87c618893c9d0d0e4a7e3b58ada730c60e",
+	"platform": "linux/amd64",
+	"seed": {
+		"digest": "84f867f812302556199bc443e955462efe07362dd7537be0b32a822a6e311452",
+		"files": 16,
+		"bytes": 82228
+	},
+	"policy": {
+		"digest": "126dbf1c90d0ea62fea154b2db0f1338760374ed9d1df36e2b8980245068d332",
+		"user": "1000:1000",
+		"memory_mb": 512,
+		"cpus": 1,
+		"pids_limit": 128,
+		"work_mb": 128,
+		"tmp_mb": 64
+	},
+	"deps": [
+		{
+			"name": "@earendil-works/chord",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@earendil-works/pi-ai",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@earendil-works/pi-codemode",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@earendil-works/pi-durable",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@earendil-works/pi-schema",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@earendil-works/pi-telemetry",
+			"version": "1.5.0"
+		},
+		{
+			"name": "@klh/buckle",
+			"version": "2.2.0"
+		},
+		{
+			"name": "git",
+			"version": "2.47.3"
+		},
+		{
+			"name": "zod",
+			"version": "4.6.7"
+		}
+	],
+	"readiness": {
+		"command": [
+			"bun",
+			"run",
+			"seed/readiness.ts"
+		],
+		"marker": "PI_DURABLE_SEED_READY"
+	},
+	"sbom": [
+		{
+			"path": "seed/policy.json",
+			"sha256": "8feb5efbff28401cd27030f255f78a0e3ed4b149141d317957c51d1919db9151",
+			"bytes": 520
+		},
+		{
+			"path": "seed/readiness.ts",
+			"sha256": "9fb40b1effd51d399bb2970c7592f79a6f98c7cbf32522fc33e20a97220bbea1",
+			"bytes": 748
+		},
+		{
+			"path": "bun.lock",
+			"sha256": "b3257c80e65c0e986237cf8ee809e0d19b84208776a003daeb1f06ac918ad2ca",
+			"bytes": 25105
+		},
+		{
+			"path": "package.json",
+			"sha256": "3edfc515264d6cedb340e438ccaaef7d59cbae251fa9813dd46a26fdc1f6a397",
+			"bytes": 1019
+		},
+		{
+			"path": "vendor/@klh/buckle/package.json",
+			"sha256": "799782b60ce3378d6f0460874438bdf0ea890424e7c59eac5223cfdcbcf6999a",
+			"bytes": 148
+		},
+		{
+			"path": "vendor/@klh/buckle/src/log.ts",
+			"sha256": "75de3d0317ff2a90347a37d3cb6776d1a663a95b7058430f6bfc272c3595cd6d",
+			"bytes": 2037
+		},
+		{
+			"path": "src/wake.ts",
+			"sha256": "bb327032aa1d143d16068b9348092d3432bc0b2291250789f1c639d428f032c1",
+			"bytes": 5810
+		},
+		{
+			"path": "src/announce.ts",
+			"sha256": "007fb3069eda48b7b89d75abc6dd1aa52b1c4ab48aa8846bb4f4e3cca8967f6b",
+			"bytes": 4799
+		},
+		{
+			"path": "src/seed-manifest.ts",
+			"sha256": "605c01457f21a2e08b25789179080ce469d18b4ef7eb4a544201b24522bcfef9",
+			"bytes": 4889
+		},
+		{
+			"path": "src/docs.ts",
+			"sha256": "db4c36fb5f711b8a858b3d3dea1dcb7c5678a6e9e97f1620d365f3fe66aa30e1",
+			"bytes": 5072
+		},
+		{
+			"path": "src/budget.ts",
+			"sha256": "2b0b2a7413e9214920d4aefc026189125643d79cbc4a63d25a68b9c78bc0f997",
+			"bytes": 4920
+		},
+		{
+			"path": "src/doomloop.ts",
+			"sha256": "f120f5a1afa2d331df2a7dee62dacd2346b5fc13765ca4c92ac2ed013dadba5a",
+			"bytes": 5302
+		},
+		{
+			"path": "src/index.ts",
+			"sha256": "d2571eb2fdb19c0e14ccb07f588079f6abdc0a8b45f7b853f6d18c424913e5ea",
+			"bytes": 9400
+		},
+		{
+			"path": "src/approvals.ts",
+			"sha256": "af9887bb0adba7e67ccd08be9b740c2a2717f991b0bd88d7a0e75efdd99e0486",
+			"bytes": 4407
+		},
+		{
+			"path": "src/seed-readiness.ts",
+			"sha256": "d69cab6e3257513fcd230c051d6c39bf85b370ff4b2e9f52caad05c1707423e3",
+			"bytes": 4114
+		},
+		{
+			"path": "src/tasks.ts",
+			"sha256": "2da619e01962249ee4f3eb6507c2d643dcd6e2d6bb879bd6c139ade69971872b",
+			"bytes": 3938
+		}
+	],
+	"built_at": "2026-11-10T13:30:09.581Z"
+}

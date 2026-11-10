@@ -125,6 +125,12 @@ export function durableWorkers(
 						"- Call `workers_finish` when the brief is complete (summary + success).",
 						"- Long work: `workers_task` spawn (deferred), check, steer, cancel.",
 						"- Repeating an identical tool round is condemned: observe, then block, then stop.",
+						...(process.env.PI_DURABLE_SEED_SPEEDY === "1"
+							? [
+									"Guest tools: rg searches contents, fd locates paths, bat reads bounded line ranges, sd makes scoped edits, jq inspects JSON, and eza lists files.",
+									"With a working terminal, use fzf for interactive selection and ambr for reviewed cross-file edits.",
+								]
+							: []),
 					].join("\n"),
 			},
 		],
