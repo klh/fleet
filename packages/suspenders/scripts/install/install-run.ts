@@ -318,6 +318,7 @@ export async function wireSettings(ctx: StepContext): Promise<StepResult> {
 // Exported for install-wire-extras.test.ts (W918.5 prefix-face preference).
 // reason: W918.5 — export runWireExtras so the prefix-face wire preference is unit-testable.
 export async function runWireExtras(ctx: StepContext): Promise<string> {
+	let extraConsultNote = "";
 	const adapters = await execa(
 		process.execPath,
 		[join(ctx.repo, "scripts/install/install-policy-adapters.ts")],
@@ -331,6 +332,34 @@ export async function runWireExtras(ctx: StepContext): Promise<string> {
 	);
 	if (adapters.exitCode !== 0) {
 		return " — policy adapters failed (non-fatal)";
+	}
+	// W2863 faces (b)(d)(e): the consult-knowledge managed blocks ride every
+	// wire; face (a) rides the pi receiver sync — both non-fatal and skipped
+	// quietly when the wire runs from an older prefix face that predates them.
+	const consultScript = join(
+		ctx.repo,
+		"scripts/install/install-consult-context.ts",
+	);
+	if (existsSync(consultScript)) {
+		const consult = await execa(process.execPath, [consultScript], {
+			cwd: ctx.repo,
+			env: { ...process.env, SUSPENDERS_PREFIX: ctx.prefix },
+			reject: false,
+		});
+		if (consult.exitCode !== 0) {
+			extraConsultNote = " — consult context write failed (non-fatal)";
+		}
+	}
+	const piScript = join(ctx.repo, "scripts/install/install-pi-receiver.ts");
+	if (existsSync(piScript)) {
+		const piReceiver = await execa(process.execPath, [piScript], {
+			cwd: ctx.repo,
+			env: { ...process.env, SUSPENDERS_PREFIX: ctx.prefix },
+			reject: false,
+		});
+		if (piReceiver.exitCode !== 0) {
+			extraConsultNote += " — pi receiver sync failed (non-fatal)";
+		}
 	}
 	let extras = "";
 	// W778: the W73 gate wires live at hooks/dialects/<x>/wire.ts (their
@@ -369,7 +398,7 @@ export async function runWireExtras(ctx: StepContext): Promise<string> {
 			extras += ` — ${dialect} gate wire merge failed (non-fatal)`;
 		}
 	}
-	return extras;
+	return extras + extraConsultNote;
 }
 
 // userLevelWire — the ~/.claude/settings.json wire: merge hooks, then policy
