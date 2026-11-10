@@ -1,14 +1,24 @@
-# fleet-cockpit (W2887)
+# Fleet cockpit
 
-Tracked source of the `/fleetcockpit` pi extension. Install: symlink or copy
-this directory into `~/.pi/agent/extensions/fleet-cockpit/`, then `/reload`.
+The `/fleetcockpit` command opens the Fleet cockpit in Pi.
 
-Data sources (all plane-only, honesty law: unknowns render `unreported`):
-- `coord fleet --json` — lanes
-- `coord governance` — mode
-- `work ready` / `work report` — work items
-- `coord workers --json` — W2886 worker inventory (rights[] computed by the plane)
-- `coord runner list --json` — owner-scoped durable runs (C348)
+For development, register this directory as a native Pi package with
+`pi install ./extensions/fleet-cockpit` from the Fleet repository root.
+Run `pi list` to verify the registration, then use `/reload` in an open
+Pi session. Use a scratch Pi home to test an unpublished checkout.
 
-The live install may lead this copy between flushes; syncs land here per the
-W2887 disposition (C342/C347/C350).
+If a manually installed cockpit exists under
+`~/.pi/agent/extensions/fleet-cockpit/`, move it outside Pi's extension
+search paths before reloading. Keep the backup until the package loads and
+`/fleetcockpit` opens. To reverse the migration, remove the registered
+package with `pi remove <source>`, restore the backup, and reload.
+
+Data sources:
+
+- `coord fleet --json` for lanes
+- `coord governance` for governance mode
+- `work ready` and `work report` for work items
+- `coord workers --json` for worker inventory and plane-computed rights
+- `coord runner list --json` for owner-scoped durable runs
+
+The cockpit displays unavailable data as `unreported`.
