@@ -4,20 +4,20 @@
 	"name": "klh/pi-durable-seed",
 	"version": "2.2.0",
 	"source": {
-		"revision": "adca1d4ce0cc73d0bdf5296ac9b1a94663c434f4",
+		"revision": "1f4d170897ba85b602a54beecd93c18f9f9c793f",
 		"dirty": false,
 		"package": "@klh/pi-durable-workers"
 	},
 	"base_image": "oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
-	"runtime_image": "klh/pi-durable-seed@sha256:29e27c838d5af46550490fda6464caee693b245473f770170ab25b9d751da121",
+	"runtime_image": "klh/pi-durable-seed@sha256:1bb0acd01985f916b623705c95858248d236f4fd423a6b48c105248b7dc0bd5c",
 	"platform": "linux/amd64",
 	"seed": {
-		"digest": "26bdabc2001cad629385e16d736f011bc566b4043c87025820bab48504fd00a6",
+		"digest": "c1c31ad746fe9bfcfa62e20b60d32e8b5380dd3721a40e375becc85ee54fcaf7",
 		"files": 16,
-		"bytes": 82879
+		"bytes": 82863
 	},
 	"policy": {
-		"digest": "e991b5ae443a1a9ae7eb20df56d97a05bc01080c07fdadc7c9241fdf0dacd9a9",
+		"digest": "255a2a98380c99bfbf9812b2192fd6e52c3938efa2660599af86e78b180712e3",
 		"user": "1000:1000",
 		"memory_mb": 512,
 		"cpus": 1,
@@ -115,8 +115,8 @@
 		},
 		{
 			"path": "seed/readiness.ts",
-			"sha256": "9fb40b1effd51d399bb2970c7592f79a6f98c7cbf32522fc33e20a97220bbea1",
-			"bytes": 748
+			"sha256": "f8d49dd733d3e568327da6111574dbb91934b518747131e8af27eea118e3d821",
+			"bytes": 740
 		},
 		{
 			"path": "bun.lock",
@@ -180,8 +180,8 @@
 		},
 		{
 			"path": "src/seed-readiness.ts",
-			"sha256": "cb17d1b21c8651322742c7a395020d5c39c4f1ebc22319a41c42360b2394dc1a",
-			"bytes": 4408
+			"sha256": "f30775f84361fed14f0ba6c073405c06f2de6cc76ed85cd66ee3bba6130cbdd6",
+			"bytes": 4400
 		},
 		{
 			"path": "src/tasks.ts",
@@ -189,5 +189,5 @@
 			"bytes": 3938
 		}
 	],
-	"built_at": "2026-11-10T19:21:01.779Z"
+	"built_at": "2026-11-10T19:26:57.669Z"
 }
