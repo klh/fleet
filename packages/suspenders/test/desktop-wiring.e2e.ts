@@ -211,7 +211,6 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			},
 			executorSid: "executor-witness",
 			leaseTtlMs: 6_000,
-			cleanupTimeoutMs: 2_000,
 		};
 		const leaf = createDesktopRunnerLeaf(leafDeps);
 		const runId = crypto.randomUUID();
@@ -257,13 +256,16 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			.toEqual([runId]);
 		expect(revokeLease(store, runId, Date.now()).ok).toBe(true);
 		expect(listRunnerWorkers(store, reader).workers).toEqual([]);
-		await new Promise((r) => setTimeout(r, 5_000));
-
-		const jobRow = store.get<{ state: string }>(
-			"SELECT state FROM runner_jobs WHERE run_id = ?",
-			runId,
-		);
-		expect(jobRow?.state).not.toBe("running");
+		await expect
+			.poll(
+				() =>
+					store.get<{ state: string }>(
+						"SELECT state FROM runner_jobs WHERE run_id = ?",
+						runId,
+					)?.state,
+				{ timeout: 20_000 },
+			)
+			.toBe("stopped");
 		const receipts = JSON.parse(
 			readFileSync(join(world.home, "receipts.json"), "utf8"),
 		) as { revokedAt: number | null }[];

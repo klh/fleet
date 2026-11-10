@@ -143,6 +143,7 @@ export const openRunnerController = (deps: {
 	/** Bound each independent cleanup step so a hung executor stop cannot
 	 *  strand the revocation ladder. */
 	cleanupTimeoutMs?: number;
+	executorStopTimeoutMs?: number;
 }): RunnerController => {
 	const now = deps.now ?? (() => Date.now());
 	const ttlMs = deps.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
@@ -151,6 +152,29 @@ export const openRunnerController = (deps: {
 	ensureRunnerLeaseSchema(deps.store);
 	ensureWorkerHeartbeatSchema(deps.store);
 	ensureRunnerReaderSchema(deps.store);
+	// Recover only completed cleanups whose receipt is newer than both the
+	// stopping transition and the current revoked lease. A later generation,
+	// incomplete cleanup, or a legacy unfenced abort cannot satisfy this.
+	if (deps.durable && deps.revokeCredential)
+		deps.store.run(
+			`UPDATE runner_jobs AS job SET state = 'stopped', updated_at = ?
+			 WHERE job.state = 'stopping' AND EXISTS (
+			   SELECT 1 FROM runner_leases AS lease
+			   JOIN runner_events AS event ON event.run_id = lease.run_id
+			   WHERE lease.run_id = job.run_id AND lease.state = 'revoked'
+			     AND event.kind = 'abort'
+			     AND event.created_at >= MAX(job.updated_at, lease.updated_at)
+			     AND event.id = (
+			       SELECT MAX(id) FROM runner_events
+			       WHERE run_id = job.run_id AND kind = 'abort'
+			     )
+			     AND json_extract(event.payload_json, '$.leaseRevoked') = 1
+			     AND json_extract(event.payload_json, '$.credentialRevoked') = 1
+			     AND json_type(event.payload_json, '$.cleanupErrors') = 'array'
+			     AND json_array_length(event.payload_json, '$.cleanupErrors') = 0
+			 )`,
+			now(),
+		);
 	const authorizer =
 		deps.authorizer ?? makeRunnerAuthorizer({ store: deps.store, now });
 	const signals = new Map<string, AbortController>();
@@ -158,12 +182,16 @@ export const openRunnerController = (deps: {
 	/** One independent cleanup step, bounded: resolves null on success, a
 	 *  recorded error string on throw OR timeout — the revocation ladder
 	 *  never awaits an unbounded executor stop. */
-	const bounded = (p: Promise<void>, label: string): Promise<string | null> => {
+	const bounded = (
+		run: () => Promise<void>,
+		label: string,
+		timeoutMs = cleanupTimeoutMs,
+	): Promise<string | null> => {
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		const timeout = new Promise<string>((resolve) => {
-			timer = setTimeout(() => resolve(`${label} timed out`), cleanupTimeoutMs);
+			timer = setTimeout(() => resolve(`${label} timed out`), timeoutMs);
 		});
-		const done = p.then(
+		const done = (async () => run())().then(
 			() => null,
 			() => `${label} failed`,
 		);
@@ -196,6 +224,28 @@ export const openRunnerController = (deps: {
 			at,
 			runId,
 		);
+	};
+
+	const finalizeStop = (
+		runId: string,
+		fencedEpoch: number | undefined,
+		cleanupErrors: string[],
+	): "stopped" | "failed" | "stopping" => {
+		const state = cleanupErrors.length ? "failed" : "stopped";
+		const updated = deps.store.run(
+			`UPDATE runner_jobs SET state = ?, updated_at = ?
+			 WHERE run_id = ? AND state = 'stopping'
+			   AND NOT EXISTS (
+			     SELECT 1 FROM runner_leases WHERE run_id = ?
+			       AND (state = 'active' OR epoch <> ?)
+			   )`,
+			state,
+			now(),
+			runId,
+			runId,
+			fencedEpoch ?? 0,
+		);
+		return updated.changes === 1 ? state : "stopping";
 	};
 
 	const record = (runId: string, kind: string, payload: unknown): void => {
@@ -495,6 +545,9 @@ export const openRunnerController = (deps: {
 			// later step is independent + bounded with errors recorded.
 			const leaseRow = getLease(deps.store, runId);
 			const revoked = revokeLease(deps.store, runId, now());
+			const fenced = getLease(deps.store, runId);
+			if (fenced?.state === "active")
+				return { ok: false, reason: "runner: lease changed during stop" };
 			setState(runId, "stopping", now());
 			signals.get(runId)?.abort();
 			signals.delete(runId);
@@ -502,17 +555,25 @@ export const openRunnerController = (deps: {
 
 			if (deps.revokeCredential) {
 				const err = await bounded(
-					deps.revokeCredential(runId, {
-						epoch: leaseRow?.epoch ?? 0,
-						controllerSid: leaseRow?.controller_sid ?? actor.sid,
-					}),
+					async () =>
+						deps.revokeCredential?.(runId, {
+							epoch: leaseRow?.epoch ?? 0,
+							controllerSid: leaseRow?.controller_sid ?? actor.sid,
+						}),
 					"credential revoke",
 				);
 
 				if (err) cleanupErrors.push(err);
 			}
-			if (deps.durable) {
-				const err = await bounded(deps.durable.stop(runId), "executor stop");
+			if (
+				deps.durable &&
+				getLease(deps.store, runId)?.epoch === fenced?.epoch
+			) {
+				const err = await bounded(
+					async () => deps.durable?.stop(runId),
+					"executor stop",
+					deps.executorStopTimeoutMs,
+				);
 				if (err) cleanupErrors.push(err);
 			}
 			record(runId, "abort", {
@@ -525,7 +586,10 @@ export const openRunnerController = (deps: {
 					),
 				cleanupErrors,
 			});
-			return { ok: true, state: "stopping" };
+			return {
+				ok: true,
+				state: finalizeStop(runId, fenced?.epoch, cleanupErrors),
+			};
 		},
 		watch({ runId, intervalMs }) {
 			let timer: ReturnType<typeof setInterval> | null = null;
@@ -539,35 +603,50 @@ export const openRunnerController = (deps: {
 				fired = true;
 				if (timer) clearInterval(timer);
 				timer = null;
-				signals.get(runId)?.abort();
-				signals.delete(runId);
+				const row = jobRow(runId);
+				if (!row) return;
+				const state = toControlJob(row).state;
+				if (state === "stopping" || state === "stopped" || state === "failed")
+					return;
+				const current = getLease(deps.store, runId);
+				const takenOver =
+					current !== null &&
+					(current.controller_sid !== captured.controller_sid ||
+						current.epoch !==
+							captured.epoch + (current.state === "revoked" ? 1 : 0));
+				if (!takenOver) {
+					if (current?.state === "active")
+						revokeLease(deps.store, runId, now());
+					setState(runId, "stopping", now());
+					signals.get(runId)?.abort();
+					signals.delete(runId);
+				}
+				const fencedEpoch = getLease(deps.store, runId)?.epoch;
 				const cleanupErrors: string[] = [];
 				if (deps.revokeCredential) {
 					const err = await bounded(
-						deps.revokeCredential(runId, {
-							epoch: captured.epoch,
-							controllerSid: captured.controller_sid,
-						}),
+						async () =>
+							deps.revokeCredential?.(runId, {
+								epoch: captured.epoch,
+								controllerSid: captured.controller_sid,
+							}),
 						"credential revoke",
 					);
 					if (err) cleanupErrors.push(err);
 				}
-				if (deps.durable) {
-					const err = await bounded(deps.durable.stop(runId), "executor stop");
+				if (
+					!takenOver &&
+					deps.durable &&
+					getLease(deps.store, runId)?.epoch === fencedEpoch
+				) {
+					const err = await bounded(
+						async () => deps.durable?.stop(runId),
+						"executor stop",
+						deps.executorStopTimeoutMs,
+					);
 					if (err) cleanupErrors.push(err);
 				}
-				const row = jobRow(runId);
-				if (!row) return;
-				const taken = getLease(deps.store, runId);
-				const state = toControlJob(row).state;
-				const takenOver =
-					taken?.state === "active" && taken.epoch !== captured.epoch;
-				const ownLoss =
-					!takenOver &&
-					(state === "running" || state === "cold" || state === "parked");
-				if (ownLoss) {
-					setState(runId, "stopping", now());
-				}
+				if (!takenOver) finalizeStop(runId, fencedEpoch, cleanupErrors);
 				record(runId, "fence-revoked", {
 					watchdog: true,
 					epoch: captured.epoch,

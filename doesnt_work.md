@@ -425,3 +425,34 @@ budget artifact, not looping.
   the arms comparable; the zero-out attribution mass still floors
   med_out_per_min (0*) — all floors, never rates. See
   [W1138 arms](benchmarks.md#context-engineering-rightsizing--ledger-ab-arms-w1138-2026-10-22).
+# W2904 — winnerless benchmark rows
+
+The desktop bake-off (2026-11-09) produced medians without a decision
+rule: numbers that could not pick a winner between arms, and no schema to
+say when two arms count as equal. W2904 fixes the shape, not the
+arithmetic: a summary without a `verdict` block is now schema-invalid, and
+the `tied` verdict is explicit rather than implied by eyeballing. Related
+dead ends kept on record from the same bake-off: `archlinux:base` (no
+arm64 manifest — cannot be an arm on Docker Desktop), split
+install+clone across two containers (no filesystem persistence — one
+container per bed), and `--net=enabled` (bogus docker flag; `--net=host`
+is the real one).
+
+## W2939 — Docker startup measurement exclusions
+
+The first corrected-timing run paired an emulated x86 Alpine image with
+native ARM Bun. Docker Desktop silently selected the resident x86 image for
+the Alpine manifest. Discard that comparison (receipt SHA-256
+`7a6e5b78f198cdb018406c5054ab60cdd74235fb3f078813ece61c6c0332974a`).
+The live harness now resolves and records each native image identity before
+sampling, and sets Docker's platform explicitly. It rejected the original
+Alpine arm before emitting any samples. Earlier driver timing also included
+container removal, which made it unsuitable for first-ready comparisons.
+
+## W2940 — Artifact receipt integrity
+
+Counting samples alone accepted a duplicated trial in place of a missing
+trial. The replay audit now checks each arm and repetition exactly once.
+Live runs with missing or failed repetitions no longer emit a verdict.
+Image IDs in diagnostic output also left the receipt incomplete, so the
+native platform and resolved image IDs now travel with the samples.

@@ -1415,3 +1415,64 @@ kept as the documented anti-pattern. Re-run with
 the tool prints `ARMS MEASURED` at AFTER n ≥ 10 and never declares the
 arms comparable — matched state mix + exposure discipline is judged, not
 computed.
+
+## Artifact bench, decision-grade paired-arm receipts (W2904, 2026-11-09)
+
+`packages/blam/bench/artifact/` — deterministic, LLM-optional paired-arm
+harness whose arms are ARTIFACT refs (image@digest, package version,
+toolchain pin). Decision-grade law: every scenario declares a
+`DecisionRule` up front; every summary carries a REQUIRED `verdict` block
+(winner arm id, or the explicit `tied` when all arms sit inside the 5%
+epsilon band) — winnerless rows are schema-invalid by construction.
+Parity via `Caps {bed, host, kernel, arch, cpu, memMiB}` (samples compare
+only inside one caps block); controlled ordering via mulberry32
+`seededOrder(arms, reps, seed + rep*7919)` — same seed, byte-identical
+receipts (10 bun tests, 29 expects, 35ms, CI-safe replay-fixture driver;
+live docker driver additive). The first matched cross-bed run (desktop vs
+remote hub) pins the receipt-v1 digest `oven/bun@sha256:9114c058…` so the
+only variable is the bed. The suite's live rows supersede the ad-hoc
+2026-11-09 desktop bake-off numbers (cold-start medians alpine ≈ debian-slim
+≈ 171ms, fedora 196ms; tool-install apk 4.1s < apt 6.3s < dnf 25.2s),
+which stay on record as the motivating measurement; fixture rows are
+labeled `<bed>:replay-fixture` and are never ledger-grade.
+
+## Native Docker Desktop first-ready probe (W2939)
+
+Seven complete pairs, seed `20261109`, Docker Desktop on
+`7.0.14-linuxkit`, native ARM64, 18 CPUs, 7932 MiB. Both images were already
+resident. Time starts before container creation and stops at the first
+validated `ready` line. Removal is outside that measurement.
+
+| Image | Median | p95 |
+| --- | ---: | ---: |
+| Alpine 3.21 | 144 ms | 151 ms |
+| Oven Bun | 145 ms | 245 ms |
+
+The median verdict was tied under the preset 5% band. All 14 samples
+reproduce the distributions and verdict. Receipt SHA-256
+`168d18a3dafc32d978d2c2ae0399169efbb92f84435792291ab73634248554a8`.
+The native Alpine and Bun image IDs were respectively
+`sha256:e77b401c86e6d0651b12ca45dea812bdf6ffca3b6e16662b7c116180e56ec9f7`
+and `sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b`.
+
+```sh
+bun packages/blam/bench/artifact/harness.ts --live \
+  alpine@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab \
+  oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+```
+
+This probe measures local container startup. Pi Durable admission, model
+latency and cross-host results need separate evidence.
+
+A second native run with embedded platform identity records tied again
+(W2940, same seed, seven new pairs). Alpine median/p95 was 132/191 ms
+and Bun was 138/171 ms. The tail ordering reversed, so these two small
+runs do not establish a stable p95 winner. Sealed receipt SHA-256
+`5e6014432f5ed43c4c1abda0842650e48c908042c1be88263b14429d8ee5b35f`.
+Use `bun packages/blam/bench/artifact/harness.ts --replay <receipts.ndjson>`
+to recompute the distributions and verdict without Docker.
+
+The replay verifier checks every arm and repetition, the shared bed metadata,
+both native image identities, and the reported median, p95 and verdict. The
+second run contains 14 samples and two image identity records. The earlier
+native run remains readable with zero embedded identity records.
