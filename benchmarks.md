@@ -1781,6 +1781,32 @@ commands and no production patch. Its fourth request received the
 same `output_token_limit` terminal. The 22,804 reported tokens cover
 completed requests only. Both corrected-arm keys were revoked.
 
+The standalone low-effort serial worker used the same fixture,
+inspection schedule, context and cap, with explicit thinking enabled
+and `reasoning_effort: low` on the wire. It reached its first useful
+tool at 8.947 s, ran 9 commands and ended unanswered at 107.422 s
+without a source edit. Completed requests reported 13,212 tokens.
+The fifth request returned HTTP 503. Buckle trace
+`6b319b28f292e5dd427e35c39ee9ee44` attributes 30.001 s to local
+admission queueing. The key was revoked. This is a failed run with a
+different terminal condition from the corrected baseline. It is not a
+quality or speed comparison, and it does not exercise child dispatch.
+
+The 32,768-output-token rerun kept the same low-effort serial profile
+and widened its context window to 65,536 with a 40,960-token compaction
+reserve. Both requests sent the full cap as `max_tokens`. It ran
+four inspections, then ended unanswered at 50.968 s without a patch.
+Request 2 returned HTTP 503 after 30.002 s in local admission (trace
+`53367b468789f07d34abca6a58c32505`). The key was revoked. The terminal
+failure occurred before upstream generation, so the effect of the
+larger output allowance on patch completion remains unmeasured.
+
+A later live admission snapshot showed 7 of 8 active slots in the
+shared `zai-coding-account` pool, no queued requests at sampling time,
+and 138 cumulative queue wait expiries. This is a later sample, not
+the occupancy at either failed request. Use pool observations and
+per-request admission traces when scheduling or judging reruns.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
