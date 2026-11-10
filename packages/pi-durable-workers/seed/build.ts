@@ -275,10 +275,17 @@ const main = async (): Promise<void> => {
 		cwd: PKG,
 		timeout: 10_000,
 	});
-	const { stdout: dirtyOut } = await run("git", ["status", "--porcelain"], {
-		cwd: PKG,
-		timeout: 10_000,
-	});
+	// Dirty = payload SOURCE drift vs HEAD. The manifest is a RECORD of the
+	// build, not source — counting its own re-stamp would make dirty:true
+	// self-fulfilling (build → stamp → dirty forever).
+	const { stdout: dirtyOut } = await run(
+		"git",
+		["status", "--porcelain", "--", ".", ":(exclude)seed/manifest.json"],
+		{
+			cwd: PKG,
+			timeout: 10_000,
+		},
+	);
 	const policy = {
 		image: runtimeImage,
 		network: "none",
