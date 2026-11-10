@@ -1654,6 +1654,70 @@ settlement was observed and no patch was produced. The reservation
 prevented budget starvation, but did not establish a completed
 handoff. Both scoped keys were revoked.
 
+A separately traced serial run joined client SSE timing to Buckle
+attempts. Two expensive requests took 82.904 s and 40.845 s with no
+recorded provider queue wait and one upstream attempt each. The first
+streamed for about 79.5 s after headers before usable content and
+reported 5,113 reasoning tokens. Across the first 15 completed requests,
+model calls took 219.880 s. The first 24 shell calls took 11.080 s
+combined. The request body grew from about 3 KB to 85 KB. This establishes
+where wall time accrued, without attributing the longer generation
+to prompt size alone.
+
+The traced run ended unanswered at 280.803 s with 33 attempted tool
+calls and 30 dispatched. Its 24 completed model requests accounted for
+266.119 s and the dispatched tools for 14.350 s. It created reproduction
+tests, with no production patch. A separate slow request took 27.050 s
+to upstream headers with no recorded queue wait, showing that not every
+slow turn was post-header reasoning.
+
+
+An isolated environment probe also reproduced the agent's failed
+`import pytest`: the benchmark runner defaulted to the base Conda
+interpreter, while `/opt/miniconda3/envs/testbed/bin/python` had pytest
+8.3.3 and Sphinx 4.2.0. Set the testbed environment consistently in both
+arms before comparing their test and integration behavior.
+
+A clean serial rerun started with the correct Conda interpreter on
+PATH. It still produced no source patch, ending unanswered at 322.010 s
+after 35 command attempts and 314,773 reported tokens. The trace shows
+attempts to download packages despite the offline sandbox, and repeated
+source discovery. Fixing PATH alone did not resolve the exploration
+problem.
+
+The preflight and batch treatment injected the offline/testbed contract
+and a short source map from the unmodified base. It exposed an asynchronous
+read-only batch tool with clipped output. The first successful tool result
+arrived at 7.838 s. The run issued 10 model requests and ran 28 commands
+(27 in batches), then timed out at 450.246 s with a clean source tree.
+Completed requests reported 177,988 tokens, including 18,974 reasoning
+tokens. Nine completed model streams accounted for 356.527 s. The tenth
+returned headers at 373.108 s and remained open until cancellation.
+Tool durations summed to 8.061 s, including overlapping commands. The
+scoped key was revoked. This run produced no patch for the private grader.
+
+The benchmark driver set a 32,000-token context window, an 8,192-token
+output cap, and disabled compaction. Pi AI 1.5.0
+(`dist/api/simple-options.js`) subtracts estimated context and a
+4,096-token reserve from the configured window, then clamps the output
+allowance between one token and the output cap. The client sent 8,192
+for the first five calls, followed by 3,806, 1,476, 1, 1 and 1.
+The final stream stalled after headers. Two prior one-token requests
+returned tool calls, so the clamp explains the request value but does
+not by itself explain the upstream stall. The preflight and batch
+changes were tested together, so this run does not isolate their effects.
+
+A scoped probe of the exact native Buckle route, `zai-glm-5.3-flash`,
+found no context or output limit in its live model catalog row. A
+synthetic non-streamed request with a 128-token output cap succeeded
+with 51,950 prompt tokens and 20 completion tokens, returned the
+expected answer, and reported stop. The probe key was revoked. This
+establishes a working point above the driver's 32,000-token setting.
+It does not establish the maximum window or guarantee that a long
+prompt plus a full 8,192-token generation fits. Use a common conservative
+window and compaction threshold for the next matched pair. Track the
+first production edit, first targeted test and effective output allowance.
+
 ## MicroVM runner evaluation
 
 W2958 tracks the seed artifact. W2959 tracks the real Xeon backend and
