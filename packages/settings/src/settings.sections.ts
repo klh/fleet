@@ -50,6 +50,9 @@ export const FleetLoopSchema = section(
 		config_poll_s: int(1, 600, 10, "Config re-read interval (seconds)"),
 		maintenance: bool(true, "Run the maintenance task set each cycle"),
 		merge_stuck_hours: int(1, 168, 6, "Merge-ladder stuck alarm age (hours)"),
+		review_model: opt(
+			"Primary reviewer model (W2948; SUSPENDERS_REVIEW_MODEL and the completion author's lane model fact both win over it)",
+		),
 		review_fallback_models: opt(
 			"Reviewer secondary-model ladder CSV (SUSPENDERS_REVIEW_FALLBACK_MODELS; the env var stays the override)",
 		),

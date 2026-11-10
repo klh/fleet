@@ -186,7 +186,7 @@ test("shared review capacity defers another exact context without reserving it",
 test("missing model fails closed without a guessed provider or request lease", () => {
 	const f = fixture();
 	expect(scheduleReview({ ...f.options, env: {}, spawn: f.spawn })).toContain(
-		"configure SUSPENDERS_REVIEW_MODEL",
+		"review unavailable: no review model configured",
 	);
 	expect(f.launches).toHaveLength(0);
 });
@@ -525,9 +525,7 @@ test("W2754 knobs: unset or junk → default, an integer overrides, conf row win
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "x" })).toBe(30);
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" })).toBe(7);
 	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "0" })).toBe(0);
-	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" }, 12)).toBe(
-		12,
-	);
+	expect(reviewRateBudget({ SUSPENDERS_REVIEW_RATE_BUDGET: "7" }, 12)).toBe(12);
 });
 test("W2754: deterministic-proof park refuses re-drive while fresh, advisory deduped per stamp", () => {
 	const f = capFixture();

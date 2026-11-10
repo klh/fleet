@@ -95,6 +95,7 @@ export function createLoopConfigWatch(opts: {
 			before.laneTarget !== current.laneTarget ||
 			before.everyS !== current.everyS ||
 			before.dispatchTarget !== current.dispatchTarget ||
+			before.reviewModel !== current.reviewModel ||
 			before.reviewFallbackModels !== current.reviewFallbackModels ||
 			before.reviewStepdownClasses !== current.reviewStepdownClasses ||
 			before.reviewRoundCap !== current.reviewRoundCap ||
@@ -103,7 +104,7 @@ export function createLoopConfigWatch(opts: {
 			before.cycleReportQuietS !== current.cycleReportQuietS
 		) {
 			log(
-				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"} review_leg_timeout_ms=${current.reviewLegTimeoutMs ?? 900_000} review_leg_max_tokens=${current.reviewLegMaxTokens ?? 16_000} cycle_report_quiet_s=${current.cycleReportQuietS ?? 600}`,
+				`LOOP-CONFIG hot-applied lane_target=${current.laneTarget} dispatch_target=${current.dispatchTarget} every_s=${current.everyS} review_model=${current.reviewModel ?? "-"} review_fallback_models=${current.reviewFallbackModels ?? "-"} review_stepdown_classes=${current.reviewStepdownClasses ?? "-"} review_round_cap=${current.reviewRoundCap ?? "-"} review_leg_timeout_ms=${current.reviewLegTimeoutMs ?? 900_000} review_leg_max_tokens=${current.reviewLegMaxTokens ?? 16_000} cycle_report_quiet_s=${current.cycleReportQuietS ?? 600}`,
 			);
 		}
 	};

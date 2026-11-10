@@ -53,6 +53,10 @@ export const FleetLoopConfigSchema = z
 		dispatch_target: z.number().int().positive().optional(),
 		every_s: z.number().int().positive().optional(),
 		config_poll_s: z.number().int().positive().optional(),
+		/** W2948: the primary reviewer model — the machine-conf source for a
+		 *  loop with no SUSPENDERS_REVIEW_MODEL in its environment; the env
+		 *  var and the completion author's lane model fact both win over it. */
+		review_model: z.string().min(1).optional(),
 		review_fallback_models: z.string().min(1).optional(),
 		review_stepdown_classes: z.string().min(1).optional(),
 		/** W2470: the review-and-fix round cap — 0 disables; absence falls
@@ -96,6 +100,8 @@ export interface FleetLoopSettings {
 	dispatchTarget: number;
 	everyS: number;
 	pollS: number;
+	/** W2948: conf primary reviewer model — absence = env/lane-fact only. */
+	reviewModel?: string;
 	reviewFallbackModels?: string;
 	reviewStepdownClasses?: string;
 	/** W2470: the conf's review_round_cap — absence = env fallback. */
@@ -586,6 +592,7 @@ function stackFromSettings(): StackConfig | null {
 		dispatch_target,
 		every_s,
 		config_poll_s,
+		review_model,
 		review_fallback_models,
 		review_stepdown_classes,
 		review_round_cap,
@@ -612,6 +619,7 @@ function stackFromSettings(): StackConfig | null {
 			dispatch_target,
 			every_s,
 			config_poll_s,
+			review_model,
 			review_fallback_models,
 			review_stepdown_classes,
 			review_round_cap,
@@ -663,6 +671,7 @@ export function fleetLoopSettings(
 		dispatchTarget,
 		everyS: block?.every_s ?? FLEET_LOOP_DEFAULTS.everyS,
 		pollS: block?.config_poll_s ?? FLEET_LOOP_DEFAULTS.pollS,
+		reviewModel: block?.review_model,
 		reviewFallbackModels: block?.review_fallback_models,
 		reviewStepdownClasses: block?.review_stepdown_classes,
 		reviewRoundCap: block?.review_round_cap,
