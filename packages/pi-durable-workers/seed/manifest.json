@@ -4,12 +4,12 @@
 	"name": "klh/pi-durable-seed",
 	"version": "2.2.0",
 	"source": {
-		"revision": "2cce173db7e0ecee7eaf670927cd546b401f3563",
-		"dirty": true,
+		"revision": "21b1f465cf6e79ad9797dddf60eb5841b5fed76b",
+		"dirty": false,
 		"package": "@klh/pi-durable-workers"
 	},
 	"base_image": "oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
-	"runtime_image": "klh/pi-durable-seed@sha256:4e4fd5d9be9c0195ff228806751486b6394e21b358f869b13ff94a2bcc4edf6f",
+	"runtime_image": "klh/pi-durable-seed@sha256:7136c6f66e20ebf26b3633863da69e87c618893c9d0d0e4a7e3b58ada730c60e",
 	"platform": "linux/amd64",
 	"seed": {
 		"digest": "84f867f812302556199bc443e955462efe07362dd7537be0b32a822a6e311452",
@@ -17,7 +17,7 @@
 		"bytes": 82228
 	},
 	"policy": {
-		"digest": "aa4556777e9d2192a2d3717e63b1c8feae52b48f059cccaf9e580331528a942c",
+		"digest": "126dbf1c90d0ea62fea154b2db0f1338760374ed9d1df36e2b8980245068d332",
 		"user": "1000:1000",
 		"memory_mb": 512,
 		"cpus": 1,
@@ -153,5 +153,5 @@
 			"bytes": 3938
 		}
 	],
-	"built_at": "2026-11-10T13:29:11.900Z"
+	"built_at": "2026-11-10T13:30:09.581Z"
 }
