@@ -1476,3 +1476,54 @@ The replay verifier checks every arm and repetition, the shared bed metadata,
 both native image identities, and the reported median, p95 and verdict. The
 second run contains 14 samples and two image identity records. The earlier
 native run remains readable with zero embedded identity records.
+
+## Runner HTTP to first tool result (W2937)
+
+Five seeded pairs on native ARM64 Docker Desktop, seed 2937. Both pinned
+images ran the same fixture model request and read the same mounted seed
+through the runner's sandbox tool. The measured interval starts at HTTP
+admission and ends when the fixture upstream receives the verified tool
+result. All ten runs revoked the minted key and removed their container.
+
+| Native arm | Median | p95 |
+| --- | ---: | ---: |
+| Alpine `bc214871…` | 180 ms | 182 ms |
+| Bun `9114c058…` | 186 ms | 234 ms |
+
+Verdict **tied** under the predeclared 5% median band. No image promotion.
+These are fixture transport and execution measurements. They do not measure
+provider latency, model quality, token savings or remote host performance.
+
+Reproduce with `bun packages/suspenders/test/runner-live-sandbox.bench.ts`
+and the bed name followed by the two resident digest-pinned image references.
+BLAM replay validated ten samples and two native image identities. The
+replayed receipt SHA-256 was
+`fd33ac8b5b049391156b9f7b5a701f3f90925ae6647a8166932d53311174ee63`.
+
+The offline Synology QEMU TCG guest passed the same portable HTTP canary
+on x86-64 Linux 6.8.0-147, Bun 1.4.2 and Docker 29.1.3. The verified
+Bun image index was `9114c058…` with the amd64 manifest `296a79bbc…`.
+Docker's container reported `cpu.max = 50000 100000` for a 0.5 CPU probe.
+The canary took 9.90 s to submit acknowledgement and 16.34 s to the first
+verified seed read. It revoked the key and verified container removal.
+One software-emulated sample demonstrates functionality only. The native
+Desktop run and this guest differ in platform, runtime and resource caps.
+The guest receipt SHA-256 is
+`a04c2a03e83233c065ba018050d885cba955eaaf5d4684fe8ba6a9eff4639b20`.
+
+The same NAS guest separately passed the crash fixture. A replacement
+worker reopened the job after SIGKILL, read the marker from the original
+sandbox, revoked the old and replacement keys, and removed the container.
+The paired latency run in that guest was incomplete and has no verdict.
+
+**Disposition.** No second machine passed the Docker-native preflight this
+item requires (Synology bare Docker rejects the CPU CFS limit), so the only
+non-Desktop evidence is the NAS-hosted QEMU guest — a local, software-emulated
+fixture, not a separate host, and it is kept labeled that way throughout this
+entry. Its own paired BLAM run is unresolved (8/10, two unexplained failures
+above), so it cannot stand as a second arm of the ready/useful A/B either.
+The decision-grade result this item can support is Desktop-only: native ARM64
+Docker Desktop ties Alpine vs Bun on both first-ready (W2939/W2940) and HTTP
+admission-to-tool-result (above). A true cross-host A/B needs a real second
+Docker-capable machine; that is an infra gap, not a measurement one — see
+[doesnt_work.md](doesnt_work.md), "W2937 — Runner fixture exclusions".

@@ -53,3 +53,20 @@ export async function checkDesktopImage(image: string) {
 		throw new Error("runner.desktop_image_unavailable");
 	}
 }
+
+/** Reject daemons that report missing resource controls required by the sandbox. */
+export async function checkRunnerDockerLimits() {
+	let warnings: string;
+	try {
+		const { stdout } = await execute(
+			"docker",
+			runnerDockerArgv(["docker", "info", "--format", "{{json .Warnings}}"]).slice(1),
+			{ timeout: 5000, maxBuffer: 32_768, killSignal: "SIGKILL" },
+		);
+		warnings = stdout;
+	} catch {
+		throw new Error("runner.docker_info_unavailable");
+	}
+	if (/No (?:cpu cfs (?:quota|period)|memory limit|swap limit|pids limit) support/i.test(warnings))
+		throw new Error("runner.docker_resource_limits_unavailable");
+}

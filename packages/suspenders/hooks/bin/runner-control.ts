@@ -5,6 +5,7 @@ import { loadDesktopRuntimeConfig } from "../lib/runners/service/desktop-config.
 import {
 	checkDesktopImage,
 	checkDesktopMintAuthority,
+	checkRunnerDockerLimits,
 } from "../lib/runners/service/desktop-preflight.ts";
 import { desktopRuntime } from "../lib/runners/service/desktop-runtime.ts";
 import { runRunnerService } from "../lib/runners/service/process.ts";
@@ -33,6 +34,7 @@ if (process.argv.length === 2) {
 		const [imageId] = await Promise.all([
 			checkDesktopImage(desktop.image),
 			checkDesktopMintAuthority(desktop.baseUrl, desktop.adminKey),
+			checkRunnerDockerLimits(),
 		]);
 		console.log(JSON.stringify({ preflight: "passed", imageId }));
 	} catch (error) {

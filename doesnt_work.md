@@ -456,3 +456,33 @@ trial. The replay audit now checks each arm and repetition exactly once.
 Live runs with missing or failed repetitions no longer emit a verdict.
 Image IDs in diagnostic output also left the receipt incomplete, so the
 native platform and resolved image IDs now travel with the samples.
+
+## W2937 — Runner fixture exclusions
+
+The first Desktop trial overlapped a separate Docker unit test. It was
+excluded from the latency result and rerun without that test. The second
+trial's initial serialization omitted the image-identity row type. Replay
+refused it. Restoring only those two row types preserved all measurements
+and produced a receipt that replay accepted. The runner bench now emits
+the required row type directly.
+
+Synology bare Docker rejected the required CPU CFS limit. The NAS QEMU
+binary also lacked user-mode networking, and the first offline Ubuntu
+boot waited for networking. Direct boot with a masked network wait let
+the guest enforce a 50% CPU quota. APT's no-download mode then refused the
+local packages, so the next offline fixture used dpkg on the staged files.
+
+The follow-up offline x86-64 QEMU run completed eight of ten seeded
+HTTP trials. Alpine rep 1 returned terminal `failed` on stop, and Alpine
+rep 2 returned `runner.desktop_image_unavailable` after the same image had
+run successfully. BLAM emitted no verdict. No production timeout was
+changed and no failed pair was dropped. The evidence does not establish
+the cause of the stop failure or the failed image inspection.
+
+No further attempt bought a passing second-arm A/B: the stop failure and
+the image-unavailable failure did not repeat identically across reruns, so
+they could not be bisected from receipts alone, and no genuine second
+Docker-capable host was available to replace the NAS/QEMU fixture. Closing
+disposition: report the Desktop-only tied result as the decision-grade
+evidence this item can produce, and record provisioning a real second
+Linux host as a separate infra decision, not a retry of this measurement.

@@ -27,6 +27,7 @@ import {
 	scanSeedDir,
 } from "../hooks/lib/runners/desktop/seed.ts";
 import { createDesktopRunnerLeaf } from "../hooks/lib/runners/desktop/wiring.ts";
+import { createFixtureRuntime, fixtureResponse } from "./durable-runtime.fixtures.ts";
 
 const dockerUp = (): boolean =>
 	Bun.spawnSync(["docker", "info", "--format", "{{.ServerVersion}}"], {
@@ -78,16 +79,21 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 		mkdirSync(seedRoot, { recursive: true });
 		writeFileSync(join(seedRoot, "seed.md"), "immutable seed body\n");
 		const admin = adminStub();
+		const model = serveStub((_req, _body, n) =>
+			fixtureResponse(n, {
+				name: "desktop_sandbox_exec",
+				arguments: JSON.stringify({ argv: ["cat", "/seed/seed.md"] }),
+			}),
+		);
 		const store = memoryStore();
 		const runId = crypto.randomUUID();
 		const leafDeps = {
 			store,
 			durableRoot,
 			runtime: {
-				models: {} as never,
-				registry: createRegistry(),
-				env: {},
-				settings: undefined,
+				...createFixtureRuntime(model.url, async () => {
+					throw new Error("unexpected non-sandbox tool");
+				}),
 				onReport: () => {},
 			},
 			container: {
@@ -103,7 +109,6 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			},
 			executorSid: "executor-witness",
 			leaseTtlMs: 6_000,
-			cleanupTimeoutMs: 2_000,
 		};
 		const leaf = createDesktopRunnerLeaf(leafDeps);
 		const spec = RunnerSpecSchema.parse({
@@ -114,8 +119,8 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			kind: "coding" as const,
 			seedDigest: canonicalSeedDigest(await scanSeedDir(seedRoot)),
 			policyDigest: leaf.policyDigest(),
-			provider: "belt",
-			model: "glm-5.3",
+			provider: "fixture",
+			model: "fixture",
 		});
 		const { token } = await leaf.admitAndStart({
 			spec,
@@ -129,6 +134,14 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			text: "first turn",
 			actor: hostActor(),
 		});
+		await expect.poll(() => model.requests.length).toBe(2);
+		expect(model.requests.map((request) => request.auth)).toEqual([
+			"Bearer bksk_stub_1",
+			"Bearer bksk_stub_1",
+		]);
+		expect(JSON.stringify(model.requests[1]?.body)).toContain(
+			"immutable seed body",
+		);
 		const ps = Bun.spawnSync(
 			[
 				"docker",
@@ -173,8 +186,15 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 				runId,
 			)?.state,
 		).toBe("running");
+		await expect.poll(() => model.requests.length).toBe(3);
+		expect(model.requests[2]?.auth).toBe("Bearer bksk_stub_3");
+		expect(
+			await leaf2.controller.stopWithRevocation({ runId, actor: hostActor() }),
+		).toEqual({ ok: true, state: "stopped" });
 		await leaf2.close();
 		await leaf.close();
+		model.close();
+		admin.close();
 	});
 
 	test("lease revoke blocks every next effect — halt, revoke, refused reattach", async () => {
@@ -450,6 +470,17 @@ try {
 		const store2 = sqliteStore(new Database(dbPath));
 		ensureRunnerLeaseSchema(store2);
 		ensureRunnerReaderSchema(store2);
+		const recoveryAdmin = serveStub((request) =>
+			new URL(request.url).pathname === "/v1/admin/keys"
+				? Response.json({
+						key_id: "recovered",
+						key: "bksk_recovered",
+						name: "witness",
+						scopes: ["buckle:proxy:WRITE_"],
+						expires_at: Date.now() + 3_600_000,
+					}, { status: 201 })
+				: Response.json({ revoked: "witness" }),
+		);
 		const leaf2 = createDesktopRunnerLeaf({
 			store: store2,
 			durableRoot,
@@ -462,15 +493,15 @@ try {
 			},
 			container: { image: conf.image, workspacesDir, seedRoot },
 			credentials: {
-				baseUrl: "http://127.0.0.1:1",
-				adminKey: "unused",
+				baseUrl: recoveryAdmin.url,
+				adminKey: "bksk_admin_stub",
 				receiptsPath: join(world.home, "receipts.json"),
 			},
 			executorSid: "executor-witness",
 			leaseTtlMs: 6_000,
-			cleanupTimeoutMs: 2_000,
 		});
 		const recovery = await leaf2.recover();
+		expect(recovery.refused).toEqual([]);
 		expect(recovery.reattached).toContain(runId);
 		// state retained: the marker the KILLED leaf wrote round-trips out
 		// of the SAME container through the reopened leaf.
@@ -481,6 +512,9 @@ try {
 		);
 		expect(out2.code).toBe(0);
 		expect(out2.stdout).toContain("killed-witness");
+		expect(await leaf2.controller.stopWithRevocation({ runId, actor: hostActor() }))
+			.toEqual({ ok: true, state: "stopped" });
 		await leaf2.close();
+		recoveryAdmin.close();
 	});
 });

@@ -57,7 +57,15 @@ try {
 	file(
 		"docker",
 		`#!/bin/sh
-[ "$1" = "--host" ] && [ "$2" = "unix:///var/run/docker.sock" ] &&
+[ "$1" = "--host" ] && [ "$2" = "unix:///var/run/docker.sock" ] || exit 71
+if [ "$3" = "info" ]; then
+  if [ "$FIXTURE_NO_CFS" = "1" ]; then
+    printf '%s\\n' '["WARNING: No cpu cfs quota support"]'
+  else
+    printf '%s\\n' null
+  fi
+  exit 0
+fi
 [ "$3" = "image" ] && [ "$4" = "inspect" ] && [ "$8" = "${pinnedImage}" ] || exit 71
 printf 'sha256:${digest}\\n'
 `,
@@ -83,18 +91,26 @@ const server = Bun.serve({
 	},
 });
 try {
+	const childEnv = {
+		...process.env, KLH_SETTINGS: "/fixture/settings.json",
+		PATH: "/fixture:" + process.env.PATH,
+		DOCKER_HOST: "tcp://127.0.0.1:9",
+	};
 	const child = Bun.spawn([process.execPath, "/fixture/runner.js", "--check"], {
-		env: {
-			...process.env, KLH_SETTINGS: "/fixture/settings.json",
-			PATH: "/fixture:" + process.env.PATH,
-			DOCKER_HOST: "tcp://127.0.0.1:9",
-		},
+		env: childEnv,
 		stdout: "pipe", stderr: "inherit",
 	});
 	const [stdout, status] = await Promise.all([new Response(child.stdout).text(), child.exited]);
 	const result = JSON.parse(stdout);
 	if (status || result.preflight !== "passed" || result.imageId !== "sha256:${digest}")
 		throw new Error("Linux runner preflight did not pass");
+	const refused = Bun.spawn([process.execPath, "/fixture/runner.js", "--check"], {
+		env: { ...childEnv, FIXTURE_NO_CFS: "1" }, stdout: "ignore", stderr: "pipe",
+	});
+	const [reason, refusedStatus] = await Promise.all([new Response(refused.stderr).text(), refused.exited]);
+	if (refusedStatus !== 1 ||
+		reason.trim() !== "runner.docker_resource_limits_unavailable")
+		throw new Error("Linux runner preflight did not refuse missing CPU quota");
 	console.log(JSON.stringify({ ...result, platform: process.platform, arch: process.arch, fixture: true }));
 } finally {
 	server.stop(true);
