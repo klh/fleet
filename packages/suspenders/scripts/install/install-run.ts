@@ -398,6 +398,10 @@ export async function runWireExtras(ctx: StepContext): Promise<string> {
 			extras += ` — ${dialect} gate wire merge failed (non-fatal)`;
 		}
 	}
+	// W2861's pi models face is NOT wired into the install (owner correction
+	// 2026-11-10: existing ~/.pi/agent/models.json is user content — the
+	// installer never writes model routes). The helper stays standalone and
+	// explicitly opt-in: bun scripts/install/install-pi.ts.
 	return extras + extraConsultNote;
 }
 
