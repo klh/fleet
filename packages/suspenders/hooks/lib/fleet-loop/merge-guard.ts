@@ -25,7 +25,13 @@ type Options = {
 	branch: string;
 	ladder?: string;
 	timeoutMs: number;
-	verifyReview?: (candidate?: string) => { ok: boolean; why: string };
+	// W2940: the second arg is the candidate's TREE — the exact published
+	// bytes — so the reviewer gate can attest post-autofix candidates, not
+	// just the reviewed branch head.
+	verifyReview?: (
+		candidate?: string,
+		candidateTree?: string,
+	) => { ok: boolean; why: string };
 	// W2270: when present, a one-use publish_grants row is minted in the
 	// coordination store after the final exact-commit PASS review — the ONLY
 	// credential the reference-transaction hook honors for a fast-forward of
@@ -456,7 +462,12 @@ function mergeCandidate(options: Options): Result {
 			return fail(
 				"merge guard: integration HEAD changed during verification; retry",
 			);
-		const finalReview = options.verifyReview?.(sha);
+		// W2940: attest the exact published bytes — the candidate TREE rides
+		// the final review alongside the sha.
+		const candidateTree = command(repo, ["git", "rev-parse", `${sha}^{tree}`]);
+		if (candidateTree.code !== 0)
+			return fail("merge guard: cannot resolve candidate tree");
+		const finalReview = options.verifyReview?.(sha, candidateTree.out.trim());
 		if (finalReview && !finalReview.ok)
 			return fail(`review required: ${finalReview.why}`);
 		// W2270: mint the one-use publication grant only now — after the final
