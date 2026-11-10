@@ -40,8 +40,9 @@ function pad(s: string, w: number): string {
 	return v.length >= w ? v : v + " ".repeat(w - v.length);
 }
 function clip(s: string, w: number): string {
+	if (w <= 0) return "";
 	const v = s.replace(SGR, "");
-	return v.length <= w ? v : v.slice(0, Math.max(1, w - 1)) + "…";
+	return v.length <= w ? v : v.slice(0, Math.max(0, w - 1)) + "…";
 }
 /** columnar row: cells truncated+padded to computed widths (plain text in/out) */
 function grid(cells: string[], widths: number[]): string {
@@ -399,7 +400,8 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 							w,
 						),
 					);
-					return [fg("accent", clip("◆ FLEET COCKPIT", w)), tabs, meta];
+					const tabLine = vw(tabs) <= w ? tabs : fg("accent", clip(`[${tab}]`, w));
+					return [fg("accent", clip("◆ FLEET COCKPIT", w)), tabLine, meta];
 				};
 
 				const render = (w: number): string[] => {
@@ -421,7 +423,7 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 						const live = r[1] === "▶" || r[1] === "◐";
 						lines.push(clip(degraded ? fg("dim", plain) : fg(live ? "success" : "muted", plain), w));
 					}
-					if (rows.length === 0) lines.push(fg("dim", "unreported — the plane returned nothing"));
+					if (rows.length === 0) lines.push(fg("dim", clip("unreported — the plane returned nothing", w)));
 					if (tab !== "fiddle") {
 						lines.push(
 							fg("dim", clip(`reported_by: inferred:name-prefix (degraded until W2886) · rows ${rows.length} · r refresh · Enter fiddle · Esc close`, w)),
