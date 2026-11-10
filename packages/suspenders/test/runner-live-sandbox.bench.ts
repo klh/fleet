@@ -3,12 +3,9 @@
 import {
 	dockerCaps,
 	dockerImageIdentity,
-} from "../../blam/bench/artifact/docker-driver.ts";
-import {
-	receiptLines,
-	runScenario,
-} from "../../blam/bench/artifact/harness.ts";
-import type { ScenarioSpec } from "../../blam/bench/artifact/types.ts";
+} from "@klh/blam/bench/artifact/docker-driver.ts";
+import { receiptLines, runScenario } from "@klh/blam/bench/artifact/harness.ts";
+import type { ScenarioSpec } from "@klh/blam/bench/artifact/types.ts";
 import { runSandboxCanary } from "./runner-live-sandbox.fixture.ts";
 
 const [bed, first, second, extra] = process.argv.slice(2);

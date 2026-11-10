@@ -25,6 +25,7 @@
 	"exports": {
 		"./src/*": "./src/*",
 		"./test/*": "./test/*",
+		"./bench/*": "./bench/*",
 		"./package.json": "./package.json"
 	},
 	"bin": {
