@@ -564,7 +564,21 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				.query("SELECT version, scope FROM consult_trust WHERE kb_id = ?")
 				.get(kb.id) as { version: string; scope: string } | undefined;
 			const version = arg("--version") ?? consultVersion();
-			if (!trust?.scope || !version || trust.version !== version)
+			// W2957: trust.version is "<head-sha>:<dirty-tree hash>" stamped by
+			// the ANSWERING lane's tree (consult-trust.ts), so the composite can
+			// never equal another lane's consultVersion() or a bare
+			// --version <sha> — resolved feedback refused on every ref. Compare
+			// HEAD components, prefix-tolerant; an explicit --version is the
+			// asker asserting the ref the candidate was verified against; an
+			// empty stored scope is a scopeless consult, not an unknown one.
+			const headOf = (v: string | null | undefined) => v?.split(":")[0] ?? "";
+			const sameHead =
+				!!trust &&
+				!!version &&
+				(headOf(trust.version) === headOf(version) ||
+					headOf(trust.version).startsWith(headOf(version)) ||
+					headOf(version).startsWith(headOf(trust.version)));
+			if (!trust || (!arg("--version") && !sameHead))
 				die(
 					"candidate code version changed or scope unknown; ask again with an explicit scope",
 				);
