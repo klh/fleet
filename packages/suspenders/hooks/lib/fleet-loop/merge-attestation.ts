@@ -7,6 +7,17 @@
 // equals the merge-tree preview of integration HEAD × the branch — the
 // same preview the receipt's instruction digests were read from. Pure
 // Git-object predicates, no store access; exported for the witness tests.
+//
+// RESTRICTION (phase one, by design): the predicate admits exactly the
+// default `git merge --no-ff` result. ANY ladder step that transforms
+// content — the W869 qlty autofix, a custom `LADDER` running codegen or a
+// formatter — moves the tree and is deferred, not published. That is the
+// fail-closed half of the trade: content no reviewer saw never lands, at
+// the cost of one branch-side repair round (apply the transform ON the
+// branch, re-complete, one fresh review of the normalized bytes). The
+// single-pass alternative — normalize BEFORE the first review and bind the
+// receipt to that candidate's digest — is the follow-up the coordinator
+// tracks separately; it is NOT implemented here.
 const gitq = (repo: string, args: string[]): string => {
 	const p = Bun.spawnSync(["git", ...args], {
 		cwd: repo,
