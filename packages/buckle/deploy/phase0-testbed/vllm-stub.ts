@@ -82,6 +82,17 @@ const parseTraceId = (traceparent: string | null): string | null => {
 	return /^[0-9a-f]{32}$/.test(traceId) ? traceId : null;
 };
 
+/** Server continuation (tracerespond-style): echo the caller's trace id
+ *  back with a FRESH span id — Jaeger/OTel round-trip semantics. A request
+ *  without a valid traceparent roots a fresh trace (like any OTel server). */
+const respondTraceparent = (req: Request): string => {
+	const traceId = parseTraceId(req.headers.get("traceparent"));
+	const span = new Uint8Array(8);
+	crypto.getRandomValues(span);
+	const spanId = [...span].map((b) => b.toString(16).padStart(2, "0")).join("");
+	return `00-${traceId ?? crypto.randomUUID().replaceAll("-", "")}-${spanId}-01`;
+};
+
 const clamp = (value: number, lo: number, hi: number): number =>
 	Math.min(hi, Math.max(lo, value));
 
@@ -134,14 +145,23 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 			const auth = req.headers.get("authorization");
 			const bearer = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
 
+			// Every response echoes the trace context (tracerespond): the
+			// caller's trace id back with a fresh span — Jaeger/OTel round-trip
+			// semantics; a request without a valid traceparent roots one.
+			const respond = (payload: unknown, status = 200): Response =>
+				Response.json(payload, {
+					status,
+					headers: { traceparent: respondTraceparent(req) },
+				});
+
 			// The journal face is namespaced and unauthenticated by design —
 			// it exists so the rehearsal can read what the stub SAW.
 			if (url.pathname === "/__log")
-				return Response.json({ model, entries });
+				return respond({ model, entries });
 
 			const deny = () => {
 				record(req, null, 0, 0);
-				return Response.json(
+				return respond(
 					{
 						error: {
 							message:
@@ -150,14 +170,14 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 							code: "invalid_api_key",
 						},
 					},
-					{ status: 401 },
+					401,
 				);
 			};
 
 			if (url.pathname === "/v1/models") {
 				if (bearer !== token) return deny();
 				record(req, null, 0, 0);
-				return Response.json({
+				return respond({
 					object: "list",
 					data: [
 						{
@@ -178,7 +198,7 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 				> | null;
 				if (!body || body.model !== model) {
 					record(req, body, 0, 0);
-					return Response.json(
+					return respond(
 						{
 							error: {
 								message: `The model \`${body?.model}\` does not exist.`,
@@ -186,7 +206,7 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 								code: "model_not_found",
 							},
 						},
-						{ status: 404 },
+						404,
 					);
 				}
 
@@ -199,7 +219,7 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 				if (!streaming) {
 					const completionTokens = 4;
 					record(req, body, 0, 0);
-					return Response.json({
+					return respond({
 						id,
 						object: "chat.completion",
 						created,
@@ -275,13 +295,15 @@ export function startVllmStub(opts: VllmStubOptions = {}): VllmStub {
 					headers: {
 						"content-type": "text/event-stream; charset=utf-8",
 						"cache-control": "no-cache",
+						// tracerespond on the SSE leg too
+						traceparent: respondTraceparent(req),
 					},
 				});
 			}
 
-			return Response.json(
+			return respond(
 				{ error: { message: `Not found: ${url.pathname}` } },
-				{ status: 404 },
+				404,
 			);
 		},
 	});

@@ -1,7 +1,7 @@
 // src/proxy-stream.ts — SSE pass-through with the usage-only tee,
 // W616.1 re-framer, W1106 stream receipts, W1156 drain terminals.
 
-import { safeFailureKind } from "@klh/telemetry/src/http-trace.ts";
+import { safeFailureKind, stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 import { RouterError } from "./adapters/errors.ts";
 import { affinityOn } from "./affinity.ts";
 import type { AppDeps } from "./app-deps.ts";
@@ -412,6 +412,14 @@ export function streamResponse(
 	// shared helper: jsonResponse/client-error pass through other bodies).
 	const headers = SSE_HEADERS(upstream.headers);
 	headers.set("content-type", "text/event-stream");
+	// Owner directive (Phase 0 trace round-trip): streamed responses return
+	// the same trace context + hop annotations as JSON ones — the caller that
+	// attached the trace id at the chain start receives it back here too.
+	stampHopHeaders(headers, {
+		service: "buckle",
+		traceId: ctx.trace.traceparent.slice(3, 35),
+		requestId: ctx.rid,
+	});
 	return new Response(downstream.readable, {
 		status: 200,
 		headers,

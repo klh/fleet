@@ -298,6 +298,138 @@ test.describe("phase0 rehearsal inner arm", () => {
 		expect(directEntry?.traceId).toBe("a".repeat(32));
 	});
 
+	test("durable connections: one TCP socket serves sequential requests", async () => {
+		// owner directive: durable connections across the chain. The inner legs
+		// are HTTP/1.1 keep-alive — this proves the gate holds ONE client socket
+		// open across sequential requests (no per-request close).
+		const url = new URL(gate.base);
+		const body = JSON.stringify({
+			model: MODEL,
+			messages: [{ role: "user", content: "keep-alive" }],
+		});
+		const requestLine =
+			`POST /v1/chat/completions HTTP/1.1\r\n` +
+			`host: ${url.host}\r\n` +
+			`authorization: Bearer ${laneKey}\r\n` +
+			`content-type: application/json\r\n` +
+			`connection: keep-alive\r\n` +
+			`content-length: ${body.length}\r\n\r\n${body}`;
+		let buf = "";
+		let closed = false;
+		let notify: (() => void) | null = null;
+		const wake = (): void => {
+			notify?.();
+			notify = null;
+		};
+		const socket = await Bun.connect({
+			hostname: url.hostname,
+			port: Number(url.port),
+			socket: {
+				data: (_s, chunk) => {
+					buf += chunk.toString();
+					wake();
+				},
+				close: () => {
+					closed = true;
+					wake();
+				},
+			},
+		});
+		const oneResponse = async (): Promise<string> => {
+			for (;;) {
+				const headEnd = buf.indexOf("\r\n\r\n");
+				if (headEnd !== -1) {
+					const len = Number(
+						/\r\ncontent-length:\s*(\d+)/i.exec(buf.slice(0, headEnd))?.[1] ??
+							/\r\ntransfer-encoding:\s*chunked/i.test(
+								buf.slice(0, headEnd),
+							)
+							? -1
+							: 0,
+					);
+					if (len === 0) return buf;
+					if (len > 0 && buf.length >= headEnd + 4 + len) return buf;
+					if (len === -1 && buf.includes("0\r\n\r\n")) return buf; // chunked end
+				}
+				if (closed) throw new Error("socket closed mid-response");
+				await new Promise<void>((r) => (notify = r));
+			}
+		};
+		socket.write(requestLine);
+		const first = await oneResponse();
+		const firstStatus = /^HTTP\/1\.1 (\d{3})/.exec(first)?.[1];
+		expect(firstStatus).toBe("200");
+		expect(closed).toBe(false); // socket STILL open after response one
+		const consumed = buf.length;
+		socket.write(requestLine); // SECOND request on the SAME socket
+		for (;;) {
+			if (buf.length > consumed && /HTTP\/1\.1 \d{3}/.test(buf.slice(consumed)))
+				break;
+			if (closed) throw new Error("socket closed before response two");
+			await new Promise<void>((r) => (notify = r));
+		}
+		await oneResponse();
+		expect(closed).toBe(false); // and STILL open after response two
+		expect((buf.match(/HTTP\/1\.1 200/g) ?? []).length).toBe(2);
+		socket.end();
+	});
+
+	test("trace round-trip: caller id propagates end-to-end and returns annotated", async () => {
+		// owner directive: whatever attaches a trace id at the chain's start
+		// receives it BACK with hop annotations — Jaeger/OTel style
+		const tid = "c".repeat(32);
+		const clientTraceparent = `00-${tid}-${"d".repeat(16)}-01`;
+
+		// JSON leg through the gate
+		const json = await fetch(`${gate.base}/v1/chat/completions`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${laneKey}`,
+				traceparent: clientTraceparent,
+			},
+			body: JSON.stringify({
+				model: MODEL,
+				messages: [{ role: "user", content: "trace" }],
+			}),
+		});
+		expect(json.status).toBe(200);
+		// hop annotations ride the SUCCESS response back to the caller
+		expect(json.headers.get("x-klh-trace-id")).toBe(tid);
+		expect(json.headers.get("x-klh-service")).toBe("buckle");
+		expect(json.headers.get("x-klh-request-id") ?? "").not.toBe("");
+		// the SAME trace id reached the stub — propagated, not re-rooted
+		await json.text();
+		const stubEntry = stub.log().findLast((e) => e.path === "/v1/chat/completions");
+		expect(stubEntry?.traceId).toBe(tid);
+
+		// streamed leg: the same round-trip on SSE responses
+		const sse = await chat(
+			gate,
+			laneKey,
+			{ messages: [{ role: "user", content: "trace-stream" }], stream: true },
+			{ traceparent: clientTraceparent },
+		);
+		expect(sse.status).toBe(200);
+		expect(sse.headers.get("x-klh-trace-id")).toBe(tid);
+		await sse.text();
+
+		// direct-to-stub: the stub echoes tracerespond — same trace id, FRESH span
+		const direct = await fetch(`${stub.url}/v1/models`, {
+			headers: { authorization: `Bearer ${stub.token}`, traceparent: clientTraceparent },
+		});
+		const echoed = direct.headers.get("traceparent") ?? "";
+		expect(echoed).toMatch(new RegExp(`^00-${tid}-[0-9a-f]{16}-01$`));
+		expect(echoed).not.toBe(clientTraceparent);
+
+		// a request with NO traceparent roots a fresh trace — still echoed back
+		const fresh = await fetch(`${stub.url}/v1/models`, {
+			headers: { authorization: `Bearer ${stub.token}` },
+		});
+		expect(fresh.headers.get("traceparent") ?? "").toMatch(
+			/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+		);
+	});
+
 	test("revoked-key denial", async () => {
 		const temp = await mintKey(gate, "rehearsal-temp");
 		const ok = await chat(gate, temp.key, {

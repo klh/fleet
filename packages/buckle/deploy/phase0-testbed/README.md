@@ -106,6 +106,31 @@ the gate, zero-fallback on stub outage + recovery without a gate restart,
 header-strip correlation, revoked-key denial. The compose smoke on Docker
 Desktop rides the same matrix via the edge arm's verify script.
 
+## Transport: HTTP/3 at the edge, durable keep-alive inner hops
+
+Owner directive: HTTP/3-capable chain for durable connections. Runtime
+facts (verified 2026-11-10): Bun 1.4.4 `Bun.serve` speaks HTTP/1.1 (+WS) —
+no h2/h3 server — and Bun's fetch client is h1; vLLM (uvicorn) does not
+serve h3. Caddy (the fleet front, `com.klh-local.caddy`) serves h3 natively
+(ALPN h3+h2+h1, Alt-Svc auto-advertised, needs UDP+TCP published).
+
+So the chain's transport matrix is:
+
+| Hop | Transport | Why |
+| --- | --- | --- |
+| client → APIM stand-in → edge | **HTTP/3 (QUIC)** via the Caddy front on the published port (TCP **and** UDP) | 0-RTT resumption, connection migration, no cross-stream HOL blocking — pays exactly on the client-facing leg |
+| edge Buckle → inner Buckle → stub | HTTP/1.1 keep-alive, connections held warm across requests | reliable point-to-point bridge; asserted by the e2e (one TCP socket, sequential requests, no close) |
+
+This is ALSO the production shape: real vLLM never speaks h3, so the
+on-prem leg terminates at an h3 front in front of it. True h3 between inner
+containers (per-hop Caddy sidecars) would add QUIC handshakes between
+trusted peers for zero loss-recovery benefit — rejected; the deviation
+(Bun/vLLM h3 servers absent) is recorded here rather than forced. The
+Docker Desktop compose must publish the edge port as `443/tcp` **and**
+`443/udp` for the h3 leg (Docker Desktop forwards UDP fine at rehearsal
+scale); the verify script's h3 probe rides the Caddy container itself (the
+macOS system curl has no h3).
+
 ## Compose wiring (edge arm — placeholder)
 
 The compose file is NOT in this directory yet; when the edge arm lands it,

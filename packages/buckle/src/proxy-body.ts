@@ -1,6 +1,7 @@
 // src/proxy-body.ts — the non-streaming response body: usage sniff,
 // ledger/servicemon record, W5 inbound condense; response bytes untouched.
 
+import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 import { condenseInbound } from "./pipeline-wire.ts";
 import type { Ctx } from "./request-context.ts";
 import { record } from "./usage-record.ts";
@@ -41,8 +42,18 @@ export async function jsonResponse(
 	// W5 inbound condense: sidestore AFTER the ledger row; the response
 	// bytes above are untouched (byte identity).
 	condenseInbound(deps, ctx, parsed);
+	const headers = SSE_HEADERS(result.response.headers);
+	// Owner directive (Phase 0 trace round-trip): a caller that attaches a
+	// trace id at the chain's start receives it BACK with hop annotations —
+	// the shared emitter clears the owned headers first, so a hostile
+	// upstream cannot forge x-klh-* through the success path either.
+	stampHopHeaders(headers, {
+		service: "buckle",
+		traceId: ctx.trace.traceparent.slice(3, 35),
+		requestId: ctx.rid,
+	});
 	return new Response(raw, {
 		status: result.response.status,
-		headers: SSE_HEADERS(result.response.headers),
+		headers,
 	});
 }
