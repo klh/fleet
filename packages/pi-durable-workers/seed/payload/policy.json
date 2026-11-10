@@ -1,0 +1,13 @@
+{
+	"comment": "W2958 seed policy contract — the executor-default limits the seed is verified under. The runtime_image field is stamped by seed/build.ts at build time; everything else matches desktop-executor DEFAULTS exactly. canonicalPolicyDigest digests the executor's canonical JSON shape (see src/seed-manifest.ts).",
+	"user": "1000:1000",
+	"network": "none",
+	"readOnlyRoot": true,
+	"capDropAll": true,
+	"noNewPrivileges": true,
+	"memory_mb": 512,
+	"cpus": 1,
+	"pids_limit": 128,
+	"work_mb": 128,
+	"tmp_mb": 64
+}
