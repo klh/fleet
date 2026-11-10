@@ -525,3 +525,23 @@ An offline first-request capture independently confirmed both pinned clients
 sent `max_tokens: 4096` and the same model ID to `/v1/messages`. Pi streamed
 while OpenHands omitted the streaming flag. The capture does not establish
 the effective upstream budget or later-turn settings.
+
+At an 8,192-token per-request limit, both arms edited the same fresh
+fixture revision (`31280286d14694825ea0796f25a02199b859831b`) and
+improved from 7/22 to 21/22. Both used GLM-5.3 Flash via Anthropic
+Messages and the same user brief. Both accepted a two-digit hex
+traceparent version where the brief required version 00. The unchanged
+oracle reproduced the same failure independently in both patches.
+
+| Arm | Wall time | Terminal outcome | Private checks |
+| --- | --- | --- | --- |
+| Pi Durable, host supervisor with network-disabled Docker tools | 221.164 s | Unanswered | 21/22 |
+| OpenHands Agent Server, isolated Docker network with model-only relay | 188.739 s | MaxIterationsReached | 21/22 |
+
+Pi reported 37,454 fresh input, 61,888 cache reads and 10,833 output
+tokens. OpenHands reported 131,730 prompt, 54,656 cache reads and 8,216
+completion tokens. Accounting was not reconciled against per-request
+ledger rows. The arms also have different tool and iteration semantics.
+This single partial pair establishes no comparative speed or token
+savings. Both scoped keys were revoked and the test containers removed.
+The shim baseline remains unverified.
