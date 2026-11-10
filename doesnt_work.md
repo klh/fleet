@@ -545,3 +545,9 @@ ledger rows. The arms also have different tool and iteration semantics.
 This single partial pair establishes no comparative speed or token
 savings. Both scoped keys were revoked and the test containers removed.
 The shim baseline remains unverified.
+
+The later Sphinx replay exposed a second false success signal. A public
+reproduction that only checked rendered docstrings passed on two
+candidates that the private judge scored 0/3 and 2/3. The testbed now
+also has a public fixture for typed and abstract properties and direct
+autodoc lookup. Keep the held-out verdict separate from both fixtures.

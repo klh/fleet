@@ -1931,6 +1931,43 @@ there is one passing parallel run, one rejected parallel repeat and
 one rejected serial run. The sample does not establish a reliable
 effect of tool scheduling.
 
+### Reliability follow-up
+
+A third independent run of the medium parallel excerpts configuration
+finished in 373.121 s with 29 model requests and 34 guest commands.
+It passed 0/3 targets and 59/59 regressions. The three-run history of
+that configuration is one accepted and two rejected patches.
+
+A runnable reproduction built solely from the public issue passed the
+ordinary property control on the base and failed all three class
+property docstring checks. It passed all four checks when run against
+the previously accepted patch. The reproduction was added to disposable
+candidate workspaces as a separate treatment.
+
+| Medium parallel treatment | Wall time | Fresh input | Cached input | Output | Targets | Regressions |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Excerpts, third clean control | 373.121 s | 33,026 | 641,984 | 20,352 | 0/3 | 59/59 |
+| Excerpts and executable reproduction | 283.852 s | 29,217 | 426,624 | 15,691 | 0/3 | 59/59 |
+| Compact source map and executable reproduction | 368.400 s | 38,502 | 519,872 | 21,349 | 2/3 | 59/59 |
+| Compact source map, executable reproduction and diagnosis step | 256.300 s | 25,407 | 445,440 | 12,122 | 0/3 | 59/59 |
+
+The first two reproduction-assisted candidates passed their public
+docstring checks and were rejected by the held-out judge. Buckle ledger
+joins confirmed GLM-5.3 Flash for all 29, 22 and 23 successful requests
+in the control and first two reproduction-assisted runs respectively.
+All four keys were revoked. A separate public fixture added typed
+signatures, abstract class properties and the direct autodoc directive.
+The base passed its regular-property control and failed the six issue
+checks. The previously accepted patch passed all seven.
+
+A fresh-session verification arm started from a new implementation
+patch and had access to public evidence only. It ran 39 requests
+across two independently scoped sessions. Combined wall time was
+540.470 s, with 45,931 fresh input, 617,536 cached input and 26,614
+output tokens. The final patch passed 0/3 targets and 59/59 regressions.
+Both keys were revoked. No acceptance or speed improvement is
+established by this trial.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
