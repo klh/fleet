@@ -87,6 +87,17 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		argv: (root) => [join(root, "hooks/bin/cred-gap-scan.ts"), "--act"],
 	},
 	{
+		// W2949: post-DONE branch-drift census — a DONE item whose
+		// suspenders/<id> branch head moved off the banked result_sha emits
+		// work.completion_drift + NEED_DECISION per new head (episode state
+		// re-emits only on head change). Detection only: never resets
+		// content, never re-banks; write-time rejection is W2954's lane.
+		name: "completion-integrity",
+		everySeconds: 1800,
+		timeoutMs: 60_000,
+		argv: (root) => [join(root, "hooks/bin/completion-integrity.ts"), "--act"],
+	},
+	{
 		// W804/W782.1: the parked Copilot-quota legs — W738 opus-5-5
 		// re-review, W695.6.2 tool_use proof, W731 copilot digest, W1202.1
 		// sampling-param retest (W1202: the 2026-10-22 probe of the removed
