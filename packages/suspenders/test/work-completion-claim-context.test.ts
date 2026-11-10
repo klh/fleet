@@ -706,3 +706,105 @@ test("W1730 the registered original base binds project, item, tree and an agreei
 		expect(registeredOriginalBaseline(store, args)).toBeNull();
 	});
 });
+
+const manualToken = (f: ReturnType<typeof fixture>) =>
+	JSON.parse(readFileSync(join(f.repo, ".fleet", "lane-context.json"), "utf8"))
+		.claimToken as string;
+
+test("W2974 a manually claimed lane closes a lane-branch merge repair on its target-side window", () => {
+	const f = fixture();
+	const tree = join(f.repo, ".worktrees", f.id);
+	// no context file in the worktree: the claim token alone carries
+	// completion identity, and the closing sha is a merge commit whose
+	// diff-tree evidence is empty — the gate reads the trusted target-side
+	// window (parent-1..sha) off the exact lane branch instead.
+	const merged = Bun.spawnSync(
+		[
+			"git",
+			"merge",
+			"--no-ff",
+			"-m",
+			"Merge branch 'main' into the lane branch",
+			f.sha,
+		],
+		{ cwd: tree, env: f.env, stdout: "pipe", stderr: "pipe" },
+	);
+	expect(merged.exitCode).toBe(0);
+	const mergeSha = Bun.spawnSync(["git", "-C", tree, "rev-parse", "HEAD"], {
+		stdout: "pipe",
+	})
+		.stdout.toString()
+		.trim();
+	const done = completeAs(f, tree, "completion-lane", manualToken(f));
+	expect(done.exitCode).toBe(0);
+	expect(done.stderr.toString()).not.toContain("no product commit");
+	const shown = JSON.parse(f.work("show", f.id, "--json").out);
+	expect(shown.state).toBe("DONE");
+	expect(shown.completion.commit_sha).toBe(mergeSha);
+});
+
+test("W2974 off-lane and already-covered lane-branch merges refuse with typed evidence gaps", () => {
+	const f = fixture();
+	const tree = join(f.repo, ".worktrees", f.id);
+	const inTree = (...args: string[]) =>
+		Bun.spawnSync(["git", "-C", tree, ...args], {
+			env: f.env,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+	const doneAt = (sha: string) =>
+		Bun.spawnSync(
+			[
+				process.execPath,
+				workFile,
+				"done",
+				f.id,
+				"--as",
+				"completion-lane",
+				"--token",
+				manualToken(f),
+				"--sha",
+				sha,
+				"--summary",
+				"Resumed the released claim's original product from its registered tree base.",
+			],
+			{ cwd: tree, env: f.env, stdout: "pipe", stderr: "pipe" },
+		);
+	// off-lane: identical merge content on a FOREIGN branch — the parent-1
+	// window is trusted only on the item's exact lane branch
+	expect(inTree("checkout", "-b", "foreign", f.baseline).exitCode).toBe(0);
+	expect(
+		inTree("merge", "--no-ff", "-m", "off-lane integration", f.sha).exitCode,
+	).toBe(0);
+	const offLaneSha = inTree("rev-parse", "HEAD").stdout.toString().trim();
+	expect(inTree("checkout", `suspenders/${f.id}`).exitCode).toBe(0);
+	const offLane = doneAt(offLaneSha);
+	expect(offLane.exitCode).not.toBe(0);
+	expect(offLane.stderr.toString()).toContain("on the item's lane branch");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+	// already-covered: a lane-branch merge whose target-side window is empty —
+	// the generic no-product refusal stands
+	const coveredSha = Bun.spawnSync(
+		[
+			"git",
+			"-C",
+			tree,
+			"commit-tree",
+			`${f.baseline}^{tree}`,
+			"-p",
+			"HEAD",
+			"-p",
+			f.sha,
+			"-m",
+			"already covered integration",
+		],
+		{ stdout: "pipe" },
+	)
+		.stdout.toString()
+		.trim();
+	expect(inTree("reset", "--hard", coveredSha).exitCode).toBe(0);
+	const covered = completeAs(f, tree, "completion-lane", manualToken(f));
+	expect(covered.exitCode).not.toBe(0);
+	expect(covered.stderr.toString()).toContain("no product commit evidence");
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("CLAIMED");
+});
