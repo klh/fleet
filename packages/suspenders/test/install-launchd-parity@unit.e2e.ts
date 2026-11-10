@@ -22,8 +22,8 @@ import { parsePlistXml, project } from "./plist-fields.ts";
 const SCRIPTS = join(import.meta.dir, "..", "scripts");
 const FIXTURE = {
 	bun: "/usr/local/bin/bun-fixture",
-	home: "/Users/fleet-fixture",
-	prefix: "/Users/fleet-fixture/.claude/hooks/suspenders",
+	home: "/Users/fleet-fixture", // scrub:allow
+	prefix: "/Users/fleet-fixture/.claude/hooks/suspenders", // scrub:allow
 	repo: "/Volumes/fleet-fixture/packages/suspenders",
 	beltUrl: "http://127.0.0.1:4100",
 	beltToken: "fixture-belt-token",

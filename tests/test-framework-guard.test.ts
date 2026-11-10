@@ -36,9 +36,13 @@ const SELF = "tests/test-framework-guard.test.ts";
 // .test.ts→.e2e.ts port — its −1 re-pins DOWN (636 → 635). W1294.9.3
 // sweep-G slice-3 (30 install/hubctl files, merged via W2668 from
 // parked/W2654, carried by W2739's rebase) re-pins DOWN on top
-// (635 → 605 at the W2812 rebase integration — this tree carries both
-// waves, re-pinned at its own measured landing count).
-const PIN = 605;
+// (635 → 605 at the W2812 rebase integration). W2667 (re-merge of the
+// W2652/W2640 full-corpus playwright port carried by the W2818
+// suspenders/W2814 merge) re-pins DOWN (605 → 264) — the 56
+// conflicted install/hubctl families resolve to main @unit.e2e.ts
+// naming, dropping their W2799-port plain .e2e.ts duplicates. Re-pinned
+// at this merge's own measured landing count.
+const PIN = 264;
 
 function trackedTestFiles(): string[] {
 	const out = Bun.spawnSync(["git", "ls-files", "*.test.ts"], { cwd: ROOT });
