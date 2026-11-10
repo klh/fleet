@@ -486,3 +486,33 @@ Docker-capable host was available to replace the NAS/QEMU fixture. Closing
 disposition: report the Desktop-only tied result as the decision-grade
 evidence this item can produce, and record provisioning a real second
 Linux host as a separate infra decision, not a retry of this measurement.
+
+## Pi Durable versus OpenHands coding smoke (W2960)
+
+Both ARM64 Docker Desktop arms used the same synthetic Relay fixture
+(`b0dac0a002ff43de782dba897f0f0b91e8517db6`), task prompt, Anthropic
+Messages route and `zai-glm-5.3-flash` pin. The untouched fixture passes
+7 of 22 hidden checks. The reference passes 22 of 22. Neither agent arm
+changed the source at either configured output cap.
+
+| Configured output cap | Arm | Outcome | Oracle |
+| --- | --- | --- | --- |
+| 2,048 | OpenHands | Still running at 150.60 s, three terminal observations | 7/22 |
+| 2,048 | Standalone Pi Durable | Wait returned at 49.75 s, five terminal observations, stop reason unrecorded | 7/22 |
+| 4,096 | OpenHands | Still running at 150.64 s, four terminal observations | 7/22 |
+| 4,096 | Standalone Pi Durable | Unanswered at 93.95 s, eight terminal observations, `model_error` with `output_token_limit` | 7/22 |
+
+A separate Pi diagnostic also settled unanswered with `output_token_limit`
+at the 2,048 setting. An offline write probe proved that the non-root seed
+could edit its disposable workspace. An instrumented rerun showed successful
+terminal calls before an unanswered settlement. Terminal calls and settled
+submissions therefore cannot stand in for a judged patch.
+
+The Pi arm used an experimental native ARM64 seed and a standalone driver
+because the installed Fleet runner fences inference to OpenAI Completions.
+OpenHands used its native terminal while Pi used a small shell tool. The
+harnesses reported usage differently, the output caps were configured
+client-side, and provider cache state was uncontrolled. Do not infer a
+runtime speed, quality or cost win. Forced-loss recovery remains unmeasured.
+Both arms used separate expiring keys. Teardown revoked the keys and
+removed the containers.
