@@ -8,6 +8,13 @@
 // caller-supplied: no environment pair, no writable bearer file — the
 // same-UID attacker who could forge a 0600 file can mint no store grant,
 // and a direct commit or plain FF without the guarded ladder fails closed.
+// W2954 — the same prepared phase also protects a DONE item's own
+// refs/heads/suspenders/<item>: once work_items.state='DONE' with a banked
+// result_sha, the only honored updates are a move TO that sha (re-anchor),
+// deletion (retirement), and no-ops; any other nonzero move — from the
+// banked sha or from an already-drifted head — refuses, so drift cannot
+// compound. Pre-DONE commits, rebases, and branch deletion are untouched;
+// an unreachable store fails the check closed, not open.
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import {
@@ -24,43 +31,16 @@ const run = (args: string[]): string => {
 const commonDir = (): string =>
 	realpathSync(run(["rev-parse", "--git-common-dir"]));
 const root = run(["rev-parse", "--show-toplevel"]);
-const deny = (reason: string): never => {
+const denyRef = (label: string, reason: string): never => {
 	console.error(
-		`Main ref update refused: ${reason}. Use Fleet's guarded merge/flush.`,
+		`${label} refused: ${reason}. Use Fleet's guarded merge/flush.`,
 	);
 	process.exit(1);
 };
+const deny = (reason: string): never => denyRef("Main ref update", reason);
 const sha40 = (value: unknown): value is string =>
 	typeof value === "string" && /^[a-f0-9]{40,64}$/.test(value);
-
-// main-update rows from git's transaction stdin: "<old> <new> refs/heads/main"
-const mainRows = (): [string, string][] =>
-	readFileSync(0, "utf8")
-		.split("\n")
-		.map((line) => line.trim().split(/\s+/))
-		.filter(
-			(row): row is [string, string, string] =>
-				row.length === 3 && row[2] === "refs/heads/main",
-		)
-		.filter(([oldRef, next]) => sha40(oldRef) && sha40(next))
-		.map(([oldRef, next]) => [oldRef, next] as [string, string]);
-
-// ─── verify: the reference-transaction phases ───
-const phase = process.argv[2];
-if (
-	!phase ||
-	!["preparing", "prepared", "committed", "aborted"].includes(phase)
-)
-	deny("unknown reference transaction phase");
-if (phase === "preparing") process.exit(0);
-if (phase !== "prepared") process.exit(0);
-
-// prepared: the last phase where main's fate is still rejectable
-const rows = mainRows();
-if (rows.length === 0) process.exit(0);
-if (rows.length !== 1) deny("multiple main updates in one transaction");
-const [oldRef, next] = rows[0] ?? ["", ""];
-if (oldRef === next) process.exit(0);
+const ZERO_SHA = /^0+$/;
 
 // the store binding is re-derived canonically; caller env never selects it
 const openStoreClean = async () => {
@@ -72,6 +52,84 @@ const openStoreClean = async () => {
 	);
 	return openStore();
 };
+
+// every ref-update row from git's transaction stdin: "<old> <new> <ref>"
+const transactionRows = (): [string, string, string][] =>
+	readFileSync(0, "utf8")
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/))
+		.filter((row): row is [string, string, string] => row.length === 3)
+		.filter(([oldRef, next]) => sha40(oldRef) && sha40(next));
+
+// ─── verify: the reference-transaction phases ───
+const phase = process.argv[2];
+if (
+	!phase ||
+	!["preparing", "prepared", "committed", "aborted"].includes(phase)
+)
+	deny("unknown reference transaction phase");
+if (phase === "preparing") process.exit(0);
+if (phase !== "prepared") process.exit(0);
+
+// prepared: the last phase where any ref's fate is still rejectable
+const txnRows = transactionRows();
+const mainRows = txnRows
+	.filter(([, , ref]) => ref === "refs/heads/main")
+	.map(([oldRef, next]) => [oldRef, next] as [string, string]);
+if (mainRows.length > 1) deny("multiple main updates in one transaction");
+if (mainRows.length === 0) {
+	await checkItemBranches(txnRows);
+	process.exit(0);
+}
+const [oldRef, next] = mainRows[0] ?? ["", ""];
+if (oldRef === next) {
+	await checkItemBranches(txnRows);
+	process.exit(0);
+}
+
+// refs/heads/suspenders/<item>: once DONE with a banked result_sha, only a
+// re-anchor TO that sha, deletion, or a no-op honors — any other nonzero
+// move (from the banked sha or an already-drifted head) is drift and
+// refuses, so it cannot compound. Fails closed when the item's state
+// cannot be determined.
+async function checkItemBranches(
+	rows: [string, string, string][],
+): Promise<void> {
+	const updates = rows
+		.filter(([, , ref]) => ref.startsWith("refs/heads/suspenders/"))
+		.map(
+			([oldRef, next, ref]) =>
+				[oldRef, next, ref.slice("refs/heads/suspenders/".length)] as [
+					string,
+					string,
+					string,
+				],
+		)
+		.filter(([oldRef, next]) => oldRef !== next && !ZERO_SHA.test(next));
+	if (updates.length === 0) return;
+	const store = await openStoreClean().catch((error) =>
+		denyRef(
+			"DONE branch guard",
+			`coordination store unavailable (${String(error).slice(0, 200)})`,
+		),
+	);
+	try {
+		for (const [oldRef, next, item] of updates) {
+			const row = store
+				.query(
+					"SELECT result_sha FROM work_items WHERE project = ? AND id = ? AND state = 'DONE'",
+				)
+				.get(commonDir(), item) as { result_sha: string | null } | null;
+			if (row && row.result_sha !== next)
+				denyRef(
+					`suspenders/${item}`,
+					`DONE at ${(row.result_sha ?? "?").slice(0, 12)} — ${oldRef.slice(0, 12)} → ${next.slice(0, 12)} is a post-close drift`,
+				);
+		}
+	} finally {
+		store.close();
+	}
+}
 
 // fast-forward publication: the merge guard's one-use store grant PLUS the
 // hook's own independent re-derivation of the exact-commit PASS evidence —
@@ -127,6 +185,7 @@ if (isAncestor.exitCode === 0) {
 	} finally {
 		store.close();
 	}
+	await checkItemBranches(txnRows);
 	process.exit(0);
 }
 
