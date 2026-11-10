@@ -18,9 +18,16 @@ descendant of main.
 
 - `git merge --no-ff parked/W2921` — 10 add/add conflicts, ALL in
   `packages/pi-durable-workers/` (package.json + 8 src files +
-  test/release-support.ts): parked's 14:28 pre-hygiene generation vs main's
-  15:11 hygiene generation. Resolved to the MAIN side for all 10 (newer
-  verified generation wins; content identity confirmed by the residual diff).
+  test/release-support.ts). Three generations of the package met: parked's
+  14:28 pre-hygiene build, main's 15:11 W2927 landing, and the 18:46
+  W2943-hygiene generation riding the W2902 stack. Resolved to the
+  W2943-HYGIENE generation (`git checkout suspenders/W2902 --
+packages/pi-durable-workers`, the same side W2925 landed) — newest
+  verified generation wins. This is what makes the branch pass check-p1:
+  main's 15:11 generation fails it (version 0.1.0 vs repo 2.2.0,
+  `@klh/buckle@workspace:*` and `bun@>=1.2.0` unpinned, `@playwright/test`
+  imported-but-undeclared ×3).
+- bun.lock synced (`bun install --force`) for the hygiene dep set.
 - Residual vs main after resolution: ONLY the two duplicate legacy suites
   `test/integration.test.ts` + `test/workers.test.ts` (+408 lines) that the
   parked branch adds — parked/W2921's actual content ALREADY LANDED on main
@@ -35,14 +42,13 @@ descendant of main.
 ## Guards + suites
 
 - Framework ratchet (PIN 570): PASS.
-- Import-resolution: 1 fail — MAIN-INHERITED on `ad5ec868` (dead relative
-  imports in `packages/local-llm/lane-load-bench.test.ts → ./registry.ts
-(SPECIALISTS)` and `spawner.test.ts → ./spawner.ts (kit)`; untouched by
-  this branch: tree vs main = panel.ts only).
-- Playwright import-law: 1 fail — MAIN-INHERITED on `ad5ec868`
-  (pi-durable-workers declares no `@playwright/test` dev row for its twins;
-  untouched by this branch).
-- Law-guards (incl. W902 scan green with the fix) + knob-registry: 24 passed.
+- Import-law + law-guards (incl. W902 scan green with the fix) +
+  knob-registry: 25 passed — the pi-durable-workers `@playwright/test`
+  phantom row main carries CLEARED by the hygiene generation.
+- Import-resolution: 4 pass / 1 fail — the fail is MAIN-INHERITED on
+  `ad5ec868` (dead relative imports in `packages/local-llm/lane-load-bench
+.test.ts → ./registry.ts (SPECIALISTS)` and `spawner.test.ts →
+./spawner.ts (kit)`; untouched by this branch).
 - pi-durable-workers `@unit.e2e.ts` twins: 22 passed.
 
 ## Closure
