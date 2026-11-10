@@ -578,7 +578,7 @@ export async function cmdConsultReply(rest: string[]): Promise<void> {
 				(headOf(trust.version) === headOf(version) ||
 					headOf(trust.version).startsWith(headOf(version)) ||
 					headOf(version).startsWith(headOf(trust.version)));
-			if (!trust || (!arg("--version") && !sameHead))
+			if (!trust || !version || !sameHead)
 				die(
 					"candidate code version changed or scope unknown; ask again with an explicit scope",
 				);

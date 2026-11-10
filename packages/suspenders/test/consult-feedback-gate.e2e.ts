@@ -68,7 +68,24 @@ test("resolved feedback: explicit --version and same-HEAD close; stale HEAD refu
 			"lane-a",
 		).out,
 	).toContain("FEEDBACK C2 resolved");
-	// case C — teeth: a candidate stamped with a DIFFERENT head and no
+	// case C — an explicit version that does NOT match the stored head also
+	// refuses (consult-kb.test.ts pins this intent; the version gate runs
+	// before the already-recorded tx, so C2's prior resolution is not hit)
+	expect(
+		coord(
+			"consult-reply",
+			"C2",
+			"--feedback",
+			"resolved",
+			"--evidence",
+			"applied and observed it work",
+			"--version",
+			"changed-code",
+			"--as",
+			"lane-a",
+		).err,
+	).toContain("candidate code version changed or scope unknown");
+	// case D — teeth: a candidate stamped with a DIFFERENT head and no
 	// explicit assertion still refuses, and stays unverified for reuse
 	seedCandidate("third question");
 	fx.ins(
