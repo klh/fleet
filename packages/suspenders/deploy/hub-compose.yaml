@@ -758,7 +758,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_MODEL_STORE_HEALTH_PORT ?? "7793") + "/healthz"); if (!r.ok) process.exit(1);'
+        - bun -e 'const r = await fetch("http://127.0.0.1:" + (process.env.HUB_MODEL_STORE_HEALTH_PORT ?? "7801") + "/healthz"); if (!r.ok) process.exit(1);'
       interval: 10s
       timeout: 5s
       retries: 3
