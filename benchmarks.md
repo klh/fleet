@@ -1894,6 +1894,43 @@ Pretask SHA-256: `7f258f067092fd6b6ec9c56988a8c0beb7eb90a2d2ab6ab6dbc3934a909f7f
 Accepted patch SHA-256: `0e26312a1e170b5dac5bb970dd186e71f5faf0ae3745f45e0b724f774859475c`.
 Private judge receipt SHA-256: `13a7e69591e4b846d2ae49da76d3e72b4110939cdc254f1492285956def0a91c`.
 
+A fresh grading container reproduced the accepted score from the
+exported patch. With the same brief and pretask hashes, changing to low
+effort yielded a first edit at 64.135 s and a final patch at 229.967 s
+after 35 requests and 40 commands. It passed 0/3 targets and 59/59
+regressions. Pi reported 22,581 fresh input, 423,872 cached input and
+9,862 output tokens. The scoped key was revoked and containers removed.
+The faster arm did not produce an accepted patch. Repeat the passing
+configuration to estimate reliability before using it to compare cost.
+
+A fresh repeat at medium effort with the same excerpts finished in
+470.947 s after 31 model requests and 34 commands. The first edit
+appeared at 330.534 s. The judge scored 0/3 targets and 59/59
+regressions. Pi reported 37,313 fresh input, 762,880 cached input and
+26,170 output tokens. The scoped key was revoked and the containers
+were removed. The passing configuration is now 1/2 on this task.
+Regrading the original patch proves grading repeatability. It does
+not establish that the model reliably generates a passing patch.
+
+A medium-effort arm added a prompt to reproduce and verify the public
+bug in a local autodoc build. The private judge remained outside the
+sandbox. The run finished at 364.557 s after 36 model requests and
+39 commands, with first source edit at 172.068 s. The judge scored
+0/3 targets and 59/59 regressions. Pi reported 28,464 fresh input,
+716,672 cached input and 17,872 output tokens. The scoped key was
+revoked and the containers removed. The extra instruction did not
+produce an accepted patch in this run.
+
+A medium-effort serial inspection arm used the same source excerpts
+and brief. It finished at 558.451 s with 47 model requests and 56
+commands. Its first edit arrived at 273.664 s. The judge scored 0/3
+targets and 59/59 regressions. Pi reported 48,418 fresh input,
+1,492,032 cached input and 30,423 output tokens. The scoped key was
+revoked and both containers removed. Across the matched settings
+there is one passing parallel run, one rejected parallel repeat and
+one rejected serial run. The sample does not establish a reliable
+effect of tool scheduling.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
