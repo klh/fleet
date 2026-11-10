@@ -1807,6 +1807,38 @@ and 138 cumulative queue wait expiries. This is a later sample, not
 the occupancy at either failed request. Use pool observations and
 per-request admission traces when scheduling or judging reruns.
 
+The completion-first 32k run started after the shared pool showed
+6 active requests out of 8 and no queue. The treatment combined
+hand-selected source excerpts, a prompt to reach a small edit early,
+bounded retries and a larger turn, tool and wall-time allowance.
+The first source edit arrived at 114.832 s. It ended unanswered at
+538.221 s after 68 commands. The private judge scored the final
+production patch 0/3 target checks and 59/59 regression checks.
+The target failures were assertion mismatches in rendered property
+documentation, rather than missing dependencies. The key was revoked.
+The SDK reported 43,677 fresh input, 867,008 cached input and 20,959
+output tokens across recorded usage. This is a completed diagnostic
+with a rejected patch, not an accepted baseline or an isolated test
+of the changes bundled into the treatment.
+
+### Corrected Docker replay
+
+The corrected runner is `packages/blam/bench/sphinx/completion-first-provider-limit.ts`.
+The previous scripts confounded runner timing with blocking client
+processes, guest commands that could outlive client timeouts, and earlier
+compaction. Use those observations as diagnostics only.
+
+On the corrected serial arm, the first successful command returned at
+3.725 s, the first source edit appeared at 77.730 s, and the run
+returned at 158.342 s. The private judge scored 1/3 target checks and
+59/59 regression checks. The SDK reported 15,674 fresh input, 200,064
+cached input and 6,172 output tokens. All 20 requests returned HTTP
+200. Fifteen streams reached EOF and five recorded consumer
+cancellation. The scoped key was revoked. The 158.342 s run was faster
+than earlier diagnostics, but changed multiple harness settings and
+still produced a rejected patch. It does not establish a speed or
+quality improvement on accepted work.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two
