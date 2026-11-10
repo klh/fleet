@@ -34,6 +34,9 @@ import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 // block — the launchd plist hardcodes nothing. An explicit --every flag
 // stays a one-shot override that wins for this process.
 import { createLoopConfigWatch } from "../lib/fleet-loop/loop-config-watch.ts";
+// W2952: the cycle's bounded work window — merge cadence must stay near
+// the configured every tick even when maintenance + the branch census run hot
+import { planCycleBudget, tracker } from "../lib/fleet-loop/cycle-budget.ts";
 import { describeError, loopDie } from "../lib/fleet-loop/loop-errors.ts";
 import { createMaintenanceSweep } from "../lib/fleet-loop/maintenance.ts";
 import { createMergeLadder } from "../lib/fleet-loop/merge.ts";
@@ -160,12 +163,12 @@ const { reclaimSweep } = createReclaimSweep({
 // Fail-isolated (the wisdom-sweep rule): a registry bug can never take
 // down the merge/dispatch core.
 const { maintenanceSweep } = createMaintenanceSweep(runtime);
-const runMaintenanceSweep = (): void => {
+const runMaintenanceSweep = (budget?: { maintenanceMs: number }): void => {
 	try {
-		const r = maintenanceSweep();
-		if (r.ran.length > 0 || r.failed.length > 0)
+		const r = maintenanceSweep(budget);
+		if (r.ran.length > 0 || r.failed.length > 0 || r.detached.length > 0)
 			log(
-				`MAINT swept ran=${r.ran.length} fail=${r.failed.length} skip=${r.skipped}`,
+				`MAINT swept ran=${r.ran.length} fail=${r.failed.length} skip=${r.skipped} detached=${r.detached.length}`,
 			);
 	} catch (e) {
 		log(
@@ -205,6 +208,12 @@ const runTemplate = (
 };
 
 async function cycle(): Promise<void> {
+	// W2952: the cycle's bounded work window — min(every, watchdog - margin),
+	// split into merge + maintenance slices so neither starves the other.
+	const cycleBudget = planCycleBudget({
+		everyMs: everyMs(),
+		watchdogMs: CYCLE_TIMEOUT_MS,
+	});
 	// 0. W1302.1: age out / refuse a stale or malformed operator hold BEFORE
 	// any gate reads it — A2: a hold that outlived its window (or never
 	// carried provenance) must never defer the ladder forever. Fail-isolated
@@ -242,6 +251,9 @@ async function cycle(): Promise<void> {
 	}
 
 	// 2. merge every ahead branch through the ladder (fail-isolated per branch)
+	// W2952: the census is budgeted — per-branch spans ride the cycle log and
+	// once the merge slice is gone the remaining census resumes next cycle,
+	// so a 20-35s-per-old-branch backlog can never eat the whole watchdog.
 	const branches = sh([
 		"git",
 		"branch",
@@ -252,7 +264,22 @@ async function cycle(): Promise<void> {
 	])
 		.split("\n")
 		.filter(Boolean);
-	for (const b of branches) mergeOne(b);
+	const mergeSlice = tracker(cycleBudget.mergeMs);
+	let censusDeferred = 0;
+	for (const b of branches) {
+		const started = Date.now();
+		const receipt = mergeOne(b);
+		const ms = Date.now() - started;
+		log(`SPAN branch=${b} ${receipt.outcome} (${ms}ms)`);
+		mergeSlice.charge(ms);
+		if (mergeSlice.remainingMs() <= 0 && b !== branches.at(-1)) {
+			censusDeferred = branches.length - branches.indexOf(b) - 1;
+			log(
+				`MERGE-BUDGET exhausted — ${censusDeferred} later branches resume next cycle`,
+			);
+			break;
+		}
+	}
 
 	// 2.5 runtime sync (W821): merged main reaches the serve surfaces —
 	// fail-isolated (the wisdom-sweep rule): a sync bug can never take down
@@ -346,7 +373,9 @@ async function cycle(): Promise<void> {
 	// typed-task registry — each due task fire is attempt-stamped then
 	// spawned as a child (callee decides fan-out); a watchdog-killed cycle
 	// never re-fires the same task. Fail-isolated inside runMaintenanceSweep.
-	runMaintenanceSweep();
+	// W2952: oversized tasks ride the detached executor, inline tasks are
+	// clamped to the maintenance slice — merges keep their own half.
+	runMaintenanceSweep(cycleBudget);
 
 	// 9. cycle-end lanes report (W2782): the supervisor table rides the cycle
 	// log — full table when the lane set changed (or the quiet cap passed),

@@ -25,6 +25,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { MODEL_HEALTH_SWEEP_S } from "../hub/model-health.ts";
+// W2952: oversized tasks ride the detached executor instead of a serial
+// inline slot they can never fit (a 600s coord-worker in a 30s slice).
+import { detachedState, launchDetached } from "./maintenance-detached.ts";
+import { tracker } from "./cycle-budget.ts";
 import type { LoopDeps } from "./runtime.ts";
 import { appendSweepNotice, pausePath, readPause } from "./sweep-state.ts";
 
@@ -596,6 +600,8 @@ export interface SweepResult {
 	ran: string[];
 	failed: string[];
 	skipped: number;
+	/** W2952: tasks launched detached (not occupying the serial slice) */
+	detached: string[];
 	/** W1201: one line per failed source — also surfaced via the W822 pulse
 	 *  maintenance section (sweep-state readSweepNotices). */
 	notices: string[];
@@ -631,24 +637,37 @@ export function createMaintenanceSweep(
 		spawn?: SpawnFn;
 		now?: () => number;
 	},
-): { maintenanceSweep: () => SweepResult } {
+): {
+	maintenanceSweep: (budget?: { maintenanceMs: number }) => SweepResult;
+} {
 	const tasks = overrides?.tasks ?? MAINTENANCE_TASKS;
 	const stampsPath = overrides?.stampsPath ?? maintenanceStampsPath();
 	const spawn = overrides?.spawn ?? defaultSpawn;
 	const now = overrides?.now ?? (() => Date.now());
 	const root = suspendersRoot();
-	const sweep = (): SweepResult => {
+	const sweep = (budget?: { maintenanceMs: number }): SweepResult => {
 		if (process.env.SUSPENDERS_MAINTENANCE === "0")
-			return { ran: [], failed: [], skipped: tasks.length, notices: [] };
+			return {
+				ran: [],
+				failed: [],
+				skipped: tasks.length,
+				detached: [],
+				notices: [],
+			};
 		const stamps = readStamps(stampsPath);
 		const nowMs = now();
+		// W2952: the slice bounds SERIAL maintenance only — detached tasks
+		// return control immediately, inline tasks are clamped to remaining
+		const slice = tracker(budget?.maintenanceMs ?? Number.MAX_SAFE_INTEGER);
+		const detachedOn = process.env.SUSPENDERS_MAINT_DETACH !== "0";
 		const result: SweepResult = {
 			ran: [],
 			failed: [],
 			skipped: 0,
+			detached: [],
 			notices: [],
 		};
-		for (const task of tasks) {
+		for (const [i, task] of tasks.entries()) {
 			// W1201 budget pause: a named stop-reason marker parks the task —
 			// skip + say why, never crash and never a quiet skip.
 			const paused = readPause(task.name);
@@ -663,10 +682,6 @@ export function createMaintenanceSweep(
 				result.skipped++;
 				continue;
 			}
-			// attempt-stamp BEFORE the child runs: a watchdog-killed cycle
-			// never re-fires the same task within its cadence
-			stamps[task.name] = nowMs;
-			writeStamps(stampsPath, stamps);
 			const bun = process.execPath;
 			const argv = task.argv(root, deps.REPO);
 			const cmd =
@@ -674,10 +689,68 @@ export function createMaintenanceSweep(
 					? ["/usr/bin/nice", "-n", String(task.nice), bun, ...argv]
 					: [bun, ...argv];
 			const cwd = task.cwd?.(deps.REPO);
+			// W2952: oversized vs the remaining slice → DETACHED admission (the
+			// marker lease enforces timeoutMs across cycles; inline-clamping a
+			// 600s agent to a 30s slice kills real work mid-flight).
+			if (detachedOn && task.timeoutMs > slice.remainingMs()) {
+				const st = detachedState(task.name, now());
+				if (st.outcome === "running" || st.outcome === "timeout") {
+					deps.log(
+						`MAINT ${task.name} detached ${st.outcome} (pid ${st.marker?.pid}) — skip`,
+					);
+					result.skipped++;
+					continue;
+				}
+				const r = launchDetached(task.name, {
+					cmd,
+					cwd,
+					timeoutMs: task.timeoutMs,
+					now,
+				});
+				if (r.outcome === "launched") {
+					// attempt-stamp AFTER a proven launch: a failed spawn stays due
+					stamps[task.name] = now();
+					writeStamps(stampsPath, stamps);
+					deps.log(
+						`MAINT ${task.name} detached launched (timeout ${task.timeoutMs}ms)`,
+					);
+					result.detached.push(task.name);
+				} else {
+					const notice = appendSweepNotice(
+						task.name,
+						`fail(detached-launch ${r.outcome})`,
+					);
+					result.notices.push(notice);
+					deps.log(`MAINT ${task.name} fail(detached-launch ${r.outcome})`);
+					result.failed.push(task.name);
+				}
+				continue;
+			}
+			// attempt-stamp BEFORE the child runs: a watchdog-killed cycle
+			// never re-fires the same task within its cadence
+			stamps[task.name] = nowMs;
+			writeStamps(stampsPath, stamps);
+			if (slice.remainingMs() <= 0) {
+				// bounded deferral notice — never one line per deferred task
+				result.notices.push(
+					`MAINT slice exhausted — ${Math.max(0, tasks.length - i)} later tasks deferred to next cycle`,
+				);
+				deps.log(result.notices.at(-1) ?? "MAINT slice exhausted");
+				result.skipped++;
+				continue;
+			}
 			try {
-				const r = spawn(cmd, { cwd, timeoutMs: task.timeoutMs });
+				const started = now();
+				const r = spawn(cmd, {
+					cwd,
+					timeoutMs: Math.min(task.timeoutMs, slice.remainingMs()),
+				});
+				const ms = now() - started;
+				slice.charge(ms);
 				if (r.code === 0) {
-					deps.log(`MAINT ${task.name} ok${r.out !== "" ? ` ${r.out}` : ""}`);
+					deps.log(
+						`MAINT ${task.name} ok (${ms}ms)${r.out !== "" ? ` ${r.out}` : ""}`,
+					);
 					result.ran.push(task.name);
 				} else {
 					const notice = appendSweepNotice(

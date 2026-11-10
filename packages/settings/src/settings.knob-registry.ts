@@ -162,6 +162,8 @@ export const KNOB_REGISTRY: readonly KnobHome[] = [
 	k("SUSPENDERS_LLM_MODEL", "model-plane"),
 	k("SUSPENDERS_LLM_URL", "model-plane"),
 	k("SUSPENDERS_LOCAL_REGISTRY", "conf"),
+	k("SUSPENDERS_MAINT_DETACH", "internal"),
+	k("SUSPENDERS_MAINT_DETACH_DIR", "internal"),
 	k("SUSPENDERS_MAINTENANCE", "conf", "fleet_loop.maintenance"),
 	k("SUSPENDERS_MAINTENANCE_STAMPS", "internal"),
 	k("SUSPENDERS_MAINTENANCE_STATE", "internal"),

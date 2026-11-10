@@ -135,6 +135,7 @@ describe("maintenance sweep (W779)", () => {
 		});
 		expect(typeof maintenanceSweep).toBe("function");
 		expect(maintenanceSweep()).toEqual({
+			detached: [],
 			ran: [],
 			failed: [],
 			skipped: 0,
@@ -153,7 +154,13 @@ describe("maintenance sweep (W779)", () => {
 				},
 			});
 			const r = sweep();
-			expect(r).toEqual({ ran: [], failed: [], skipped: 1, notices: [] });
+			expect(r).toEqual({
+			ran: [],
+			failed: [],
+			skipped: 1,
+			detached: [],
+			notices: [],
+		});
 		} finally {
 			if (prev === undefined) delete process.env.SUSPENDERS_MAINTENANCE;
 			else process.env.SUSPENDERS_MAINTENANCE = prev;
