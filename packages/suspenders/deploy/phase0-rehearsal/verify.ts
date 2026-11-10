@@ -21,6 +21,15 @@
 //                both buckles into the stub journal unchanged
 //   surface      /v1/admin/* and /__log 404 AT THE PUBLISHED PORT
 //                (excluded faces never publish)
+//   pacing       dual-leg probe INSIDE apim-sim: proxy (sim listener) vs
+//                direct (edge-buckle) — equal frame counts, equal payloads,
+//                loose TTFT bound; measured numbers are evidence, never an
+//                assertion of two-buckle latency (W2972)
+//   quota-429    rpm_limit=1 minted key: invalid bearer 401, first valid
+//                200, second valid 429 + Retry-After, exactly ONE upstream
+//                hit across the whole block (W2972)
+//   ledger-join  the completion's trace id joins a W824 usage-ledger row
+//                on the edge gate (/v1/admin/traces): model, ok, tokens
 //
 // Teardown law: minted keys are revoked (best-effort, receipts printed),
 // compose down, fixture dir removed. Exit 0 all-pass · 1 fail · 3 blocked.
@@ -63,6 +72,40 @@ const FleetHopSchema = z.object({
 const FleetTraceSchema = z.object({
 	id: z.string(),
 	hops: z.array(FleetHopSchema).min(1),
+});
+// W2972 pacing probe — arrival timestamps taken when a COMPLETE SSE frame
+// terminator lands (never after res.text(); a buffered read measures
+// delivery, not arrival, and would hide mid-frame chunk splits).
+const PacingProbeSchema = z.object({
+	status: z.number(),
+	ttft: z.number(),
+	frames: z.number(),
+	payload: z.string(),
+});
+const PacingSchema = z.object({
+	direct: PacingProbeSchema,
+	proxy: PacingProbeSchema,
+});
+const QuotaWireSchema = z.object({
+	bad: z.number(),
+	first: z.number(),
+	second: z.number(),
+	retryAfter: z.string().nullable(),
+});
+// W824 usage-ledger read (GET /v1/admin/traces) — the join row for the
+// streamed request, by trace id.
+const LedgerTraceSchema = z.object({
+	requests: z
+		.array(
+			z.object({
+				trace_id: z.string(),
+				target_model: z.string().nullable(),
+				ok: z.number(),
+				in_tok: z.number().nullable(),
+				out_tok: z.number().nullable(),
+			}),
+		)
+		.min(1),
 });
 
 // -- layout + orchestration helpers --
@@ -125,6 +168,51 @@ const JOURNAL_SCRIPT =
 	'await fetch("http://127.0.0.1:"+process.env.STUB_PORT+"/__log")' +
 	".then((r)=>r.text()).then((t)=>console.log(t));";
 
+// W2972 pacing probe — runs INSIDE apim-sim: the proxy leg rides the sim's
+// own listener (127.0.0.1:8191), the direct leg hits edge-buckle (:8192,
+// the compose-pinned APIM_UPSTREAM) verbatim. Arrival = a COMPLETE SSE
+// frame terminator, partial buffer carried across chunk reads; both legs
+// relay the same stub, so payloads must come back equal.
+const PACING_SCRIPT =
+	"const probe=async(url,key)=>{const t0=Date.now();" +
+	'const res=await fetch(url+"/v1/chat/completions",{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+key},' +
+	'body:JSON.stringify({model:"test-model",stream:true,messages:[{role:"user",content:"phase0 pacing probe"}]}),signal:AbortSignal.timeout(30000)});' +
+	'const reader=res.body.getReader();const dec=new TextDecoder();let buf="",ttft=-1,frames=0,payload="";' +
+	"for(;;){const r=await reader.read();if(r.done)break;buf+=dec.decode(r.value,{stream:true});" +
+	'for(;;){const i=buf.indexOf("\\n\\n");if(i<0)break;const raw=buf.slice(0,i);buf=buf.slice(i+2);' +
+	'const line=raw.replace(/^data: /,"").trim();if(line.length===0||line==="[DONE]")continue;frames++;if(ttft<0)ttft=Date.now()-t0;' +
+	'try{payload+=JSON.stringify(JSON.parse(line).choices?.[0]?.delta?.content??"");}catch{}}}' +
+	"return {status:res.status,ttft,frames,payload};};" +
+	'const d=await probe("http://edge-buckle:8192",process.env.APIM_EDGE_KEY);' +
+	'const p=await probe("http://127.0.0.1:8191",process.env.APIM_AUTH_TOKEN);' +
+	"console.log(JSON.stringify({direct:d,proxy:p}));";
+
+// W2972 quota leg — a dedicated rpm_limit=1 key on the edge gate, exercised
+// from inside apim-sim: invalid bearer, first valid (hits the stub), second
+// valid within the same minute.
+const QUOTA_MINT_SCRIPT =
+	'const r=await fetch("http://127.0.0.1:"+process.env.BUCKLE_PORT+"/v1/admin/keys",' +
+	'{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+process.env.BUCKLE_ROOT_KEY},' +
+	'body:JSON.stringify({name:"phase0-verify",scopes:["buckle:proxy:READ_","buckle:proxy:WRITE_"],rpm_limit:1,expires_in_s:600})});' +
+	"console.log(JSON.stringify(await r.json()));";
+
+const QUOTA_SCRIPT = (key: string): string =>
+	'const call=(auth)=>fetch("http://edge-buckle:8192/v1/chat/completions",{method:"POST",headers:{"content-type":"application/json","authorization":auth},' +
+	'body:JSON.stringify({model:"test-model",messages:[{role:"user",content:"phase0 quota probe"}]}),signal:AbortSignal.timeout(30000)});' +
+	`const qk=${JSON.stringify(key)};` +
+	'const bad=await call("Bearer wrong-token");await bad.arrayBuffer();' +
+	'const first=await call("Bearer "+qk);await first.arrayBuffer();' +
+	'const second=await call("Bearer "+qk);await second.arrayBuffer();' +
+	'console.log(JSON.stringify({bad:bad.status,first:first.status,second:second.status,retryAfter:second.headers.get("retry-after")}));';
+
+// W2972 ledger read — the edge gate's W824 trace face, by the trace id the
+// sim minted and relayed (32-hex, server-validated).
+const LEDGER_SCRIPT = (traceId: string): string =>
+	'const r=await fetch("http://127.0.0.1:"+process.env.BUCKLE_PORT+"/v1/admin/traces?trace_id=' +
+	traceId +
+	'",{headers:{"authorization":"Bearer "+process.env.BUCKLE_ROOT_KEY}});' +
+	"console.log(JSON.stringify(await r.json()));";
+
 const readJournal = (): z.infer<typeof StubJournalSchema> | null => {
 	const r = execIn("stub", JOURNAL_SCRIPT);
 	if (r.code !== 0) return null;
@@ -139,8 +227,8 @@ const readJournal = (): z.infer<typeof StubJournalSchema> | null => {
 };
 
 type Minted = { service: string; keyId: string; key: string };
-const mintIn = (service: string): Minted | null => {
-	const r = execIn(service, MINT_SCRIPT);
+const mintIn = (service: string, script = MINT_SCRIPT): Minted | null => {
+	const r = execIn(service, script);
 	if (r.code !== 0) return null;
 	let wire: unknown;
 	try {
@@ -152,6 +240,23 @@ const mintIn = (service: string): Minted | null => {
 	return parsed.success
 		? { service, keyId: parsed.data.key_id, key: parsed.data.key }
 		: null;
+};
+
+// W2972: the exec-out → JSON → safeParse read every new check shares.
+const parseOut = <S extends z.ZodType>(
+	r: ShResult,
+	schema: S,
+): z.infer<S> | null => {
+	let wire: unknown = null;
+	if (r.code === 0) {
+		try {
+			wire = JSON.parse(r.out.trim());
+		} catch {
+			wire = null;
+		}
+	}
+	const parsed = schema.safeParse(wire);
+	return parsed.success ? parsed.data : null;
 };
 
 // -- stack lifecycle: fixture env, up, port discovery, readiness --
@@ -396,6 +501,109 @@ const checkCorrelation = async (t: SimTarget): Promise<void> => {
 	);
 };
 
+// W2972: does routing through the APIM listener deform streaming? Both legs
+// run inside apim-sim against the same stub — equal frame counts, equal
+// payloads, and a LOOSE TTFT bound (2s) prove relay fidelity. The measured
+// numbers print as evidence; they are NOT a two-buckle latency claim.
+const checkPacing = async (): Promise<void> => {
+	const parsed = parseOut(execIn("apim-sim", PACING_SCRIPT), PacingSchema);
+	const d = parsed?.direct ?? null;
+	const p = parsed?.proxy ?? null;
+	const equalPayloads = d !== null && p !== null && p.payload === d.payload;
+	check(
+		"pacing",
+		d !== null &&
+			p !== null &&
+			d.status === 200 &&
+			p.status === 200 &&
+			p.frames === d.frames &&
+			p.frames > 1 &&
+			equalPayloads &&
+			p.ttft <= d.ttft + 2000,
+		`direct ttft=${d?.ttft ?? -1}ms frames=${d?.frames ?? 0} · proxy ttft=${p?.ttft ?? -1}ms frames=${p?.frames ?? 0} payload-equal=${equalPayloads} (simulator-only)`,
+	);
+};
+
+// W2972: rpm_limit rides the mint itself — 401 without a key, 200 on the
+// first valid call, 429 + Retry-After on the second within the same minute,
+// and EXACTLY ONE upstream hit across the whole block (the 401 and the 429
+// must never reach the stub). The key carries the fixture-class mint name
+// (phase0-verify — the tier policy binds by mint name; any other name 403s
+// repo_unknown) and joins minted[] for teardown.
+const checkQuota = async (minted: Minted[]): Promise<void> => {
+	const qk = mintIn("edge-buckle", QUOTA_MINT_SCRIPT);
+	if (qk === null) {
+		check("quota-429", false, "quota key mint failed");
+		return;
+	}
+	minted.push(qk);
+	const before = readJournal()?.entries.length ?? -1;
+	const w = parseOut(execIn("apim-sim", QUOTA_SCRIPT(qk.key)), QuotaWireSchema);
+	const after = readJournal()?.entries.length ?? -2;
+	const hits = after - before;
+	check(
+		"quota-429",
+		w !== null &&
+			w.bad === 401 &&
+			w.first === 200 &&
+			w.second === 429 &&
+			w.retryAfter !== null &&
+			before >= 0 &&
+			hits === 1,
+		`401=${w?.bad ?? "-"} 200=${w?.first ?? "-"} 429=${w?.second ?? "-"} retry-after=${w?.retryAfter === null ? "MISSING" : "present"} upstream-hits=${hits} (expect 1)`,
+	);
+};
+
+// W2972: fire one completion through the full chain, then poll the edge
+// gate's W824 trace face until the ledger row settles. The query is
+// trace-id-filtered server-side — a returned row IS the join.
+const ledgerJoin = async (
+	t: SimTarget,
+): Promise<z.infer<typeof LedgerTraceSchema>["requests"][number] | null> => {
+	const p = t.port();
+	if (p === null) return null;
+	const res = await fetch(`http://127.0.0.1:${p}/v1/chat/completions`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${t.secrets.clientToken ?? ""}`,
+		},
+		body: JSON.stringify({
+			model: SIM_MODEL,
+			messages: [{ role: "user", content: "phase0 ledger-join probe" }],
+		}),
+		signal: AbortSignal.timeout(30000),
+	});
+	await res.arrayBuffer();
+	const traceId = res.headers.get("x-klh-trace-id");
+	if (!res.ok || traceId === null) return null;
+	for (let i = 0; i < 15; i++) {
+		const trace = parseOut(
+			execIn("edge-buckle", LEDGER_SCRIPT(traceId)),
+			LedgerTraceSchema,
+		);
+		const row = trace?.requests[0] ?? null;
+		if (row !== null) return row;
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+	}
+	return null;
+};
+
+// The ledger row must show the real model, a successful call, and nonzero
+// usage — the W824 accounting joined to a request this run actually made.
+const checkLedger = async (t: SimTarget): Promise<void> => {
+	const row = await ledgerJoin(t);
+	check(
+		"ledger-join",
+		row !== null &&
+			row.target_model === SIM_MODEL &&
+			row.ok === 1 &&
+			(row.in_tok ?? 0) > 0 &&
+			(row.out_tok ?? 0) > 0,
+		`model=${row?.target_model ?? "-"} ok=${row?.ok ?? "-"} tokens=${String(row?.in_tok)}/${String(row?.out_tok)}`,
+	);
+};
+
 const teardown = (mintedKeys: Minted[], envPath: string, dir: string): void => {
 	for (const m of mintedKeys) {
 		const r = execIn(m.service, revokeScript(m.keyId));
@@ -423,7 +631,7 @@ const waitJournal = async (timeoutMs: number): Promise<boolean> => {
 	return false;
 };
 
-const runChecks = async (t: SimTarget): Promise<boolean> => {
+const runChecks = async (t: SimTarget, minted: Minted[]): Promise<boolean> => {
 	await checkDiscovery(t);
 	await checkStream(t);
 	await checkIdentity(t);
@@ -438,6 +646,9 @@ const runChecks = async (t: SimTarget): Promise<boolean> => {
 		return checks.every((c) => c.ok);
 	}
 	await checkCorrelation(t);
+	await checkPacing();
+	await checkQuota(minted);
+	await checkLedger(t);
 	return checks.every((c) => c.ok);
 };
 
@@ -495,7 +706,7 @@ const main = async (): Promise<number> => {
 			console.log("FAIL staged key bring-up");
 		} else {
 			const t: SimTarget = { port: simHostPort, secrets: fixture.secrets };
-			exit = (await runChecks(t)) ? 0 : 1;
+			exit = (await runChecks(t, minted)) ? 0 : 1;
 		}
 	} finally {
 		teardown(minted, fixture.envPath, fixture.dir);
