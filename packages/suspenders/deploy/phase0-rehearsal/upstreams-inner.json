@@ -1,0 +1,14 @@
+{
+	"version": 1,
+	"inherit_defaults": false,
+	"groups": {
+		"test-model": [
+			{
+				"url": "http://stub:8191/v1",
+				"dialect": "openai",
+				"provider": "fixture-inner",
+				"api_key_env": "STUB_TOKEN"
+			}
+		]
+	}
+}
