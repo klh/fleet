@@ -1549,3 +1549,15 @@ host harness against a fixed-path ExecutionEnv fixture. A non-root Docker
 guest supplied the bytes, accepted the edit, and verified the changed
 content through a shell command. The fixture did not implement the full
 remote environment contract or guest replacement.
+
+### Buckle output-budget control
+
+On the W2960 Anthropic Messages route, a single GLM-5.3 Flash request
+with `max_tokens: 8192` returned HTTP 200, `end_turn`, 57 input tokens
+and 7,809 output tokens in 112.019 seconds. The response contained all
+600 requested synthetic lines. The scoped five-minute key was revoked.
+This establishes that the route can exceed the previous 4,096-token
+request setting on a plain-text turn. It does not measure an agentic
+patch or establish how the upstream accounts for a tool-heavy failed
+turn. Use the same 8,192 limit in both arms of the next comparison and
+record per-request stop reasons and usage.
