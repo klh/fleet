@@ -24,8 +24,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 const exec = promisify(execFile);
 
-const FLEET_CWD = "/Volumes/Sensitive/github/klh/fleet";
-const MY_SID = "01a1bb57-31dc-771c-a45d-15e252ef4a79";
 const FAST_TIMEOUT = 5_000;
 const FLEET_TIMEOUT = 25_000;
 const DOCK_OFF = process.env.PI_COCKPIT_DOCK === "off";
@@ -160,16 +158,16 @@ function renderDock(): void {
 	}
 }
 
-async function refreshFast(): Promise<void> {
+async function refreshFast(cwd: string): Promise<void> {
 	if (S.busy.has("fast")) return;
 	S.busy.add("fast");
 	try {
 		const [gov, ready, work, runs, workers] = await Promise.all([
-			exec("coord", ["governance"], { cwd: FLEET_CWD, timeout: FAST_TIMEOUT }).catch(() => null),
-			exec("work", ["ready"], { cwd: FLEET_CWD, timeout: FAST_TIMEOUT }).catch(() => null),
-			exec("work", ["report"], { cwd: FLEET_CWD, timeout: FAST_TIMEOUT }).catch(() => null),
-			exec("coord", ["runner", "list", "--json"], { cwd: FLEET_CWD, timeout: FAST_TIMEOUT }).catch(() => null),
-			exec("coord", ["workers", "--json"], { cwd: FLEET_CWD, timeout: FAST_TIMEOUT }).catch(() => null),
+			exec("coord", ["governance"], { cwd, timeout: FAST_TIMEOUT }).catch(() => null),
+			exec("work", ["ready"], { cwd, timeout: FAST_TIMEOUT }).catch(() => null),
+			exec("work", ["report"], { cwd, timeout: FAST_TIMEOUT }).catch(() => null),
+			exec("coord", ["runner", "list", "--json"], { cwd, timeout: FAST_TIMEOUT }).catch(() => null),
+			exec("coord", ["workers", "--json"], { cwd, timeout: FAST_TIMEOUT }).catch(() => null),
 		]);
 		if (gov) S.gov = gov.stdout.trim().split(/\s+/)[0] ?? null;
 		if (ready) {
@@ -237,11 +235,11 @@ function parseWorkReport(text: string): WorkItem[] {
 	return items;
 }
 
-async function refreshFleet(): Promise<void> {
+async function refreshFleet(cwd: string): Promise<void> {
 	if (S.busy.has("fleet")) return;
 	S.busy.add("fleet");
 	try {
-		const r = await exec("coord", ["fleet", "--json"], { cwd: FLEET_CWD, timeout: FLEET_TIMEOUT }).catch(() => null);
+		const r = await exec("coord", ["fleet", "--json"], { cwd, timeout: FLEET_TIMEOUT }).catch(() => null);
 		if (!r) return;
 		const j = JSON.parse(r.stdout) as Record<string, unknown>;
 		const raw = (Array.isArray(j.lanes) ? j.lanes : []) as Array<Record<string, unknown>>;
@@ -292,10 +290,8 @@ function workRows(): string[][] {
 		.map((i) => [i.id, i.glyph, i.state, i.age, i.title])
 		.sort((a, b) => Number(b[1] === "◐") - Number(a[1] === "◐"));
 }
-function localRows(): string[][] {
-	const rows: string[][] = [["pi@muramasa (me)", "▶", "session", MY_SID.slice(0, 8) + "…"]];
-	const claims = (S.work ?? []).filter((i) => /W2887|W2888|W2889/.test(i.id));
-	for (const c of claims) rows.push(["├─ " + c.id, c.glyph, c.state, c.title]);
+function localRows(sid: string): string[][] {
+	const rows: string[][] = [["Pi (this session)", "▶", "session", sid.slice(0, 8) + "…"]];
 	const runs = S.runs ?? [];
 	for (const r of runs) {
 		const at = r.updatedAt ? (Number.isFinite(+r.updatedAt) ? +r.updatedAt : Date.parse(r.updatedAt)) : NaN;
@@ -308,13 +304,13 @@ function localRows(): string[][] {
 	}
 	if (S.runs !== null && S.runs.length === 0) rows.push(["├─ runs", "·", "ok", "0 owner-scoped runs"]);
 	if (S.runs === null) rows.push(["├─ runs", "·", "unreported", "coord runner list unavailable"]);
-	const mine = (S.fleet?.lanes ?? []).filter((l) => l.sid.includes(MY_SID));
+	const mine = (S.fleet?.lanes ?? []).filter((l) => (l.sid === sid || l.sid === `pi-${sid}`));
 	for (const l of mine) rows.push(["└─ lane", l.live ? "▶" : l.state, "lane", l.task]);
 	if (rows.length === 1) rows.push(["└─ unreported", "·", "unreported", "unreported"]);
 	return rows;
 }
-function remoteRows(): { rows: string[][]; entityOf: Array<{ label: string; state: string; task: string; hub: string } | null> } {
-	const others = (S.fleet?.lanes ?? []).filter((l) => !l.sid.includes(MY_SID));
+function remoteRows(sid: string): { rows: string[][]; entityOf: Array<{ label: string; state: string; task: string; hub: string } | null> } {
+	const others = (S.fleet?.lanes ?? []).filter((l) => !(l.sid === sid || l.sid === `pi-${sid}`));
 	const hubs = new Map<string, Lane[]>();
 	for (const l of others) {
 		const a = hubs.get(l.hub) ?? [];
@@ -374,15 +370,16 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 			ctx.ui.notify("fleetcockpit needs a TUI session", "error");
 			return;
 		}
+		const sid = ctx.sessionManager.getSessionId();
 		let tab: Tab = TABS.includes(startTab) ? startTab : "overview";
 		let scroll = 0;
 		let tuiRef: { requestRender: () => void } | null = null;
 
-		void refreshFast();
-		void refreshFleet().then(() => tuiRef?.requestRender());
+		void refreshFast(ctx.cwd);
+		void refreshFleet(ctx.cwd).then(() => tuiRef?.requestRender());
 
 		const kicker = setInterval(() => {
-			void refreshFast().then(() => tuiRef?.requestRender());
+			void refreshFast(ctx.cwd).then(() => tuiRef?.requestRender());
 		}, 20_000);
 
 		try {
@@ -409,8 +406,8 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 					let rows: string[][] = [];
 					if (tab === "overview") rows = overviewRows();
 					else if (tab === "work") rows = workRows();
-					else if (tab === "local") rows = localRows();
-					else if (tab === "remote") rows = remoteRows().rows;
+					else if (tab === "local") rows = localRows(sid);
+					else if (tab === "remote") rows = remoteRows(sid).rows;
 					else rows = fiddleRows(sel);
 
 					const widths = colWidths(rows);
@@ -447,8 +444,8 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 							tab = TABS[Number(d) - 1];
 							scroll = 0;
 						} else if (data === "r") {
-							void refreshFast().then(() => tui.requestRender());
-							void refreshFleet().then(() => tui.requestRender());
+							void refreshFast(ctx.cwd).then(() => tui.requestRender());
+							void refreshFleet(ctx.cwd).then(() => tui.requestRender());
 						} else if (_keybindings.matches(data, "cursor.down") || data === "j") {
 							scroll += 1;
 						} else if (_keybindings.matches(data, "cursor.up") || data === "k") {
@@ -463,7 +460,7 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 								rows = workRows();
 								entities = rows.map((r) => ({ label: r[0], state: r[1], task: r[4], hub: "local" }));
 							} else if (tab === "remote") {
-								const rm = remoteRows();
+								const rm = remoteRows(sid);
 								rows = rm.rows;
 								entities = rm.entityOf;
 							}
@@ -496,8 +493,8 @@ export default function fleetCockpit(pi: ExtensionAPI) {
 	if (!DOCK_OFF) {
 		pi.on("session_start", async (_e, ctx) => {
 			dockUi = ctx.ui;
-			void refreshFast();
-			const dockTick = setInterval(() => void refreshFast(), 30_000);
+			void refreshFast(ctx.cwd);
+			const dockTick = setInterval(() => void refreshFast(ctx.cwd), 30_000);
 			dockTick.unref?.();
 		});
 	}
