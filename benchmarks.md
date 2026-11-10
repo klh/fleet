@@ -1562,6 +1562,24 @@ patch or establish how the upstream accounts for a tool-heavy failed
 turn. Use the same 8,192 limit in both arms of the next comparison and
 record per-request stop reasons and usage.
 
+### Anthropic baseline and native Buckle catalog
+
+At the higher turn budget, both Anthropic benchmark arms completed
+the same Relay revision and passed 22/22. Pi took 157.893 s and
+OpenHands 313.281 s. The pair is an observation with one run per arm,
+different harness turn semantics and uncontrolled provider cache.
+
+With the Anthropic shim omitted in the isolated fixture, both clients
+discovered 21 routes from Buckle and selected the same GLM-5.3 Flash
+route. Pi completed in 206.787 s with a 21/22 patch. OpenHands produced
+a 21/22 patch before the 451.616 s wall-time cutoff. The first OpenHands
+native attempt was excluded because the test relay rejected the
+OpenAI `max_completion_tokens` spelling. The retry enforced the same
+8,192-token bound for both spellings and forwarded the body unchanged.
+Both patches missed the version-00 trace requirement. Native routing
+worked in the fixture, but the pair did not match the baseline quality.
+The scoped keys were revoked. No production route changed.
+
 ## Pi Durable delegation
 
 Track supervisor and worker results separately from container startup and
@@ -1625,6 +1643,16 @@ does not isolate model generation from routing delay. No speed or cost
 per accepted patch can be reported. Both scoped keys were revoked.
 Parallel tool-end logging reused the latest call counter, so the early
 overlap evidence relies on start timestamps and measured durations.
+
+The first built-in subagent arm exhausted its shared 30-command
+allowance before the parent could integrate. It timed out at 450.216 s
+with 249,701 reported tokens, 51 command attempts and no patch. Exclude
+that setup from comparison. A retry reserved 20 commands for the parent
+and 5 for each of two read-only children. It dispatched 10 commands
+and timed out at 450.244 s with 66,011 reported tokens. No child
+settlement was observed and no patch was produced. The reservation
+prevented budget starvation, but did not establish a completed
+handoff. Both scoped keys were revoked.
 
 ## MicroVM runner evaluation
 
