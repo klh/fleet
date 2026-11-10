@@ -617,9 +617,17 @@ const teardown = (mintedKeys: Minted[], envPath: string, dir: string): void => {
 	if (!KEEP) {
 		const down = compose(["down", "--remove-orphans", "--timeout", "5"]);
 		check("compose-down", down.code === 0, `exit=${down.code}`);
-		if (down.code === 0) rmSync(dir, { recursive: true, force: true });
-		else
+		if (down.code === 0) {
+			try {
+				rmSync(dir, { recursive: true, force: true });
+				check("fixture-remove", true, "fixture removed");
+			} catch {
+				check("fixture-remove", false, "fixture could not be removed");
+				console.error(`Remove the retained fixture at ${envPath}`);
+			}
+		} else {
 			console.error(`Compose cleanup failed; fixture retained at ${envPath}`);
+		}
 	} else {
 		console.log(`--keep: stack left up, fixture at ${dir} (${envPath})`);
 	}
