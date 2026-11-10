@@ -3,7 +3,7 @@
 // image reports ready only after its runtime initializes — the real
 // @klh/pi-durable-workers extension factory constructs, a pi-durable
 // registry instantiates, and the required tools are present. The in-image
-// wrapper (seed/payload/readiness.ts) calls runReadinessChecks with the
+// wrapper (seed/readiness.ts) calls runReadinessChecks with the
 // real probes; tests inject stubs. No network, no credentials, no host
 // writes outside the tmp probe.
 import { execFileSync } from "node:child_process";

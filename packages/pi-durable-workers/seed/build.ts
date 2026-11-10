@@ -87,7 +87,7 @@ const stagePayload = (): string => {
 	mkdirSync(join(STAGE, "vendor/@klh/buckle/src"), { recursive: true });
 	cpSync(join(PKG, "src"), join(STAGE, "src"), { recursive: true });
 	cpSync(
-		join(PKG, "seed/payload/readiness.ts"),
+		join(PKG, "seed/readiness.ts"),
 		join(STAGE, "seed/readiness.ts"),
 	);
 	cpSync(

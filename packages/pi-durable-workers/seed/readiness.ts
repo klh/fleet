@@ -1,4 +1,4 @@
-// seed/payload/readiness.ts — W2958 in-image readiness probe.
+// seed/readiness.ts — W2958 in-image readiness probe.
 // Runs inside the seed container; prints ONE readiness JSON line and the
 // READY marker on success. Exit 1 with the failed check names otherwise.
 // Mirrors the OpenHands sandbox /health contract: readiness only after
