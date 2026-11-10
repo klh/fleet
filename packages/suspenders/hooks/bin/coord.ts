@@ -78,6 +78,7 @@ import { cmdSettings } from "../coord/settings.ts";
 import { setRest } from "../coord/shared.ts";
 import { cmdSteer } from "../coord/steer.ts";
 import { cmdSupervisor } from "../coord/supervisor.ts";
+import { cmdTranscript } from "../coord/transcript.ts";
 import { cmdHub, cmdWorkers } from "../coord/workers.ts";
 import { cmdWisdom } from "../coord/wisdom.ts";
 import { defineVerb, runCli, type VerbSpec } from "../lib/verb-kit.ts";
@@ -472,6 +473,16 @@ const VERBS: VerbSpec[] = [
 		usage: "usage: events [--kinds a,b] [--last N] [--json]",
 		lax: true,
 		run: (p) => cmdEvents(p.rest),
+	}),
+	defineVerb({
+		name: "transcript",
+		usage:
+			"usage: transcript [<sid>] [--item <id>] [--kinds a,b] [--last N] [--since <N>s|m|h|d|epoch-ms] [--json]",
+		help: "per-lane transcript query over coord events: a lane's trail (sid), one item's cross-lane audit with claim windows + windowed ledger spend + dual-work overlap findings (--item), or a recent-lanes overview (bare)",
+		lax: true,
+		flags: ["--item", "--kinds", "--last", "--since"],
+		minPos: 0,
+		run: (p) => cmdTranscript(p),
 	}),
 	defineVerb({
 		name: "targets",
