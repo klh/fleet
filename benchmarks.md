@@ -1839,6 +1839,16 @@ than earlier diagnostics, but changed multiple harness settings and
 still produced a rejected patch. It does not establish a speed or
 quality improvement on accepted work.
 
+The parallel arm reached its first successful command at 3.966 s and
+its first source edit at 86.085 s. It reached the 60-turn boundary
+unanswered at 432.470 s after 72 commands. Its exported patch scored
+2/3 target checks and 59/59 regression checks. The SDK reported 37,737
+fresh input, 1,204,288 cached input and 17,176 output tokens. The key
+was revoked and both containers were removed. Neither arm passed the
+oracle. This single serial-first Docker pair cannot rank time or tokens
+per accepted patch, or substitute for the Pi microVM versus OpenHands
+comparison.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two

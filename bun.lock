@@ -68,6 +68,9 @@
         "zod": "4.6.7",
       },
       "devDependencies": {
+        "@earendil-works/chord": "1.5.0",
+        "@earendil-works/pi-ai": "1.5.0",
+        "@earendil-works/pi-durable": "1.5.0",
         "@klh/belt": "2.2.0",
         "@klh/buckle": "2.2.0",
         "@klh/test-kit": "2.2.0",
