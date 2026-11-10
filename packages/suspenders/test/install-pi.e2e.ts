@@ -6,13 +6,18 @@
 import { expect, test } from "@playwright/test";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { installPiModels } from "../scripts/install/install-pi.ts";
+import {
+	PI_MODELS_MARKER,
+	installPiModels,
+} from "../scripts/install/install-pi.ts";
 import { scratchWorld, serveStub } from "@klh/test-kit";
 
 /** Scratch pi home + machine-conf dir with a stub-tokened hub set. */
@@ -89,6 +94,59 @@ test.describe("installPiModels (W2861) @unit", () => {
 			expect(r.status).toBe("skipped");
 			expect(r.note).toContain("user content");
 			expect(readFileSync(modelsPath, "utf8")).toBe(user);
+		} finally {
+			w.clean();
+		}
+	});
+
+	test("rewrites an existing fleet-generated 0644 models.json back to 0600", async () => {
+		const w = scratchWorld({ prefix: "w2970-pi-0644-" });
+		try {
+			const spoke = modelsStub("glm-5.3");
+			try {
+				mkdirSync(join(w.home, ".pi", "agent"), { recursive: true });
+				confFixture(w.home, {});
+				const modelsPath = join(w.home, ".pi", "agent", "models.json");
+				const stale = `${JSON.stringify({ [PI_MODELS_MARKER]: true })}\n`;
+				writeFileSync(modelsPath, stale, { mode: 0o644 });
+				const r = await installPiModels({
+					home: w.home,
+					spokeUrl: spoke.url,
+					probeTimeoutMs: 300,
+				});
+				expect(r.status).toBe("ok");
+				expect(statSync(modelsPath).mode & 0o777).toBe(0o600);
+				expect(readFileSync(modelsPath, "utf8")).toContain('"fleet"');
+			} finally {
+				spoke.close();
+			}
+		} finally {
+			w.clean();
+		}
+	});
+
+	test("refuses a symlinked models.json without following it", async () => {
+		const w = scratchWorld({ prefix: "w2970-pi-link-" });
+		try {
+			const spoke = modelsStub("glm-5.3");
+			try {
+				mkdirSync(join(w.home, ".pi", "agent"), { recursive: true });
+				confFixture(w.home, {});
+				const modelsPath = join(w.home, ".pi", "agent", "models.json");
+				const target = join(w.home, "elsewhere.json");
+				symlinkSync(target, modelsPath);
+				const r = await installPiModels({
+					home: w.home,
+					spokeUrl: spoke.url,
+					probeTimeoutMs: 300,
+				});
+				expect(r.status).toBe("skipped");
+				expect(r.note).toContain("symlink");
+				expect(lstatSync(modelsPath).isSymbolicLink()).toBe(true);
+				expect(existsSync(target)).toBe(false);
+			} finally {
+				spoke.close();
+			}
 		} finally {
 			w.clean();
 		}

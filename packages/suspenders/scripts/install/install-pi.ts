@@ -4,8 +4,9 @@
 // the install must preserve. Run by hand when a route rewrite is wanted.
 // The 2026-11-08 owner ask: "why didn't our install auto-enable everything
 // for pi?" — because pi wiring never existed: the models.json was
-// hand-written during the stall recovery. This module makes the install own
-// it: one anthropic-messages provider per fleet hub, models = the hub's
+// hand-written during the stall recovery. This module (run by hand, never by
+// the installer) writes one anthropic-messages provider per fleet hub, models
+// = the hub's
 // LIVE /v1/models (6s probe, down hubs skipped), apiKey = a `!command` that
 // sources the machine conf at request time — no key material ever lands in
 // pi's config. pi reads skills from the SHARED ~/.agents/skills dir
@@ -14,12 +15,13 @@
 // $fleetGenerated marker) is user content — preserved untouched.
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
-	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 
 /** The marker distinguishing a fleet-generated models.json from user content. */
 export const PI_MODELS_MARKER = "$fleetGenerated";
@@ -195,9 +197,7 @@ function writeModels(
 		$schema: "https://pi.dev/schemas/models.schema.json",
 		providers: Object.fromEntries(providers),
 	};
-	writeFileSync(modelsPath, `${JSON.stringify(config, null, 2)}\n`, {
-		mode: 0o600,
-	});
+	atomicWrite0600(modelsPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 /** Resolves the run's paths + tuning from options with machine defaults. */
@@ -230,7 +230,12 @@ function skipReason(state: {
 	if (!existsSync(state.piHome)) {
 		return `${state.piHome} absent — pi not installed, nothing wired`;
 	}
-	if (userAuthored(state.modelsPath)) {
+	if (
+		lstatSync(state.modelsPath, { throwIfNoEntry: false })?.isSymbolicLink()
+	) {
+		return `${state.modelsPath} is a symlink — preserved untouched (never write through or over a user's link)`;
+	}
+	if (userAuthored(state.modelsPath) === true) {
 		return `${state.modelsPath} is user content (no marker) — preserved untouched`;
 	}
 	return null;
