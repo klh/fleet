@@ -1527,3 +1527,25 @@ Docker Desktop ties Alpine vs Bun on both first-ready (W2939/W2940) and HTTP
 admission-to-tool-result (above). A true cross-host A/B needs a real second
 Docker-capable machine; that is an infra gap, not a measurement one — see
 [doesnt_work.md](doesnt_work.md), "W2937 — Runner fixture exclusions".
+
+## Official Pi Durable seed recovery smoke (W2960)
+
+The experimental ARM64 OCI seed ran Earendil Pi Durable 1.5.0 on Docker
+Desktop. Five warm-image one-shot readiness runs took 186, 217, 206, 220
+and 199 ms from `docker run` through exit (median 206 ms). This is a
+readiness check, separate from the OpenHands persistent service startup
+measurement.
+
+An offline in-flight replacement witness used a host-mounted fsynced JSONL
+store. A task committed its effect intent, appended a marker, and was held
+before committing its outcome. The container was killed with SIGKILL
+(exit 137) and removed. A new container reopened the same conversation
+and task, settled the task as completed, and observed one marker. This
+covers loss after the effect and before its outcome. Loss before the
+effect, model credential rotation, and real microVM recovery remain open.
+
+A separate offline scripted tool smoke ran the official CodingTools in a
+host harness against a fixed-path ExecutionEnv fixture. A non-root Docker
+guest supplied the bytes, accepted the edit, and verified the changed
+content through a shell command. The fixture did not implement the full
+remote environment contract or guest replacement.

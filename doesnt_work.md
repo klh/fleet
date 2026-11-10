@@ -516,3 +516,12 @@ client-side, and provider cache state was uncontrolled. Do not infer a
 runtime speed, quality or cost win. Forced-loss recovery remains unmeasured.
 Both arms used separate expiring keys. Teardown revoked the keys and
 removed the containers.
+
+A follow-up Pi-only trial used Earendil's official CodingTools and local
+execution environment inside the seed. It made four successful reads and
+one successful shell call, then settled unanswered at 98.82 s with
+`output_token_limit`. Source stayed unchanged and the oracle remained 7/22.
+An offline first-request capture independently confirmed both pinned clients
+sent `max_tokens: 4096` and the same model ID to `/v1/messages`. Pi streamed
+while OpenHands omitted the streaming flag. The capture does not establish
+the effective upstream budget or later-turn settings.
