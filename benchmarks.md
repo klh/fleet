@@ -1718,6 +1718,52 @@ prompt plus a full 8,192-token generation fits. Use a common conservative
 window and compaction threshold for the next matched pair. Track the
 first production edit, first targeted test and effective output allowance.
 
+In the matched 48,000-token serial arm, request 2 sent an 8,192-token
+output cap but reported 21,563 completion tokens, of which 21,360 were
+reasoning. First visible content arrived at 352.334 s, and the stream
+completed at 354.621 s with tool calls. Buckle trace
+`2eb5359b75f8a3e19880630e7d8ba083` records one upstream attempt,
+zero queue wait, and headers at 1.867 s. This is a completed slow stream
+even with full client output headroom. Verify the forwarded cap and
+provider reasoning-budget semantics before concluding where enforcement
+diverged.
+
+Static inspection of the pinned Pi AI client shows why the request may
+be treated differently from a direct Z.AI call. The generic
+`buckle-test` provider and localhost URL select
+`max_completion_tokens` by default. Pi's Z.AI compatibility selects
+`max_tokens` and emits a provider-specific thinking setting when the
+model is marked reasoning-capable. The benchmark registered the model
+as `reasoning:false`, which leaves that setting absent. Buckle's generic
+OpenAI adapter preserves these body fields. Capture the outgoing field
+name and test the two spellings and explicit thinking control on the
+exact deployed route before changing the benchmark policy.
+
+The scoped four-call non-streamed probe on that route requested 24
+tokens with the same prime-list prompt. Both `max_completion_tokens`
+requests timed out at 18 s, with thinking omitted and explicitly
+disabled. Both `max_tokens` requests returned HTTP 200 and exactly 24
+completion tokens. With thinking omitted it took 1.894 s (23 reasoning
+tokens, no visible answer). With thinking disabled it took 1.312 s
+(9 reasoning tokens, 28 visible characters). The probe key was revoked.
+The probe overlapped the parallel benchmark arm and used one call per
+combination. It supports explicitly setting the Z.AI-compatible cap
+field for that route and keeping thinking policy fixed across the next
+matched pair. It does not establish provider-wide semantics.
+
+The original matched inspection pair finished without a source patch
+in either arm. Serial timed out at 450.223 s with 16 commands and
+57,203 reported tokens. Parallel timed out at 450.276 s with 3 commands
+and 1,282 reported tokens. Those usage totals cover completed streams
+only. Both keys were revoked. Retain the pair as a transport diagnostic,
+with no comparison of accepted patch quality or productivity.
+
+The follow-up pair reverses arm order, sets Pi's Z.AI-compatible
+`maxTokensField` to `max_tokens`, and logs the outgoing spelling and
+thinking setting. The first live parallel request used `max_tokens:
+8192`. Both arms use the same original pretask, 48,000-token context
+window, and compaction policy.
+
 ## MicroVM runner evaluation
 
 W2958 tracks the seed artifact. W2959 tracks the real Xeon backend and
