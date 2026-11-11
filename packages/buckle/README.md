@@ -57,9 +57,10 @@ flowchart LR
 - **Ladder routing** — ordered fallback walk per `routing-policy.yaml`,
   retry with retry-after honoring, cooldown ejection after repeated
   failures, hour-bucket usage ledger.
-- **Governance seams** — budgets, per-key/team ceilings, entitlement
-  checks and federation hooks hang off the router core (see the suspenders
-  design docs).
+- **Governance seams** — budgets, per-key/team ceilings, monthly per-key
+  token budgets (W2790, `src/gov/token-budgets.ts`, warn-then-cap at
+  ingress), entitlement checks and federation hooks hang off the router
+  core (see the suspenders design docs).
 - **Repo-policy gate (W7)** — hub-connected sessions check the repo in
   view against `repo-policy.yaml` data rows (`{id, repoClass, detect,
 check, missingQuestion, policySource}`): silent when satisfied, one
