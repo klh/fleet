@@ -1,0 +1,92 @@
+import { strategyDigest } from "../bench/optimize/strategies.ts";
+
+/** Synthetic evidence for contract tests only; never benchmark results. */
+export const validCase = () => ({
+	version: 1,
+	id: "fixture-regression",
+	repository: "example/source",
+	language: "typescript",
+	problemClass: "regression",
+	repositoryFingerprint: "f".repeat(64),
+	baseSha: "a".repeat(40),
+	fixedSha: "b".repeat(40),
+	image: `example/tool@sha256:${"c".repeat(64)}`,
+	brief: "Fix the described behavior without breaking existing callers.",
+	oracle: {
+		sha256: "d".repeat(64),
+		argv: ["bun", "/tmp/private-oracle/judge.ts"],
+		targets: 3,
+		regressions: 59,
+	},
+	controls: [1, 2].map((index) => ({
+		id: `control-${index}`,
+		base: { targetsPassed: 0, regressionsPassed: 59 },
+		fixed: { targetsPassed: 3, regressionsPassed: 59 },
+		receiptSha256: "e".repeat(64),
+	})),
+});
+
+export const validStrategy = () => ({
+	version: 1,
+	id: "low-batch-verify",
+	modelRoute: "pinned-route",
+	harnessSha256: "4".repeat(64),
+	runtimeSha256: "5".repeat(64),
+	toolsetSha256: "6".repeat(64),
+	context: ["quoted-lines"],
+	inspection: "batch",
+	verificationTool: true,
+	orchestration: "solo",
+	requestedEffort: "low",
+	workerEffort: null,
+});
+
+export const validAttempt = () => ({
+	version: 1,
+	caseId: validCase().id,
+	repositoryFingerprint: validCase().repositoryFingerprint,
+	oracleSha256: validCase().oracle.sha256,
+	strategySha256: strategyDigest(validStrategy()),
+	status: "completed",
+	image: validCase().image,
+	runtimeSha256: validStrategy().runtimeSha256,
+	toolsetSha256: validStrategy().toolsetSha256,
+	patchSha256: "7".repeat(64),
+	settings: {
+		requestedEffort: "low",
+		effectiveEffort: "low",
+		verified: true,
+		receiptSha256: "2".repeat(64),
+	},
+	checks: { targetsPassed: 3, regressionsPassed: 59 },
+	route: {
+		requested: "pinned-route",
+		served: "canonical-model",
+		verified: true,
+		receiptSha256: "8".repeat(64),
+	},
+	cleanup: {
+		keysRevoked: true,
+		resourcesRemoved: true,
+		receiptSha256: "9".repeat(64),
+	},
+	receipt: {
+		arm: "candidate",
+		rep: 1,
+		laneId: "fixture-lane",
+		baseSha: "a".repeat(40),
+		harnessSha256: "4".repeat(64),
+		model: "pinned-route",
+		executorExit: 0,
+		judgeExit: 0,
+		timedOut: false,
+		tokens: 100,
+		cacheReadTokens: null,
+		cacheWriteTokens: null,
+		quality: 1,
+		wallMs: 1000,
+		judgeMs: 50,
+		outputSha256: "3".repeat(64),
+		patchFile: "/tmp/private-results/candidate.patch",
+	},
+});
