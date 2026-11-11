@@ -335,7 +335,10 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 			await job.submit({ requestId: opts?.requestId ?? randomUUID(), text });
 		},
 		async resume(runId) {
-			await jobs.get(runId)?.resume();
+			const job = jobs.get(runId);
+			if (!job)
+				throw new Error(`desktop-runner: no live durable job for ${runId}`);
+			await job.resume();
 		},
 		async stop(runId) {
 			const job = jobs.get(runId);

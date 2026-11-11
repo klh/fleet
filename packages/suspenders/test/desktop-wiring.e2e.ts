@@ -68,6 +68,64 @@ const adminStub = () =>
 			: Response.json({ revoked: `revoked: key-${n}` }),
 	);
 
+test("resume without a live Durable job refuses @unit", async () => {
+	const world = scratchWorld();
+	const admin = adminStub(),
+		model = serveStub(() => Response.json({}));
+	const store = memoryStore(),
+		seedRoot = join(world.home, "seed");
+	mkdirSync(seedRoot);
+	writeFileSync(join(seedRoot, "seed.md"), "seed\n");
+	const leaf = createDesktopRunnerLeaf({
+		store,
+		durableRoot: world.home,
+		runtime: createFixtureRuntime(model.url, async () => {}),
+		container: {
+			image: DESKTOP_RUNNER_IMAGE,
+			seedRoot,
+			workspacesDir: join(world.home, "workspaces"),
+		},
+		credentials: {
+			baseUrl: admin.url,
+			adminKey: "bksk_admin_stub",
+			receiptsPath: join(world.home, "receipts.json"),
+		},
+		executorSid: "executor-witness",
+	});
+	const spec = RunnerSpecSchema.parse({
+		version: 1,
+		runId: crypto.randomUUID(),
+		owner: "lane-witness",
+		generation: 1,
+		kind: "coding",
+		provider: "fixture",
+		model: "fixture",
+		seedDigest: canonicalSeedDigest(await scanSeedDir(seedRoot)),
+		policyDigest: leaf.policyDigest(),
+	});
+	try {
+		await leaf.admitAndStart({ spec, actor: hostActor(), seedRoot });
+		await expect(
+			leaf.controller.resume({ runId: spec.runId, actor: hostActor() }),
+		).rejects.toThrow("no live durable job");
+		expect(
+			(await leaf.controller.read({ runId: spec.runId, actor: hostActor() }))
+				.job.state,
+		).toBe("cold");
+		expect(leaf.executor.runRecord(spec.runId)).toBeNull();
+		expect(model.requests).toHaveLength(0);
+	} finally {
+		try {
+			await leaf.stopRun(spec.runId, hostActor());
+		} finally {
+			await leaf.close();
+			model.close();
+			admin.close();
+			world.clean();
+		}
+	}
+});
+
 test.describe("desktop runner leaf (W2869.3)", () => {
 	test("admit → real container → fenced effect → revoke blocks → reopen recovers", async () => {
 		test.skip(
