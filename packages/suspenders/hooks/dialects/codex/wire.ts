@@ -3,15 +3,16 @@
 // generation-stable since W2961). Merges the five suspenders gate
 // registrations into ~/.codex/hooks.json (or $SUSPENDERS_CODEX_HOOKS),
 // preserving every entry that is not ours. Managed entries are recognized
-// by their `gate.ts codex ` marker; user entries are never touched.
+// by their command SHAPE (anchored gate-path argument), never a substring;
+// user entries are never touched.
 // W2961: the managed command rides the STABLE install symlink
 // (~/.claude/hooks/suspenders), never a pinned generation dir — every
 // install re-pinning its own import.meta.dir staled the previous binding,
 // so a later generation whose SettingsSchema rejected a new settings key
 // silently fell back to last-known-good. Legacy generation pins upgrade in
-// place; a marker-bearing command that is not a fleet gate shape — outside
-// the install root, or a sibling private harness under it — is foreign and
-// preserved verbatim. Rollback
+// place; any command whose shape is not a supported fleet gate invocation
+// — foreign path prefixes, sibling private harnesses, markers buried in
+// arguments — is foreign and preserved verbatim. Rollback
 // surface = the symlink itself (flip it; the wiring keeps resolving).
 // Per-lane `-c` overrides were the spec's preference but remain unverified
 // (codex exec was permission-blocked in the implementing session); the
@@ -24,7 +25,6 @@ import { dirname } from "node:path";
 
 const HOME = process.env.HOME ?? "";
 const FILE = process.env.SUSPENDERS_CODEX_HOOKS ?? `${HOME}/.codex/hooks.json`;
-const MARK = "gate.ts codex ";
 const BUN = process.execPath;
 const GATE_LOCAL = `${import.meta.dir}/../../gate.ts`;
 // The stable install symlink → the active generation. Absent (dev runs,
@@ -35,22 +35,52 @@ const INSTALLED = existsSync(GATE_STABLE);
 const GATE = INSTALLED ? GATE_STABLE : GATE_LOCAL;
 const HOOKS_ROOT = `${HOME}/.claude/hooks/`;
 
-// Managed-command shapes (W2961, reviewer-hardened). With an install
-// present (the stable symlink resolves) the contract is strict and
-// SHAPE-MATCHED: stable rides <root>/suspenders/.harness/… (current), gen
-// rides <root>/suspenders.generation-*/.harness/… (a stale previous
-// install — upgraded in place), and EVERYTHING ELSE carrying the marker is
-// foreign — outside the install root OR a sibling private harness under it
-// — never touched. Without an install there is no root to distinguish
-// against: any marker command is managed — the original W73 contract.
-const stableCmd = (c: string): boolean =>
-	c.includes(MARK) &&
-	(!INSTALLED || c.includes(`${HOOKS_ROOT}suspenders/.harness/`));
-const genCmd = (c: string): boolean =>
-	INSTALLED &&
-	c.includes(MARK) &&
-	c.includes(`${HOOKS_ROOT}suspenders.generation-`) &&
-	c.includes(".harness/");
+// Managed-command recognition (W2961, reviewer-hardened twice). Ownership
+// rides the COMMAND SHAPE, never a substring: a supported generated
+// command is `<bun> <gate.ts> codex <mode>` — take the gate PATH ARGUMENT
+// (token 2), lexically normalize it (legacy pins carry
+// dialects/codex/../../gate.ts), then match ANCHORED: exactly this
+// generation's gate (the stable install symlink when installed, this
+// checkout otherwise), or a single recognized `suspenders.generation-*`
+// dir + exact suffix (a stale previous install — upgraded in place). A
+// marker buried in other arguments/comments, a foreign path PREFIX
+// (/foreign-prefix<root>/…), or an unrelated dir under a
+// generation-looking name (suspenders.generation-x/unrelated/gate.ts)
+// confers NOTHING — unknown shapes are preserved verbatim.
+const REL_GATE = ".harness/packages/suspenders/hooks/gate.ts";
+const normPath = (p: string): string => {
+	const segs: string[] = [];
+	p.split("/").forEach((seg, i) => {
+		if (seg === "..") segs.pop();
+		else if (seg !== "." && !(seg === "" && i > 0)) segs.push(seg);
+	});
+	return segs.join("/") || "/";
+};
+// gate-path argument of a supported generated command; anything else is
+// foreign (undefined) — markers elsewhere on the line confer nothing
+const gateArg = (c: string): string | undefined => {
+	const parts = c.trim().split(/\s+/);
+	const g = parts[1];
+	return parts.length >= 4 &&
+		parts[2] === "codex" &&
+		typeof g === "string" &&
+		g.endsWith("/gate.ts")
+		? g
+		: undefined;
+};
+const stableCmd = (c: string): boolean => {
+	const a = gateArg(c);
+	return a !== undefined && normPath(a) === normPath(GATE);
+};
+const genCmd = (c: string): boolean => {
+	const a = gateArg(c);
+	if (a === undefined) return false;
+	const p = normPath(a);
+	return (
+		p.startsWith(`${HOOKS_ROOT}suspenders.generation-`) &&
+		p.endsWith(`/${REL_GATE}`)
+	);
+};
 const managedCmd = (c: string): boolean => stableCmd(c) || genCmd(c);
 
 // event → gate.ts codex <mode>: the adapter's one switch (gates/codex.ts)
