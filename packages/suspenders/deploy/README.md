@@ -421,3 +421,13 @@ refuses — the tunnel IS the trusted transport. Tests:
 deploy/trace-tunnel.test.ts (plan law, argv shape, peers merge, lifecycle
 with an injected child, e2e through a real loopback server) and
 telemetry/test/remote-traces.test.ts (connector law + coverage).
+
+### Runner inventory
+
+Set `hubs.<label>.runner_inventory_port` to the port of a runner control
+listener reachable over literal loopback from that hub's Buckle process.
+For the host-network Desktop hub this is `7810`. Leave the setting unset
+on hubs without a runner. The installer renders the port into Compose.
+Buckle forwards the caller's bearer over loopback and the runner enforces
+owner visibility. The relay requires a runner-scoped reader credential and
+does not need a runner mint key.

@@ -59,7 +59,10 @@ import { servicemon } from "./servicemon.ts";
 import { StreamBreaker, streamBreakerConfig } from "./stream-breaker.ts";
 import type { Dialect } from "./upstreams.ts";
 import { loadUpstreams } from "./upstreams.ts";
-import { workerInventoryRelay } from "./worker-inventory.ts";
+import {
+	resolveWorkerInventoryOrigin,
+	workerInventoryRelay,
+} from "./worker-inventory.ts";
 
 const serverLog = createLogger("server");
 
@@ -564,14 +567,13 @@ export async function boot(): Promise<
 				(gov ? ` gov seam: ${Object.keys(gov).join(", ")}` : " gov seam: none"),
 		);
 	const runner = setting("runner");
-	const runnerUrl = runner.desktop ? new URL(runner.control_url) : undefined;
-	const localRunner =
-		runnerUrl &&
-		runnerUrl.protocol === "http:" &&
-		["127.0.0.1", "[::1]"].includes(runnerUrl.hostname);
 	return startServer({
 		port,
-		runnerInventoryOrigin: localRunner ? runner.control_url : undefined,
+		runnerInventoryOrigin: resolveWorkerInventoryOrigin(
+			port,
+			process.env.BUCKLE_RUNNER_INVENTORY_PORT,
+			runner.desktop ? runner.control_url : undefined,
+		),
 		...(rootKey || adaptation || gov
 			? {
 					auth: {

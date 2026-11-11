@@ -207,6 +207,7 @@ services:
       FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
       HOME: /state/hub-home
       BUCKLE_PORT: ${HUB_BUCKLE_PORT:-4111}
+      BUCKLE_RUNNER_INVENTORY_PORT: ${HUB_RUNNER_INVENTORY_PORT:-}
       BUCKLE_BIND: ${HUB_BUCKLE_BIND:-127.0.0.1}
       BUCKLE_DB: /state/buckle/buckle.db
       # Stable routing identity for relay baggage and per-hop audit rows.

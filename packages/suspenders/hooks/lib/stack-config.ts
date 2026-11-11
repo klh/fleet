@@ -238,6 +238,7 @@ export const HubProfileSchema = z
 			.loose()
 			.optional(),
 		buckle_port: z.number().optional(),
+		runner_inventory_port: z.number().int().min(1).max(65535).optional(),
 		/** W2618 hub admission caps — per-user/per-model/hub-total concurrent
 		 *  admission limits the hub's buckle enforces at ingress. Rendered as
 		 *  JSON into BUCKLE_ADMISSION_CAPS; absent = disabled (inert). */
