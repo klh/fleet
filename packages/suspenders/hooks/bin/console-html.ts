@@ -374,7 +374,8 @@ const HIDDEN_FEATURE = (f: Feature): string =>
 	`<input type="hidden" name="feature" value="${f}">`;
 
 // W695.3.2 — the executor-preference editor rides <klh-executor-editor>
-// (board-html/klh-console-forms.ts); see executorPrefsEditor below.
+// (board-html/klh-console-forms.ts); W2269.1.4: form-associated via
+// ElementInternals, no light-DOM hidden-input carrier. See below.
 
 const executorPrefsEditor = (
 	executors: ExecutorEntry[],
@@ -401,7 +402,7 @@ const executorPrefsEditor = (
 			]),
 		).values(),
 	);
-	return `<klh-executor-editor options="${esc(JSON.stringify(opts))}"><input type="hidden" name="default_executors" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
+	return `<klh-executor-editor name="default_executors" options="${esc(JSON.stringify(opts))}" value="${esc(current.join(","))}"></klh-executor-editor>${FORMS_SCRIPT}`;
 };
 
 const boardControlFields = (

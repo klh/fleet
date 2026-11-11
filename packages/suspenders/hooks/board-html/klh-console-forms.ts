@@ -88,13 +88,15 @@ const FORM_CSS = css`
 `;
 
 // ─── <klh-executor-editor> — ordered executor-preference chain ────────────
-// The light-DOM hidden input is the single source of truth (comma-joined —
-// the exact shape formToBoardSettings parses); shadow rows render from it
-// and every edit writes it back.
+// W2269.1.4: form-associated via ElementInternals (standard form
+// participation — the `name` HTML attribute on the tag itself is what
+// FormData submits under; no light-DOM hidden-input carrier needed).
 class KlhExecutorEditor extends LitElement {
+	static formAssociated = true;
 	static properties = {
 		heading: { type: String },
 		options: { type: Array },
+		value: { type: String },
 		chain: { state: true },
 		pick: { state: true },
 	};
@@ -102,34 +104,33 @@ class KlhExecutorEditor extends LitElement {
 
 	declare heading: string;
 	declare options: ExecutorOption[];
+	declare value: string;
 	declare chain: string[];
 	declare pick: string;
+	#internals: ElementInternals;
 
 	constructor() {
 		super();
 		this.heading = "executor preference order";
 		this.options = [];
+		this.value = "";
 		this.chain = [];
 		this.pick = "";
-	}
-
-	private get carrier(): HTMLInputElement | null {
-		return this.querySelector('input[name="default_executors"]');
+		this.#internals = this.attachInternals();
 	}
 
 	connectedCallback(): void {
 		super.connectedCallback();
-		const v = this.carrier?.value ?? "";
-		this.chain = v
+		this.chain = (this.value ?? "")
 			.split(",")
 			.map((s) => s.trim())
 			.filter(Boolean);
+		this.#internals.setFormValue(this.chain.join(","));
 	}
 
 	private set(next: string[]): void {
 		this.chain = next;
-		const c = this.carrier;
-		if (c) c.value = next.join(",");
+		this.#internals.setFormValue(next.join(","));
 	}
 
 	private move(i: number, d: number): void {
