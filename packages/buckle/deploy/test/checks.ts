@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { z } from "zod";
 import type { fixture } from "./fixture.ts";
 type Fixture = Awaited<ReturnType<typeof fixture>>;
-import { containerArgs, docker, safe } from "./docker.ts";
+import { containerArgs, docker, safe, removeOwnedContainer } from "./docker.ts";
 const StateSchema = z.object({
 	uid: z.literal(1000),
 	arch: z.enum(["x64", "arm64"]),
@@ -65,7 +65,7 @@ export async function verifyRuntime(
 		expect(health.code, safe(health.err, data)).toBe(0);
 		expect(health.out.trim()).toBe("200");
 	} finally {
-		await docker(["rm", "-f", sidecar.out.trim()]);
+		await removeOwnedContainer(sidecar.out.trim(), data);
 	}
 	const result = await docker([
 		"exec",
@@ -180,7 +180,7 @@ export async function verifyNeutral(
 			upstreamCalls: 0,
 		};
 	} finally {
-		await docker(["rm", "-f", service.id]);
+		await removeOwnedContainer(service.id, data);
 	}
 }
 export async function verifyUnkeyed(
@@ -210,6 +210,6 @@ export async function verifyUnkeyed(
 		).toBe(before);
 		return { status: response.status, inferenceCalls: 0 };
 	} finally {
-		await docker(["rm", "-f", service.id]);
+		await removeOwnedContainer(service.id, data);
 	}
 }

@@ -31,6 +31,12 @@
 			"recipeCommit": "54521e5b7906162c99836209305a187098c02001",
 			"result": "A negative incorrectly expected an unkeyed gateway to exit; it correctly kept governance enabled",
 			"resolution": "Assert unkeyed HTTP401 and zero inference outbound instead; remove the owned test container"
+		},
+		{
+			"kind": "test-integrity",
+			"recipeCommit": "f54ed18fd80e5beef090b7c148871ba3be8d9582",
+			"result": "Independent review found ignored Docker teardown exit codes; no real leak was asserted as observed",
+			"resolution": "Shared checked removal propagates sanitized failure; injected-failure regressions verify failed verdict and guaranteed server/scratch cleanup"
 		}
 	]
 }

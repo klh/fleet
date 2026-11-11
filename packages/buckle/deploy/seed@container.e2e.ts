@@ -2,7 +2,7 @@ import { test } from "@playwright/test";
 import { z } from "zod";
 import { PlatformSchema } from "./seed-contract.ts";
 import { fixture } from "./test/fixture.ts";
-import { docker, safe, start } from "./test/docker.ts";
+import { docker, safe, start, cleanupOwnedFixture } from "./test/docker.ts";
 import {
 	verifyApi,
 	verifyNeutral,
@@ -58,8 +58,6 @@ for (const platform of platforms)
 			}
 			throw error;
 		} finally {
-			if (id) await docker(["rm", "-f", id]);
-			data.stub.close();
-			data.world.clean();
+			await cleanupOwnedFixture(id, data);
 		}
 	});

@@ -15,10 +15,40 @@ export async function docker(args: string[]) {
 	]);
 	return { out, err, code };
 }
-export function safe(text: string, data: Fixture) {
+export function safe(
+	text: string,
+	data: Pick<Fixture, "rootKey" | "upstreamKey">,
+) {
 	return text
 		.replaceAll(data.rootKey, "[redacted]")
 		.replaceAll(data.upstreamKey, "[redacted]");
+}
+export async function removeOwnedContainer(
+	id: string,
+	keys: Parameters<typeof safe>[1],
+	execute = docker,
+) {
+	if (!/^[a-f0-9]{12,64}$/.test(id)) throw Error("Invalid owned container ID");
+	const result = await execute(["rm", "-f", id]);
+	if (result.code !== 0)
+		throw Error(
+			`Owned container cleanup failed: ${safe(result.err + result.out, keys)}`,
+		);
+}
+export async function cleanupOwnedFixture(
+	id: string,
+	data: Pick<Fixture, "rootKey" | "upstreamKey" | "world" | "stub">,
+	remove = removeOwnedContainer,
+) {
+	try {
+		if (id) await remove(id, data);
+	} finally {
+		try {
+			data.stub.close();
+		} finally {
+			data.world.clean();
+		}
+	}
 }
 export function containerArgs(
 	data: Fixture,
@@ -65,7 +95,7 @@ export async function start(
 		await waitUp(`${origin}/status`, { tries: 100 });
 	} catch (error) {
 		const logs = await docker(["logs", id]);
-		await docker(["rm", "-f", id]);
+		await removeOwnedContainer(id, data);
 		throw Error(`${String(error)}: ${safe(logs.out + logs.err, data)}`);
 	}
 	return { id, origin };

@@ -84,6 +84,52 @@ test("staging reads immutable commits and excludes untracked data and git histor
 	}
 });
 
+test("owned container cleanup failures fail the verdict and redact secrets", async () => {
+	const { removeOwnedContainer } = await import("./test/docker.ts");
+	const keys = {
+		rootKey: "cleanup-root-marker",
+		upstreamKey: "cleanup-upstream-marker",
+	};
+	await expect(
+		removeOwnedContainer("a".repeat(64), keys, async () => ({
+			code: 1,
+			out: "",
+			err: keys.rootKey,
+		})),
+	).rejects.toThrow("Owned container cleanup failed: [redacted]");
+	await expect(
+		removeOwnedContainer("a".repeat(64), keys, async () => ({
+			code: 0,
+			out: "removed",
+			err: "",
+		})),
+	).resolves.toBeUndefined();
+});
+
+test("fixture server and scratch files close even when container teardown fails", async () => {
+	const { cleanupOwnedFixture } = await import("./test/docker.ts");
+	const { serveStub } = await import("@klh/test-kit");
+	const { access } = await import("node:fs/promises");
+	const world = scratchWorld(),
+		stub = serveStub();
+	try {
+		await expect(
+			cleanupOwnedFixture(
+				"a".repeat(64),
+				{ world, stub, rootKey: "unit-root", upstreamKey: "unit-upstream" },
+				async () => {
+					throw Error("simulated cleanup failure");
+				},
+			),
+		).rejects.toThrow("simulated cleanup failure");
+		await expect(fetch(stub.url)).rejects.toThrow();
+		await expect(access(world.home)).rejects.toThrow();
+	} finally {
+		stub.close();
+		world.clean();
+	}
+});
+
 test("seed builder help works outside a checkout without contacting Docker", () => {
 	const world = scratchWorld();
 	try {
