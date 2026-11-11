@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-ai/api/openai-completions";
 import { createRegistry } from "@earendil-works/pi-durable";
 import { runArgv, runArgvStream } from "../desktop/spawn.ts";
+import { createRemoteProcessTransport } from "../desktop/remote-process.ts";
 import { createDesktopRunnerLeaf } from "../desktop/wiring.ts";
 import { privateDirectory } from "../durable/private-paths.ts";
 import { loadDesktopRuntimeConfig } from "./desktop-config.ts";
@@ -72,6 +73,16 @@ export async function desktopRuntime(
 					runDocker: (argv, options) =>
 						runArgv(runnerDockerArgv(argv), options),
 					runDockerStream: (argv) => runArgvStream(runnerDockerArgv(argv)),
+					processTransportFactory: (record) =>
+						createRemoteProcessTransport(
+							{
+								containerId: record.containerId,
+								expectedPinnedImageRef: record.image,
+								deadlineAt: record.deadlineAt,
+								dockerBin: record.argv[0] ?? "docker",
+							},
+							{ dockerArgv: runnerDockerArgv },
+						),
 				},
 				runtime: {
 					models,

@@ -6,6 +6,7 @@ import { RunnerSpecSchema } from "../hooks/lib/runners/control/control-state.ts"
 import {
 	canonicalPolicyDigest,
 	createDesktopDockerExecutor,
+	type DesktopExecutorDeps,
 	ExecutorRecordSchema,
 } from "../hooks/lib/runners/desktop/docker-executor.ts";
 import { canonicalSeedDigest } from "../hooks/lib/runners/desktop/seed.ts";
@@ -54,11 +55,20 @@ async function rig(deadlineMs = 60_000, execCode = 0) {
 		uid: 1000,
 	};
 	const image = `fixture/tool@sha256:${"a".repeat(64)}`;
-	const deps = {
+	const deps: DesktopExecutorDeps = {
 		image,
 		seedRoot,
 		workspacesDir,
 		runDocker,
+		processTransportFactory: async (record) => ({
+			run: (argv, options) =>
+				runDocker(
+					["docker", "exec", "-i", record.containerId, ...argv],
+					options,
+				),
+			cleanup: async () => {},
+			assertQuiescent: async () => {},
+		}),
 		deadlineMs,
 		...limits,
 	};

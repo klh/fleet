@@ -22,12 +22,16 @@ import {
 } from "../hooks/lib/runners/control/rights.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 import { containerNameOf } from "../hooks/lib/runners/desktop/docker-executor.ts";
+import { DESKTOP_RUNNER_IMAGE } from "../hooks/lib/runners/desktop/prereqs.ts";
 import {
 	canonicalSeedDigest,
 	scanSeedDir,
 } from "../hooks/lib/runners/desktop/seed.ts";
 import { createDesktopRunnerLeaf } from "../hooks/lib/runners/desktop/wiring.ts";
-import { createFixtureRuntime, fixtureResponse } from "./durable-runtime.fixtures.ts";
+import {
+	createFixtureRuntime,
+	fixtureResponse,
+} from "./durable-runtime.fixtures.ts";
 
 const dockerUp = (): boolean =>
 	Bun.spawnSync(["docker", "info", "--format", "{{.ServerVersion}}"], {
@@ -97,8 +101,7 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 				onReport: () => {},
 			},
 			container: {
-				image:
-					"alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+				image: DESKTOP_RUNNER_IMAGE,
 				workspacesDir,
 				seedRoot,
 			},
@@ -219,8 +222,7 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 				onReport: () => {},
 			},
 			container: {
-				image:
-					"alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+				image: DESKTOP_RUNNER_IMAGE,
 				workspacesDir,
 				seedRoot,
 			},
@@ -345,8 +347,7 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			seedRoot,
 			spaces: workspacesDir,
 			state: durableRoot,
-			image:
-				"alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+			image: DESKTOP_RUNNER_IMAGE,
 		};
 		const childSrc = `
 const fs = require("node:fs");
@@ -472,13 +473,16 @@ try {
 		ensureRunnerReaderSchema(store2);
 		const recoveryAdmin = serveStub((request) =>
 			new URL(request.url).pathname === "/v1/admin/keys"
-				? Response.json({
-						key_id: "recovered",
-						key: "bksk_recovered",
-						name: "witness",
-						scopes: ["buckle:proxy:WRITE_"],
-						expires_at: Date.now() + 3_600_000,
-					}, { status: 201 })
+				? Response.json(
+						{
+							key_id: "recovered",
+							key: "bksk_recovered",
+							name: "witness",
+							scopes: ["buckle:proxy:WRITE_"],
+							expires_at: Date.now() + 3_600_000,
+						},
+						{ status: 201 },
+					)
 				: Response.json({ revoked: "witness" }),
 		);
 		const leaf2 = createDesktopRunnerLeaf({
@@ -512,8 +516,9 @@ try {
 		);
 		expect(out2.code).toBe(0);
 		expect(out2.stdout).toContain("killed-witness");
-		expect(await leaf2.controller.stopWithRevocation({ runId, actor: hostActor() }))
-			.toEqual({ ok: true, state: "stopped" });
+		expect(
+			await leaf2.controller.stopWithRevocation({ runId, actor: hostActor() }),
+		).toEqual({ ok: true, state: "stopped" });
 		await leaf2.close();
 		recoveryAdmin.close();
 	});

@@ -95,5 +95,14 @@ The separate Docker process transport has tested per-command cancellation and
 bounded cleanup. Guest exit frames are not authenticated: a same-UID command
 can forge success and kill its guardian. Before checkpoint or reuse, close
 intake, join tracked commands and require the daemon-backed PID-only quiescence
-check; residue or uncertain cleanup requires destroying the guest. Integration
-into the production executor remains pending.
+check; residue or uncertain cleanup requires destroying the guest. The executor
+now initializes this transport before opening the model job, forwards the
+Durable tool abort signal and keeps intake closed after stop or quiescence.
+Startup refuses a guest missing its baked Bun/setsid tools; it installs nothing.
+Service probes and command execution use the same configured Docker daemon.
+Stop joins pending guest creation and persists terminal intent so reopening a
+stopped run cannot silently recreate it. A newly created guest remains tracked
+in memory before its first record write; persistence failure triggers checked
+destruction, retaining its identity for a later cleanup retry if necessary.
+Checkpoint capture, handoff and authorized restore remain unwired, so normal
+shutdown still destroys the guest workspace without a reusable checkpoint.

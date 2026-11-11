@@ -96,7 +96,6 @@ const containerToolOf = (deps: {
 		outputLimits: { maxBytes: 65536, retain: "head" },
 		async execute(args, api, context) {
 			void api;
-			void context;
 			await deps.authorize("execute", { runId: deps.runId });
 			// pi-durable hands execute() untyped args — parse against the
 			// declared parameters (schema law: wire-facing shape via zod).
@@ -104,6 +103,7 @@ const containerToolOf = (deps: {
 			const out = await deps.executor.dispatchTool(deps.runId, parsed.argv, {
 				stdin: parsed.stdin,
 				timeoutMs: parsed.timeoutMs,
+				signal: context.abortSignal,
 			});
 			return {
 				output: [
