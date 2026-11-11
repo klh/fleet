@@ -1,0 +1,36 @@
+{
+	"schemaVersion": 1,
+	"runtimeSourceCommit": "f12f82bd8523dd4701c53d5335d154d651e56601",
+	"observations": [
+		{
+			"kind": "packaging",
+			"recipeCommit": "1c2b594f8c79019cc7d8d410790c9a1f6e010aab",
+			"result": "Both bundles compiled; license audit refused a nested type-only package manifest",
+			"resolution": "Walk to a schema-valid enclosing package manifest; retain runtime license notices"
+		},
+		{
+			"kind": "packaging",
+			"recipeCommit": "c96594028cd8699705a926a7ed2875d5820025c0",
+			"result": "Container boot refused with ENOENT for the mandatory default upstreams.json before override merge",
+			"resolution": "Emit a schema-validated empty upstream base and validate through the producer loader; no routes copied"
+		},
+		{
+			"kind": "fixture",
+			"recipeCommit": "54521e5b7906162c99836209305a187098c02001",
+			"result": "HTTP503 cloud_forbidden for a bridge alias with allow_cloud:false; no inference outbound",
+			"resolution": "Use the existing isolated rehearsal posture only in the synthetic fixture; explicit provider/group allowlist and local residency remain"
+		},
+		{
+			"kind": "fixture",
+			"recipeCommit": "54521e5b7906162c99836209305a187098c02001",
+			"result": "A literal replacement dropped the fixture port and produced HTTP502",
+			"resolution": "Restore the dynamic port and assert exact fixture paths; no image/runtime change"
+		},
+		{
+			"kind": "assertion",
+			"recipeCommit": "54521e5b7906162c99836209305a187098c02001",
+			"result": "A negative incorrectly expected an unkeyed gateway to exit; it correctly kept governance enabled",
+			"resolution": "Assert unkeyed HTTP401 and zero inference outbound instead; remove the owned test container"
+		}
+	]
+}
