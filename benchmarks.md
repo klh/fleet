@@ -1,5 +1,18 @@
 # fleet benchmarks
 
+## Capability advertisement chain (W2979, 2026-11-11)
+
+Producer + consumer measured live over a real buckle route: rows carrying
+operator-pinned context_length/max_output_tokens/reasoning/capability_source
+were consumed fail-closed by the pi-durable executor, which then ran 4 real
+LLM legs (2 attempts, one resumed) through buckle to z.ai. Receipt
+reconciliation is exact: journal cumulative legs 846+886+984+1023 = 3739
+tokens equals the two per-attempt DELTA receipts 1732 + 2007. Publication
+holds across the fallback walk (W2979.1): a claim publishes only when every
+reachable group pins and agrees; mismatched/dangling/missing rungs omit the
+row fields (4 focused cases + pools suite green). This is correctness and
+consistency evidence, not throughput evidence.
+
 ## Runner API prerequisites (W2879, 2026-11-08)
 
 Real scratch Buckle with one occupied model slot: identity was HTTP 429 before

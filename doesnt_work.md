@@ -1,5 +1,21 @@
 # doesnt_work.md — the negative-results ledger
 
+## Two silent-failure shapes the W2979 witness forced out (2026-11-11)
+
+1. Serving-base mismatch: the openai-completions client POSTs
+   {baseURL}/chat/completions, so passing the bare route origin produced
+   requests to /chat/completions, which buckle 404s — the durable session
+   settled with status=model_error and ZERO evidence at the route (buckle
+   logs no request). The fix pins the serving face to ${origin}/v1 while
+   verifyRoute keeps building ${origin}/v1/models itself.
+2. Type-shaped runtime reads: UsageState buckets are typed
+   JsonRepresentation<Usage> but the wrapper is erased at runtime — reading
+   bucket.value.input (the type shape) always yielded null usage on the live
+   ledger. Reading bucket.input directly reconciled the receipts exactly.
+   Lesson banked: lesson.pi-durable-nominal-wrappers-erased.
+Also: an unadvertised row (pre-W2979) made the fail-closed consumer refuse
+the route outright — by design; that refusal is the gap this work closes.
+
 ## Runner API identity admission (W2879)
 
 Identity checks consumed inference admission slots and returned 429 while a
