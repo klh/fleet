@@ -458,4 +458,39 @@ describe("W870 take provisioning", () => {
 			).out,
 		).toContain("no provisioned worktree");
 	});
+
+	test("split from the carrier tree binds the kept child for the next edit (W3009 round-4)", () => {
+		const idS = idOf(work("add", "claim-location fixture S"));
+		expect(idS).toBeTruthy();
+		expect(work("take", idS, "--as", "loc-a").code).toBe(0);
+		const tree = join(REPO, ".worktrees", idS);
+		// the split runs FROM the registered carrier tree (cwd == carrier)
+		const sp = Bun.spawnSync(
+			[
+				"bun",
+				join(BIN, "work.ts"),
+				"split",
+				idS,
+				"S kept child",
+				"S other child",
+				"--reason",
+				"independent-scopes",
+				"--keep",
+				"1",
+			],
+			{ cwd: tree, env, stdout: "pipe", stderr: "pipe" },
+		);
+		expect(sp.exitCode).toBe(0);
+		// the minted binding names (loc-a, kept child) — a kept-child edit
+		// inside the carrier tree now binds (pre-round-4 it stayed denied)
+		expect(
+			gate(writeHook("loc-a", TP, join(".worktrees", idS, "cs-edit.ts"))).out,
+		).toBe("{}");
+		// main-checkout edits still deny, naming the carrier tree
+		const denied = gate(writeHook("loc-a", TP, "carrier-main-edit.ts"));
+		expect(denied.out).toContain("CLAIM-LOCATION");
+		expect(denied.out).toContain(join(".worktrees", idS));
+		// the shared REPO outlives this test — no minted context leaks
+		rmSync(join(tree, ".fleet"), { recursive: true, force: true });
+	});
 });

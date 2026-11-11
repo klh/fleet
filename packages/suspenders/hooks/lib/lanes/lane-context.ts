@@ -116,7 +116,14 @@ export function keptLaneContextDirs(
  * the ONE carrier tree (the splitting item's own registered tree, else the
  * first SHATTERED ancestor's tree — the same candidate list the gate checks),
  * never clobbering an existing context. A thrown mint rolls the shatter back
- * with it. */
+ * with it.
+ *
+ * Round-4 (root #123980): the carrier is chosen by REGISTERED GRAPH identity
+ * — the splitting item's own tree, else the first SHATTERED ancestor's tree —
+ * never by cwd inequality: a split run FROM the carrier tree (cwd == carrier)
+ * still mints. Round-5 (root #123982): the mint writes only into an ABSENT
+ * file — an existing foreign context is preserved; a corrupt file refuses the
+ * mint explicitly (the split rolls back with the throw). */
 export function rebindKeptLaneContext(
 	cwd: string,
 	root: string,
@@ -128,14 +135,25 @@ export function rebindKeptLaneContext(
 	const dirs = keptLaneContextDirs(cwd, root, parentItem, db);
 	for (const dir of dirs)
 		if (rebindLaneContext(dir, sid, parentItem, toItem)) return toItem;
-	const carrier = dirs.find((d) => d !== cwd);
-	if (carrier && !readLaneContextFile(carrier)) {
-		mkdirSync(join(carrier, ".fleet"), { recursive: true });
-		writeFileSync(
-			laneContextFile(carrier),
-			JSON.stringify({ sid, item: toItem }),
-		);
-		return toItem;
+	// round-4 (root #123980): the carrier is the splitting item's REGISTERED
+	// tree — graph identity, never cwd inequality: a split run FROM the
+	// carrier tree (cwd == carrier) still mints. Falls back to the first
+	// SHATTERED ancestor's tree when the own tree is gone (chained splits).
+	const own = resolveItemWorktree(root, parentItem);
+	const carrier = own ?? dirs.filter((d) => d !== cwd)[0];
+	if (!carrier) return null;
+	// round-5 (root #123982): mint only into an ABSENT file — an existing
+	// foreign context is preserved (another owner holds the binding); a
+	// corrupt file refuses the mint explicitly and the split rolls back.
+	const file = laneContextFile(carrier);
+	if (existsSync(file)) {
+		if (!readLaneContextFile(carrier))
+			throw new Error(
+				"kept-child carrier context is corrupt — refusing to overwrite; restore or remove it before splitting",
+			);
+		return null;
 	}
-	return null;
+	mkdirSync(join(carrier, ".fleet"), { recursive: true });
+	writeFileSync(file, JSON.stringify({ sid, item: toItem }));
+	return toItem;
 }
