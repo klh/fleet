@@ -6,10 +6,12 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	appendFileSync,
+	existsSync,
 	mkdtempSync,
 	realpathSync,
 	rmSync,
 	mkdirSync,
+	symlinkSync,
 	writeFileSync,
 	readFileSync,
 } from "node:fs";
@@ -47,6 +49,7 @@ const WIRE = join(
 afterAll(() => {
 	rmSync(HOME, { recursive: true, force: true });
 	rmSync(REPO, { recursive: true, force: true });
+	rmSync(GHOME, { recursive: true, force: true });
 });
 
 const run = (
@@ -295,6 +298,159 @@ describe("gate-wire-codex emitter", () => {
 			SUSPENDERS_CODEX_HOOKS: clean,
 		});
 		expect(unwired.code).toBe(1);
+	});
+});
+
+// ---- generation stability (W2961): two fixture generations, scratch HOME ----
+
+const GHOME = mkdtempSync(join(tmpdir(), "suspenders-w2961-"));
+const GFILE = join(GHOME, "hooks.json");
+const genDir = (name: string): string => {
+	const d = join(GHOME, name, ".harness", "packages", "suspenders", "hooks");
+	mkdirSync(d, { recursive: true });
+	writeFileSync(join(d, "gate.ts"), "// fixture gate\n");
+	return join(GHOME, name);
+};
+const GEN_A = genDir("gen-a");
+const GEN_B = genDir("gen-b");
+mkdirSync(join(GHOME, ".claude", "hooks"), { recursive: true });
+const LINK = join(GHOME, ".claude", "hooks", "suspenders");
+symlinkSync(GEN_A, LINK);
+const wire = (
+	args: string[] = [],
+	file: string = GFILE,
+): { out: string; err: string; code: number } =>
+	run([WIRE, ...args], "", { SUSPENDERS_CODEX_HOOKS: file, HOME: GHOME });
+
+describe("gate-wire-codex generation stability (W2961)", () => {
+	const doc = (): GDoc => JSON.parse(readFileSync(GFILE, "utf8")) as GDoc;
+	const oldPin = (mode: string): string =>
+		`${process.execPath} ${GHOME}/.claude/hooks/suspenders.generation-old/.harness/packages/suspenders/hooks/dialects/codex/../../gate.ts codex ${mode}`;
+
+	test("stale generation pin upgrades to the stable symlink in place", () => {
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{ hooks: [{ type: "command", command: "user-own-tool" }] },
+						{ hooks: [{ type: "command", command: oldPin("pre-tool") }] },
+					],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2); // user entry + ONE managed entry
+		expect(pre[0].hooks[0].command).toBe("user-own-tool");
+		const cmd = pre[1].hooks[0].command;
+		expect(cmd).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts`,
+		);
+		expect(cmd).not.toContain("suspenders.generation-");
+	});
+
+	test("intentional foreign pin preserved verbatim, stable entry alongside", () => {
+		const foreign = `${process.execPath} /tmp/w2961-lane-harness/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: foreign }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].hooks[0].command).toBe(foreign);
+		expect(pre[1].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		);
+	});
+
+	test("--check: stale pin exits 1 with the stale note, rewire exits 0", () => {
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{ hooks: [{ type: "command", command: oldPin("session") }] },
+					],
+				},
+			}),
+		);
+		const stale = wire(["--check"]);
+		expect(stale.code).toBe(1);
+		expect(stale.out).toContain("stale generation pin");
+		expect(wire().out).toContain("wired 5 codex hook events");
+		const wired = wire(["--check"]);
+		expect(wired.code).toBe(0);
+	});
+
+	test("--check: foreign-only pin reports not wired (install owes its entries)", () => {
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					SessionStart: [
+						{
+							hooks: [
+								{
+									type: "command",
+									command: `${process.execPath} /tmp/w2961-pin/gate.ts codex session`,
+								},
+							],
+						},
+					],
+				},
+			}),
+		);
+		const foreign = wire(["--check"]);
+		expect(foreign.code).toBe(1);
+		expect(foreign.out).toContain("not wired");
+	});
+
+	test("symlink flip = the rollback surface; wiring is generation-stable", () => {
+		writeFileSync(GFILE, "{}");
+		expect(wire().out).toContain("wired 5 codex hook events");
+		const before = doc().hooks.PreToolUse.at(-1).hooks[0].command;
+		expect(before).toContain(`${GHOME}/.claude/hooks/suspenders/.harness`);
+		// two fixture generations: flip the symlink gen-a → gen-b and re-wire
+		rmSync(LINK);
+		symlinkSync(GEN_B, LINK);
+		expect(wire().out).toContain("already wired"); // no re-pin on flip
+		const cmd = doc().hooks.PreToolUse.at(-1).hooks[0].command;
+		expect(cmd).toBe(before); // byte-identical across generations
+		const gatePath = cmd.split(" ").find((p) => p.includes("gate.ts"));
+		expect(existsSync(gatePath ?? "")).toBe(true); // resolves through gen-b
+	});
+
+	test("current runner settings accepted by the active-generation gate", () => {
+		const settingsFile = join(GHOME, "settings.json");
+		writeFileSync(
+			settingsFile,
+			JSON.stringify({
+				runner: {
+					control_url: "http://127.0.0.1:7810",
+					identity_url: "http://127.0.0.1:4111",
+				},
+			}),
+		);
+		const r = gate(
+			["codex", "session"],
+			{ cwd: REPO },
+			{
+				KLH_SETTINGS: settingsFile,
+			},
+		);
+		expect(r.code).toBe(0);
+		// accepted, not silently fallen back: hook-mode posture never surfaces
+		// the last-known-good degradation for a schema-valid settings file
+		expect(r.err).not.toContain("last-known-good");
+		expect(r.err).not.toContain("is invalid");
 	});
 });
 
