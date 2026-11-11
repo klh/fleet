@@ -47,7 +47,6 @@ const HOOKS_ROOT = `${HOME}/.claude/hooks/`;
 // (/foreign-prefix<root>/…), or an unrelated dir under a
 // generation-looking name (suspenders.generation-x/unrelated/gate.ts)
 // confers NOTHING — unknown shapes are preserved verbatim.
-const REL_GATE = ".harness/packages/suspenders/hooks/gate.ts";
 const normPath = (p: string): string => {
 	const segs: string[] = [];
 	p.split("/").forEach((seg, i) => {
@@ -72,13 +71,23 @@ const stableCmd = (c: string): boolean => {
 	const a = gateArg(c);
 	return a !== undefined && normPath(a) === normPath(GATE);
 };
+// gen pin = HOOKS_ROOT + `suspenders.generation-<id>` + `/<REL_GATE>`,
+// anchored by SEGMENT SHAPE (round-3 review): exactly ONE generation dir
+// between the hooks root and .harness — nested unrelated dirs
+// (suspenders.generation-x/unrelated/.harness/…) are foreign.
+const GEN_PREFIX = "suspenders.generation-";
 const genCmd = (c: string): boolean => {
 	const a = gateArg(c);
 	if (a === undefined) return false;
-	const p = normPath(a);
+	const segs = normPath(a).slice(HOOKS_ROOT.length).split("/");
+	const g = segs[0];
 	return (
-		p.startsWith(`${HOOKS_ROOT}suspenders.generation-`) &&
-		p.endsWith(`/${REL_GATE}`)
+		segs.length === 6 &&
+		typeof g === "string" &&
+		g.startsWith(GEN_PREFIX) &&
+		g.length > GEN_PREFIX.length &&
+		segs[1] === ".harness" &&
+		segs.slice(2).join("/") === "packages/suspenders/hooks/gate.ts"
 	);
 };
 const managedCmd = (c: string): boolean => stableCmd(c) || genCmd(c);
@@ -135,16 +144,17 @@ const run = (): number => {
 	for (const [event, mode] of WIRING) {
 		const list = Array.isArray(hooks[event]) ? hooks[event] : [];
 		const want = `${BUN} ${GATE} ${mode}`;
-		// strip only INSTALL-MANAGED entries — stable + stale generation pins
-		// (the pin upgrades in place). Foreign marker-bearing entries (an
-		// intentional active-session pin) and user entries are never touched.
-		const kept = list.filter(
-			(e) =>
-				!Array.isArray(e.hooks) ||
-				!e.hooks.some(
-					(h) => typeof h?.command === "string" && managedCmd(h.command),
-				),
-		);
+		// strip only INSTALL-MANAGED COMMANDS within each entry (round-3
+		// review): a mixed entry {hooks:[ownedStable, user-own-tool]} keeps
+		// the user command and its matcher metadata; an entry drops only
+		// when no commands remain. Legacy gen pins upgrade in place.
+		const kept = list.flatMap((e) => {
+			if (!Array.isArray(e.hooks)) return [e];
+			const rest = e.hooks.filter(
+				(h) => !(typeof h?.command === "string" && managedCmd(h.command)),
+			);
+			return rest.length > 0 ? [{ ...e, hooks: rest }] : [];
+		});
 		const next = [...kept, { hooks: [{ type: "command", command: want }] }];
 		// change = the final list differs from the initial one (strip-readd of
 		// an identical entry is a no-op, not a change)
