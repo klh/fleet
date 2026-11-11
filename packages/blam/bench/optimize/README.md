@@ -9,6 +9,10 @@ referenced files, provider audits and cleanup operations before doing so.
 - `cases.ts`: pinned repository/environment identity and repeated stable
   failing-base/passing-fix controls. `publicTask` selects the task context
   without exposing reference revisions or evaluator arguments.
+- `layout.ts`: admit existing, pairwise-disjoint candidate/oracle/output
+  directories using both declared and canonical paths. Oracle/output
+  roots must be private to the host owner. Call this before materializing
+  an executor manifest; it does not replace the execution sandbox.
 - `strategies.ts`: declared materialized arm settings and deterministic
   digest. Runtime fingerprints include resolved configuration; harness
   fingerprints identify the exact instructions used for this case.
