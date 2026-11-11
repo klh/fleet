@@ -1,0 +1,51 @@
+{
+  "receipt_version": 1,
+  "kind": "runner-carrier-smoke",
+  "host": "desktop",
+  "host_role": "muramasa-mac-docker-desktop",
+  "created": "2026-11-09T07:29:26Z",
+  "source": {
+    "runner_file": "runner.ts",
+    "work_item": "W2882 (see repo state; W2871 NAS pilot 27051756 is integration-HOLD per review #117749/#117941)",
+    "note": "runner.ts = W2871 source + BUCKLE_TOKEN scoped-key fix (root-key env accepted only for legacy; new deployments carry BUCKLE_TOKEN lane keys only)"
+  },
+  "image": {
+    "reference": "oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+    "pinned_by_digest": true
+  },
+  "isolation": {
+    "user": "1000:1000",
+    "root_fs_read_only": true,
+    "tmpfs": ["/tmp:rw,size=64m,noexec,nosuid"],
+    "memory_cap": "512m",
+    "cpus_cap": "0.5",
+    "network": "bridge (default); egress to hub via host.docker.internal:4111; no host mounts beyond /app(ro) + /state(rw)",
+    "mounts": ["/app/runner.ts:ro", "/state:rw"]
+  },
+  "key": {
+    "kind": "bksk_ lane key, scope buckle:proxy:WRITE_",
+    "key_id": "97c141b0632f",
+    "ttl_s": 900,
+    "expires_at_epoch_ms": 1794210255916,
+    "revoked_early": true,
+    "revocation_outcome": "ok (helper lane-key revoke; response captured)",
+    "root_key_in_container": false
+  },
+  "run": {
+    "ok": true,
+    "exit_code": 0,
+    "work_ms": 1659,
+    "work_tokens": { "input_tokens": 47, "output_tokens": 4 },
+    "digest_ms": 2760,
+    "total_ms": 4421,
+    "model": "glm-5.3-flash",
+    "task_output_bounded": "VERIFIED",
+    "validation": "exact-match smoke (single word expected, single word returned)"
+  },
+  "availability_requirement": "macOS on AC + bounded idle-sleep allowed; Docker Desktop 29.9.2 running; overnight hosting depends on Mac uptime (owner-controlled). NAS dark 24:00-07:00 (kb#6774).",
+  "not_claimed": [
+    "durable interrupt/resume (needs W2869 controller — fleet repair in progress #117777)",
+    "authorization/lease fencing (W2869.2 scope)",
+    "seed immutability beyond image digest pin (W2865/W2869 manifest owns promotion)"
+  ]
+}
