@@ -18,6 +18,7 @@ import {
 import { openRunnerController } from "../hooks/lib/runners/control/controller.ts";
 import type { DurableAdapter } from "../hooks/lib/runners/control/controller.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
+import type { RunnerActor } from "../hooks/lib/runners/control/rights.ts";
 
 const recording = (calls: string[]): DurableAdapter => ({
 	start: async () => {
