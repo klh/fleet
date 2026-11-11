@@ -14,6 +14,10 @@ directory run `bun --bun playwright test --config playwright.config.ts`.
 Commit source first, then `bun build.ts build 0.1.0-experimental.w2988`.
 The builder refuses dirty tool source, labels the exact commit and probes each
 tool under read-only rootfs, UID 1000, no network and dropped capabilities.
+Docker receives a temporary context containing only the committed Dockerfile,
+tools.json and .dockerignore blobs, read by full commit SHA. Concurrent edits
+to the live checkout cannot change the build bytes or the manifest used to probe
+that build. The temporary context is removed on success or failure.
 
 Publication uses existing Docker authentication: push the version tag, inspect
 the actual registry digest, verify package visibility is private and repository
