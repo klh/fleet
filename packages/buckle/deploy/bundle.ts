@@ -54,7 +54,12 @@ for (const entry of entries) {
 const roots = new Set<string>();
 for (const input of inputs) {
 	let folder = dirname(resolve(input));
-	while (!existsSync(join(folder, "package.json"))) {
+	while (
+		!existsSync(join(folder, "package.json")) ||
+		!PackageNoticeSchema.safeParse(
+			JSON.parse(readFileSync(join(folder, "package.json"), "utf8")),
+		).success
+	) {
 		const parent = dirname(folder);
 		if (parent === folder) throw new Error(`Package notice missing: ${input}`);
 		folder = parent;
