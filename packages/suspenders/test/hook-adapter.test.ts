@@ -511,6 +511,53 @@ describe("gate-wire-codex generation stability (W2961)", () => {
 		expect(pre[0].hooks[0].command).toBe(decoy); // --note .harness/ confers nothing
 	});
 
+	test("nested unrelated dir under a generation name is never owned (segment-exact)", () => {
+		const nested = `${process.execPath} ${GHOME}/.claude/hooks/suspenders.generation-private/unrelated/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: nested }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].hooks[0].command).toBe(nested); // exactly ONE gen dir between root and .harness
+	});
+
+	test("mixed entry keeps the foreign command and entry metadata, drops only the owned one", () => {
+		const stable = `${process.execPath} ${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{
+							matcher: "shell",
+							hooks: [
+								{ type: "command", command: stable },
+								{ type: "command", command: "user-own-tool" },
+							],
+						},
+					],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].matcher).toBe("shell"); // entry metadata preserved
+		expect(pre[0].hooks).toHaveLength(1); // owned command stripped
+		expect(pre[0].hooks[0].command).toBe("user-own-tool"); // foreign kept verbatim
+		expect(pre[1].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		); // fresh stable appended
+	});
+
 	test("symlink flip = the rollback surface; wiring is generation-stable", () => {
 		writeFileSync(GFILE, "{}");
 		expect(wire().out).toContain("wired 5 codex hook events");
