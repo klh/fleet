@@ -66,3 +66,19 @@ Catalog discovery is bounded and refuses redirects. Permission errors refuse
 startup rather than retrying with another credential or exposing response bodies.
 Preflight validates discovery without submitting model work or starting a guest.
 It still does not prove a completed model/tool turn or workspace recovery.
+
+## Workspace recovery status
+
+The executor records an absolute `deadlineAt` when a guest starts. A later host
+configuration change does not renew that guest's lifetime. Legacy records with
+no original deadline refuse execution and require explicit migration; do not
+fill the missing value with a new deadline.
+
+Before sending a tool command, the executor persists that the workspace may
+have changed. Losing that guest without a verified checkpoint refuses recovery
+rather than launching an empty workspace. Failed commands may have changed
+files too, so the marker precedes the command's execution.
+
+Graceful workspace checkpoint and restore remain under implementation. A
+Durable journal alone is not a workspace backup, and the current HOST runner
+must not be presented as restart-safe on the strength of journal reopening.
