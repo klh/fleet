@@ -95,6 +95,16 @@ for (const root of roots) {
 	notices.push(pkg);
 }
 await Bun.write("/runtime/LICENSE", Bun.file("/fleet/LICENSE"));
+const EmptySeedUpstreamsSchema = z.strictObject({
+	version: z.literal(1),
+	groups: z.record(z.string(), z.array(z.never())),
+});
+const neutral = EmptySeedUpstreamsSchema.parse({ version: 1, groups: {} });
+const upstreamsPath = "/runtime/packages/buckle/upstreams.json";
+writeFileSync(upstreamsPath, `${JSON.stringify(neutral)}\n`);
+const { loadUpstreams } = await import("../src/upstreams.ts");
+if (loadUpstreams(upstreamsPath).groups().length)
+	throw new Error("Seed default must contain no model routes");
 writeFileSync(
 	"/runtime/runtime-closure.json",
 	`${JSON.stringify({ schemaVersion: 1, entries, inputs: [...inputs].sort(), packages: notices }, null, 2)}\n`,
