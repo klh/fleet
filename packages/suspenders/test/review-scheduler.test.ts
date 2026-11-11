@@ -8,7 +8,7 @@ import { reviewRoundCap } from "../hooks/lib/gates/review-round-cap.ts";
 import {
 	deterministicProofFailure,
 	finishReviewRequest,
-	providerPressureKey,
+	providerPressureKeyOf,
 	providerPressureOf,
 	reviewBaseSettleMs,
 	reviewProofParkMarker,
@@ -23,6 +23,11 @@ import {
 	type GovernorStore,
 	openMemoryStore,
 } from "../hooks/lib/govdb/govdb-store.ts";
+
+// W3012: the fixture env pins SUSPENDERS_REVIEW_MODEL="fixture-model" —
+// every reserve stamps model=FM, so the AIMD ledger row this suite exercises
+// is the FM group row (providerPressureKeyOf(FM)), not the legacy global row.
+const FM = "fixture-model";
 
 const stores: GovernorStore[] = [];
 afterEach(() => {
@@ -95,7 +100,7 @@ function setPressure(
 			"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
 		)
 		.run(
-			providerPressureKey,
+			providerPressureKeyOf(FM),
 			JSON.stringify({ fails: 0, openUntil: 0, updated: now, ...p }),
 			now,
 		);
@@ -635,7 +640,7 @@ test("W2792.1: a wire-park finish never opens the AIMD pause (routing policy, no
 		true,
 		`${reviewWireParkMarker}: wire-model mismatch`,
 	);
-	expect(providerPressureOf(f.db).fails).toBe(0);
+	expect(providerPressureOf(f.db, FM).fails).toBe(0);
 });
 test("W2754: transport-class finishes never stamp proof_park_at and still open the AIMD pause", () => {
 	const f = capFixture();
@@ -645,7 +650,7 @@ test("W2754: transport-class finishes never stamp proof_park_at and still open t
 	const after = requestOf(f);
 	expect(after.state).toBe("ERROR");
 	expect(after.proof_park_at).toBeUndefined();
-	expect(providerPressureOf(f.db).fails).toBe(1);
+	expect(providerPressureOf(f.db, FM).fails).toBe(1);
 });
 test("W2754 base-move settle: an out-of-base receipt defers re-review until the window lapses", () => {
 	const f = capFixture();

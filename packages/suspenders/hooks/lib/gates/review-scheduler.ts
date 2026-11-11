@@ -19,6 +19,26 @@ import {
 } from "./protected-family.ts";
 import { selectReviewModel } from "./review-model-select.ts";
 import { parkReviewRequest, reviewTransportPark } from "./review-park.ts";
+import {
+	applyPressure,
+	canaryProbeMs,
+	deterministicRefusal,
+	jitterMs,
+	providerPressureKeyOf,
+	providerPressureOf,
+} from "./review-provider-pressure.ts";
+// W3012: re-exported so the runners, the reconcile sweep and the test
+// corpus keep their import face (providerPressureKey/jitterMs moved to the
+// pressure module with the rest of the ledger).
+export {
+	applyPressure,
+	deterministicRefusal,
+	jitterMs,
+	providerPressureAggregate,
+	providerPressureKeyOf,
+	providerPressureOf,
+	providerPressureKey,
+} from "./review-provider-pressure.ts";
 import type { ReviewContext } from "./review-receipt.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
 import { wireModelMatch } from "./wire-model-check.ts";
@@ -45,6 +65,10 @@ interface Request {
 	 * request was re-pinned FROM — the receipt banks the swap, never a
 	 * silent alias (the wire audit still grades the new pin as itself). */
 	repinned_from?: string;
+	/** W3012: the routed provider group this leg rides (the review model id
+	 * selected at admission) — the AIMD ledger key suffix. Absent on legacy
+	 * rows: their finishes feed the legacy global ledger. */
+	model?: string;
 	/** W2754: admission timestamp for the per-minute start budget rung —
 	 *  absent on legacy rows (not counted by the budget query). */
 	admitted_at?: number;
@@ -80,32 +104,10 @@ const backoffMs = (deferred: number): number =>
 // Two corrections: the ceiling drops to 2m, and a lapsed pause admits ONE
 // canary leg whose finish decides reopen (served → memory drained, instant
 // full reopen) versus re-arm — the herd never refires on an unproven ladder.
-interface Pressure {
-	fails: number;
-	openUntil: number;
-	updated: number;
-	/** W2356: the expiry canary — the one leg admitted when a pause lapsed,
-	 * holding peers off until it finishes (or this window lapses). Any
-	 * applyPressure clears it: the canary's finish IS the resolution. */
-	probe?: { key: string; until: number };
-}
-/** Global fact key — shared across scheduler, runners and the reconcile sweep. */
-export const providerPressureKey = "review.provider.pressure";
-/** 30s doubling to a 2m ceiling (W2356: was 10m — see the ledger header). */
-const pressureMs = (fails: number): number =>
-	Math.min(120_000, 30_000 * 2 ** Math.max(0, fails - 1));
-/** W2356: how long an admitted canary holds the probe window — spans a
- * normal verdict leg (~100-400s observed) while bounding a hung one; the
- * crash/launch-failure finish paths resolve it far sooner. */
-const canaryProbeMs = 300_000;
-/** Deterministic reopen spread (0-90s) — the deferred backlog must not
- * re-fire as one herd the instant the pause expires. */
-export const jitterMs = (key: string): number =>
-	Number(
-		BigInt(`0x${createHash("sha256").update(key).digest("hex").slice(0, 8)}`) %
-			90_000n,
-	);
-/** Read the provider pressure ledger. Absent/corrupt = healthy. */
+// W3012: the Pressure ledger — interface, per-provider group rows, the AIMD
+// update and the deterministic-refusal classifier — lives in
+// review-provider-pressure.ts (imported below; names re-exported so the
+// runners, the reconcile sweep and the test corpus keep their import face).
 
 // ---- W2754 completion-throughput rungs --------------------------------------
 /** W2754: a coverage-proof failure on a PASS-content verdict (scratch tree
@@ -296,62 +298,6 @@ function emitWireParkDecision(
 	});
 }
 
-export function providerPressureOf(db: GovernorStore): Pressure {
-	try {
-		const row = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(providerPressureKey) as { value: string } | null;
-		if (!row) return { fails: 0, openUntil: 0, updated: 0 };
-		const p = JSON.parse(row.value) as Partial<Pressure>;
-		return {
-			fails: Number(p.fails) || 0,
-			openUntil: Number(p.openUntil) || 0,
-			updated: Number(p.updated) || 0,
-			...(p.probe &&
-			typeof p.probe.key === "string" &&
-			Number.isFinite(p.probe.until)
-				? { probe: { key: p.probe.key, until: Number(p.probe.until) } }
-				: {}),
-		};
-	} catch {
-		return { fails: 0, openUntil: 0, updated: 0 };
-	}
-}
-/** AIMD update — caller must already be inside a transaction (bun:sqlite
- * nesting). A failure opens the global pause; a served verdict HALVES the
- * failure memory and shortens the pause to the decayed level but does not
- * cancel an active cooldown (#70140): with 8 legs in flight and a 429 every
- * ~7s, one isolated success must not reopen the admission gate mid-storm.
- * Only failure memory drained to zero (sustained success) fully reopens. */
-export function applyPressure(db: GovernorStore, failed: boolean): void {
-	const now = Date.now();
-	const current = providerPressureOf(db);
-	const next: Pressure = failed
-		? {
-				fails: current.fails + 1,
-				openUntil: now + pressureMs(current.fails + 1),
-				updated: now,
-			}
-		: (() => {
-				const fails = Math.floor(current.fails / 2);
-				return {
-					fails,
-					openUntil:
-						fails > 0
-							? Math.min(current.openUntil, now + pressureMs(fails))
-							: 0,
-					updated: now,
-				};
-			})();
-	// W2356: any finish resolves the canary — a failed one re-arms the pause
-	// above, a served verdict is the reopen proof. Either way no probe may
-	// outlive the decision it exists to produce.
-	next.probe = undefined;
-	db.query(
-		"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
-	).run(providerPressureKey, JSON.stringify(next), now);
-}
-
 export const reviewRequestKey = (
 	project: string,
 	item: string,
@@ -413,7 +359,14 @@ export function finishReviewRequest(
 		// W2792.1: the wire-model fallback park is the same class — the
 		// provider served a verdict; the mismatch is routing policy, not a
 		// provider outage.
-		if (!proofPark && !wirePark) applyPressure(db, failed);
+		// W3012: the deterministic policy/input refusals (diff budget,
+		// bounded audit, blocking-findings cap) are the same LOCAL class seen
+		// from the finish side — the input or policy failed without the
+		// provider serving anything to penalize, so they keep W1243's
+		// refund/backoff but never re-arm AIMD (nor starve a healthy provider
+		// group behind one refusal loop).
+		if (!proofPark && !wirePark && !deterministicRefusal(request.error))
+			applyPressure(db, failed, request.model);
 		db.query(
 			"UPDATE facts SET value = ?, version = version + 1, ts = ? WHERE key = ?",
 		).run(JSON.stringify(request), Date.now(), key);
@@ -811,16 +764,22 @@ export function scheduleReview(o: {
 		// (AIMD above) — checked BEFORE the per-request backoff, so an active
 		// cooldown defers every leg (even one whose own backoff lapsed) and
 		// staggers its reopen into a jittered stream instead of a herd.
-		const pressure = providerPressureOf(o.db);
-		if (pressure.openUntil > now) {
-			const staggered = pressure.openUntil + jitterMs(key);
+		// W3012: this leg's GROUP ledger governs admission; the legacy global
+		// row (pre-W3012 finishes still in flight) is cross-checked for its
+		// time-bounded window only — never for failure memory, which only a
+		// grouped served verdict decays.
+		const pressure = providerPressureOf(o.db, model);
+		const legacyPressure = providerPressureOf(o.db);
+		const openUntil = Math.max(pressure.openUntil, legacyPressure.openUntil);
+		if (openUntil > now) {
+			const staggered = openUntil + jitterMs(key);
 			if (old && old.nextAt < staggered)
 				o.db
 					.query(
 						"UPDATE facts SET value=?, version=version+1, ts=? WHERE key=?",
 					)
 					.run(JSON.stringify({ ...old, nextAt: staggered }), now, key);
-			return `review transport paused until ${new Date(pressure.openUntil).toISOString()} (provider pressure)`;
+			return `review transport paused until ${new Date(openUntil).toISOString()} (provider pressure)`;
 		}
 		// W2356: a LAPSED pause is not yet a reopen — the 2026-10-31 over-freeze
 		// re-admitted the whole jittered herd the instant it expired, every leg
@@ -832,10 +791,24 @@ export function scheduleReview(o: {
 		// canary self-releases when canaryProbeMs lapses; the knob disables the
 		// probe for the W1280-era full-herd reopen.
 		const canaryOff = env.SUSPENDERS_REVIEW_CANARY === "0";
-		if (!canaryOff && pressure.fails > 0) {
-			const probe = pressure.probe;
-			const probeHeld =
-				probe && probe.key !== key && probe.until > now ? probe : undefined;
+		if (!canaryOff) {
+			// W3012: a live probe holds only its own provider group — one
+			// provider's canary must not hold another group's legs. The legacy
+			// global row's probe still holds every group conservatively while
+			// pre-W3012 rows drain.
+			const groupProbe =
+				pressure.probe &&
+				pressure.probe.until > now &&
+				pressure.probe.key !== key
+					? pressure.probe
+					: undefined;
+			const legacyProbe =
+				legacyPressure.probe &&
+				legacyPressure.probe.until > now &&
+				legacyPressure.probe.key !== key
+					? legacyPressure.probe
+					: undefined;
+			const probeHeld = groupProbe ?? legacyProbe;
 			if (probeHeld) {
 				if (old && old.nextAt < probeHeld.until)
 					o.db
@@ -919,6 +892,7 @@ export function scheduleReview(o: {
 			deferred: old?.deferred,
 			leaseUntil: now + 25 * 60_000,
 			token,
+			model,
 			nextAt: 0,
 			admitted_at: now,
 			...(repinnedFrom ? { repinned_from: repinnedFrom } : {}),
@@ -939,7 +913,7 @@ export function scheduleReview(o: {
 						probe: { key, until: now + canaryProbeMs },
 					}),
 					now,
-					providerPressureKey,
+					providerPressureKeyOf(model),
 				);
 		return true;
 	})();
