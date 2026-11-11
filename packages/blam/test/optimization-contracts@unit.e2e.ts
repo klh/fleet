@@ -82,7 +82,7 @@ test("recommendations require distinct holdouts and cannot activate themselves @
 		image: scenario.image,
 		strategy,
 		caseIds: ["issue-a", "issue-b"],
-		confirmations: 3,
+		confirmations: ["1".repeat(64), "2".repeat(64), "3".repeat(64)],
 		historySha256: "1".repeat(64),
 		createdAt: "2026-11-11T09:00:00Z",
 	};
@@ -94,7 +94,16 @@ test("recommendations require distinct holdouts and cannot activate themselves @
 		}).success,
 	).toBe(false);
 	expect(
-		RecommendationSchema.safeParse({ ...profile, confirmations: 2 }).success,
+		RecommendationSchema.safeParse({
+			...profile,
+			confirmations: profile.confirmations.slice(0, 2),
+		}).success,
+	).toBe(false);
+	expect(
+		RecommendationSchema.safeParse({
+			...profile,
+			confirmations: Array(3).fill("1".repeat(64)),
+		}).success,
 	).toBe(false);
 	expect(
 		RecommendationSchema.safeParse({ ...profile, state: "active" }).success,
@@ -125,6 +134,8 @@ test("cases require repeated red/green controls and hide oracle inputs @unit", a
 		problemClass: "regression",
 	});
 	expect(JSON.stringify(task)).not.toContain("private-oracle");
+	for (const field of ["oracle", "controls", "fixedSha", "image"])
+		expect(task).not.toHaveProperty(field);
 });
 
 test("attempt assessment distinguishes incorrect patches from unreliable measurements @unit", async () => {
@@ -157,7 +168,7 @@ test("attempt assessment distinguishes incorrect patches from unreliable measure
 	const wrongEffort = validAttempt();
 	wrongEffort.settings.effectiveEffort = "high";
 	expect(assessAttempt(input, strategy, wrongEffort).kind).toBe(
-		"invalid_evidence",
+		"effort_unverified",
 	);
 	const wrongOracle = validAttempt();
 	wrongOracle.oracleSha256 = "0".repeat(64);
@@ -170,7 +181,7 @@ test("attempt assessment distinguishes incorrect patches from unreliable measure
 		"invalid_evidence",
 	);
 	expect(assessAttempt(input, strategy, ineffective).kind).toBe(
-		"invalid_evidence",
+		"effort_unverified",
 	);
 	censored.receipt.timedOut = true;
 	expect(assessAttempt(input, strategy, censored).kind).toBe("censored");

@@ -57,6 +57,7 @@ export type Assessment = {
 	kind:
 		| "accepted"
 		| "quality_failure"
+		| "effort_unverified"
 		| "invalid_evidence"
 		| Exclude<z.infer<typeof AttemptSchema.shape.status>, "completed">;
 	reason: string;
@@ -99,12 +100,18 @@ export function assessAttempt(
 			reason: "Case or execution identity drifted",
 		};
 	if (
-		!receipt.tokens ||
 		!attempt.settings.verified ||
 		!attempt.settings.effectiveEffort ||
 		!attempt.settings.receiptSha256 ||
 		attempt.settings.requestedEffort !== strategy.requestedEffort ||
-		attempt.settings.effectiveEffort !== strategy.requestedEffort ||
+		attempt.settings.effectiveEffort !== strategy.requestedEffort
+	)
+		return {
+			kind: "effort_unverified",
+			reason: "Requested effort was not verified on the served route",
+		};
+	if (
+		!receipt.tokens ||
 		!route.verified ||
 		!route.served ||
 		!route.receiptSha256 ||

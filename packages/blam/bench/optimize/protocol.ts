@@ -14,14 +14,21 @@ export const RecommendationSchema = z
 		image: ImageReferenceSchema,
 		strategy: StrategySchema,
 		caseIds: z.array(z.string().min(1)).min(2),
-		confirmations: z.number().int().min(3),
+		confirmations: z.array(Sha256Schema).min(3),
 		historySha256: Sha256Schema,
 		createdAt: z.iso.datetime(),
 	})
 	.refine((value) => new Set(value.caseIds).size === value.caseIds.length, {
 		message: "Held-out case IDs must be distinct",
 		path: ["caseIds"],
-	});
+	})
+	.refine(
+		(value) => new Set(value.confirmations).size === value.confirmations.length,
+		{
+			message: "Confirmation receipt hashes must be distinct",
+			path: ["confirmations"],
+		},
+	);
 export type Recommendation = z.infer<typeof RecommendationSchema>;
 
 /** NDJSON lifecycle records carry evidence references, never raw secrets. */
