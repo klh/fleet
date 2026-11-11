@@ -27,6 +27,12 @@ export const ChildIntentSchema = z.strictObject({
 	}),
 	kind: z.enum(["coding", "design", "knowledge"]),
 	briefDigest: z.string().regex(/^[a-f0-9]{64}$/),
+	execution: z
+		.strictObject({
+			seedDigest: z.string().regex(/^[a-f0-9]{64}$/),
+			policyDigest: z.string().regex(/^[a-f0-9]{64}$/),
+		})
+		.optional(),
 });
 
 export type ChildIntent = z.infer<typeof ChildIntentSchema>;
@@ -81,6 +87,12 @@ export const admitChildRun = async (
 		actor: RunnerActor;
 		/** Fleet-authoritative route entitlement for delegated children. */
 		routes: readonly ChildRoute[];
+		/** Digests of the host-approved executor seed and policy. */
+		execution?: { seedDigest: string; policyDigest: string };
+		/** Host-side reservation after validation, before recording admission. */
+		reserveBudget?: () => void;
+		/** Digests of the host-approved executor seed and policy. */
+		execution?: NonNullable<ChildIntent["execution"]>;
 		bounds?: { maxChildren?: number; maxDepth?: number };
 		now?: () => number;
 	},
@@ -129,6 +141,7 @@ export const admitChildRun = async (
 		route,
 		kind: input.kind,
 		briefDigest: digestOf(input.brief),
+		...(deps.execution ? { execution: deps.execution } : {}),
 	});
 	const stored = deps.store.get<{ intent_json: string }>(
 		"SELECT intent_json FROM runner_child_intents WHERE parent_run_id = ? AND child_key = ?",
@@ -144,14 +157,6 @@ export const admitChildRun = async (
 			throw new Error(
 				`runner: parent ${input.parentRunId} is at the delegated fan-out bound of ${maxChildren} children`,
 			);
-		deps.store.run(
-			"INSERT INTO runner_child_intents (parent_run_id, child_key, depth, intent_json, created_at) VALUES (?, ?, ?, ?, ?)",
-			input.parentRunId,
-			input.childKey,
-			childDepth,
-			JSON.stringify(intent),
-			(deps.now ?? (() => Date.now()))(),
-		);
 	} else {
 		// Replay: the ledger row IS the admission. The same (parent, key)
 		// must rebuild the identical intent — any drift (route, depth, kind,
@@ -162,6 +167,17 @@ export const admitChildRun = async (
 				"runner: child intent drift on replay — the same parent/child key must replay identically",
 			);
 	}
+	deps.reserveBudget?.();
+	if (stored === null) {
+		deps.store.run(
+			"INSERT INTO runner_child_intents (parent_run_id, child_key, depth, intent_json, created_at) VALUES (?, ?, ?, ?, ?)",
+			input.parentRunId,
+			input.childKey,
+			childDepth,
+			JSON.stringify(intent),
+			(deps.now ?? (() => Date.now()))(),
+		);
+	}
 	const runId = deriveChildRunId(input.parentRunId, input.childKey);
 	const spec: RunnerSpec = {
 		version: 1,
@@ -169,8 +185,9 @@ export const admitChildRun = async (
 		owner: input.supervisorSid,
 		generation: 1,
 		kind: intent.kind,
-		seedDigest: intent.briefDigest,
-		policyDigest: digestOf(JSON.stringify(deps.routes)),
+		seedDigest: intent.execution?.seedDigest ?? intent.briefDigest,
+		policyDigest:
+			intent.execution?.policyDigest ?? digestOf(JSON.stringify(deps.routes)),
 		provider: intent.route.provider,
 		model: intent.route.model,
 	};
