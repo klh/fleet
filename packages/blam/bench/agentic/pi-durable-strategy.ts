@@ -7,40 +7,80 @@
  * JSON line whose `usage` object `usageFromOutput` parses — see
  * bench/paired/live.ts), same exit semantics (0 = completed attempt).
  *
- * The treatment rides the official @earendil-works/pi-durable runner under
- * the W2971 wire law: openai-completions only, retries disabled (0), a hard
- * 2048-token generation ceiling and a 12-turn ceiling — the durable guest
- * must never silently retry or escalate.
+ * Owner corrections folded in (plane events 122622/122625, C419):
+ * - NO silent token/turn ceilings. Completion benchmarks run unbounded by
+ *   default; finite wall-clock safety and scoped key TTL remain the only
+ *   guards. Per-experiment bounds ride `--max-tokens`/`--turn-limit` ONLY
+ *   when an experiment asks, and are receipt-recorded when set.
+ * - Model names are not a capability check. A Buckle route may expose Claude
+ *   ids over the openai-compatible wire; the executor never gates by name.
+ *   Route compatibility is verified against the route's advertised
+ *   offerings at runtime and receipt-recorded (spec carries the verdict).
+ * - CLI argv and run-spec are wire boundaries: named Zod contracts, not
+ *   hand-rolled parsing (schema law W1238.4).
+ * - Empty or unreported legs stay null (unreported ≠ measured 0); a
+ *   vacuous `every()` never reports 0.
  *
  * The durable runtime host is the next W2971 commit; until it lands the
  * executor refuses to fabricate an attempt (exit 3 + a loud DRY banner) so
  * a half-wired arm can never produce an accepted receipt.
  */
 
+import { z } from "zod";
+
+/** OpenAI-compatible completions wire — the only wire this executor speaks. */
 export const WIRE = "openai-completions" as const;
-export const MAX_RETRIES = 0;
-export const MAX_TOKENS = 2048;
-export const TURN_LIMIT = 12;
 
-export type ExecutorArgs = {
-	/** Absolute path of the prepared worktree the attempt runs in. */
-	readonly worktree: string;
-	/** Model route id, passed through verbatim (3-layer pin seam). */
-	readonly model: string;
-	/** The full case prompt; never truncated by the executor. */
-	readonly prompt: string;
-	/** Requested effort level; the provider's effective level is recorded separately. */
-	readonly effort: string;
-};
+/** Absolute path of the prepared worktree the attempt runs in. */
+const WorktreeSchema = z
+	.string()
+	.min(1)
+	.refine((value) => value.startsWith("/"), "worktree must be an absolute path");
+const RouteIdSchema = z
+	.string()
+	.min(1)
+	.describe("Model route id, passed through verbatim (no name-based gating)");
+const PromptSchema = z
+	.string()
+	.min(1)
+	.describe("The full case prompt; never truncated by the executor");
+const EffortSchema = z
+	.string()
+	.min(1)
+	.describe("Requested effort level; effective level is provider-recorded");
+/** Optional per-experiment bounds — absent unless an experiment asks. */
+const OptionalBoundSchema = z
+	.number()
+	.int()
+	.positive()
+	.nullable()
+	.describe("Unbounded unless explicitly requested; receipt-recorded when set");
 
-export type DurableRunSpec = {
-	readonly wire: typeof WIRE;
-	readonly model: string;
-	readonly maxRetries: typeof MAX_RETRIES;
-	readonly maxTokens: typeof MAX_TOKENS;
-	readonly turnLimit: typeof TURN_LIMIT;
-	readonly effort: { readonly requested: string; readonly effective: null };
-};
+/** The executor argv contract, shared with the paired harness. */
+export const ExecutorArgsSchema = z.strictObject({
+	worktree: WorktreeSchema,
+	model: RouteIdSchema,
+	prompt: PromptSchema,
+	effort: EffortSchema,
+});
+export type ExecutorArgs = z.infer<typeof ExecutorArgsSchema>;
+
+/** Run spec handed to the durable runtime; limits only when requested. */
+export const DurableRunSpecSchema = z.strictObject({
+	wire: z.literal(WIRE),
+	model: RouteIdSchema,
+	bounds: z.strictObject({
+		maxTokens: OptionalBoundSchema,
+		turnLimit: OptionalBoundSchema,
+	}),
+	effort: z.strictObject({
+		requested: EffortSchema,
+		effective: z.null(),
+	}),
+	/** Verdict of the runtime check against the route's advertised offerings. */
+	routeCompat: z.enum(["advertised", "unverified"]),
+});
+export type DurableRunSpec = z.infer<typeof DurableRunSpecSchema>;
 
 export type AttemptResult = {
 	readonly exit: number;
@@ -66,46 +106,87 @@ export class ExecutorError extends Error {
 	}
 }
 
-const REQUIRED = ["--worktree", "--model", "--prompt"] as const;
+const FLAG_MAP: Record<string, keyof z.infer<typeof ExecutorArgsSchema>> = {
+	"--worktree": "worktree",
+	"--model": "model",
+	"--prompt": "prompt",
+	"--effort": "effort",
+};
+const REQUIRED_FLAGS = ["--worktree", "--model", "--prompt"] as const;
+const BOUND_MAP: Record<string, "maxTokens" | "turnLimit"> = {
+	"--max-tokens": "maxTokens",
+	"--turn-limit": "turnLimit",
+};
 
-/** Parse the argv contract shared with bench/agentic/strategy.ts. */
-export function parseArgs(argv: readonly string[]): ExecutorArgs {
+/**
+ * Parse the argv contract through the named Zod schema (never hand-cast).
+ * Bounds flags are optional and default to ABSENT — no silent ceilings.
+ */
+export function parseArgs(argv: readonly string[]): ExecutorArgs & {
+	bounds: { maxTokens: number | null; turnLimit: number | null };
+} {
 	const flags = new Map<string, string>();
 	for (let i = 0; i < argv.length; i += 2) {
 		const flag = argv[i];
 		const value = argv[i + 1];
 		if (!flag?.startsWith("--") || value === undefined)
-			throw new ExecutorError(`expected --flag value pairs, got: ${argv.join(" ")}`);
+			throw new ExecutorError(
+				`expected --flag value pairs, got: ${argv.join(" ")}`,
+			);
 		if (flags.has(flag)) throw new ExecutorError(`duplicate flag ${flag}`);
 		flags.set(flag, value);
 	}
-	for (const flag of REQUIRED)
-		if (!flags.get(flag)) throw new ExecutorError(`missing required ${flag}`);
-	return {
-		worktree: flags.get("--worktree") ?? "",
-		model: flags.get("--model") ?? "",
-		prompt: flags.get("--prompt") ?? "",
-		effort: flags.get("--effort") ?? "low",
+	const core: Record<string, unknown> = { effort: "low" };
+	for (const [flag, key] of Object.entries(FLAG_MAP)) {
+		const value = flags.get(flag);
+		if (value === undefined) {
+			if ((REQUIRED_FLAGS as readonly string[]).includes(flag))
+				throw new ExecutorError(`missing required ${flag}`);
+			continue;
+		}
+		core[key] = value;
+	}
+	const bounds: { maxTokens: number | null; turnLimit: number | null } = {
+		maxTokens: null,
+		turnLimit: null,
 	};
+	for (const [flag, key] of Object.entries(BOUND_MAP)) {
+		const value = flags.get(flag);
+		if (value === undefined) continue;
+		const parsed = z.coerce
+			.number()
+			.int()
+			.positive()
+			.safeParse(value);
+		if (!parsed.success)
+			throw new ExecutorError(`${flag} must be a positive integer`);
+		bounds[key] = parsed.data;
+	}
+	const args = ExecutorArgsSchema.safeParse(core);
+	if (!args.success)
+		throw new ExecutorError(
+			`invalid executor args: ${args.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+		);
+	return { ...args.data, bounds };
 }
 
 /**
- * Build the durable run spec under the W2971 fence laws. Refuses models the
- * fence forbids: the durable wire is openai-completions only, so Anthropic
- * ids (which ride the /v1/messages dialect) never enter a guest spec.
+ * Build the run spec from parsed args. No model-name gating: the wire is
+ * fixed by this executor and compatibility with the route is a runtime
+ * check against the route's advertisement (starts `unverified`; the live
+ * arm flips it after verifying the route serves the requested model).
  */
-export function buildRunSpec(args: ExecutorArgs): DurableRunSpec {
-	if (/^anthropic\//i.test(args.model) || /^claude/i.test(args.model))
-		throw new ExecutorError(
-			`fence: ${args.model} rides the anthropic wire; the durable runner speaks ${WIRE} only`,
-		);
+export function buildRunSpec(
+	args: ExecutorArgs & {
+		bounds: { maxTokens: number | null; turnLimit: number | null };
+	},
+): DurableRunSpec {
 	return {
 		wire: WIRE,
 		model: args.model,
-		maxRetries: MAX_RETRIES,
-		maxTokens: MAX_TOKENS,
-		turnLimit: TURN_LIMIT,
+		bounds: args.bounds,
 		effort: { requested: args.effort, effective: null },
+		routeCompat: "unverified",
 	};
 }
 
@@ -119,18 +200,21 @@ export const dryDriver: SessionDriver = async () => {
 
 /**
  * Emit the one-line JSON summary `usageFromOutput` accepts. Totals are
- * summed only when EVERY leg reported usage — a missing leg stays null
- * (unreported), never coerced to zero.
+ * summed only when there is at least one leg and EVERY leg reported usage —
+ * empty input and missing legs stay null (unreported), never coerced to 0.
+ * `extra` is spread FIRST so the authoritative receipt fields can never be
+ * overwritten by caller-supplied keys.
  */
 export function usageLine(
 	results: readonly AttemptResult[],
 	extra: Record<string, unknown> = {},
 ): string {
 	const sum = (key: "tokens" | "cacheReadTokens" | "cacheWriteTokens") =>
-		results.every((r) => r[key] !== null)
+		results.length > 0 && results.every((r) => r[key] !== null)
 			? results.reduce((n, r) => n + (r[key] ?? 0), 0)
 			: null;
 	return JSON.stringify({
+		...extra,
 		usage: {
 			total_tokens: sum("tokens"),
 			cached_input_tokens: sum("cacheReadTokens"),
@@ -138,7 +222,6 @@ export function usageLine(
 		},
 		executor: "pi-durable",
 		agents: results.length,
-		...extra,
 	});
 }
 
@@ -147,16 +230,11 @@ export async function runExecutor(
 	driver: SessionDriver = dryDriver,
 	env: Record<string, string | undefined> = process.env,
 ): Promise<{ code: number }> {
-	let args: ExecutorArgs;
+	let args: ExecutorArgs & {
+		bounds: { maxTokens: number | null; turnLimit: number | null };
+	};
 	try {
 		args = parseArgs(argv);
-	} catch (error) {
-		console.error(`pi-durable-strategy: ${(error as Error).message}`);
-		return { code: 2 };
-	}
-	let spec: DurableRunSpec;
-	try {
-		spec = buildRunSpec(args);
 	} catch (error) {
 		console.error(`pi-durable-strategy: ${(error as Error).message}`);
 		return { code: 2 };
@@ -169,9 +247,12 @@ export async function runExecutor(
 		);
 		return { code: 2 };
 	}
+	const spec = buildRunSpec(args);
 	try {
 		const result = await driver(spec, args, { baseUrl, token });
-		console.log(usageLine([result], { worktree: args.worktree, mode: "solo" }));
+		console.log(
+			usageLine([result], { worktree: args.worktree, mode: "solo" }),
+		);
 		return { code: result.exit === 0 && result.tokens !== null ? 0 : 1 };
 	} catch (error) {
 		console.error(
