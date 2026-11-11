@@ -141,9 +141,13 @@ export function buildModels(options: {
 			2,
 		);
 	const models = createModels();
+	// The openai-completions client POSTs `{baseURL}/chat/completions`, so the
+	// serving face rides `${origin}/v1` — verifyRoute (above) builds
+	// `${origin}/v1/models` itself; BLAM_PI_DURABLE_URL stays the bare origin.
+	const servingBase = `${options.baseUrl.replace(/\/$/, "")}/v1`;
 	const provider = createProvider({
 		id: PROVIDER_ID,
-		baseUrl: options.baseUrl,
+		baseUrl: servingBase,
 		auth: {
 			apiKey: {
 				name: "BLAM route key",
@@ -159,7 +163,7 @@ export function buildModels(options: {
 				name: options.advertised.id,
 				api: "openai-completions",
 				provider: PROVIDER_ID,
-				baseUrl: options.baseUrl,
+				baseUrl: servingBase,
 				input: ["text"],
 				reasoning: options.advertised.reasoning === true,
 				contextWindow: options.advertised.contextWindow!,
@@ -219,10 +223,14 @@ export function usageTotalsOf(usage: unknown): UsageTotals | null {
 	const models = (usage as { models?: unknown } | null)?.models;
 	if (!isRecord(models)) return null;
 	for (const bucket of Object.values(models)) {
-		const value = (bucket as { value?: unknown }).value;
-		if (!isRecord(value)) continue;
+		// UsageState buckets are typed JsonRepresentation<Usage> — a nominal
+		// wrapper erased at runtime (same lesson as ConversationId), so read
+		// the fields directly; tolerate an actual {value} wrapper if present.
+		const raw = isRecord(bucket) ? bucket : {};
+		const value = isRecord(raw.value) ? raw.value : raw;
 		const input = typeof value.input === "number" ? value.input : 0;
 		const output = typeof value.output === "number" ? value.output : 0;
+		if (input === 0 && output === 0) continue;
 		const read = typeof value.cacheRead === "number" ? value.cacheRead : 0;
 		const write = typeof value.cacheWrite === "number" ? value.cacheWrite : 0;
 		tokens += input + output;

@@ -212,6 +212,10 @@ test("live runtime: models carry exactly one openai-completions provider", async
 	expect(all[0]!.contextWindow).toBe(131072);
 	expect(all[0]!.maxTokens).toBe(16384);
 	expect(all[0]!.reasoning).toBe(true);
+	// Serving face: the openai-completions client POSTs `{baseURL}/chat/
+	// completions`, so the model rides `${origin}/v1` (bare-origin env
+	// contract; verifyRoute builds `${origin}/v1/models` itself).
+	expect(all[0]!.baseUrl).toBe("https://t.local/v1");
 });
 
 test("live runtime: unadvertised serving metadata is a typed refusal, not a guess", async () => {
