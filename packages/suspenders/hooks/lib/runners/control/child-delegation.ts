@@ -17,11 +17,12 @@ import type { RunnerStore } from "./store.ts";
 
 export interface DelegateDeps {
 	store: RunnerStore;
-	controller: Pick<RunnerController, "admit" | "abort">;
+	controller: Pick<RunnerController, "admit" | "stopWithRevocation">;
 	/** Host-resolved actor of the calling supervisor (trust boundary rides
 	 *  the host credential, never the supervisor's payload). */
 	actor: RunnerActor;
 	routes: readonly ChildRoute[];
+	execution?: { seedDigest: string; policyDigest: string };
 	bounds?: { maxChildren?: number; maxDepth?: number };
 	now?: () => number;
 }
@@ -51,23 +52,31 @@ export async function delegateChildRun(
 	replayed: boolean;
 	reservationReplayed: boolean;
 }> {
-	const reservation = reserveChildBudget(deps.store, {
-		parentRunId: input.parentRunId,
-		childKey: input.childKey,
-		tokens: input.tokens,
-		at: deps.now?.() ?? Date.now(),
-		maxTokens: input.maxTokens,
-	});
-	const admission = await admitChildRun(deps, {
-		parentRunId: input.parentRunId,
-		supervisorSid: input.supervisorSid,
-		childKey: input.childKey,
-		depth: input.depth,
-		kind: input.kind,
-		route: input.route,
-		brief: input.brief,
-		autoPark: input.autoPark,
-	});
+	let reservation = { replayed: false };
+	const admission = await admitChildRun(
+		{
+			...deps,
+			reserveBudget: () => {
+				reservation = reserveChildBudget(deps.store, {
+					parentRunId: input.parentRunId,
+					childKey: input.childKey,
+					tokens: input.tokens,
+					at: deps.now?.() ?? Date.now(),
+					maxTokens: input.maxTokens,
+				});
+			},
+		},
+		{
+			parentRunId: input.parentRunId,
+			supervisorSid: input.supervisorSid,
+			childKey: input.childKey,
+			depth: input.depth,
+			kind: input.kind,
+			route: input.route,
+			brief: input.brief,
+			autoPark: input.autoPark,
+		},
+	);
 	return {
 		runId: admission.runId,
 		token: admission.token,
@@ -108,9 +117,8 @@ export async function closeChildRun(
 	return { replayed: complete.replayed, released: release.released };
 }
 
-/** The fenced-cancellation path: best-effort controller abort, an aborted
- *  zero-spend receipt, then the reservation release — the wave gets its
- *  budget back and the receipt is the truth carrier. */
+/** Confirm credential revocation and executor cleanup before recording
+ *  cancellation and returning the reservation to the parent. */
 export async function revokeChildRun(
 	deps: DelegateDeps,
 	input: {

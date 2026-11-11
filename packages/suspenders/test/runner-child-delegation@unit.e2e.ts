@@ -137,6 +137,85 @@ test("delegate reserves the budget then admits through the ledger", async () => 
 	w.close();
 });
 
+test("a denied child route consumes no parent reservation", async () => {
+	const w = childWorld();
+	try {
+		await expect(
+			delegateChildRun(
+				{
+					store: w.current().store,
+					controller: w.current().controller,
+					actor: w.actor,
+					routes: w.routes,
+				},
+				{
+					parentRunId: w.parent,
+					supervisorSid: w.actor.sid,
+					childKey: "denied",
+					kind: "coding",
+					brief: "inspect",
+					route: { provider: "unknown", model: "unknown" },
+					tokens: { in: 100, out: 10, cached: 0 },
+					maxTokens: 1000,
+				},
+			),
+		).rejects.toThrow(/allowlist/);
+		expect(readReservations(w.current().store, w.parent)).toEqual([]);
+		expect(readIntentKeys(w.current().store, w.parent)).toEqual([]);
+		expect(w.calls).toEqual([]);
+	} finally {
+		w.close();
+	}
+});
+
+test("denied cancellation preserves the reservation and parent join", async () => {
+	const w = childWorld();
+	try {
+		await delegateVia(w, "held", { in: 100, out: 10, cached: 0 }, 1000);
+		await expect(
+			revokeChildRun(
+				{
+					store: w.current().store,
+					controller: w.current().controller,
+					actor: { ...w.actor, scopes: [] },
+					routes: w.routes,
+				},
+				{
+					parentRunId: w.parent,
+					childKey: "held",
+					at: 3000,
+				},
+			),
+		).rejects.toThrow(/denied abort/);
+		expect(readReservations(w.current().store, w.parent)).toHaveLength(1);
+		expect(parentJoin(w.current().store, w.parent).joined).toBe(false);
+		await expect(
+			revokeChildRun(
+				{
+					store: w.current().store,
+					actor: w.actor,
+					routes: w.routes,
+					controller: {
+						...w.current().controller,
+						stopWithRevocation: async () => ({
+							ok: false,
+							reason: "cleanup refused",
+						}),
+					},
+				},
+				{
+					parentRunId: w.parent,
+					childKey: "held",
+					at: 3001,
+				},
+			),
+		).rejects.toThrow(/did not confirm/);
+		expect(readReservations(w.current().store, w.parent)).toHaveLength(1);
+	} finally {
+		w.close();
+	}
+});
+
 test("an over-budget wave refuses before the controller admits", async () => {
 	const w = childWorld();
 	const alpha = await delegateVia(

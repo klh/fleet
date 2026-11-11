@@ -269,6 +269,11 @@ export const openRunnerController = (deps: {
 					"runner: run is bound to a different immutable spec — a new generation is a new runId",
 				);
 			}
+			const held = getLease(deps.store, parsed.runId);
+			if (boundSpec && actor.leaseToken && held?.controller_sid === actor.sid) {
+				await authorizer.authorize("execute", { runId: parsed.runId, actor });
+				return { token: actor.leaseToken };
+			}
 			const lease = admitLease(deps.store, {
 				runId: parsed.runId,
 				controllerSid: actor.sid,
@@ -540,6 +545,11 @@ export const openRunnerController = (deps: {
 			const row = jobRow(runId);
 			if (!row) return { ok: false, reason: "runner: unknown run" };
 			const state = toControlJob(row).state;
+			if (
+				state === "stopped" &&
+				getLease(deps.store, runId)?.state !== "active"
+			)
+				return { ok: true, state };
 			assertTransition(state, "stopping");
 			// Fence FIRST: authorization dies before any cleanup runs; every
 			// later step is independent + bounded with errors recorded.

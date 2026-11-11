@@ -267,7 +267,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		}
 		const lease = await controller.admit({
 			spec: input.spec,
-			actor: input.actor,
+			actor: { ...input.actor, leaseToken: tokens.get(runId) },
 			autoPark: input.autoPark,
 		});
 		try {

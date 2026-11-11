@@ -519,6 +519,40 @@ test("repair: crash-reopen re-admits the same spec in place", async () => {
 	expect(events.map((e) => e.kind)).toEqual(["admitted", "readmitted"]);
 });
 
+test("active admission replay requires the captured lease and original controller", async () => {
+	const store = memoryStore();
+	const ctl = openRunnerController({ store, now });
+	const spec = specInput();
+	const { token } = await ctl.admit({ spec, actor: controlActor() });
+	const actor = { ...controlActor(), leaseToken: token };
+	expect(await ctl.admit({ spec, actor })).toEqual({ token });
+	await expect(ctl.admit({ spec, actor: controlActor() })).rejects.toThrow(
+		/lease held/,
+	);
+	await expect(
+		ctl.admit({
+			spec,
+			actor: { ...actor, sid: "other-controller" },
+		}),
+	).rejects.toThrow(/lease held/);
+	await expect(
+		ctl.admit({
+			spec,
+			actor: { ...actor, scopes: [RUNNER_SCOPES.read] },
+		}),
+	).rejects.toThrow(/denied open/);
+	await expect(
+		ctl.admit({
+			spec: { ...spec, model: "different" },
+			actor,
+		}),
+	).rejects.toThrow(/immutable spec/);
+	revokeLease(store, spec.runId, now());
+	await expect(ctl.admit({ spec, actor })).rejects.toThrow(/lease revoked/);
+	expect(getLease(store, spec.runId)?.epoch).toBe(token.epoch + 1);
+	expect(getLease(store, spec.runId)?.state).toBe("revoked");
+});
+
 test("repair: re-admission with a mutated spec refuses and leaves the lease", async () => {
 	let t = 1_000_000;
 	const store = memoryStore();

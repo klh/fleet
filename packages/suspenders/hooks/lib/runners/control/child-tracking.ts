@@ -157,20 +157,20 @@ export async function completeChildRun(
 export async function cancelChildRun(
 	deps: {
 		store: RunnerStore;
-		controller: Pick<RunnerController, "abort">;
+		controller: Pick<RunnerController, "stopWithRevocation">;
 		actor: RunnerActor;
 	},
 	input: { parentRunId: string; childKey: string; at: number; reason?: string },
 ): Promise<{ replayed: boolean }> {
 	const runId = deriveChildRunId(input.parentRunId, input.childKey);
-	// The abort is best-effort: the controller refuses the transition when the
-	// child never launched or is already stopping — the recorded result, not
-	// the abort outcome, is the truth carrier for the cancellation.
-	try {
-		await deps.controller.abort({ runId, actor: deps.actor });
-	} catch {
-		// already terminal or never started — the receipt below still records
-	}
+	const stopped = await deps.controller.stopWithRevocation({
+		runId,
+		actor: deps.actor,
+	});
+	if (!stopped.ok || stopped.state !== "stopped")
+		throw new Error(
+			"runner: child cancellation did not confirm fenced cleanup",
+		);
 	return completeChildRun(deps.store, {
 		parentRunId: input.parentRunId,
 		childKey: input.childKey,

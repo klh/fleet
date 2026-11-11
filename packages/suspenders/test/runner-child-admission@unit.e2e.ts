@@ -105,6 +105,54 @@ const admitVia = (
 		},
 	);
 
+test("admission binds the host execution profile and rejects replay drift", async () => {
+	const w = childWorld();
+	try {
+		const execution = {
+			seedDigest: "a".repeat(64),
+			policyDigest: "b".repeat(64),
+		};
+		const deps = {
+			store: w.current().store,
+			controller: w.current().controller,
+			actor: w.actor,
+			routes: w.routes,
+			execution,
+		};
+		const input = {
+			parentRunId: w.parent,
+			supervisorSid: w.actor.sid,
+			childKey: "profile",
+			kind: "coding" as const,
+			brief: "inspect",
+		};
+		const result = await admitChildRun(deps, input);
+		const { RunnerSpecSchema } = await import(
+			"../hooks/lib/runners/control/control-state.ts"
+		);
+		const row = w
+			.current()
+			.store.get<{ spec_json: string }>(
+				"SELECT spec_json FROM runner_jobs WHERE run_id = ?",
+				result.runId,
+			);
+		const spec = RunnerSpecSchema.parse(JSON.parse(row?.spec_json ?? "null"));
+		expect(spec.seedDigest).toBe(execution.seedDigest);
+		expect(spec.policyDigest).toBe(execution.policyDigest);
+		await expect(
+			admitChildRun(
+				{
+					...deps,
+					execution: { ...execution, seedDigest: "c".repeat(64) },
+				},
+				input,
+			),
+		).rejects.toThrow(/intent drift/);
+	} finally {
+		w.close();
+	}
+});
+
 test("admits two children on distinct entitled routes with stable runIds", async () => {
 	const w = childWorld();
 	try {

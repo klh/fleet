@@ -138,7 +138,7 @@ function replayedReserve(
 	const prior = ChildReservationSchema.parse(
 		JSON.parse(stored.reservation_json),
 	);
-	if (JSON.stringify(prior) !== JSON.stringify(reservation))
+	if (JSON.stringify(prior.tokens) !== JSON.stringify(reservation.tokens))
 		throw new Error(
 			"runner: child reservation drift — the same (parent, child) must reserve an identical budget",
 		);

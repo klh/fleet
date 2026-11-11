@@ -148,6 +148,24 @@ test("reserve replays identically across the crash window and drift refuses", as
 	w.close();
 });
 
+test("a later retry preserves the original reservation timestamp", () => {
+	const w = childWorld();
+	try {
+		const input = {
+			parentRunId: w.parent,
+			childKey: "later",
+			tokens: { in: 100, out: 20, cached: 0 },
+			maxTokens: 1000,
+		};
+		reserveChildBudget(w.current().store, { ...input, at: 1000 });
+		const retry = reserveChildBudget(w.current().store, { ...input, at: 2000 });
+		expect(retry.replayed).toBe(true);
+		expect(readReservations(w.current().store, w.parent)[0]?.at).toBe(1000);
+	} finally {
+		w.close();
+	}
+});
+
 test("two individually affordable children whose combined reservation exceeds the allowance", async () => {
 	const w = childWorld();
 	const store = w.current().store;
