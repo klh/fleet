@@ -3,6 +3,14 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { scratchWorld, serveStub } from "@klh/test-kit";
 
+// Explicit synthetic fixture pins; never a provider or hardware capacity claim.
+export const FIXTURE_CAPABILITIES = {
+	context_length: 131072,
+	max_output_tokens: 16384,
+	reasoning: false,
+	capability_source: "operator-pinned",
+} as const;
+
 export async function fixture() {
 	const world = scratchWorld(),
 		rootKey = randomBytes(32).toString("hex"),
@@ -75,6 +83,7 @@ export async function fixture() {
 						api_key_env: "SEED_FIXTURE_UPSTREAM_KEY",
 						adapter: "openai-compat",
 						group: "seed-model",
+						capabilities: FIXTURE_CAPABILITIES,
 					},
 				],
 			},

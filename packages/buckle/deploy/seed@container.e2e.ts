@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { z } from "zod";
 import { PlatformSchema } from "./seed-contract.ts";
 import { fixture } from "./test/fixture.ts";
@@ -26,6 +26,64 @@ const platforms = z
 			? [process.env.BUCKLE_SEED_TEST_PLATFORM]
 			: ["linux/amd64", "linux/arm64"],
 	);
+for (const platform of platforms)
+	test(`packaged ${platform} omits capabilities across a mismatched fallback without guessing limits`, async () => {
+		const data = await fixture();
+		let id = "";
+		try {
+			const { ModelListResponseSchema } = await import(
+				"../src/wire-schemas.ts"
+			);
+			const upstreamPath = `${data.site}/upstreams.json`;
+			const upstreams = await Bun.file(upstreamPath).json();
+			const selected = upstreams.groups["seed-model"][0];
+			const fallbackCapabilities = {
+				...selected.capabilities,
+				max_output_tokens: 8192,
+			};
+			upstreams.groups["seed-fallback"] = [
+				{
+					...selected,
+					model: "seed-fallback",
+					group: "seed-fallback",
+					capabilities: fallbackCapabilities,
+				},
+			];
+			await Bun.write(upstreamPath, JSON.stringify(upstreams));
+			const policyPath = `${data.site}/policy.json`;
+			const policy = await Bun.file(policyPath).json();
+			policy.fallbacks = { "seed-model": ["seed-fallback"] };
+			policy.tags["seed-fallback"] = ["locality:hub-local"];
+			await Bun.write(policyPath, JSON.stringify(policy));
+			const service = await start(data, image, platform, "runtime");
+			id = service.id;
+			const response = await fetch(`${service.origin}/v1/models`, {
+				headers: { authorization: `Bearer ${data.rootKey}` },
+			});
+			expect(response.status).toBe(200);
+			const catalog = ModelListResponseSchema.parse(await response.json());
+			expect(catalog.data).toEqual([
+				{ id: "seed-model", object: "model", owned_by: "buckle" },
+				{
+					id: "seed-fallback",
+					object: "model",
+					owned_by: "buckle",
+					...fallbackCapabilities,
+				},
+			]);
+			console.log(
+				JSON.stringify({
+					image,
+					platform,
+					fallbackMismatchOmission: true,
+					catalog: catalog.data,
+				}),
+			);
+		} finally {
+			await cleanupOwnedFixture(id, data);
+		}
+	});
+
 for (const platform of platforms)
 	test(`packaged ${platform} serves only explicit routes and preserves authentication, SSE, fresh state and probe closure`, async () => {
 		const data = await fixture();

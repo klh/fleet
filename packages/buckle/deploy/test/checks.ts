@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { z } from "zod";
-import type { fixture } from "./fixture.ts";
+import { FIXTURE_CAPABILITIES, type fixture } from "./fixture.ts";
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 import { containerArgs, docker, safe, removeOwnedContainer } from "./docker.ts";
 const StateSchema = z.object({
@@ -91,9 +91,17 @@ export async function verifyApi(data: Fixture, origin: string) {
 	};
 	const discovery = await fetch(`${origin}/v1/models`, { headers });
 	expect(discovery.status).toBe(200);
-	const ids = CatalogSchema.parse(await discovery.json()).data.map(
-		(model) => model.id,
-	);
+	const { ModelListResponseSchema } = await import("../../src/wire-schemas.ts");
+	const catalog = ModelListResponseSchema.parse(await discovery.json());
+	expect(catalog.data).toEqual([
+		{
+			id: "seed-model",
+			object: "model",
+			owned_by: "buckle",
+			...FIXTURE_CAPABILITIES,
+		},
+	]);
+	const ids = catalog.data.map((model) => model.id);
 	expect(ids).toEqual(["seed-model"]);
 	const calls = () =>
 		data.stub.requests.filter((request) =>
@@ -142,6 +150,7 @@ export async function verifyApi(data: Fixture, origin: string) {
 	UsageFrameSchema.parse(JSON.parse(frames.at(-2) ?? "null"));
 	return {
 		ids,
+		catalog: catalog.data,
 		deniedStatus: denied.status,
 		deniedUpstreamCalls: 0,
 		streamReads: reads.length,
