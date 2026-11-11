@@ -8,6 +8,7 @@
 // durable job fences the executor's CURRENT lease token (execute rides
 // nothing user-shaped — root #117699).
 import { randomUUID } from "node:crypto";
+import { captureExecutionAuthority } from "./execution-authority.ts";
 import {
 	createRegistry,
 	defineExtension,
@@ -49,7 +50,9 @@ type LeafRuntime = Pick<
 	HarnessOptions,
 	"models" | "registry" | "env" | "settings" | "onReport"
 >;
-type LeafModels = LeafRuntime extends { models: infer M } ? M : never;
+type LeafModels = LeafRuntime extends { models: infer M }
+	? Exclude<M, () => unknown>
+	: never;
 
 interface HeartbeatEntry {
 	timer: ReturnType<typeof setInterval>;
@@ -125,23 +128,7 @@ const containerToolOf = (deps: {
  *  from lanes/humans never pass through here; they ride controller
  *  methods with their own scopes. */
 
-const leaseFence =
-	(
-		getController: () => RunnerController,
-		executorSid: string,
-		tokens: Map<string, LeaseToken>,
-	): AuthorizeFn =>
-	async (action, { runId }) => {
-		void action;
-		const token = tokens.get(runId);
-		if (!token) {
-			throw new Error(`runner: no captured lease token for ${runId}`);
-		}
-		await getController().fence({
-			runId,
-			actor: { sid: executorSid, scopes: [], leaseToken: token },
-		});
-	};
+type ExecutionAuthority = ReturnType<typeof captureExecutionAuthority>;
 
 export interface DesktopLeafDeps {
 	store: RunnerStore;
@@ -204,7 +191,19 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	const heartbeats = new Map<string, HeartbeatEntry>();
 	const watchdogs = new Map<string, { stop(): void }>();
 	let controller: RunnerController;
-	const authorize = leaseFence(() => controller, deps.executorSid, tokens);
+	const authorityFor = (
+		runId: string,
+		token = tokens.get(runId),
+	): ExecutionAuthority => {
+		if (!token) throw new Error(`runner: no captured lease token for ${runId}`);
+		return captureExecutionAuthority({
+			runId,
+			executorSid: deps.executorSid,
+			token,
+			credentials,
+			fence: (input) => controller.fence(input),
+		});
+	};
 
 	const stopHeartbeat = (runId: string): void => {
 		const entry = heartbeats.get(runId);
@@ -308,14 +307,15 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 
 	const adapter: DurableAdapter = {
 		async start(spec, opts) {
+			const authority = authorityFor(spec.runId);
 			await executor.start(spec, opts);
 			let job: DurableJob;
 			try {
 				job = await openDurableJob({
 					root: deps.durableRoot,
 					spec,
-					runtime: mkRuntime(spec.runId),
-					authorize,
+					runtime: mkRuntime(spec.runId, authority),
+					authorize: authority.authorize,
 				});
 			} catch (err) {
 				await executor.stop(spec.runId);
@@ -358,29 +358,14 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 	 *  completeSimple / fetchDeferred / cancelDeferred) rides transformHeaders,
 	 *  applied AFTER auth assembly, so overriding `authorization` wins. A
 	 *  missing credential throws LOUD — never a silent ambient-key fallback. */
-	const modelsFor = (runId: string): LeafModels => {
-		const base = deps.runtime.models;
-		const leafKey = (): string => {
-			const cred = credentials.resolve(runId);
-			if (!cred) {
-				throw new Error(
-					`runner: no live per-run credential for ${runId} — model transport refused (leaf-owned)`,
-				);
-			}
-			return cred.key;
-		};
-		const withLeafAuth = <O extends object>(
-			options: O | undefined,
-		): O & {
-			transformHeaders: (
-				headers: Record<string, string>,
-			) => Record<string, string>;
-		} => ({
+	const modelsFor = (authority: ExecutionAuthority): LeafModels => {
+		const supplied = deps.runtime.models;
+		// HarnessOptions accepts a Models factory; resolve once for this opened
+		// job so its prototype and captured authority stay stable across requests.
+		const base = typeof supplied === "function" ? supplied() : supplied;
+		const withLeafAuth = (options: object | undefined) => ({
 			...options,
-			transformHeaders: (headers) => ({
-				...headers,
-				authorization: `Bearer ${leafKey()}`,
-			}),
+			transformHeaders: authority.transformHeaders,
 		});
 		// Object.create PRESERVES the base Models prototype chain — pi-durable's
 		// generation task calls models.getAuth.bind(...) — a PROTOTYPE method on
@@ -398,7 +383,11 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 		return facade;
 	};
 
-	const mkRuntime = (runId: string): LeafRuntime => {
+	const mkRuntime = (
+		runId: string,
+		authority: ExecutionAuthority,
+	): LeafRuntime => {
+		const authorize = authority.authorize;
 		const registry = createRegistry();
 		// Copy the caller's installed extensions, then add the sandbox tool
 		// extension — its name differs from the guard's reserved name
@@ -412,7 +401,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 				tools: [containerToolOf({ executor, runId, authorize })],
 			}),
 		);
-		return { ...deps.runtime, registry, models: modelsFor(runId) };
+		return { ...deps.runtime, registry, models: modelsFor(authority) };
 	};
 
 	controller = openRunnerController({
@@ -466,11 +455,12 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 				// after the stale keyId's death is CONFIRMED (root #118603). A
 				// failed ensure refuses the reattach loud; a run never serves keyless.
 				await credentials.ensure(runId, leaseRow.epoch);
+				const authority = authorityFor(runId, { epoch: leaseRow.epoch });
 				const job = await openDurableJob({
 					root: deps.durableRoot,
 					spec,
-					runtime: mkRuntime(runId),
-					authorize,
+					runtime: mkRuntime(runId, authority),
+					authorize: authority.authorize,
 				});
 				jobs.set(runId, job);
 				startHeartbeat(runId, { epoch: leaseRow.epoch });

@@ -95,10 +95,12 @@ test("captured headers use the exact epoch and refuse a revoked key @unit", asyn
 			Authorization: "ambient",
 			authorization: "also-ambient",
 			custom: "retained",
+			"x-optional": null,
 		};
 		expect(authority.transformHeaders(headers)).toEqual({
 			authorization: "Bearer fixture-1",
 			custom: "retained",
+			"x-optional": null,
 		});
 		expect(headers.Authorization).toBe("ambient");
 		expect(credentials.resolve("owned")?.epoch).toBe(3);

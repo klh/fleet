@@ -51,10 +51,10 @@ const hostActor = (): RunnerActor => ({
 	scopes: [RUNNER_SCOPES.control, RUNNER_SCOPES.read],
 });
 
-// Buckle-admin stub: odd request = mint → 201, even = revoke → 200.
+// Dispatch by operation so different live epochs can coexist in tests.
 const adminStub = () =>
-	serveStub((_req, _body, n) =>
-		n % 2 === 1
+	serveStub((req, _body, n) =>
+		new URL(req.url).pathname === "/v1/admin/keys"
 			? Response.json(
 					{
 						key_id: `key-${n}`,
@@ -68,18 +68,28 @@ const adminStub = () =>
 			: Response.json({ revoked: `revoked: key-${n}` }),
 	);
 
-test("resume without a live Durable job refuses @unit", async () => {
+async function coldLeafFixture(modelsAsFactory = false) {
 	const world = scratchWorld();
 	const admin = adminStub(),
-		model = serveStub(() => Response.json({}));
+		model = serveStub((_req, _body, n) => fixtureResponse(n));
 	const store = memoryStore(),
 		seedRoot = join(world.home, "seed");
 	mkdirSync(seedRoot);
 	writeFileSync(join(seedRoot, "seed.md"), "seed\n");
+	let factoryCalls = 0;
+	const runtime = createFixtureRuntime(model.url, async () => {});
 	const leaf = createDesktopRunnerLeaf({
 		store,
 		durableRoot: world.home,
-		runtime: createFixtureRuntime(model.url, async () => {}),
+		runtime: {
+			...runtime,
+			models: modelsAsFactory
+				? () => {
+						factoryCalls++;
+						return runtime.models;
+					}
+				: runtime.models,
+		},
 		container: {
 			image: DESKTOP_RUNNER_IMAGE,
 			seedRoot,
@@ -103,28 +113,89 @@ test("resume without a live Durable job refuses @unit", async () => {
 		seedDigest: canonicalSeedDigest(await scanSeedDir(seedRoot)),
 		policyDigest: leaf.policyDigest(),
 	});
+	await leaf.admitAndStart({ spec, actor: hostActor(), seedRoot });
+	return {
+		leaf,
+		spec,
+		model,
+		factoryCalls: () => factoryCalls,
+		async close() {
+			try {
+				await leaf.stopRun(spec.runId, hostActor());
+			} finally {
+				await leaf.close();
+				model.close();
+				admin.close();
+				world.clean();
+			}
+		},
+	};
+}
+
+test("resume without a live Durable job refuses @unit", async () => {
+	const run = await coldLeafFixture();
 	try {
-		await leaf.admitAndStart({ spec, actor: hostActor(), seedRoot });
 		await expect(
-			leaf.controller.resume({ runId: spec.runId, actor: hostActor() }),
+			run.leaf.controller.resume({ runId: run.spec.runId, actor: hostActor() }),
 		).rejects.toThrow("no live durable job");
 		expect(
-			(await leaf.controller.read({ runId: spec.runId, actor: hostActor() }))
-				.job.state,
+			(
+				await run.leaf.controller.read({
+					runId: run.spec.runId,
+					actor: hostActor(),
+				})
+			).job.state,
 		).toBe("cold");
-		expect(leaf.executor.runRecord(spec.runId)).toBeNull();
-		expect(model.requests).toHaveLength(0);
+		expect(run.leaf.executor.runRecord(run.spec.runId)).toBeNull();
+		expect(run.model.requests).toHaveLength(0);
 	} finally {
-		try {
-			await leaf.stopRun(spec.runId, hostActor());
-		} finally {
-			await leaf.close();
-			model.close();
-			admin.close();
-			world.clean();
-		}
+		await run.close();
 	}
 });
+
+for (const modelsAsFactory of [false, true])
+	test(`an opened model job cannot borrow another epoch credential (${modelsAsFactory ? "factory" : "direct"}) @unit`, async () => {
+		const run = await coldLeafFixture(modelsAsFactory);
+		try {
+			expect(run.factoryCalls()).toBe(0);
+			await run.leaf.controller.submit({
+				runId: run.spec.runId,
+				actor: hostActor(),
+				text: "first turn",
+			});
+			await expect.poll(() => run.model.requests.length).toBe(2);
+			expect(run.factoryCalls()).toBe(modelsAsFactory ? 1 : 0);
+			expect(run.model.requests.map((request) => request.auth)).toEqual([
+				"Bearer bksk_stub_1",
+				"Bearer bksk_stub_1",
+			]);
+			await run.leaf.credentials.ensure(run.spec.runId, 3);
+			await run.leaf.controller.submit({
+				runId: run.spec.runId,
+				actor: hostActor(),
+				text: "next turn",
+			});
+			await expect.poll(() => run.model.requests.length).toBe(3);
+			expect(run.model.requests[2]?.auth).toBe("Bearer bksk_stub_1");
+			expect(run.factoryCalls()).toBe(modelsAsFactory ? 1 : 0);
+		} finally {
+			try {
+				if (
+					run.leaf.credentials
+						.list()
+						.some(
+							(receipt) =>
+								receipt.runId === run.spec.runId &&
+								receipt.epoch === 3 &&
+								receipt.revokedAt === null,
+						)
+				)
+					await run.leaf.credentials.revoke(run.spec.runId, 3);
+			} finally {
+				await run.close();
+			}
+		}
+	});
 
 test.describe("desktop runner leaf (W2869.3)", () => {
 	test("admit → real container → fenced effect → revoke blocks → reopen recovers", async () => {

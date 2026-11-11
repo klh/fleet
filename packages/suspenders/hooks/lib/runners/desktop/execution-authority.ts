@@ -31,7 +31,9 @@ export function captureExecutionAuthority(input: {
 			});
 		},
 		key,
-		transformHeaders(headers: Record<string, string>): Record<string, string> {
+		transformHeaders(
+			headers: Record<string, string | null>,
+		): Record<string, string | null> {
 			const kept = Object.entries(headers).filter(
 				([name]) => name.toLowerCase() !== "authorization",
 			);
