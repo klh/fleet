@@ -18,7 +18,13 @@ Build with `bun build --target bun --packages external`. Resolve
 `@earendil-works/pi-ai`, `@earendil-works/pi-durable`, and
 `@earendil-works/chord` at version 1.5.0. Run with the following arguments:
 
-    bun <compiled driver> <fresh absolute standalone clone> <brief> <pretask> <serial|parallel|smoke> [absolute patch output]
+    bun <compiled driver> <fresh absolute standalone clone> <brief> <pretask> <serial|parallel|smoke> [absolute patch output] [image@sha256:digest]
+
+The optional final image pin selects another controlled replay task. The
+default remains the original 9461 image. Floating tags are rejected before
+credentials are minted; the settings receipt records the resolved image.
+Use the matching private evaluator for that task: `grade.sh` remains pinned
+to 9461 and must not grade another task merely because the driver ran it.
 
 Use fresh detached clones at the stated base for live runs. The sandbox
 runs offline as UID 1000 with read-only Git metadata, bounded command

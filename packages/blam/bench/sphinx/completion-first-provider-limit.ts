@@ -1,4 +1,5 @@
-import { createSandbox } from "./replay-sandbox";
+import { createSandbox, ReplayImageSchema } from "./replay-sandbox";
+
 import { traceModelFetch } from "./replay-wire";
 import { createModels, createProvider } from "@earendil-works/pi-ai/models";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -27,6 +28,7 @@ import { basename, dirname, join } from "node:path";
 
 const front = "http://127.0.0.1:4101",
 	model = "zai-glm-5.3-flash";
+const replayImage = ReplayImageSchema.parse(process.argv[7]);
 const maxTokensField = "max_tokens";
 const suppliedWorkspace = process.argv[2];
 if (!suppliedWorkspace?.startsWith("/"))
@@ -67,6 +69,7 @@ const pretask = arm === "smoke" ? "" : await Bun.file(process.argv[4]).text();
 console.log(
 	JSON.stringify({
 		event: "pair-settings",
+		image: replayImage,
 		arm,
 		thinkingLevel,
 		briefSha256: Bun.CryptoHasher.hash("sha256", brief, "hex"),
@@ -126,7 +129,11 @@ globalThis.fetch = traceModelFetch(originalFetch, front, model, started);
 
 let toolCalls = 0,
 	firstSuccessfulCommandMs: number | null = null;
-const { boot, guest, remove } = createSandbox(workspace, cancellation.signal);
+const { boot, guest, remove } = createSandbox(
+	workspace,
+	cancellation.signal,
+	replayImage,
+);
 
 try {
 	const boots = await Promise.all([boot(lane, false), boot(readLane, true)]);

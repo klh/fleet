@@ -2145,3 +2145,23 @@ trial here and cannot be promoted from this result.
 Normalized snapshot: `renewed-interim-11trials.json`, SHA-256
 `06a2f55965f9a6ded1526eac4867469650c4692c8f1570ada1ffcbe4c6e4ef32`.
 The full immutable trial receipts remain in the experiment artifact store.
+
+### Second canonical task controls
+
+SWE-bench Verified `sphinx-doc__sphinx-9602` was selected from metadata
+before examining reference changes: next instance after 9461 with the
+same Sphinx version and at least the 15-minute difficulty category.
+Two independent control pairs reproduced 0/1 target checks on the base
+and 1/1 on the reference, with 45/45 regression checks in both states.
+The base is `6c38f68dae221e8cfc70c137974b8b88bd3baaab`; the evaluator is
+SWE-bench 4.1.0 and the image digest is
+`sha256:fc4a4f7057274ac47068c3996e729b3091b6a56fd7b8259076c4aafdbff176ee`.
+
+The replay driver now accepts a separately pinned task image. Its 9602
+Docker Desktop AMD64-emulation smoke verified UID 1000, read-only Git,
+output clipping, command timeout and scoped-key revocation with zero
+model requests. This is a functional smoke, not a judged agent patch or
+a performance comparison. The running 9461 trials retain sealed drivers.
+
+Second control receipt: `holdout-9602-repeat-controls.json`, SHA-256
+`73259740761e07b4dc98aabdfa3b2519f45480c219f18de2088470c5f3a82741`.

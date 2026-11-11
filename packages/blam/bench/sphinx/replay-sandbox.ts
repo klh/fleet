@@ -1,5 +1,11 @@
+import { z } from "zod";
+
 const image =
 	"swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9461@sha256:7002375c0d6c01c893097a1214c94186f573b15d71d3ead09f50e0d5002deee0";
+export const ReplayImageSchema = z
+	.string()
+	.regex(/^[a-z0-9][a-z0-9._/:-]*@sha256:[a-f0-9]{64}$/)
+	.default(image);
 async function collect(stream: ReadableStream<Uint8Array>, limit: number) {
 	const reader = stream.getReader(),
 		decoder = new TextDecoder();
@@ -38,7 +44,12 @@ async function docker(
 		timedOut: exit === 124 || exit === 137 || signal.aborted,
 	};
 }
-export function createSandbox(workspace: string, signal: AbortSignal) {
+export function createSandbox(
+	workspace: string,
+	signal: AbortSignal,
+	imageInput?: unknown,
+) {
+	const image = ReplayImageSchema.parse(imageInput);
 	function boot(name: string, readonly: boolean) {
 		return docker([
 			"run",
