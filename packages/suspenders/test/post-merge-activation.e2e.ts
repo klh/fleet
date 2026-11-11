@@ -20,7 +20,11 @@ import {
 import { decideRuntimeSync } from "../scripts/lib/runtime-sync.ts";
 import { carryGenerationPinned } from "../scripts/lib/post-merge-carry.ts";
 import { runPostMergeSync } from "../scripts/lib/post-merge-runner.ts";
-import { suspendersPrefix } from "../scripts/lib/post-merge-live.ts";
+import {
+	buildPostMergeDeps,
+	readBootstrapPrefix,
+	suspendersPrefix,
+} from "../scripts/lib/post-merge-live.ts";
 import type { PostMergeRunnerDeps } from "../scripts/lib/post-merge-labels.ts";
 import type { CarryDeps } from "../scripts/lib/post-merge-carry.ts";
 import type { ActivationReceipt } from "../scripts/lib/service-drift.ts";
@@ -927,5 +931,205 @@ test("suspendersPrefix: settings row wins, ~/ default expands, env stays overrid
 		else process.env.HOME = hadHome;
 		resetSettingsCache();
 		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// ---------- W2950: the upgrade-window bootstrap prefix read ----------
+
+// The machine settings.json may carry keys an OLDER installed generation's
+// schema does not know (live witness: generation-ea80700 rejected `runner`
+// and degraded the whole document to defaults). The bootstrap reads ONLY
+// the leaf it consumes, tolerantly: unknown keys pass, a present-but-
+// invalid prefix refuses (fail closed), absence falls to the default.
+test.describe("readBootstrapPrefix (W2950)", () => {
+	const OLD = {
+		runner: { control_url: "http://127.0.0.1:7810", state_dir: "/tmp/r" },
+		paths: { suspenders_prefix: "/opt/prefix" },
+	};
+	test("unknown settings keys pass — a newer source's keys are not invalid FOR the bootstrap", () => {
+		expect(readBootstrapPrefix(OLD, undefined)).toEqual({
+			kind: "ok",
+			prefix: "/opt/prefix",
+		});
+	});
+	test("absence falls to the schema default; env stays the override", () => {
+		expect(readBootstrapPrefix({}, undefined)).toEqual({
+			kind: "ok",
+			prefix: "~/.claude/hooks/suspenders",
+		});
+		expect(readBootstrapPrefix(OLD, "/env/prefix")).toEqual({
+			kind: "ok",
+			prefix: "/env/prefix",
+		});
+	});
+	test("present-but-invalid prefix refuses (fail closed, never a silent default)", () => {
+		const verdict = readBootstrapPrefix(
+			{ paths: { suspenders_prefix: 42 } },
+			undefined,
+		);
+		expect(verdict.kind).toBe("refuse");
+		if (verdict.kind === "refuse")
+			expect(verdict.reason).toContain("invalid paths.suspenders_prefix");
+	});
+	test("a non-object paths section refuses", () => {
+		expect(readBootstrapPrefix({ paths: "/not/a/dir" }, undefined).kind).toBe(
+			"refuse",
+		);
+	});
+});
+
+test("suspendersPrefix reads the machine file tolerantly and fails closed (W2950)", () => {
+	const world = scratchWorld({ prefix: "w2950-prefix-" });
+	worlds.push(world);
+	const file = join(world.home, "settings.json");
+	const hadSettings = process.env.KLH_SETTINGS;
+	const hadPrefix = process.env.SUSPENDERS_PREFIX;
+	process.env.KLH_SETTINGS = file;
+	delete process.env.SUSPENDERS_PREFIX;
+	try {
+		// keys an older installed generation's schema rejects still publish
+		writeFileSync(
+			file,
+			JSON.stringify({
+				runner: { control_url: "http://127.0.1:7810" },
+				paths: { suspenders_prefix: "/opt/prefix" },
+			}),
+		);
+		expect(suspendersPrefix()).toBe("/opt/prefix");
+		// a present-but-invalid prefix refuses the sync loudly
+		writeFileSync(file, JSON.stringify({ paths: { suspenders_prefix: 7 } }));
+		expect(() => suspendersPrefix()).toThrow(
+			/invalid paths\.suspenders_prefix/,
+		);
+		// malformed JSON refuses rather than publishing onto an unknown posture
+		writeFileSync(file, "{not json");
+		expect(() => suspendersPrefix()).toThrow(
+			/machine settings\.json unreadable/,
+		);
+	} finally {
+		if (hadSettings === undefined) delete process.env.KLH_SETTINGS;
+		else process.env.KLH_SETTINGS = hadSettings;
+		if (hadPrefix === undefined) delete process.env.SUSPENDERS_PREFIX;
+		else process.env.SUSPENDERS_PREFIX = hadPrefix;
+	}
+});
+
+/** B1-activation-regression-gap fixture part 1 (W2950.1): a scratch world
+ * whose machine settings.json carries a key an OLD installed generation's
+ * strict schema rejects (`runner` — the live witness shape) next to the
+ * prefix leaf. restore() un-pins the env and resets the settings cache. */
+const w2950E2eWorld = (): {
+	home: string;
+	stampPath: string;
+	restore: () => void;
+} => {
+	const world = scratchWorld({ prefix: "w2950-e2e-" });
+	worlds.push(world);
+	writeFileSync(
+		join(world.home, "settings.json"),
+		JSON.stringify({
+			runner: { control_url: "http://127.0.1:7810", state_dir: "/tmp/r" },
+			paths: { suspenders_prefix: join(world.home, "prefix") },
+		}),
+	);
+	const had = {
+		HOME: process.env.HOME,
+		KLH_SETTINGS: process.env.KLH_SETTINGS,
+		SUSPENDERS_PREFIX: process.env.SUSPENDERS_PREFIX,
+	};
+	process.env.HOME = world.home;
+	process.env.KLH_SETTINGS = join(world.home, "settings.json");
+	delete process.env.SUSPENDERS_PREFIX;
+	resetSettingsCache();
+	return {
+		home: world.home,
+		stampPath: join(world.home, "post-merge-stamp.json"),
+		restore: () => {
+			for (const [k, v] of Object.entries(had)) {
+				if (v === undefined) delete process.env[k];
+				else process.env[k] = v;
+			}
+			resetSettingsCache();
+		},
+	};
+};
+
+/** Part 2: the REAL deps builder over the pinned world, live seams
+ * hermetic. */
+const w2950E2eDeps = (
+	world: ReturnType<typeof w2950E2eWorld>,
+): { deps: PostMergeRunnerDeps; kicks: string[] } => {
+	const kicks: string[] = [];
+	const built = buildPostMergeDeps(
+		world.home,
+		world.stampPath,
+		join(world.home, "post-merge.log"),
+	);
+	const deps: PostMergeRunnerDeps = {
+		...built,
+		publish: () => ({ code: 0, out: "" }),
+		inspectLabel: (label) => ({
+			label,
+			state: "running",
+			reason: "fixture",
+			pid: 4321,
+		}),
+		kick: (label) => {
+			kicks.push(label);
+			return 0;
+		},
+		probe: () => ({ ok: true, status: 200 }),
+		loadedRevisionFor: () => REV2,
+		daemonStateFor: () => "loaded",
+		probeUrlFor: () => "http://127.0.0.1:7799/api/prompt/settings",
+	};
+	return { deps, kicks };
+};
+
+test("W2950 e2e: old-schema settings still activate through the real builder", () => {
+	const world = w2950E2eWorld();
+	const { deps, kicks } = w2950E2eDeps(world);
+	try {
+		const first = runPostMergeSync(deps, {
+			head: REV2,
+			labels: [BOARD],
+			prior: null,
+			skipKick: false,
+			readinessBudgetMs: 1_000,
+		});
+		expect(first.exit).toBe(0);
+		expect(first.activation?.verified).toEqual([BOARD]);
+		expect(kicks).toEqual([BOARD]);
+		const onDisk = readPostMergeStamp(readFileSync(world.stampPath, "utf8"));
+		expect(onDisk?.main).toBe(REV2);
+		expect(onDisk?.activation?.verified).toEqual([BOARD]);
+	} finally {
+		world.restore();
+	}
+});
+
+test("W2950 e2e: same-head re-entry retains the verified label — exactly one kick", () => {
+	const world = w2950E2eWorld();
+	const { deps, kicks } = w2950E2eDeps(world);
+	try {
+		runPostMergeSync(deps, {
+			head: REV2,
+			labels: [BOARD],
+			prior: null,
+			skipKick: false,
+			readinessBudgetMs: 1_000,
+		});
+		const stamp = readPostMergeStamp(readFileSync(world.stampPath, "utf8"));
+		const second = runPostMergeSync(deps, {
+			head: REV2,
+			labels: [BOARD],
+			prior: stamp,
+			skipKick: false,
+			readinessBudgetMs: 1_000,
+		});
+		expect(second.exit).toBe(0);
+		expect(kicks).toEqual([BOARD]);
+	} finally {
+		world.restore();
 	}
 });

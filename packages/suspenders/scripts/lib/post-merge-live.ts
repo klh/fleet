@@ -19,7 +19,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { expandHome, setting } from "@klh/settings";
+import { expandHome, readSettingsFile, settingsPath } from "@klh/settings";
 import { PROBE_TIMEOUT_MS } from "./activation-readiness.ts";
 import {
 	carryGenerationPinned,
@@ -398,12 +398,67 @@ export function gatewayReadiness(
 			};
 }
 
-/** The installed suspenders prefix — the designated-home read (W2674):
- *  paths.suspenders_prefix through @klh/settings, never a direct env read
- *  (the env-map row keeps SUSPENDERS_PREFIX as the transition override;
- *  the schema default's ~/ expands at read time). */
-export const suspendersPrefix = (): string =>
-	expandHome(setting("paths.suspenders_prefix"));
+/** The installed suspenders prefix — the designated-home read (W2674),
+ *  repaired W2950: during an upgrade window the machine settings.json may
+ *  carry keys THIS generation's schema does not know (live witness:
+ *  generation-ea80700 rejected the `runner` key and silently degraded the
+ *  whole document to defaults). The bootstrap therefore parses ONLY the
+ *  leaf it consumes with a non-strict named shape — unknown keys pass (a
+ *  newer source's keys are not invalid FOR the bootstrap), absence falls
+ *  to the schema default, and a present-but-invalid prefix refuses
+ *  (fail closed, never a silent default). SUSPENDERS_PREFIX keeps its
+ *  env-map precedence (env > file > default); ~/ expands at read time. */
+const SUSPENDERS_PREFIX_DEFAULT = "~/.claude/hooks/suspenders";
+const BootstrapPrefixSchema = z.looseObject({
+	paths: z
+		.looseObject({
+			suspenders_prefix: z.string().min(1).max(4096).optional(),
+		})
+		.optional(),
+});
+
+export type BootstrapPrefix =
+	| { kind: "ok"; prefix: string }
+	| { kind: "refuse"; reason: string };
+
+/** Pure decision core of the bootstrap prefix read (test seam). */
+export function readBootstrapPrefix(
+	doc: unknown,
+	envRaw: string | undefined,
+): BootstrapPrefix {
+	if (envRaw !== undefined && envRaw.trim() !== "")
+		return { kind: "ok", prefix: envRaw.trim() };
+	const parsed = BootstrapPrefixSchema.safeParse(doc);
+	if (!parsed.success) {
+		const detail = parsed.error.issues
+			.map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`)
+			.join("; ");
+		return {
+			kind: "refuse",
+			reason: `invalid paths.suspenders_prefix — ${detail}`,
+		};
+	}
+	return {
+		kind: "ok",
+		prefix: parsed.data.paths?.suspenders_prefix ?? SUSPENDERS_PREFIX_DEFAULT,
+	};
+}
+
+/** The live read: parse the machine file tolerantly, refuse invalid
+ *  (fail closed), expand ~/ on the resolved value. */
+export const suspendersPrefix = (): string => {
+	let doc: unknown = {};
+	try {
+		doc = readSettingsFile(settingsPath()) ?? {};
+	} catch (error) {
+		throw new Error(
+			`machine settings.json unreadable (${settingsPath()}): ${String(error)}`,
+		);
+	}
+	const verdict = readBootstrapPrefix(doc, process.env.SUSPENDERS_PREFIX);
+	if (verdict.kind === "refuse") throw new Error(verdict.reason);
+	return expandHome(verdict.prefix);
+};
 
 export function buildPostMergeDeps(
 	repo: string,

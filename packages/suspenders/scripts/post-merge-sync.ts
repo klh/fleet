@@ -157,7 +157,16 @@ const main = (): number => {
 	log(
 		`syncing main ${headSha} (labels: ${decision.labels.length > 0 ? decision.labels.join(",") : "none"})`,
 	);
-	const deps = buildPostMergeDeps(repo, statePath, logPath);
+	// W2950: a fail-closed bootstrap config read refuses the sync (exit 1,
+	// stamp untouched — the next cycle retries) instead of publishing onto
+	// an unreadable/invalid machine config posture.
+	let deps: ReturnType<typeof buildPostMergeDeps>;
+	try {
+		deps = buildPostMergeDeps(repo, statePath, logPath);
+	} catch (error) {
+		log(`refused: ${error instanceof Error ? error.message : String(error)}`);
+		return 1;
+	}
 	const result = runPostMergeSync(deps, {
 		head: headSha ?? "",
 		labels: decision.labels,
