@@ -46,3 +46,23 @@ Run `bun <prefix>/bin/runner-control.ts --check` on the desktop host before
 activation. It validates the private inputs, checks mint authority through
 Buckle identity, and inspects the pinned image in the local Docker Desktop
 cache. It uses read-only probes.
+
+## Serving capabilities
+
+The production runner discovers selected profile models through the configured
+Buckle's authenticated `/v1/models` face. The separate mint credential needs
+`buckle:admin:WRITE_` for per-run keys and `buckle:proxy:READ_` for catalog access.
+Neither the user control credential nor a guest receives that mint authority.
+
+Every selected model must advertise `context_length`, `max_output_tokens`,
+`reasoning` and `capability_source`. Missing, incomplete, duplicate or malformed
+selected rows refuse startup and preflight; unrelated catalog rows may omit
+capabilities. Values come from the serving configuration, including its fallback
+routes. The runner does not substitute guessed limits or add a total token cap.
+Preflight reports the selected metadata and its provenance. An operator pin
+does not prove a provider's maximum model context.
+
+Catalog discovery is bounded and refuses redirects. Permission errors refuse
+startup rather than retrying with another credential or exposing response bodies.
+Preflight validates discovery without submitting model work or starting a guest.
+It still does not prove a completed model/tool turn or workspace recovery.
