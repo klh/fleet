@@ -38,3 +38,23 @@ and cleanup of all owned guests on abort. Prove the sequence on the
 approved Xeon backend before promotion. W2975's offline QEMU smoke
 disk powers off after readiness and only proves payload boot. Azure
 activation still requires the separate APIM/Buckle exit check.
+
+## Local supervisor and guest witness
+
+On November 11, the production `openDurableJob` wrapper used its
+persisted JSONL journal to dispatch a tool into a QEMU TCG guest.
+Opening the supervisor started no guest. The first tool call started
+one guest, returned ripgrep output as UID 1000, and exited cleanly.
+The guest had no NIC and its root disk was read-only.
+
+Closing and reopening the job preserved its conversation and submission
+IDs. Submitting the same request ID returned the completed submission
+without another model request or guest launch. A separate Bun process
+then reopened the same journal and proved the same result with zero
+new model requests and zero tool calls.
+
+The witness used a deterministic protocol provider. Its synthetic usage
+is excluded from model benchmarks. It verifies the local supervisor,
+journal and external guest interaction. Guest-loss recovery, supervisor
+loss during an in-flight operation, real control-plane admission and
+native Xeon activation remain separate acceptance requirements.
