@@ -56,11 +56,15 @@ const normPath = (p: string): string => {
 	return segs.join("/") || "/";
 };
 // gate-path argument of a supported generated command; anything else is
-// foreign (undefined) — markers elsewhere on the line confer nothing
+// foreign (undefined) — markers elsewhere on the line confer nothing. Fix-5
+// (root #123977): token 1 must be a bun interpreter — `echo <gate-path> codex
+// pre-tool` PRINTS the path, it does not invoke Fleet; ownership by gate-path
+// alone deleted that legal foreign command.
 const gateArg = (c: string): string | undefined => {
 	const parts = c.trim().split(/\s+/);
 	const g = parts[1];
 	return parts.length >= 4 &&
+		/(^|\/)bun(\.exe)?$/.test(parts[0] ?? "") &&
 		parts[2] === "codex" &&
 		typeof g === "string" &&
 		g.endsWith("/gate.ts")

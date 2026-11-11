@@ -552,6 +552,29 @@ describe("gate-wire-codex generation stability (W2961)", () => {
 		);
 	});
 
+	test("echo of the stable gate path is a legal foreign command, preserved (W2961 fix-5)", () => {
+		// root #123977 repro: `echo <stable-gate-path> codex pre-tool` prints
+		// the path — it does not invoke Fleet. gateArg owned it by gate-path
+		// alone; ownership now also demands a bun interpreter in token 1.
+		const echo = `echo ${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: echo }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2); // foreign echo preserved + fresh stable
+		expect(pre[0].hooks[0].command).toBe(echo);
+		expect(pre[1].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		);
+	});
+
 	test("mixed entry keeps the foreign command and entry metadata, drops only the owned one", () => {
 		const stable = `${process.execPath} ${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
 		writeFileSync(
