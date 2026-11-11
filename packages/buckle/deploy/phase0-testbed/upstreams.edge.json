@@ -1,0 +1,29 @@
+{
+	"comment": [
+		"Phase 0 rehearsal EDGE rows — the edge Buckle routes test-model to the",
+		"INNER Buckle (service name gate-inner) exactly as the real chain's",
+		"edge APIM stand-in would route to the inner gate. inherit_defaults:",
+		"false is load-bearing here too: fail-closed-zero-fallback is structural",
+		"at BOTH gate hops. api_key_env INNER_BEARER carries the inner gate's",
+		"bootstrap principal — minted into the compose .env at smoke time",
+		"(0600, never committed), read at request time only.",
+		"Neutral ids only: the private rollout doc maps test-model to the pilot id."
+	],
+	"version": 1,
+	"inherit_defaults": false,
+	"groups": {
+		"test-model": [
+			{
+				"provider": "buckle-inner-testbed",
+				"url": "http://gate-inner:4101/v1",
+				"dialect": "openai",
+				"model": "test-model",
+				"api_key_env": "INNER_BEARER",
+				"adapter": "openai-compat",
+				"buckle": true,
+				"priority": 1,
+				"group": "test-model"
+			}
+		]
+	}
+}

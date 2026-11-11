@@ -1,0 +1,82 @@
+# Phase 0 rehearsal compose (C401 — this lane absorbed the fleet-flash seam).
+# Chain: host client → caddy (h3 edge, ONLY published ports) → gate-edge →
+# gate-inner → stub. Nothing else is published: the stub and /__log stay on
+# the internal bridge; the gates bind 0.0.0.0 inside it only.
+#
+# The worktree root mounts read-only at /fleet so the @klh/* workspace
+# symlinks in packages/buckle/node_modules resolve inside the mount.
+# Credentials are minted into .env at smoke time (0600, git-ignored):
+#   STUB_TOKEN / INNER_ROOT_KEY / EDGE_ROOT_KEY / INNER_BEARER (= INNER_ROOT_KEY)
+# See .env.example. Run:
+#   docker compose up -d && docker compose up --exit-code-from verify verify
+# Host-side h3 probe (in-container curl has no h3):
+#   /opt/homebrew/opt/curl/bin/curl -k --http3-only \
+#     -o /dev/null -w "proto=%{http_version}\n" https://localhost:8443/v1/models
+
+name: phase0-testbed
+
+services:
+  stub:
+    image: oven/bun:1
+    working_dir: /fleet
+    command: sh -c "cd /fleet/packages/buckle && exec bun run deploy/phase0-testbed/vllm-stub-main.ts"
+    volumes: ["../../../../:/fleet:ro"]
+    environment:
+      STUB_HOST: 0.0.0.0
+      STUB_PORT: "8191"
+      STUB_TOKEN: ${STUB_TOKEN:?mint into .env}
+      STUB_MODEL: test-model
+
+  gate-inner:
+    image: oven/bun:1
+    working_dir: /fleet
+    command: sh -c "cd /fleet/packages/buckle && exec bun run src/server.ts"
+    volumes: ["../../../../:/fleet:ro"]
+    environment:
+      BUCKLE_PORT: "4101"
+      BUCKLE_BIND: 0.0.0.0
+      BUCKLE_ROOT_KEY: ${INNER_ROOT_KEY:?mint into .env}
+      BUCKLE_UPSTREAMS: /fleet/packages/buckle/deploy/phase0-testbed/upstreams.testbed.json
+      BUCKLE_DB: /state/gate-inner.db
+      BUCKLE_HTTP_UPSTREAM_HOSTS: stub
+      BUCKLE_PREFS: /fleet/packages/buckle/deploy/phase0-testbed/prefs.testbed.json
+      BUCKLE_REPO_TIER_POLICY: /fleet/packages/buckle/deploy/phase0-testbed/account-policy.testbed.json
+      STUB_TOKEN: ${STUB_TOKEN:?mint into .env}
+    tmpfs: [/state]
+    depends_on: [stub]
+
+  gate-edge:
+    image: oven/bun:1
+    working_dir: /fleet
+    command: sh -c "cd /fleet/packages/buckle && exec bun run src/server.ts"
+    volumes: ["../../../../:/fleet:ro"]
+    environment:
+      BUCKLE_PORT: "4101"
+      BUCKLE_BIND: 0.0.0.0
+      BUCKLE_ROOT_KEY: ${EDGE_ROOT_KEY:?mint into .env}
+      BUCKLE_UPSTREAMS: /fleet/packages/buckle/deploy/phase0-testbed/upstreams.edge.json
+      BUCKLE_DB: /state/gate-edge.db
+      BUCKLE_HTTP_UPSTREAM_HOSTS: gate-inner
+      BUCKLE_PREFS: /fleet/packages/buckle/deploy/phase0-testbed/prefs.testbed.json
+      BUCKLE_REPO_TIER_POLICY: /fleet/packages/buckle/deploy/phase0-testbed/account-policy.testbed.json
+      INNER_BEARER: ${INNER_BEARER:?mint into .env}
+    tmpfs: [/state]
+    depends_on: [gate-inner]
+
+  caddy:
+    image: caddy:2
+    volumes: ["./Caddyfile.testbed:/etc/caddy/Caddyfile.testbed:ro", "./.smoke-certs:/certs:ro"]
+    command: caddy run --config /etc/caddy/Caddyfile.testbed
+    ports:
+      - "8443:8443/tcp"
+      - "8443:8443/udp" # QUIC — h3 at the edge, per the transport matrix
+    depends_on: [gate-edge]
+
+  verify:
+    image: oven/bun:1
+    working_dir: /fleet
+    command: sh -c "cd /fleet/packages/buckle && exec bun run deploy/phase0-testbed/verify.ts"
+    volumes: ["../../../../:/fleet:ro"]
+    environment:
+      EDGE_ROOT_KEY: ${EDGE_ROOT_KEY:?mint into .env}
+    depends_on: [caddy]

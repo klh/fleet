@@ -125,25 +125,75 @@ This is ALSO the production shape: real vLLM never speaks h3, so the
 on-prem leg terminates at an h3 front in front of it. True h3 between inner
 containers (per-hop Caddy sidecars) would add QUIC handshakes between
 trusted peers for zero loss-recovery benefit — rejected; the deviation
-(Bun/vLLM h3 servers absent) is recorded here rather than forced. The
-Docker Desktop compose must publish the edge port as `443/tcp` **and**
-`443/udp` for the h3 leg (Docker Desktop forwards UDP fine at rehearsal
-scale). Verified h3 probe tools on this Mac (2026-11-10): Homebrew curl
-8.23.0 (`/opt/homebrew/opt/curl/bin/curl`, ngtcp2/nghttp3) — live h3
-proven (`--http3-only`, `proto=3`); xh 0.26.3 has NO h3 (the `--http3`
-flag is rejected — fine for the h1 rehearsal legs); Apple system curl has
-no h3. So the verify script's h3 probe is brew curl, no container needed.
+(Bun/vLLM h3 servers absent) is recorded here rather than forced.
 
-## Compose wiring (edge arm — placeholder)
+h3 probe tools on this Mac (verified 2026-11-10): Homebrew curl 8.23.0
+(`/opt/homebrew/opt/curl/bin/curl`, ngtcp2/nghttp3) — live h3 proven
+against the real internet (`--http3-only`, `proto=3`); xh 0.26.3 has NO h3
+(the `--http3` flag is rejected); Apple system curl has no h3.
 
-The compose file is NOT in this directory yet; when the edge arm lands it,
-it provides: a distinct compose project name (e.g. `phase0-rehearsal`),
-one internal network with the four services (client is run ad hoc, not a
-service), ONLY the edge port published (free-picked at up-time), resource
-caps (buckle 512m / 256 pids, stub and stand-in smaller), and no
-`x-klh-hop-contract` stamping. Contract inputs it consumes from here: the
-stub service (`deploy/phase0-testbed/vllm-stub-main.ts`, env names above,
-port 8191 on the internal network) and the upstream rows file above
-mounted read-only at the inner Buckle's `BUCKLE_UPSTREAMS` path. Both
-authenticated Buckles need `BUCKLE_BIND=0.0.0.0` + a writable
-`BUCKLE_DB` path inside the container (01a186a5 #121222).
+## Compose wiring (edge arm — LANDED, smoke receipt below)
+
+`docker-compose.yml` in this directory builds the full chain on one
+internal bridge — host → caddy (`:8443/tcp+udp`, the ONLY published
+ports) → gate-edge → gate-inner → stub. Nothing else is published; the
+stub and its `/__log` are reachable only from inside the network. The
+worktree root mounts read-only at `/fleet` so the `@klh/*` workspace
+symlinks resolve inside the mount; every bun service does
+`cd /fleet/packages/buckle && exec bun run …`.
+
+Compose-specific knobs discovered by the smoke (all lawful env surfaces,
+all recorded here for the fleet-flash handoff):
+
+- `BUCKLE_HTTP_UPSTREAM_HOSTS` — the plain-http upstream guard refuses
+  compose service names (`stub`, `gate-inner`); each gate lists its own
+  neighbour there.
+- `BUCKLE_PREFS` → `prefs.testbed.json` (`allow_cloud: true`) — compose
+  names classify CLOUD (`kindOfHost` knows only loopback as local), so
+  the rehearsal bridge opts into the documented test-only posture. The
+  refusal path (`503 no_healthy_fit`, zero outbound) stays covered by the
+  residency e2e with `allow_cloud: false`.
+- `BUCKLE_REPO_TIER_POLICY` → `account-policy.testbed.json` — the account
+  boundary stays LIVE (W1265.2 never-inert): exactly the two testbed row
+  providers (`buckle-inner-testbed`, `vllm-testbed`) are entitled;
+  anything else hits the typed `tier_no_upstream` refusal — a rehearsal
+  receipt in its own right.
+- TLS at the edge: a self-signed pair minted into `.smoke-certs/`
+  (git-ignored, EC P-256, 7 days) and mounted into Caddy —
+  `tls internal` cannot issue for a bare-port site address.
+
+Run (from this directory):
+
+```sh
+docker compose up -d
+docker compose up --exit-code-from verify verify   # PHASE0_SMOKE_OK 11 checks
+/opt/homebrew/opt/curl/bin/curl -sk --http2 \
+  -o /dev/null -w 'proto=%{http_version} status=%{http_code}\n' \
+  https://localhost:8443/v1/models -H "authorization: Bearer $EDGE_ROOT_KEY"
+docker compose down -v
+```
+
+Credentials mint into `.env` (0600, git-ignored; never committed):
+`STUB_TOKEN`, `INNER_ROOT_KEY`, `EDGE_ROOT_KEY`, `INNER_BEARER`(=
+`INNER_ROOT_KEY`) — the same four-hop boundary as the credentials
+table above.
+
+### Smoke receipts (2026-11-11, Docker Desktop 29.9.2, this branch)
+
+- `PHASE0_SMOKE_OK 11 checks` — edge /health, lane-key mint via
+  `/v1/admin/keys`, JSON completion through the full chain with
+  `stub-ok` content + hop annotations, SSE + terminal usage frame, 401
+  denial on a wrong bearer, trace id propagated end-to-end to the stub
+  journal, lane `keyFp` 16-hex.
+- Publish surface: only caddy publishes (8443/tcp + 8443/udp) — gates
+  and stub publish nothing (`docker compose ps` empty publishers).
+- TLS/h2 client leg: `proto=2 status=200` through Caddy with the
+  self-signed pair.
+- **h3 from the host is a Docker Desktop limitation, not a stack one**:
+  Caddy serves `protocols [h1 h2 h3]` and binds UDP :8443 (wildcard,
+  verified in `/proc/net/udp6`), and brew curl proves h3 against the
+  real internet — but Docker Desktop's macOS UDP forwarder drops
+  datagrams entirely (plain-UDP netcat probe host→published port:
+  0/N delivered). On the Linux hubs (NAS/desktop native Docker) UDP
+  forwarding is native; the same compose line serves h3 to the client
+  leg there. TCP h2 is the verified fallback in this environment.

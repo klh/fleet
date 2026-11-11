@@ -1,0 +1,21 @@
+{
+	"comment": [
+		"Phase 0 testbed account policy — the account boundary stays LIVE in the",
+		"rehearsal (W1265.2 never-inert law): exactly the two testbed row",
+		"providers are entitled (edge rows: buckle-inner-testbed; inner rows:",
+		"vllm-testbed). Anything else routes to the typed tier_no_upstream",
+		"refusal — that refusal is itself a rehearsal receipt (denied",
+		"admission within the account boundary)."
+	],
+	"version": 1,
+	"classes": [
+		{
+			"id": "general",
+			"tier": "general",
+			"general": true,
+			"keys": ["*"],
+			"providers": ["buckle-inner-testbed", "vllm-testbed"],
+			"groups": ["test-model"]
+		}
+	]
+}

@@ -1,0 +1,12 @@
+{
+	"comment": [
+		"Phase 0 testbed prefs — the documented test-only posture (README",
+		"residency section): compose service names classify CLOUD because",
+		"kindOfHost knows only loopback as local, so the isolated rehearsal",
+		"bridge sets allow_cloud true to rehearse the chain, NEVER a production",
+		"posture. The mismatch refusal (503 no_healthy_fit, X-Klh-Attempts: 0)",
+		"remains covered by the residency e2e with allow_cloud false."
+	],
+	"cost_speed": "balanced",
+	"allow_cloud": true
+}
