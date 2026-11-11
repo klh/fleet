@@ -44,6 +44,40 @@ function canon(p: string): string {
 	}
 }
 
+// W3008: `work split --keep` transfers the parent's claim to a child minted in
+// the SAME tx that stamps the parent SHATTERED — but no child tree is minted:
+// the kept child keeps editing the parent's registered tree (branch
+// suspenders/<parent>). resolveItemWorktree(<child>) then misses (no
+// suspenders/<child> branch, no .worktrees/<child>) and the W870 deny named a
+// competing sibling's tree instead of the tree the claim rides. Fallback: on a
+// lookup miss, walk the graph parent chain (parent_id — never id-suffix
+// derivation) while ancestors stay SHATTERED (only a shattered parent's tree
+// is one its kept children legitimately ride) and bind the first ancestor
+// whose tree resolves from the registry. Registry-checked, never blind.
+const SHATTERED_CHAIN_CAP = 8; // graph is acyclic; ids are finite-depth
+function keptChildTreeOf(
+	project: string,
+	root: string,
+	db: GovernorStore,
+	parentId: string | null,
+): string | null {
+	let cur = parentId;
+	for (let depth = 0; cur && depth < SHATTERED_CHAIN_CAP; depth++) {
+		const row = db
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(project, cur) as { state: string } | null;
+		if (row?.state !== "SHATTERED") return null;
+		const w = resolveItemWorktree(root, cur);
+		if (w) return w;
+		cur = (
+			db
+				.query("SELECT parent_id FROM work_items WHERE project = ? AND id = ?")
+				.get(project, cur) as { parent_id: string | null } | null
+		)?.parent_id as string | null;
+	}
+	return null;
+}
+
 // the one deny path: the session's claimed item(s) hold registered worktree(s)
 // in the file's repo; the file sits in the main checkout, under none of them.
 export function claimLocationCheck(
@@ -57,11 +91,12 @@ export function claimLocationCheck(
 	// Outside Git there is no Work Graph project/tree to bind. In particular,
 	// a child may write a scratch file even when the registry is unavailable.
 	if (rp.commonDir === rp.cwd) return { blocked: false };
-	const rows = openDb()
+	const db = openDb();
+	const rows = db
 		.query(
-			"SELECT id FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
+			"SELECT id, parent_id FROM work_items WHERE project = ? AND owner_sid = ? AND state IN ('CLAIMED','RUNNING')",
 		)
-		.all(rp.id, lane) as { id: string }[];
+		.all(rp.id, lane) as { id: string; parent_id: string | null }[];
 	if (!rows.length) {
 		return opts.requireProvisionedClaim
 			? {
@@ -72,7 +107,9 @@ export function claimLocationCheck(
 	}
 	const trees: string[] = [];
 	for (const r of rows) {
-		const w = resolveItemWorktree(rp.root, r.id);
+		const w =
+			resolveItemWorktree(rp.root, r.id) ??
+			keptChildTreeOf(rp.id, rp.root, db, r.parent_id);
 		if (w) trees.push(w);
 	}
 	// Parent sessions keep the W870 fail-open contract for legacy treeless
