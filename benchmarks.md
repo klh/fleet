@@ -2092,3 +2092,26 @@ supervisor recovery. Record the host, hypervisor, image and policy with
 each result. The Docker Desktop seed and recovery tests above are
 container evidence. No hardware-backed microVM comparison is recorded
 here yet.
+
+## Renewed strategy exploration, November 11-12
+
+The owner extended exploration to November 12 at 08:45 CET. Retain the
+completed overnight matrix and rotate fresh trials across strategies.
+Require three consecutive accepted patches before selecting a candidate,
+then retain subsequent failures and test a separate held-out task.
+
+The first renewed structural-excerpt/low-effort trial passed 3/3 targets
+and 59/59 regressions. The durable submission took 468.576 seconds and
+47 model requests, with 31,970 fresh input, 898,496 cached input and
+14,114 output tokens. Its key was revoked and served-model audit passed.
+This is one confirmation, not evidence of general reliability.
+
+Next treatments combine the fixed verification tool with structural
+excerpts or a directed read/edit workflow. Keep the same base, public
+fixture, model, effort and private judge. Pi owns the independent W2971
+parent-first solo/fanout comparison and second held-out task.
+
+The live Buckle catalog did not advertise context or output limits.
+Keep the existing 64K-context baseline labeled explicitly; W2979 tracks
+capability publication with provenance. First successful command timing
+is distinct from the first useful source or behavioral-test result.

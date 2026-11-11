@@ -559,3 +559,14 @@ that disabling thinking improves runtime. Later repeats also rejected
 patches from several arms that had earlier passed three confirmations.
 Report the full attempt history, including failed screens and unanswered
 or timed-out trials, when comparing time per accepted patch.
+
+On November 11, the live Buckle model catalog exposed GLM-5.3 Flash
+admission capacity without context or output limits. Catalog membership
+does not verify a 1M context setting. The replay's 64K context remains
+a pinned baseline until a separately labeled capability treatment can
+use verified metadata; W2979 tracks that missing publication path.
+
+An exit-zero shell command is also insufficient evidence of the first
+useful result. Version and working-directory commands can pass before
+any task evidence, while a failing behavioral reproduction can provide
+useful diagnosis. Keep these timestamps separate in orchestration tests.
