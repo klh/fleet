@@ -191,9 +191,12 @@ export async function admitModel(io: {
 	// served-models then grade what will actually ride). Deterministic
 	// fallback keeps the static pick (default_models chain — the safety
 	// net); a down catalog/kev never blocks the launch (W1712/W576 parity).
+	// W2860: a plaid route pin skips the free kev-ask (the route IS the
+	// deliberate pick) but still rides the SAME serving-reality check —
+	// a route model the hub doesn't serve falls back to default_models.
 	let kevPick: KevModelPick | null = null;
 	const hubPick = io.hubPick ?? pick.hub ?? null;
-	if (hubPick && !pick.modelPin && posture !== "plaid" && !io.noBelt) {
+	if (hubPick && !pick.modelPin && !io.noBelt) {
 		// work-type context from the graph — kev picks PER WORK, not per lane
 		const row = store
 			.query("SELECT title, tags FROM work_items WHERE project=? AND id=?")
@@ -209,6 +212,7 @@ export async function admitModel(io: {
 				? `item ${item}: ${row.title ?? ""} [${row.tags ?? ""}]`
 				: `item ${item} (fleet lane)`,
 			env: process.env,
+			...(posture === "plaid" ? { skipDecision: true } : {}),
 			...(io.kevResolve ? { resolve: io.kevResolve } : {}),
 		});
 		if (kevPick?.model) {
