@@ -407,4 +407,55 @@ describe("W870 take provisioning", () => {
 				.out,
 		).toBe("{}");
 	});
+
+	test("exact kept binding: same-owner non-kept child never inherits the ancestor tree (W3009 round-2)", () => {
+		// root B review repro: ONE same lane takes W1, split --keep 1, release
+		// kept child, take NON-kept child, prune own tree — owner-equality on
+		// the graph row is not kept-proof; the rebound lane-context names the
+		// kept child, so the ancestor tree stays foreign to the sibling claim
+		const idR = idOf(work("add", "claim-location fixture R"));
+		expect(idR).toBeTruthy();
+		expect(
+			run("coord.ts", "bootstrap", "--as", "loc-e", "--role", "worker").code,
+		).toBe(0);
+		expect(
+			run(
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				"loc-e#s1",
+				"--role",
+				"worker",
+				"--parent",
+				"loc-e",
+			).code,
+		).toBe(0);
+		expect(work("take", idR, "--as", "loc-e#s1").code).toBe(0);
+		const sr = work(
+			"split",
+			idR,
+			"R kept child",
+			"R non-kept child",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(sr.code).toBe(0);
+		const rk = (sr.out.match(/W\d+\.\d+/g) ?? [])[0] ?? "";
+		const rn = (sr.out.match(/W\d+\.\d+/g) ?? [])[1] ?? "";
+		expect(rk && rn).toBeTruthy();
+		// release the kept child; the rebound context still names it, so the
+		// ancestor tree binds nothing for the sibling claim
+		expect(work("release", rk, "--as", "loc-e#s1").code).toBe(0);
+		expect(work("take", rn, "--as", "loc-e#s1").code).toBe(0);
+		rmSync(join(REPO, ".worktrees", rn), { recursive: true, force: true });
+		gitOK(["worktree", "prune"]);
+		const tpE = join(HOME, "p", "loc-e", "subagents", "s1.jsonl");
+		expect(
+			gate(
+				writeHook("loc-e", tpE, join(".worktrees", idR, "same-owner-edit.ts")),
+			).out,
+		).toContain("no provisioned worktree");
+	});
 });

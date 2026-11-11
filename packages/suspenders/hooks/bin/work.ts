@@ -953,6 +953,7 @@ const dispatchVerb = async (
 						id,
 						String(it.owner_sid ?? ""),
 						cid,
+						db(),
 					);
 				}
 			}

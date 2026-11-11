@@ -6,8 +6,10 @@
 // rolls the shatter back). Pre-fix splits left the context bound to the
 // SHATTERED parent and the W621.1 lane had to hand-edit its own context to
 // close.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { GovernorStore } from "../govdb/govdb.ts";
+import { projectIdentity } from "../govdb/govdb-project.ts";
 import { resolveItemWorktree } from "../work/worktree-lookup.ts";
 
 export interface LaneActivationContext {
@@ -51,17 +53,53 @@ export function rebindLaneContext(
 }
 
 /** Candidate dirs holding the keeping lane's context, most-likely first: the
- * splitter's cwd (the lane splits its own claim from its worktree), then the
- * shattered parent's worktree per git's worktree registry, else the
- * conventional .worktrees/<parent> (W211 ground truth). Deduped. */
+ * splitter's cwd (the split runs from the lane's own worktree), the splitting
+ * item's own registered tree, then SHATTERED ancestors' trees (W3009 round-2:
+ * chained splits — the splitting item itself is treeless, the carrier sits
+ * further up the chain). Deduped. `db` is the CALLER'S already-open store —
+ * opening a second one here would hit SQLITE_BUSY under split's write tx
+ * (the open ladder writes; measured 10s busy-timeout then throw). */
 export function keptLaneContextDirs(
 	cwd: string,
 	root: string,
 	parentItem: string,
+	db?: GovernorStore,
 ): string[] {
 	const out: string[] = [];
 	for (const dir of [cwd, resolveItemWorktree(root, parentItem)]) {
 		if (dir && !out.includes(dir)) out.push(dir);
+	}
+	if (out.length < 2 && db) {
+		// own tree missed — walk the SHATTERED chain for a carrier. Candidate
+		// discovery only: the gate-side SHATTERED check enforces correctness, so
+		// an unreachable graph degrades to the legacy cwd/own-tree shape.
+		try {
+			const project = projectIdentity(root);
+			let cur =
+				(
+					db
+						.query(
+							"SELECT parent_id FROM work_items WHERE project = ? AND id = ?",
+						)
+						.get(project, parentItem) as { parent_id: string | null } | null
+				)?.parent_id ?? null;
+			for (let depth = 0; cur && depth < 8; depth++) {
+				const row = db
+					.query(
+						"SELECT state, parent_id FROM work_items WHERE project = ? AND id = ?",
+					)
+					.get(project, cur) as {
+					state: string;
+					parent_id: string | null;
+				} | null;
+				if (row?.state !== "SHATTERED") break;
+				const w = resolveItemWorktree(root, cur);
+				if (w && !out.includes(w)) out.push(w);
+				cur = row.parent_id;
+			}
+		} catch {
+			// registry/graph unavailable → legacy candidates only
+		}
 	}
 	return out;
 }
@@ -69,15 +107,35 @@ export function keptLaneContextDirs(
 /** W628: rebind the keeping lane's context to the kept child, trying each
  * candidate dir. Called inside split's transaction — a thrown rewrite rolls
  * the shatter back with it. Returns toItem when some candidate's context was
- * rebound, else null (no matching context: manual splits, remote lanes). */
+ * rebound, else null.
+ *
+ * W3009 round-2 (root B review): a manual split (`work take` + `work split`
+ * by hand — take never mints a context, only dispatch does) has NO context to
+ * rebind, which left the kept binding to a graph-row owner inference the
+ * round-2 gate no longer trusts. Persist half: mint the kept binding into
+ * the ONE carrier tree (the splitting item's own registered tree, else the
+ * first SHATTERED ancestor's tree — the same candidate list the gate checks),
+ * never clobbering an existing context. A thrown mint rolls the shatter back
+ * with it. */
 export function rebindKeptLaneContext(
 	cwd: string,
 	root: string,
 	parentItem: string,
 	sid: string,
 	toItem: string,
+	db?: GovernorStore,
 ): string | null {
-	for (const dir of keptLaneContextDirs(cwd, root, parentItem))
+	const dirs = keptLaneContextDirs(cwd, root, parentItem, db);
+	for (const dir of dirs)
 		if (rebindLaneContext(dir, sid, parentItem, toItem)) return toItem;
+	const carrier = dirs.find((d) => d !== cwd);
+	if (carrier && !readLaneContextFile(carrier)) {
+		mkdirSync(join(carrier, ".fleet"), { recursive: true });
+		writeFileSync(
+			laneContextFile(carrier),
+			JSON.stringify({ sid, item: toItem }),
+		);
+		return toItem;
+	}
 	return null;
 }

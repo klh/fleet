@@ -9,6 +9,7 @@ import { basename, dirname, resolve } from "node:path";
 import { resolveProject } from "../govdb/govdb-project.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { resolveItemWorktree } from "../work/worktree-lookup.ts";
+import { readLaneContextFile } from "../lanes/lane-context.ts";
 
 export interface LocationVerdict {
 	blocked: boolean;
@@ -45,37 +46,40 @@ function canon(p: string): string {
 }
 
 // W3008/W3009: `work split --keep` transfers the parent's claim to a child
-// minted in the SAME tx that stamps the parent SHATTERED — the kept child
-// inherits owner_sid and keeps editing the parent's registered tree (branch
-// suspenders/<parent>); no child tree is minted. resolveItemWorktree(<child>)
-// then misses (no suspenders/<child> branch, no .worktrees/<child>) and the
-// W870 deny named a competing sibling's tree instead of the tree the claim
-// rides. Fallback: on a lookup miss, walk the graph parent chain (parent_id —
-// never id-suffix derivation) while ancestors stay SHATTERED **and owned by
-// the claiming lane** (the split tx's owner transfer IS the kept-child
-// binding; SHATTERED ancestry alone would let a foreign-owned treeless child
-// inherit another lane's tree) and bind the first ancestor whose tree
-// resolves from the registry. release never touches SHATTERED rows, so the
-// owner stamp is stable for the ancestor chain's life. Registry-checked,
-// never blind.
+// minted in the same tx that stamps the parent SHATTERED — the kept child
+// keeps editing the parent's registered tree (branch suspenders/<parent>); no
+// child tree is minted. resolveItemWorktree(<child>) then misses (no
+// suspenders/<child> branch, no .worktrees/<child>) and the W870 deny named a
+// competing sibling's tree instead of the tree the claim rides. Fallback: on a
+// lookup miss, walk the graph parent chain (parent_id — never id-suffix
+// derivation) while ancestors stay SHATTERED and bind the first ancestor whose
+// registered tree carries the EXACT kept binding: the split tx's rebound
+// lane-context must name THIS claim item and THIS lane. Owner-equality on the
+// graph row is NOT kept-proof (root B review round-2): a treeless NON-kept
+// child whose own tree was pruned must not inherit the ancestor tree — only
+// the valid rebound lane-context + owner is. Registry-checked, never blind.
 const SHATTERED_CHAIN_CAP = 8; // graph is acyclic; ids are finite-depth
 function keptChildTreeOf(
 	project: string,
 	root: string,
 	db: GovernorStore,
 	parentId: string | null,
-	owner: string,
+	item: string,
+	lane: string,
 ): string | null {
 	let cur = parentId;
 	for (let depth = 0; cur && depth < SHATTERED_CHAIN_CAP; depth++) {
 		const row = db
-			.query(
-				"SELECT state, owner_sid FROM work_items WHERE project = ? AND id = ?",
-			)
-			.get(project, cur) as { state: string; owner_sid: string | null } | null;
-		if (row?.state !== "SHATTERED" || row.owner_sid !== owner) return null;
+			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
+			.get(project, cur) as { state: string } | null;
+		if (row?.state !== "SHATTERED") return null;
 		const w = resolveItemWorktree(root, cur);
-		if (w) return w;
+		if (w) {
+			// the rebound lane-context IS the kept binding: it must name THIS
+			// claim item and THIS lane — never a graph-row owner inference
+			const ctx = readLaneContextFile(w);
+			return ctx?.item === item && ctx?.sid === lane ? w : null;
+		}
 		cur = (
 			db
 				.query("SELECT parent_id FROM work_items WHERE project = ? AND id = ?")
@@ -116,7 +120,7 @@ export function claimLocationCheck(
 	for (const r of rows) {
 		const w =
 			resolveItemWorktree(rp.root, r.id) ??
-			keptChildTreeOf(rp.id, rp.root, db, r.parent_id, lane);
+			keptChildTreeOf(rp.id, rp.root, db, r.parent_id, r.id, lane);
 		if (w) trees.push(w);
 	}
 	// Parent sessions keep the W870 fail-open contract for legacy treeless
