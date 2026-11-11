@@ -474,6 +474,43 @@ describe("gate-wire-codex generation stability (W2961)", () => {
 		expect(readFileSync(GFILE, "utf8")).toBe(before); // --check never writes
 	});
 
+	test("foreign path PREFIX before a stable-shaped gate is preserved, never stripped", () => {
+		const prefixed = `${process.execPath} /foreign-prefix${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: prefixed }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].hooks[0].command).toBe(prefixed); // substring ≠ ownership
+		expect(pre[1].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		);
+	});
+
+	test("generation-looking name with unrelated dir is preserved despite a marker argument", () => {
+		const decoy = `${process.execPath} ${GHOME}/.claude/hooks/suspenders.generation-private/unrelated/gate.ts codex pre-tool --note .harness/`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: decoy }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].hooks[0].command).toBe(decoy); // --note .harness/ confers nothing
+	});
+
 	test("symlink flip = the rollback surface; wiring is generation-stable", () => {
 		writeFileSync(GFILE, "{}");
 		expect(wire().out).toContain("wired 5 codex hook events");
