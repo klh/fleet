@@ -1,0 +1,33 @@
+# Linux Docker host contract. Supply private absolute paths, never a source checkout.
+services:
+  supervisor:
+    image: ${FLEET_SUPERVISOR_IMAGE:?pin the official supervisor-seed digest}
+    hostname: ${FLEET_SUPERVISOR_HOSTNAME:?stable HOST identity across container recreation}
+    network_mode: host
+    user: ${HOST_UID:?nonroot state owner}:${HOST_GID:?primary group}
+    group_add: ["${DOCKER_SOCKET_GID:?actual socket group}"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=64m"]
+    environment:
+      KLH_SETTINGS: /etc/fleet/settings.json
+    volumes:
+      - ${SETTINGS_FILE:?private settings JSON}:/etc/fleet/settings.json:ro
+      - ${PROFILES_FILE:?private profiles JSON}:${PROFILES_FILE}:ro
+      - ${CONTROL_KEY_FILE:?private control key}:${CONTROL_KEY_FILE}:ro
+      - ${MINT_KEY_FILE:?separate private mint key}:${MINT_KEY_FILE}:ro
+      - ${STATE_DIR:?private absolute HOST state}:${STATE_DIR}
+      - ${SEED_ROOT:?private absolute HOST seed root}:${SEED_ROOT}
+      - ${DOCKER_SOCKET:?actual Unix socket}:/var/run/docker.sock
+  health:
+    image: ${FLEET_SUPERVISOR_IMAGE}
+    network_mode: host
+    user: ${HOST_UID}:${HOST_GID}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [bun, /opt/fleet/health.js]
+    command: [--target, "http://127.0.0.1:${CONTROL_PORT:?runner control port}", --key-file, /run/fleet/reader.key, --listen, "${HEALTH_PORT:?private health port}"]
+    volumes:
+      - ${READER_KEY_FILE:?separate private READ key}:/run/fleet/reader.key:ro

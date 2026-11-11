@@ -1,0 +1,14 @@
+{
+	"runner": {
+		"control_url": "http://127.0.0.1:7810",
+		"identity_url": "http://127.0.0.1:4111",
+		"credential_file": "/srv/fleet/keys/control.key",
+		"profiles_file": "/srv/fleet/private/profiles.json",
+		"state_dir": "/srv/fleet/state",
+		"desktop": {
+			"image": "REPLACE_WITH_VERIFIED_GUEST_IMAGE_AT_SHA256",
+			"seed_root": "/srv/fleet/seeds",
+			"mint_credential_file": "/srv/fleet/keys/mint.key"
+		}
+	}
+}

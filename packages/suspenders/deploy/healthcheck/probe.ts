@@ -334,14 +334,14 @@ export async function probeOnce(
 
 /** The monitor: bounded result ring + the gated verdict. One probe on the
  *  wire at a time; the down flip requires an active confirming re-probe. */
-export function createMonitor(args: ProbeArgs) {
+export function createMonitor(args: ProbeArgs, request?: ProbeRequest) {
 	const url = targetUrl(args);
 	// resolved once: a synthetic probe's credential is startup config, and
 	// an unset AUTH_ENV fails every poll closed instead of probing bare
 	let wire: ProbeRequest | undefined;
 	let wireError: string | null = null;
 	try {
-		wire = probeRequest(args);
+		wire = request ?? probeRequest(args);
 	} catch (e) {
 		wireError = e instanceof Error ? e.message : String(e);
 	}
