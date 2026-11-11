@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const ToolManifestSchema = z.strictObject({
+ schemaVersion: z.literal(1), family: z.literal("tool"), architecture: z.literal("amd64"),
+ base: z.string().regex(/^oven\/bun:1@sha256:[a-f0-9]{64}$/),
+ tools: z.array(z.string().regex(/^[a-z]+$/)).min(1),
+ languageToolchains: z.array(z.literal("bun")),
+ apt: z.record(z.string(), z.string().min(1)),
+ amber: z.strictObject({ version: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }),
+});
+
 export const ToolDescriptorSchema = z.strictObject({
  schemaVersion: z.literal(1), family: z.literal("tool"),
  version: z.string().regex(/^\d+\.\d+\.\d+-experimental[.\w-]*$/),
@@ -16,8 +25,8 @@ export const isolation = ["--platform", "linux/amd64", "--rm", "--read-only",
  "--user", "1000:1000", "--network", "none", "--cap-drop", "ALL",
  "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m"];
 export async function probe(image: string) {
- const manifest = await Bun.file(new URL("tools.json", import.meta.url)).json();
- for (const tool of z.array(z.string().regex(/^[a-z]+$/)).parse(manifest.tools)) {
+ const manifest = ToolManifestSchema.parse(await Bun.file(new URL("tools.json", import.meta.url)).json());
+ for (const tool of manifest.tools) {
   await command(["docker", "run", ...isolation, image, tool, tool === "unzip" ? "-v" : "--version"]);
  }
  return command(["docker", "run", ...isolation, image, "bun", "-e", `

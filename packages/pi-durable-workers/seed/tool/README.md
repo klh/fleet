@@ -22,6 +22,19 @@ private visibility from authentication alone. ToolDescriptorSchema defines the
 Flock handoff. Artifact versions are independent of Fleet's package version.
 Experimental publication does not imply source integration or a stable release.
 
+Published version: `0.1.0-experimental.w2988`. Use the immutable image in
+`descriptor.json`; its source is commit `17585b556a07befb8b1114d05d78a2c09db92029`.
+`publication.json` records the digest-pinned pull, isolated tool/identity probes,
+and filename audit of all eleven saved OCI image layers. `packages.tsv` records
+the actual Debian inventory. The layer audit checks names, not arbitrary binary
+content. The allowlisted build context and pinned clean parent supply the
+dependency boundary; no Pi dependency installation runs in any layer.
+
+`registry.json` preserves the initial private package snapshot before linkage.
+`registry-linked.json` verifies the package remains private and now links to
+`klh/fleet`. Publication and these receipts are experimental; source review
+and integration are separate steps. Keep the published version tag unchanged.
+
 The base and direct utilities are pinned; transitive Debian packages resolve
 from live repositories. Record dpkg inventory and layer evidence for the actual
 published digest; this recipe alone does not establish byte-for-byte rebuilds.
