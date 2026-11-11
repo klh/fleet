@@ -2184,3 +2184,30 @@ Model drivers, prompts, effort, resource limits and private judge remain
 unchanged; controller versions and their observed overhead stay recorded.
 Version 3 controller SHA-256:
 `b6ebe05596cafa4068c24bc2919268c1e9285a0245a81c817fed47efff33729d`.
+
+### Twenty-trial snapshot and held-out transfer
+
+The renewed matrix now contains 20 completed trials: 12 accepted patches
+and eight target-check failures. All retain the full history; one failed
+patch also has an original route-audit gap, reconciled separately above.
+Structural excerpts with low effort passed three consecutive fresh trials:
+468.576, 313.827 and 376.437 model-run seconds, each 3/3 targets and 59/59
+regressions. Median model-run time is 376.437 seconds. This is a candidate
+recipe, not a cross-task recommendation or a production activation.
+
+Adding verification to structural excerpts passed its first two fresh
+trials in 277.258 and 190.198 seconds, then failed the third (2/3 targets)
+after 614.076 seconds. Serial inspection has one accepted patch in three
+trials. Plain scoped context at low effort has two accepted trials and
+still needs a third. The matrix is exploratory, with adaptive trial order;
+these counts do not establish a statistically controlled speed advantage.
+
+Snapshot `renewed-interim-20trials.json`, SHA-256
+`bf33f7dc8b45d0f6f1dcb6d8e5f25e57bd2028395dbfb0295506e4648e27f4b1`.
+Controller 21019 drained gracefully with exit zero after its active trial.
+The next finite block compares common public-issue context against that
+same context plus four quoted source regions on held-out instance 9602.
+Both arms use the same pinned driver/image, low effort, parallel read tool,
+public reproduction and private judge; no turn or wire output-token ceiling.
+The public reproduction fails on the base and passes on the reference.
+The reference patch and judge are never mounted in the candidate sandbox.

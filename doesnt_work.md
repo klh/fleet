@@ -578,3 +578,11 @@ seconds and 77 requests across both stages, with 59/59 regressions intact.
 Contract context at low effort failed 0/3 in 269.4 seconds. Preserve these
 as quality failures, not missing-usage or transport exclusions. See the
 renewed results in `benchmarks.md` for all eleven trials and receipt hash.
+
+The combined verification-and-structural-excerpt treatment failed its third
+fresh trial after two passes: 2/3 targets, 59/59 regressions, 614.076 seconds
+of model-run time. It therefore did not reproduce a three-pass streak.
+Serial inspection also failed two of three renewed trials. A fast early
+pass is not enough to recommend a recipe; retain these later failures
+alongside the structural-only treatment's three confirmations and test
+transfer on a distinct issue before making a general recommendation.
