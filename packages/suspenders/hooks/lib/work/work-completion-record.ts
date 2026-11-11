@@ -344,6 +344,40 @@ const laneBranchDiffBase = (
 	return base === sha ? null : base;
 };
 
+/** W2974: manual-claim merge evidence. diff-tree emits no paths for a merge
+ * commit, so a manually claimed lane closing at a merge reads the target-side
+ * window (parent-1..sha) — trusted only when the exact lane branch
+ * `suspenders/<item>` carries the closing sha (off-lane merges refuse); the
+ * parent-1 base is exact ancestry, never stale or ambiguous. Non-merge shas
+ * return null — the plain diff-tree evidence stands; a no-op /
+ * already-covered merge returns an empty window so the generic refusal fires.
+ */
+const mergeLaneEvidence = (
+	top: string,
+	item: string,
+	sha: string,
+): { paths: string[]; diffText: string } | null => {
+	const parents = git(top, "rev-list", "--parents", "-n1", sha)
+		.trim()
+		.split(/\s+/)
+		.slice(1);
+	if (parents.length < 2) return null;
+	const branch = `suspenders/${item}`;
+	if (
+		!hasCommit(top, `refs/heads/${branch}`) ||
+		!tryGit(top, "merge-base", "--is-ancestor", sha, branch)
+	)
+		throw new Error(
+			"Merge completion evidence requires the closing sha on the item's lane branch (suspenders/<item>)",
+		);
+	return {
+		paths: git(top, "diff", "--name-only", `${sha}^1`, sha)
+			.split("\n")
+			.filter(Boolean),
+		diffText: git(top, "diff", "-U0", `${sha}^1`, sha),
+	};
+};
+
 /** W601: cross-repo closure evidence — the scope repo's own lane-branch diff
  * (suspenders/<item> vs merge-base with the default head), degrading to the
  * single closure commit when no branch resolves. */
@@ -572,27 +606,36 @@ export function prepareCompletion(
 			.filter(Boolean);
 		diffText = git(top, "diff", "-U0", baseline, sha);
 	} else {
-		paths = git(
-			top,
-			"diff-tree",
-			"--root",
-			"--no-commit-id",
-			"--name-only",
-			"-r",
-			sha,
-		)
-			.split("\n")
-			.filter(Boolean);
-		diffText = git(
-			top,
-			"diff-tree",
-			"--root",
-			"--no-commit-id",
-			"-p",
-			"-r",
-			"-U0",
-			sha,
-		);
+		// W2974: a context-less (manually claimed) same-repo closure at a merge
+		// commit reads the trusted target-side window; other shapes keep the
+		// plain diff-tree evidence. All downstream gates ride the result.
+		const mergeEvidence = mergeLaneEvidence(top, o.item, sha);
+		if (mergeEvidence) {
+			paths = mergeEvidence.paths;
+			diffText = mergeEvidence.diffText;
+		} else {
+			paths = git(
+				top,
+				"diff-tree",
+				"--root",
+				"--no-commit-id",
+				"--name-only",
+				"-r",
+				sha,
+			)
+				.split("\n")
+				.filter(Boolean);
+			diffText = git(
+				top,
+				"diff-tree",
+				"--root",
+				"--no-commit-id",
+				"-p",
+				"-r",
+				"-U0",
+				sha,
+			);
+		}
 	}
 	if (!paths.some(productPath))
 		throw new Error(
