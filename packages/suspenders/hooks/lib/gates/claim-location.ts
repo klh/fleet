@@ -44,29 +44,36 @@ function canon(p: string): string {
 	}
 }
 
-// W3008: `work split --keep` transfers the parent's claim to a child minted in
-// the SAME tx that stamps the parent SHATTERED — but no child tree is minted:
-// the kept child keeps editing the parent's registered tree (branch
-// suspenders/<parent>). resolveItemWorktree(<child>) then misses (no
-// suspenders/<child> branch, no .worktrees/<child>) and the W870 deny named a
-// competing sibling's tree instead of the tree the claim rides. Fallback: on a
-// lookup miss, walk the graph parent chain (parent_id — never id-suffix
-// derivation) while ancestors stay SHATTERED (only a shattered parent's tree
-// is one its kept children legitimately ride) and bind the first ancestor
-// whose tree resolves from the registry. Registry-checked, never blind.
+// W3008/W3009: `work split --keep` transfers the parent's claim to a child
+// minted in the SAME tx that stamps the parent SHATTERED — the kept child
+// inherits owner_sid and keeps editing the parent's registered tree (branch
+// suspenders/<parent>); no child tree is minted. resolveItemWorktree(<child>)
+// then misses (no suspenders/<child> branch, no .worktrees/<child>) and the
+// W870 deny named a competing sibling's tree instead of the tree the claim
+// rides. Fallback: on a lookup miss, walk the graph parent chain (parent_id —
+// never id-suffix derivation) while ancestors stay SHATTERED **and owned by
+// the claiming lane** (the split tx's owner transfer IS the kept-child
+// binding; SHATTERED ancestry alone would let a foreign-owned treeless child
+// inherit another lane's tree) and bind the first ancestor whose tree
+// resolves from the registry. release never touches SHATTERED rows, so the
+// owner stamp is stable for the ancestor chain's life. Registry-checked,
+// never blind.
 const SHATTERED_CHAIN_CAP = 8; // graph is acyclic; ids are finite-depth
 function keptChildTreeOf(
 	project: string,
 	root: string,
 	db: GovernorStore,
 	parentId: string | null,
+	owner: string,
 ): string | null {
 	let cur = parentId;
 	for (let depth = 0; cur && depth < SHATTERED_CHAIN_CAP; depth++) {
 		const row = db
-			.query("SELECT state FROM work_items WHERE project = ? AND id = ?")
-			.get(project, cur) as { state: string } | null;
-		if (row?.state !== "SHATTERED") return null;
+			.query(
+				"SELECT state, owner_sid FROM work_items WHERE project = ? AND id = ?",
+			)
+			.get(project, cur) as { state: string; owner_sid: string | null } | null;
+		if (row?.state !== "SHATTERED" || row.owner_sid !== owner) return null;
 		const w = resolveItemWorktree(root, cur);
 		if (w) return w;
 		cur = (
@@ -109,7 +116,7 @@ export function claimLocationCheck(
 	for (const r of rows) {
 		const w =
 			resolveItemWorktree(rp.root, r.id) ??
-			keptChildTreeOf(rp.id, rp.root, db, r.parent_id);
+			keptChildTreeOf(rp.id, rp.root, db, r.parent_id, lane);
 		if (w) trees.push(w);
 	}
 	// Parent sessions keep the W870 fail-open contract for legacy treeless

@@ -338,4 +338,73 @@ describe("W870 take provisioning", () => {
 		expect(denied.out).toContain("CLAIM-LOCATION");
 		expect(denied.out).toContain(join(".worktrees", idQ));
 	});
+
+	test("fallback needs the kept-child owner binding: foreign SHATTERED ancestor binds nothing (W3009)", () => {
+		// reviewer repro: a child claimed by a DIFFERENT lane under a SHATTERED
+		// foreign-owned parent must not inherit that lane's tree
+		expect(
+			run("coord.ts", "bootstrap", "--as", "loc-c", "--role", "worker").code,
+		).toBe(0);
+		const idF = idOf(work("add", "claim-location fixture F"));
+		expect(idF).toBeTruthy();
+		expect(work("take", idF, "--as", "loc-a").code).toBe(0);
+		const sf = work(
+			"split",
+			idF,
+			"F kept child",
+			"F loose child",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(sf.code).toBe(0);
+		const idLoose = (sf.out.match(/W\d+\.\d+/g) ?? [])[1] ?? "";
+		expect(idLoose).toBeTruthy();
+		// the claim belongs to the CHILD session — the reviewer repro shape
+		expect(
+			run(
+				"coord.ts",
+				"bootstrap",
+				"--as",
+				"loc-c#s1",
+				"--role",
+				"worker",
+				"--parent",
+				"loc-c",
+			).code,
+		).toBe(0);
+		expect(work("take", idLoose, "--as", "loc-c#s1").code).toBe(0);
+		rmSync(join(REPO, ".worktrees", idLoose), { recursive: true, force: true });
+		gitOK(["worktree", "prune"]);
+		// native child: foreign SHATTERED ancestor + no own tree → the
+		// no-provisioned-worktree BLOCK survives even inside the parent's tree
+		const childTp = join(HOME, "p", "loc-c", "subagents", "s1.jsonl");
+		expect(
+			gate(
+				writeHook(
+					"loc-c",
+					childTp,
+					join(".worktrees", idF, "foreign-tree-edit.ts"),
+				),
+			).out,
+		).toContain("no provisioned worktree");
+		// parent-session contract unchanged: a non-kept child that lost its own
+		// tree under the same foreign SHATTERED parent binds nothing → the
+		// legacy treeless fail-open holds, no foreign-tree binding
+		expect(
+			run("coord.ts", "bootstrap", "--as", "loc-d", "--role", "worker").code,
+		).toBe(0);
+		const c2 = work("add", "loose grandchild", "--parent", idF);
+		expect(c2.code).toBe(0);
+		const idL2 = (c2.out.match(/W\d+\.\d+/g) ?? [])[0] ?? "";
+		expect(idL2).toBeTruthy();
+		expect(work("take", idL2, "--as", "loc-d").code).toBe(0);
+		rmSync(join(REPO, ".worktrees", idL2), { recursive: true, force: true });
+		gitOK(["worktree", "prune"]);
+		expect(
+			gate(writeHook("loc-d", TP, join(".worktrees", idF, "foreign-parent.ts")))
+				.out,
+		).toBe("{}");
+	});
 });
