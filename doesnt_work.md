@@ -570,3 +570,11 @@ An exit-zero shell command is also insufficient evidence of the first
 useful result. Version and working-directory commands can pass before
 any task evidence, while a failing behavioral reproduction can provide
 useful diagnosis. Keep these timestamps separate in orchestration tests.
+
+The renewed eleven-trial snapshot again rejected a verification-tool
+patch (2/3 targets) after that treatment's earlier successful streak.
+Adding a second model review stage also failed: 0/3 targets in 902.6
+seconds and 77 requests across both stages, with 59/59 regressions intact.
+Contract context at low effort failed 0/3 in 269.4 seconds. Preserve these
+as quality failures, not missing-usage or transport exclusions. See the
+renewed results in `benchmarks.md` for all eleven trials and receipt hash.
