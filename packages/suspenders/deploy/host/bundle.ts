@@ -1,22 +1,23 @@
 import {
 	copyFileSync,
-	existsSync,
 	mkdirSync,
 	readFileSync,
 	readdirSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
-import { HOST_BUILD_PINS, runtimeInputKind } from "./contract.ts";
+import {
+	HOST_BUILD_PINS,
+	PackageNoticeSchema,
+	packageRoot,
+	runtimeInputKind,
+	sourceNotice,
+	verifyPiLicense,
+} from "./contract.ts";
 
 const MetafileSchema = z.object({ inputs: z.record(z.string(), z.unknown()) });
-const PackageNoticeSchema = z.object({
-	name: z.string(),
-	version: z.string(),
-	license: z.string().optional(),
-});
 const entries = {
 	"runner-control": "packages/suspenders/hooks/bin/runner-control.ts",
 	health: "packages/suspenders/deploy/host/health.ts",
@@ -47,16 +48,9 @@ for (const [name, entry] of Object.entries(entries)) {
 	}
 }
 const roots = new Set<string>();
-for (const input of inputs) {
-	let folder = dirname(resolve(input));
-	while (!existsSync(join(folder, "package.json"))) {
-		const parent = dirname(folder);
-		if (parent === folder) throw new Error(`No package for input: ${input}`);
-		folder = parent;
-	}
-	roots.add(folder);
-}
+for (const input of inputs) roots.add(packageRoot(input));
 const packages = [];
+const sourceNotices: Array<NonNullable<ReturnType<typeof sourceNotice>>> = [];
 for (const root of roots) {
 	const pkg = PackageNoticeSchema.parse(
 		JSON.parse(readFileSync(join(root, "package.json"), "utf8")),
@@ -69,8 +63,19 @@ for (const root of roots) {
 	const names = readdirSync(root).filter((name) =>
 		/^(licen[cs]e|notice)(\.|$)/i.test(name),
 	);
-	if (!names.length && !root.startsWith("/fleet/packages/"))
-		throw new Error(`Missing license: ${pkg.name}`);
+	if (!names.length && !root.startsWith("/fleet/packages/")) {
+		const notice = sourceNotice(pkg);
+		if (!notice) throw new Error(`Missing license: ${pkg.name}`);
+		const bytes = verifyPiLicense(
+			readFileSync("/upstream-notices/pi-MIT-LICENSE"),
+		);
+		writeFileSync(join(destination, "LICENSE"), bytes);
+		writeFileSync(
+			join(destination, "source-notice.json"),
+			`${JSON.stringify(notice, null, 2)}\n`,
+		);
+		sourceNotices.push(notice);
+	}
 	for (const name of names)
 		copyFileSync(join(root, name), join(destination, name));
 	writeFileSync(
@@ -133,6 +138,7 @@ writeFileSync(
 			entries,
 			inputs: [...inputs].sort(),
 			packages,
+			sourceNotices,
 			sdkEvaluationClientInputs,
 			dockerCli: {
 				image: HOST_BUILD_PINS.docker,

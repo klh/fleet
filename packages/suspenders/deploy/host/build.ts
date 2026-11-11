@@ -18,7 +18,7 @@ export function buildPlan(raw: unknown) {
 	return {
 		...options,
 		localOnly: true,
-		continuity: "unwired",
+		continuity: "unverified",
 		image: `fleet-supervisor-seed:${options.version}-${options.platform.split("/")[1]}`,
 	};
 }

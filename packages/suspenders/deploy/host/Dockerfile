@@ -9,6 +9,7 @@ COPY recipe/probe.ts packages/suspenders/deploy/healthcheck/probe.ts
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 ADD --checksum=sha256:948a5572ecda216e97995657888ba3431a7068c8e1d27a7e7f70683d5b382c33 https://api.github.com/repos/docker/cli/tarball/v29.9.3 /tmp/docker-cli-source.tar.gz
 RUN mkdir /docker-cli-source && tar -xzf /tmp/docker-cli-source.tar.gz -C /docker-cli-source --strip-components=1
+ADD --checksum=sha256:0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48 https://raw.githubusercontent.com/earendil-works/pi/f9a26365568127461c47a07a37dcb42c140a3ac5/LICENSE /upstream-notices/pi-MIT-LICENSE
 RUN bun packages/suspenders/deploy/host/bundle.ts
 
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
@@ -22,7 +23,7 @@ LABEL org.opencontainers.image.source="https://github.com/klh/fleet" \
       io.klh.fleet.supervisor.role="host" \
       io.klh.fleet.supervisor.service="runner-control" \
       io.klh.fleet.recipe.commit="$RECIPE_COMMIT" \
-      io.klh.fleet.checkpoint.continuity="unwired"
+      io.klh.fleet.checkpoint.continuity="unverified"
 COPY --from=build /runtime/ /opt/fleet/
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 USER 1000:1000

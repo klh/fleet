@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 export const HOST_BUILD_PINS = {
@@ -11,6 +13,79 @@ export const HOST_BUILD_PINS = {
 		"948a5572ecda216e97995657888ba3431a7068c8e1d27a7e7f70683d5b382c33",
 } as const;
 export const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);
+export const PackageNoticeSchema = z.object({
+	name: z.string().min(1),
+	version: z.string().min(1),
+	license: z.string().optional(),
+	repository: z.unknown().optional(),
+});
+
+export function packageRoot(input: string): string {
+	const PackageMetadataSchema = z.record(z.string(), z.unknown());
+	let folder = dirname(resolve(input));
+	for (;;) {
+		const file = join(folder, "package.json");
+		if (existsSync(file)) {
+			const metadata = PackageMetadataSchema.parse(
+				JSON.parse(readFileSync(file, "utf8")),
+			);
+			if (
+				Object.hasOwn(metadata, "name") ||
+				Object.hasOwn(metadata, "version")
+			) {
+				PackageNoticeSchema.parse(metadata);
+				return folder;
+			}
+		}
+		const parent = dirname(folder);
+		if (parent === folder) throw new Error("Package identity missing");
+		folder = parent;
+	}
+}
+export const PI_NOTICE = {
+	sourceCommit: "f9a26365568127461c47a07a37dcb42c140a3ac5",
+	url: "https://raw.githubusercontent.com/earendil-works/pi/f9a26365568127461c47a07a37dcb42c140a3ac5/LICENSE",
+	sha256: "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
+} as const;
+export function verifyPiLicense(bytes: Uint8Array): Uint8Array {
+	if (
+		new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !==
+		PI_NOTICE.sha256
+	)
+		throw new Error("Upstream notice checksum mismatch");
+	return bytes;
+}
+export function sourceNotice(raw: unknown):
+	| (typeof PI_NOTICE & {
+			packageName: string;
+			packageVersion: string;
+			repositoryDirectory: string;
+	  })
+	| undefined {
+	const pkg = PackageNoticeSchema.parse(raw);
+	const directories = new Map([
+		["@earendil-works/chord", "packages/chord"],
+		["@earendil-works/pi-ai", "packages/ai"],
+		["@earendil-works/pi-durable", "packages/durable"],
+		["@earendil-works/pi-schema", "packages/schema"],
+		["@earendil-works/pi-telemetry", "packages/telemetry"],
+	]);
+	const directory = directories.get(pkg.name);
+	if (!directory || pkg.version !== "1.5.0" || pkg.license !== "MIT")
+		return undefined;
+	const RepositorySchema = z.object({
+		type: z.literal("git"),
+		url: z.literal("git+https://github.com/earendil-works/pi.git"),
+		directory: z.literal(directory),
+	});
+	if (!RepositorySchema.safeParse(pkg.repository).success) return undefined;
+	return {
+		...PI_NOTICE,
+		packageName: pkg.name,
+		packageVersion: pkg.version,
+		repositoryDirectory: directory,
+	};
+}
 /** Compiler input audit; public SDK API code is distinct from private assets. */
 export function runtimeInputKind(
 	path: string,

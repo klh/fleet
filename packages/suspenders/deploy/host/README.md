@@ -5,12 +5,14 @@ dependencies, Bun, and the static Docker CLI. The reserved image identity is
 `ghcr.io/klh/fleet/supervisor-seed` (family `supervisor`, role `host`, service
 `runner-control`). There is no published HOST descriptor yet.
 
-The initial source under test is `bbe638a4aa2f6c864bf98f3cc4f496da11cb52f9`.
-Checkpoint continuity is **unwired** at that source. Packaging and local checks
-do not establish restart-safe deployment readiness. Publication remains blocked
-until the complete continuity implementation and negative controls pass against
-an exact committed source. No model weights, Pi CLI, BLAM, judges, checkout,
-keys, profiles, or journals belong in the final image.
+The initial source `bbe638a4aa2f6c864bf98f3cc4f496da11cb52f9` has continuity
+unwired. Its first two diagnostic builds stopped before creating an image:
+the input audit refused public SDK evaluation clients, then the notice audit
+refused missing upstream license files. Both checks were retained and corrected.
+The next candidate source is `6bf6ca17b25c3bcb9e1608cdff29cd21993852e3`.
+Packaged continuity is **unverified** until its full positive and negative
+controls pass. Publication remains blocked. No model weights, Pi CLI, BLAM,
+judges, checkout, keys, profiles, or journals belong in the final image.
 
 Build from separate immutable source and recipe commits, using the committed
 helper. Substitute the reviewed recipe commit; no runtime package installation
@@ -18,7 +20,7 @@ is performed. `--plan` emits a local-only plan; removing it builds and loads one
 architecture. The helper has no publication mode.
 
 ```sh
-bun packages/suspenders/deploy/host/build.ts --source bbe638a4aa2f6c864bf98f3cc4f496da11cb52f9 --recipe RECIPE_COMMIT --version 0.1.0-experimental.w2990.3 --platform linux/arm64 --plan
+bun packages/suspenders/deploy/host/build.ts --source 6bf6ca17b25c3bcb9e1608cdff29cd21993852e3 --recipe RECIPE_COMMIT --version 0.1.0-experimental.w2990.3 --platform linux/arm64 --plan
 ```
 
 The helper archives committed source, stages regular recipe blobs independently,
