@@ -90,3 +90,9 @@ canary previously logged the refusal).
   group has no local rung, and `x-belt-hint` is ingress-only so a Mac relay
   cannot express `must` to the hub. Until ruled, hub-relayed Copilot pins
   surface 502 `no_route`; `must cloud` direct to the hub is the working path.
+  **UPDATE 2026-11-09 (W2868): STALE.** The post-canary pin law (W690/W709,
+  `decide.ts`) scopes pins to their own group's viable rows and heads them
+  directly with the owner cloud gate open — fresh live proof: both legs PASS
+  (`copilot-seat-proof.ts --pinned`; hintless pin = 200 tool_use). See
+  `docs/design/buckle/ruling-48672-pinned-relay.md` (draft recommends closing
+  #48672 as fixed-by-design).
