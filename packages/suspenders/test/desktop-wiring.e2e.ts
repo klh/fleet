@@ -1,10 +1,22 @@
+import { openDurableJob } from "../hooks/lib/runners/durable/job.ts";
+import { openHandoffState } from "../hooks/lib/runners/control/handoff-state.ts";
+import { runArgv, type RunArgv } from "../hooks/lib/runners/desktop/spawn.ts";
+import { createRemoteProcessTransport } from "../hooks/lib/runners/desktop/remote-process.ts";
 // desktop-wiring.e2e.ts — W2869.3 leaf witness: real Docker Desktop
 // container + real lease store + real credential journal; the buckle
 // admin leg rides a loopback stub (the admin API shape is out of scope
 // here — the live :4111 mint is the acceptance smoke).
 
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+	readdirSync,
+	rmSync,
+	renameSync,
+} from "node:fs";
 import { join } from "node:path";
 import { createRegistry } from "@earendil-works/pi-durable";
 import { scratchWorld, serveStub } from "@klh/test-kit";
@@ -19,6 +31,7 @@ import {
 import {
 	RUNNER_SCOPES,
 	type RunnerActor,
+	makeRunnerAuthorizer,
 } from "../hooks/lib/runners/control/rights.ts";
 import { sqliteStore } from "../hooks/lib/runners/control/store.ts";
 import { containerNameOf } from "../hooks/lib/runners/desktop/docker-executor.ts";
@@ -68,7 +81,11 @@ const adminStub = () =>
 			: Response.json({ revoked: `revoked: key-${n}` }),
 	);
 
-async function coldLeafFixture(modelsAsFactory = false) {
+async function coldLeafFixture(
+	modelsAsFactory = false,
+	runDocker?: RunArgv,
+	failFirstSubmit = false,
+) {
 	const world = scratchWorld();
 	const admin = adminStub(),
 		model = serveStub((_req, _body, n) => fixtureResponse(n));
@@ -78,8 +95,23 @@ async function coldLeafFixture(modelsAsFactory = false) {
 	writeFileSync(join(seedRoot, "seed.md"), "seed\n");
 	let factoryCalls = 0;
 	const runtime = createFixtureRuntime(model.url, async () => {});
+	const baseAuthorizer = makeRunnerAuthorizer({ store });
 	const leaf = createDesktopRunnerLeaf({
 		store,
+		authorizer: {
+			authorize: async (action, input) => {
+				await baseAuthorizer.authorize(action, input);
+				if (
+					failFirstSubmit &&
+					action === "execute" &&
+					"action" in input &&
+					input.action === "submit"
+				) {
+					failFirstSubmit = false;
+					throw new Error("injected first durable submission refusal");
+				}
+			},
+		},
 		durableRoot: world.home,
 		runtime: {
 			...runtime,
@@ -94,6 +126,7 @@ async function coldLeafFixture(modelsAsFactory = false) {
 			image: DESKTOP_RUNNER_IMAGE,
 			seedRoot,
 			workspacesDir: join(world.home, "workspaces"),
+			runDocker,
 		},
 		credentials: {
 			baseUrl: admin.url,
@@ -117,6 +150,9 @@ async function coldLeafFixture(modelsAsFactory = false) {
 	return {
 		leaf,
 		spec,
+		world,
+		admin,
+		store,
 		model,
 		factoryCalls: () => factoryCalls,
 		async close() {
@@ -220,6 +256,11 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 		);
 		const store = memoryStore();
 		const runId = crypto.randomUUID();
+		const rewritten: string[][] = [];
+		const dockerArgv = (argv: readonly string[]): string[] => {
+			rewritten.push([...argv]);
+			return ["docker", ...argv.slice(1)];
+		};
 		const leafDeps = {
 			store,
 			durableRoot,
@@ -231,6 +272,24 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			},
 			container: {
 				image: DESKTOP_RUNNER_IMAGE,
+				dockerBin: "nonexistent-checkpoint-docker",
+				dockerArgv,
+				runDocker: (argv: string[], options?: Parameters<RunArgv>[1]) =>
+					runArgv(dockerArgv(argv), options),
+				processTransportFactory: (record: {
+					containerId: string;
+					image: string;
+					deadlineAt?: number;
+				}) =>
+					createRemoteProcessTransport(
+						{
+							containerId: record.containerId,
+							expectedPinnedImageRef: record.image,
+							deadlineAt: record.deadlineAt,
+							dockerBin: "nonexistent-checkpoint-docker",
+						},
+						{ dockerArgv },
+					),
 				workspacesDir,
 				seedRoot,
 			},
@@ -298,15 +357,60 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 		);
 		expect(out.code).toBe(0);
 		expect(out.stdout).toContain(marker);
-		// crash/reopen: a NEW leaf over the SAME store + journal + container
-		// recovers the run from the control row alone. The OLD leaf's
-		// still-open durable job holds the journal's host-writer lock, so
-		// close it first — close() stops jobs/watchdogs WITHOUT revoking
-		// the lease or credential, exactly a crash minus the revocation.
+		const original = leaf.executor.runRecord(runId);
+		if (!original) throw new Error("missing original execution identity");
+		// Graceful close seals a checkpoint; explicit control authority restores it.
 		await leaf.close();
+		expect(
+			store.get<{ state: string }>(
+				"SELECT state FROM runner_jobs WHERE run_id = ?",
+				runId,
+			)?.state,
+		).toBe("parked");
 		const leaf2 = createDesktopRunnerLeaf(leafDeps);
 		const recovery = await leaf2.recover();
-		expect(recovery.reattached).toContain(runId);
+		expect(recovery.reattached).not.toContain(runId);
+		await expect(
+			leaf2.controller.resume({
+				runId,
+				actor: { sid: "unprivileged", scopes: [] },
+			}),
+		).rejects.toThrow("denied resume");
+		expect(leaf2.executor.runRecord(runId)).toBeNull();
+		expect(
+			await leaf2.controller.resume({ runId, actor: hostActor() }),
+		).toEqual({ ok: true, state: "running" });
+		const fresh = leaf2.executor.runRecord(runId);
+		expect(fresh?.containerId).not.toBe(original.containerId);
+		expect(fresh?.deadlineAt).toBe(original.deadlineAt);
+		// A late old handle stop cannot rewrite the new record or stop its guest.
+		await leaf.executor.stop(runId);
+		expect(
+			JSON.parse(
+				readFileSync(join(workspacesDir, runId, "executor.json"), "utf8"),
+			).containerId,
+		).toBe(fresh?.containerId);
+		const restored = await leaf2.executor.dispatchTool(runId, [
+			"cat",
+			"/workspace/marker.txt",
+		]);
+		expect(restored.stdout.trim()).toBe(marker);
+		expect(
+			rewritten.some(
+				(argv) =>
+					argv[1] === "exec" &&
+					argv[2] === original.containerId &&
+					argv.includes("--format=ustar"),
+			),
+		).toBe(true);
+		expect(
+			rewritten.some(
+				(argv) =>
+					argv[1] === "exec" &&
+					argv[2] === "-i" &&
+					argv[3] === fresh?.containerId,
+			),
+		).toBe(true);
 		await leaf2.controller.submit({
 			runId,
 			text: "second turn",
@@ -319,7 +423,12 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			)?.state,
 		).toBe("running");
 		await expect.poll(() => model.requests.length).toBe(3);
-		expect(model.requests[2]?.auth).toBe("Bearer bksk_stub_3");
+		expect(model.requests[2]?.auth).toBe(
+			`Bearer ${leaf2.credentials.resolve(runId)?.key}`,
+		);
+		expect(model.requests[2]?.auth).not.toBe("Bearer bksk_stub_1");
+		expect(JSON.stringify(model.requests[2]?.body)).toContain("first turn");
+		expect(JSON.stringify(model.requests[2]?.body)).toContain("second turn");
 		expect(
 			await leaf2.controller.stopWithRevocation({ runId, actor: hostActor() }),
 		).toEqual({ ok: true, state: "stopped" });
@@ -346,7 +455,7 @@ test.describe("desktop runner leaf (W2869.3)", () => {
 			runtime: {
 				models: {} as never,
 				registry: createRegistry(),
-				env: {},
+				env: () => undefined,
 				settings: undefined,
 				onReport: () => {},
 			},
@@ -516,7 +625,7 @@ try {
     runtime: {
       models: {},
       registry: createRegistry(),
-      env: {},
+      env: () => undefined,
       settings: undefined,
       onReport: () => {},
     },
@@ -620,7 +729,7 @@ try {
 			runtime: {
 				models: {} as never,
 				registry: createRegistry(),
-				env: {},
+				env: () => undefined,
 				settings: undefined,
 				onReport: () => {},
 			},
@@ -651,4 +760,248 @@ try {
 		await leaf2.close();
 		recoveryAdmin.close();
 	});
+});
+
+test("graceful close joins a pending cold start and shares one result @unit", async () => {
+	test.skip(!dockerUp(), "real Docker witness");
+	let started = false,
+		release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const run = await coldLeafFixture(false, async (argv, options) => {
+		const result = await runArgv(argv, options);
+		if (argv[1] === "run") {
+			started = true;
+			await gate;
+		}
+		return result;
+	});
+	try {
+		const submit = run.leaf.controller.submit({
+			runId: run.spec.runId,
+			text: "pending close",
+			actor: hostActor(),
+		});
+		await expect.poll(() => started).toBe(true);
+		const first = run.leaf.close(),
+			second = run.leaf.close();
+		expect(second).toBe(first);
+		let closed = false;
+		void first.then(() => {
+			closed = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(closed).toBe(false);
+		release();
+		await Promise.all([submit, first]);
+		expect(
+			run.store.get<{ state: string }>(
+				"SELECT state FROM runner_jobs WHERE run_id = ?",
+				run.spec.runId,
+			)?.state,
+		).toBe("parked");
+		const record = run.leaf.executor.runRecord(run.spec.runId);
+		expect(record).toBeTruthy();
+		await expect
+			.poll(
+				async () =>
+					(
+						await runArgv([
+							"docker",
+							"inspect",
+							record?.containerId ?? "missing",
+						])
+					).code,
+			)
+			.not.toBe(0);
+	} finally {
+		release();
+		run.model.close();
+		run.admin.close();
+		run.world.clean();
+	}
+});
+
+test("cold close attempts owned guest stop even when credential revoke fails @unit", async () => {
+	test.skip(!dockerUp(), "real Docker witness");
+	let refuseStop = true,
+		stops = 0;
+	const run = await coldLeafFixture(false, async (argv, options) => {
+		if (argv[1] === "stop") {
+			stops++;
+			if (refuseStop)
+				return { code: 1, stdout: "", stderr: "injected stop refusal" };
+		}
+		return runArgv(argv, options);
+	});
+	try {
+		mkdirSync(join(run.world.home, run.spec.runId), { mode: 0o700 });
+		writeFileSync(join(run.world.home, run.spec.runId, "manifest.json"), "{}", {
+			mode: 0o600,
+		});
+		await expect(
+			run.leaf.controller.submit({
+				runId: run.spec.runId,
+				text: "fails dormant open",
+				actor: hostActor(),
+			}),
+		).rejects.toThrow();
+		expect(stops).toBe(1);
+		const record = run.leaf.executor.runRecord(run.spec.runId);
+		refuseStop = false;
+		run.leaf.credentials.revoke = async () => {
+			throw new Error("injected credential refusal");
+		};
+		const first = run.leaf.close(),
+			second = run.leaf.close();
+		expect(second).toBe(first);
+		await expect(first).rejects.toThrow("HOST close failed");
+		expect(stops).toBe(2);
+		await expect
+			.poll(
+				async () =>
+					(
+						await runArgv([
+							"docker",
+							"inspect",
+							record?.containerId ?? "missing",
+						])
+					).code,
+			)
+			.not.toBe(0);
+	} finally {
+		refuseStop = false;
+		await run.leaf.executor.stop(run.spec.runId).catch(() => {});
+		run.model.close();
+		run.admin.close();
+		run.world.clean();
+	}
+});
+
+for (const damage of [
+	"missing-main",
+	"empty-main",
+	"replaced-main",
+	"missing-state",
+	"rootless-main",
+] as const)
+	test(`live recovery refuses ${damage} with docs and manifest retained before any guest or key effect @unit`, async () => {
+		let dockerCalls = 0;
+		const run = await coldLeafFixture(false, async () => {
+			dockerCalls++;
+			throw new Error("unexpected guest mutation");
+		});
+		try {
+			const job = await openDurableJob({
+				root: run.world.home,
+				spec: run.spec,
+				runtime: { models: {} as never, registry: createRegistry() },
+				authorize: async () => {},
+			});
+			const identity = job.journalIdentity;
+			await job.close();
+			const handoffs = openHandoffState(run.store),
+				op = handoffs.claim(run.spec.runId, "submitting", 1);
+			handoffs.pinJournal(run.spec.runId, op.id, identity);
+			handoffs.finish(op, "live", 1);
+			run.store.run(
+				"UPDATE runner_jobs SET state = 'running' WHERE run_id = ?",
+				run.spec.runId,
+			);
+			const state = join(run.world.home, run.spec.runId, "state"),
+				main = join(state, "main.jsonl");
+			const docs = readdirSync(state).filter((name) => name.startsWith("doc-"));
+			expect(docs.length).toBeGreaterThan(0);
+			if (damage === "missing-main") rmSync(main);
+			else if (damage === "empty-main") writeFileSync(main, "");
+			else if (damage === "missing-state") rmSync(state, { recursive: true });
+			else if (damage === "rootless-main")
+				writeFileSync(
+					main,
+					JSON.stringify({ format: 1, type: "commit", seq: 1, writes: [] }) +
+						"\n",
+				);
+			else {
+				const replacement = `${main}.replacement`;
+				writeFileSync(replacement, readFileSync(main), { mode: 0o600 });
+				renameSync(replacement, main);
+			}
+			const keyEffects = run.admin.requests.length;
+			const result = await run.leaf.recover();
+			expect(result.reattached).toEqual([]);
+			expect(result.refused.map((entry) => entry.runId)).toEqual([
+				run.spec.runId,
+			]);
+			expect(dockerCalls).toBe(0);
+			expect(run.admin.requests.length).toBe(keyEffects);
+			expect(run.model.requests).toHaveLength(0);
+			if (damage === "missing-main") expect(existsSync(main)).toBe(false);
+			if (damage !== "missing-state")
+				expect(
+					readdirSync(state).filter((name) => name.startsWith("doc-")),
+				).toEqual(docs);
+		} finally {
+			await run.close();
+		}
+	});
+
+test("a cold submit retry retains the original owned guest after submission refusal @unit", async () => {
+	test.skip(!dockerUp(), "real Docker witness");
+	let starts = 0;
+	const run = await coldLeafFixture(
+		false,
+		async (argv, options) => {
+			if (argv[1] === "run") starts++;
+			return runArgv(argv, options);
+		},
+		true,
+	);
+	try {
+		await expect(
+			run.leaf.controller.submit({
+				runId: run.spec.runId,
+				text: "first rejected",
+				actor: hostActor(),
+			}),
+		).rejects.toThrow("injected first durable submission refusal");
+		const original = run.leaf.executor.runRecord(run.spec.runId);
+		expect(original).toBeTruthy();
+		await expect(
+			run.leaf.controller.submit({
+				runId: run.spec.runId,
+				text: "retry rejected",
+				actor: hostActor(),
+			}),
+		).rejects.toThrow("existing owned execution");
+		expect(starts).toBe(1);
+		expect(run.leaf.executor.runRecord(run.spec.runId)?.containerId).toBe(
+			original?.containerId,
+		);
+		expect(run.model.requests).toHaveLength(0);
+		await run.leaf.close();
+		expect(
+			run.store.get<{ state: string }>(
+				"SELECT state FROM runner_jobs WHERE run_id = ?",
+				run.spec.runId,
+			)?.state,
+		).toBe("parked");
+		await expect
+			.poll(
+				async () =>
+					(
+						await runArgv([
+							"docker",
+							"inspect",
+							original?.containerId ?? "missing",
+						])
+					).code,
+			)
+			.not.toBe(0);
+	} finally {
+		await run.leaf.executor.stop(run.spec.runId).catch(() => {});
+		run.model.close();
+		run.admin.close();
+		run.world.clean();
+	}
 });

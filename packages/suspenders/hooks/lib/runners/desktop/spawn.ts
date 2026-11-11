@@ -144,11 +144,11 @@ export const runArgvStream = async (argv: string[]): Promise<StreamRun> => {
 	}
 	const cap = DEFAULT_MAX_BYTES;
 	const timer = setTimeout(() => {
-		proc.kill();
+		proc.kill("SIGKILL");
 	}, 60_000);
 	timer.unref();
 	const stderrText = drainBounded(proc.stderr, cap, () => {
-		proc.kill();
+		proc.kill("SIGKILL");
 	}).then((d) =>
 		d.truncated
 			? `${new TextDecoder().decode(d.bytes)}\n[runArgvStream: stderr truncated at ${cap} bytes — child killed]`
@@ -158,7 +158,7 @@ export const runArgvStream = async (argv: string[]): Promise<StreamRun> => {
 		stream: proc.stdout,
 		exit: proc.exited,
 		kill: () => {
-			proc.kill();
+			proc.kill("SIGKILL");
 			clearTimeout(timer);
 		},
 		stderr: () => stderrText,

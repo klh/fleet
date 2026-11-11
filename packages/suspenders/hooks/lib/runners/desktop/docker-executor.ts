@@ -31,6 +31,8 @@ export interface DesktopExecutorDeps {
 	workspacesDir: string;
 	dockerBin?: string;
 	runDocker?: RunArgv;
+	/** Trusted host argv addressing for binary checkpoint subprocesses. */
+	dockerArgv?: (argv: readonly string[]) => string[];
 	/** Explicit host-owned seam. Supplying runDocker never selects a legacy path. */
 	processTransportFactory?: (
 		record: ExecutorRecord,
@@ -117,9 +119,15 @@ const originalDeadline = (record: ExecutorRecord): number => {
 export interface DesktopContainer {
 	start(spec: RunnerSpec, opts: { signal: AbortSignal }): Promise<void>;
 	stop(runId: string): Promise<void>;
+	/** Fresh handle only; preserves the checkpoint's original deadline. */
+	restore(
+		spec: RunnerSpec,
+		opts: { signal: AbortSignal; deadlineAt: number },
+	): Promise<void>;
 	ensureRunning(runId: string): Promise<ExecutorRecord>;
 	/** Close tool intake and prove daemon-backed quiescence, or destroy the guest. */
 	quiesce(runId: string): Promise<ExecutorRecord>;
+	reattach(runId: string): Promise<ExecutorRecord>;
 	dispatchTool(
 		runId: string,
 		argv: readonly string[],
@@ -399,7 +407,7 @@ const launchContainer = async (
 	ctx: Ctx,
 	spec: RunnerSpec,
 	files: Awaited<ReturnType<typeof scanSeedDir>>,
-	opts: { signal: AbortSignal },
+	opts: { signal: AbortSignal; deadlineAt?: number },
 ): Promise<void> => {
 	const runRoot = join(ctx.deps.workspacesDir, spec.runId);
 	const seedDir = join(runRoot, "seed");
@@ -427,7 +435,7 @@ const launchContainer = async (
 		expired: false,
 		executed: false,
 		startedAt,
-		deadlineAt: startedAt + ctx.limits.deadlineMs,
+		deadlineAt: opts.deadlineAt ?? startedAt + ctx.limits.deadlineMs,
 	};
 	// Retain the daemon identity before persistence can fail, so rollback
 	// and a later stop retry can always address the guest we just created.
@@ -486,7 +494,8 @@ const armRun = (
 };
 
 const expireRun = async (ctx: Ctx, runId: string): Promise<void> => {
-	const record = await loadRecord(ctx, runId);
+	if (ctx.closed.has(runId)) return;
+	const record = ctx.records.get(runId) ?? (await loadRecord(ctx, runId));
 	if (record && !record.expired) {
 		await saveRecord(ctx, { ...record, expired: true });
 	}
@@ -510,7 +519,12 @@ const stopRun = async (ctx: Ctx, runId: string): Promise<void> => {
 	const record = ctx.records.get(runId) ?? (await loadRecord(ctx, runId));
 	if (record) {
 		try {
-			await saveRecord(ctx, record);
+			const disk = await readFile(recordPathOf(ctx, runId), "utf8").then(
+				(raw) => ExecutorRecordSchema.parse(JSON.parse(raw)),
+				() => null,
+			);
+			if (!disk || disk.containerId === record.containerId)
+				await saveRecord(ctx, record);
 		} catch (error) {
 			cleanupFailures.push(error);
 		}
@@ -778,12 +792,32 @@ export const createDesktopDockerExecutor = (
 ): DesktopContainer => {
 	const ctx = mkCtx(deps);
 	return {
+		restore: (spec, opts) =>
+			trackGuestStart(ctx, spec.runId, async () => {
+				if (opts.deadlineAt <= Date.now())
+					throw new Error("checkpoint: original deadline expired");
+				if (resolvedPolicyDigest(deps) !== spec.policyDigest)
+					throw new Error("checkpoint: policy drift");
+				const files = await scanSeedDir(deps.seedRoot);
+				if (canonicalSeedDigest(files) !== spec.seedDigest)
+					throw new Error("checkpoint: seed drift");
+				await launchContainer(ctx, spec, files, opts);
+			}),
 		start: (spec, opts) =>
 			trackGuestStart(ctx, spec.runId, () => startRun(ctx, spec, opts)),
 		stop: (runId) => stopTracked(ctx, runId),
 		ensureRunning: (runId) =>
 			trackGuestStart(ctx, runId, () => ensureRunning(ctx, runId)),
 		quiesce: (runId) => quiesceRun(ctx, runId),
+		reattach: (runId) =>
+			trackGuestStart(ctx, runId, async () => {
+				const record = await ensureRunning(ctx, runId);
+				const transport = await transportFor(ctx, record);
+				await transport.cleanup();
+				await transport.assertQuiescent();
+				ctx.transports.delete(runId);
+				return record;
+			}),
 		dispatchTool: (runId, argv, opts) =>
 			withRunLock(ctx, runId, async () => {
 				if (ctx.closed.has(runId))

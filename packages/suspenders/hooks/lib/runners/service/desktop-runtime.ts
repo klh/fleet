@@ -73,6 +73,7 @@ export async function desktopRuntime(
 					runDocker: (argv, options) =>
 						runArgv(runnerDockerArgv(argv), options),
 					runDockerStream: (argv) => runArgvStream(runnerDockerArgv(argv)),
+					dockerArgv: runnerDockerArgv,
 					processTransportFactory: (record) =>
 						createRemoteProcessTransport(
 							{

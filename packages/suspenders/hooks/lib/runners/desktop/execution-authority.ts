@@ -8,7 +8,11 @@ export function captureExecutionAuthority(input: {
 	runId: string;
 	executorSid: string;
 	token: LeaseToken;
-	fence: (input: { runId: string; actor: RunnerActor }) => Promise<void>;
+	fence: (input: {
+		runId: string;
+		actor: RunnerActor;
+		action?: JobAction;
+	}) => Promise<void>;
 	credentials: Pick<CredentialManager, "resolve">;
 }) {
 	const { runId, executorSid, fence, credentials } = input;
@@ -22,11 +26,12 @@ export function captureExecutionAuthority(input: {
 		return credential.key;
 	};
 	return {
-		async authorize(_action: JobAction, spec: Pick<JobSpec, "runId">) {
+		async authorize(action: JobAction, spec: Pick<JobSpec, "runId">) {
 			if (spec.runId !== runId)
 				throw new Error("runner: execution authority run mismatch");
 			await fence({
 				runId,
+				action,
 				actor: { sid: executorSid, scopes: [], leaseToken: { epoch } },
 			});
 		},
