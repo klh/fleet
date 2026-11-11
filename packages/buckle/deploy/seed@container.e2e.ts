@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { z } from "zod";
+import { parsePolicy } from "../src/policy.ts";
 import { PlatformSchema } from "./seed-contract.ts";
 import { fixture } from "./test/fixture.ts";
 import { docker, safe, start, cleanupOwnedFixture } from "./test/docker.ts";
@@ -52,9 +53,19 @@ for (const platform of platforms)
 			await Bun.write(upstreamPath, JSON.stringify(upstreams));
 			const policyPath = `${data.site}/policy.json`;
 			const policy = await Bun.file(policyPath).json();
-			policy.fallbacks = { "seed-model": ["seed-fallback"] };
+			policy.gateway.fallbacks = { "seed-model": ["seed-fallback"] };
 			policy.tags["seed-fallback"] = ["locality:hub-local"];
 			await Bun.write(policyPath, JSON.stringify(policy));
+			const EffectiveFallbackPolicySchema = z.object({
+				num_retries: z.literal(0),
+				request_timeout_s: z.literal(5),
+				fallbacks: z.object({
+					"seed-model": z.tuple([z.literal("seed-fallback")]),
+				}),
+			});
+			EffectiveFallbackPolicySchema.parse(
+				parsePolicy(await Bun.file(policyPath).text()),
+			);
 			const service = await start(data, image, platform, "runtime");
 			id = service.id;
 			const response = await fetch(`${service.origin}/v1/models`, {

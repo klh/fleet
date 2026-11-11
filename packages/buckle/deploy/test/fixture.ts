@@ -89,8 +89,7 @@ export async function fixture() {
 			},
 		},
 		"policy.json": {
-			num_retries: 0,
-			request_timeout_s: 5,
+			gateway: { num_retries: 0, request_timeout_s: 5 },
 			tags: { "seed-model": ["locality:hub-local"] },
 		},
 		"prefs.json": { allow_cloud: true, cost_speed: "balanced" },
