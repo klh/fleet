@@ -343,6 +343,58 @@ describe("split — shatter, child ids, roll-up", () => {
 		rmSync(contextPath); // the shared REPO outlives this test — no context leaks
 	});
 
+	test("split run FROM the carrier tree mints the kept binding there (W3009 round-4)", () => {
+		const p = idOf(work("add", "keep from carrier").out);
+		expect(work("take", p, "--as", "lane-carrier").code).toBe(0);
+		const tree = join(REPO, ".worktrees", p);
+		// the split runs with cwd == the registered carrier tree
+		const s = workIn(
+			tree,
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s.code).toBe(0);
+		const minted = JSON.parse(
+			readFileSync(join(tree, ".fleet", "lane-context.json"), "utf8"),
+		);
+		expect(minted.sid).toBe("lane-carrier");
+		expect(minted.item).toBe(`${p}.1`);
+		rmSync(join(tree, ".fleet"), { recursive: true, force: true });
+	});
+
+	test("split refuses to mint over a corrupt carrier context, preserving it (W3009 round-5)", () => {
+		const p = idOf(work("add", "keep corrupt carrier").out);
+		expect(work("take", p, "--as", "lane-corrupt").code).toBe(0);
+		const tree = join(REPO, ".worktrees", p);
+		mkdirSync(join(tree, ".fleet"), { recursive: true });
+		writeFileSync(join(tree, ".fleet", "lane-context.json"), "{corrupt");
+		const s = workIn(
+			tree,
+			"split",
+			p,
+			"kept",
+			"handed",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		// explicit refusal: the split rolls back, the corrupt file survives
+		expect(s.code).not.toBe(0);
+		expect(s.err).toContain("corrupt");
+		expect(firstLine(work("show", p).out)).toContain("CLAIMED");
+		expect(
+			readFileSync(join(tree, ".fleet", "lane-context.json"), "utf8"),
+		).toBe("{corrupt");
+		rmSync(join(tree, ".fleet"), { recursive: true, force: true });
+	});
+
 	test("split leaves foreign lane contexts untouched (W628)", () => {
 		const p = idOf(work("add", "keep foreign").out);
 		expect(work("take", p, "--as", "lane-x").code).toBe(0);
