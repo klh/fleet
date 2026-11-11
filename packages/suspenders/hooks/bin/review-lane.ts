@@ -203,7 +203,25 @@ const thread: string[] = (
 // W1279: the review binds the item's CANONICAL branch — its own ref when it
 // exists, else the kept child's parent-named branch (split --keep rebinds the
 // tree's lane-context, not the branch) — never a blind suspenders/<item>.
-const boundBranch = branchForItem(repo, item) ?? `suspenders/${item}`;
+// W3010: the kept-child carrier can outlive its lane-context (reaped tree,
+// pre-W628 split — the 77aa incident) — the graph walk then binds the
+// SHATTERED ancestor whose ref exists AND contains the result sha.
+const boundBranch =
+	branchForItem(repo, item, {
+		parentId:
+			typeof w.parent_id === "string" && w.parent_id ? w.parent_id : null,
+		resultSha:
+			typeof w.result_sha === "string" && w.result_sha ? w.result_sha : null,
+		rowAt: (id) =>
+			db
+				.query(
+					"SELECT state, parent_id FROM work_items WHERE project = ? AND id = ?",
+				)
+				.get(project, id) as {
+				state: string;
+				parent_id: string | null;
+			} | null,
+	}) ?? `suspenders/${item}`;
 const boundContext = reviewContext(repo, boundBranch);
 const priorBlocking = priorBlockingReviewLines(
 	db,
