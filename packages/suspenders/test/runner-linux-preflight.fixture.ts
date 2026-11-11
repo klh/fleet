@@ -81,12 +81,19 @@ const server = Bun.serve({
 	hostname: "127.0.0.1",
 	port: 18110,
 	fetch(request) {
-		if (new URL(request.url).pathname !== "/v1/fleet/whoami" ||
-			request.headers.get("authorization") !== "Bearer fixture-mint")
+		if (request.headers.get("authorization") !== "Bearer fixture-mint")
 			return new Response(null, { status: 403 });
+		const path = new URL(request.url).pathname;
+		// Explicit scripted fixture limits, not provider or hardware claims.
+		if (path === "/v1/models") return Response.json({ object: "list", data: [{
+			id: "fixture", object: "model", owned_by: "buckle",
+			context_length: 32768, max_output_tokens: 2048,
+			reasoning: false, capability_source: "operator-pinned",
+		}] });
+		if (path !== "/v1/fleet/whoami") return new Response(null, { status: 404 });
 		return Response.json({
 			authenticated: true, kind: "api_key", key_id: "fixture",
-			team: null, actor: null, scopes: ["buckle:admin:WRITE_"],
+			team: null, actor: null, scopes: ["buckle:admin:WRITE_", "buckle:proxy:READ_"],
 		});
 	},
 });

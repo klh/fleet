@@ -1,0 +1,170 @@
+{
+	"schemaVersion": 1,
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+	"recordedAt": "2026-11-11T17:14:37.098Z",
+	"sourceCommit": "02555a4f502661830dc9ffda4e017ef7eb83c210",
+	"recipeCommit": "d36478f1dc5bfdca5e0fa097e93348898838b519",
+	"registry": {
+		"repository": "klh/fleet",
+		"visibility": "private"
+	},
+	"evidence": [
+		{
+			"platform": "linux/amd64",
+			"manifest": "sha256:9f99661adbc7d063a3bac3d7596b565cbeb47f4aa4cc576c1db90553d1426ccd",
+			"attestationManifest": "sha256:f32274bb251a06c7d6a14cc593ebb988fd8b9686841a3b217d541d3eb3322be5",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"packages": 92,
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"runtimeSmoke": {
+				"platform": "linux/amd64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+				"api": {
+					"ids": ["seed-model"],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "x64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"hostPublishedHealth": [
+				{
+					"platform": "linux/amd64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+					"bind": "0.0.0.0",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": 200,
+					"teardownChecked": true
+				},
+				{
+					"platform": "linux/amd64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+					"bind": "default127.0.0.1",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": "unreachable",
+					"networkFailureCode": "ECONNRESET",
+					"containerRunning": true,
+					"teardownChecked": true
+				}
+			]
+		},
+		{
+			"platform": "linux/arm64",
+			"manifest": "sha256:53ce7adad5819f6df7be3fddddfe4a578929375fcbf3d7764f3e228e16d2b62d",
+			"attestationManifest": "sha256:1212e3d8292fad32f5f1303a17411d400ef85c052ee99ab1ca127d062a1b3211",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"packages": 92,
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"runtimeSmoke": {
+				"platform": "linux/arm64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+				"api": {
+					"ids": ["seed-model"],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "arm64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"hostPublishedHealth": [
+				{
+					"platform": "linux/arm64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+					"bind": "0.0.0.0",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": 200,
+					"teardownChecked": true
+				},
+				{
+					"platform": "linux/arm64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+					"bind": "default127.0.0.1",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": "unreachable",
+					"networkFailureCode": "ECONNRESET",
+					"containerRunning": true,
+					"teardownChecked": true
+				}
+			]
+		}
+	],
+	"testEvidence": {
+		"probeUnit": "5/5 passed, including standalone --no-install copy",
+		"existingHealthContract": "10/10 passed",
+		"localRuntime": "2/2 passed",
+		"localHostPublishedHealth": "4/4 passed",
+		"publishedDigestRuntime": "2/2 passed,7.9s",
+		"publishedDigestHostHealth": "4/4 passed,2.6s",
+		"ownedTeardown": "checked; cleanup failures fail verdict",
+		"sourceCommitGate": "100/100 passed",
+		"sourcePushGate": "191/191 passed; OpenAPI current; scrub clean"
+	},
+	"repeatableHostHealthCommand": "BUCKLE_SEED_TEST_IMAGE=<descriptor.image> bun run node_modules/@playwright/test/cli.js test --config packages/buckle/deploy/playwright.config.ts --project=container health-published@container.e2e.ts",
+	"runtimeContext": {
+		"dockerHostArchitecture": "aarch64",
+		"nativeAmd64HardwareClaim": false,
+		"syntheticUpstream": true,
+		"fullFeatureCompatibilityClaim": false,
+		"stableReleaseClaim": false
+	},
+	"negativeHistory": [
+		{
+			"observation": "The 0.1.0 seed probe binds loopback; earlier in-container listening-mode checks did not prove host published-port reachability.",
+			"resolution": "This version requires explicit --bind 0.0.0.0 for container health publication; both architectures pass host-side HTTP200 and live default-loopback ECONNRESET negative controls."
+		},
+		{
+			"observation": "A pre-commit bind implementation introduced Zod and failed standalone bare Bun resolution. Initial host copy testing without --no-install was masked by Bun auto-install.",
+			"resolution": "Runtime dependency removed before source02555; standalone --no-install regression records missing-package red then successful usage and real poll green. No image containing the regression was published."
+		}
+	],
+	"priorProducerNegativeHistory": "../negative-history.json",
+	"immutablePublication": {
+		"newVersionOnly": true,
+		"priorVersionRetagged": false,
+		"receiptCommitRebuildsPayload": false
+	}
+}
