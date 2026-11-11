@@ -302,6 +302,12 @@ describe("split — shatter, child ids, roll-up", () => {
 		expect(s.code).toBe(0);
 		expect(firstLine(work("show", `${p}.1`).out)).toContain("CLAIMED");
 		expect(firstLine(work("show", `${p}.2`).out)).toContain("READY");
+		// W3009 round-2: the manual split mints the kept binding into the
+		// carrier tree — clean it so the shared REPO world stays context-free
+		rmSync(join(REPO, ".worktrees", p, ".fleet"), {
+			recursive: true,
+			force: true,
+		});
 	});
 
 	test("--keep rebinds the keeping lane's context to the kept child (W628)", () => {
@@ -354,11 +360,25 @@ describe("split — shatter, child ids, roll-up", () => {
 			"1",
 		);
 		expect(s.code).toBe(0);
-		expect(s.out).not.toContain("rebound");
+		// W3009 round-2: the foreign cwd context stays untouched, but the kept
+		// binding is minted into the carrier tree (lane-x's own registered tree)
 		const untouched = JSON.parse(readFileSync(contextPath, "utf8"));
 		expect(untouched.sid).toBe("other-lane");
 		expect(untouched.item).toBe(p);
+		const carrier = JSON.parse(
+			readFileSync(
+				join(REPO, ".worktrees", p, ".fleet", "lane-context.json"),
+				"utf8",
+			),
+		);
+		expect(carrier.sid).toBe("lane-x");
+		expect(carrier.item).toBe(`${p}.1`);
 		rmSync(contextPath);
+		// the shared REPO outlives this test — no minted context leaks
+		rmSync(join(REPO, ".worktrees", p, ".fleet"), {
+			recursive: true,
+			force: true,
+		});
 	});
 });
 
