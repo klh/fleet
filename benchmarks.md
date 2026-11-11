@@ -1968,6 +1968,86 @@ output tokens. The final patch passed 0/3 targets and 59/59 regressions.
 Both keys were revoked. No acceptance or speed improvement is
 established by this trial.
 
+### Three fresh Sphinx confirmations
+
+The successful treatment gave the agent a public rendering fixture
+and asked it to preserve the visible class scope of a class property.
+The fixture was refined during exploration on this one task. It uses
+no private test contents. Its eight checks cover ordinary, class,
+inherited, metaclass, typed, abstract and direct autodoc behavior,
+including a visible class-property declaration.
+
+| Medium-effort GLM-5.3 Flash | Wall time | Fresh input | Cached input | Output | Targets | Regressions |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Screen | 341.357 s | 37,007 | 705,600 | 18,592 | 3/3 | 59/59 |
+| Confirmation 1 | 374.489 s | 39,035 | 939,968 | 19,825 | 3/3 | 59/59 |
+| Confirmation 2 | 462.550 s | 39,524 | 598,272 | 25,876 | 3/3 | 59/59 |
+| Confirmation 3 | 387.970 s | 34,063 | 401,792 | 21,678 | 3/3 | 59/59 |
+
+All four trials started from separate clean clones and produced
+distinct patches. The ledger confirmed the served model and each
+scoped key was revoked. The median for the three confirmation runs
+was 387.970 s. The matched low-effort screen passed at 278.685 s,
+with 32,812 fresh input, 765,312 cached input and 11,944 output
+tokens.
+
+| Low-effort GLM-5.3 Flash | Wall time | Fresh input | Cached input | Output | Targets | Regressions |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Confirmation 1 | 273.548 s | 26,379 | 578,688 | 12,123 | 3/3 | 59/59 |
+| Confirmation 2 | 276.981 s | 28,672 | 705,536 | 12,883 | 3/3 | 59/59 |
+| Confirmation 3 | 238.443 s | 29,254 | 429,376 | 11,831 | 3/3 | 59/59 |
+
+At this checkpoint both arms passed their three fresh confirmations.
+Low effort reduced median confirmation time by 29.5% and median
+output by 44.1%. It used the same brief, fixture, pretask, inspection
+mode and served model. Provider cache and system load were observed
+but not held constant. An extra low-effort screen passed at 174.951 s.
+Thinking off and adding structural excerpts each had a confirmation
+that passed only 2/3 targets. Keep those results in their histories.
+
+### Overnight Sphinx results, November 11
+
+The completed exploration contains 110 trials across 22 treatments.
+The private evaluator graded 108 patches, with 59 accepted. All 108
+graded patches preserved 59/59 regression checks. One trial hit the
+20-minute deadline without an exported patch. Another settled unanswered
+without a patch. All scoped keys were revoked and no replay containers
+remained after the final trial. A planned scheduler rollover generated
+one prelaunch error, which is excluded from trial counts.
+
+| Class-scope fixture treatment | Accepted / attempts | Median accepted wall time | Wall seconds per accepted patch, including failures |
+| --- | ---: | ---: | ---: |
+| Low effort plus fixed verification tool | 6/6 | 301.91 | 280.83 |
+| Low effort | 9/10 | 280.91 | 330.40 |
+| Requested thinking off | 8/10 | 293.52 | 352.25 |
+| Low effort plus directed read/edit workflow | 8/9 | 375.10 | 389.89 |
+| Low effort plus structural excerpts | 8/10 | 321.68 | 441.92 |
+| Low effort with serial inspection batches | 6/8 | 299.51 | 427.60 |
+| Medium effort | 8/9 | 411.76 | 519.94 |
+
+Each accepted patch scored 3/3 targets and 59/59 regressions. All rows
+above have positive usage and served-model ledger joins. Wall time here
+includes clone, execution, grading and model-identity audit. Three
+confirmation successes were followed by failures in several arms.
+Their entire histories remain in the table.
+
+The verification-tool treatment bundles the unchanged public
+reproduction and 55 focused base tests into one tool call. Its six
+trials used 136,312 fresh input, 1,704,960 cached input and 56,441
+output tokens in total. Its observed time per accepted patch was
+46.0% lower than medium effort and 15.0% lower than plain low effort.
+The verification-tool/requested-off combination accepted 0/2.
+
+The requested-off arms sent thinking.type=disabled, yet provider usage
+still reported reasoning tokens. These measure a requested setting.
+Effective disabling is unverified. The replay uses native OpenAI
+Completions, so an Anthropic-shim explanation does not apply.
+
+This is an adaptive study tuned on one public issue. Provider cache and
+host load were uncontrolled. Later blocks used seeded shuffled order.
+Use the observed rates and time per accepted patch when selecting the
+next held-out experiment. No production executor default was changed.
+
 ### Parent context reuse
 
 Pi Durable 1.5.0 forked one in-memory parent checkpoint into two

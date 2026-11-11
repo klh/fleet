@@ -551,3 +551,11 @@ reproduction that only checked rendered docstrings passed on two
 candidates that the private judge scored 0/3 and 2/3. The testbed now
 also has a public fixture for typed and abstract properties and direct
 autodoc lookup. Keep the held-out verdict separate from both fixtures.
+
+The overnight continuation also exposed an effort-control measurement
+gap. Requested thinking.type=disabled on native OpenAI Completions
+still returned provider reasoning-token usage. Those arms cannot prove
+that disabling thinking improves runtime. Later repeats also rejected
+patches from several arms that had earlier passed three confirmations.
+Report the full attempt history, including failed screens and unanswered
+or timed-out trials, when comparing time per accepted patch.
