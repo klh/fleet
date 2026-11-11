@@ -143,3 +143,97 @@ test("a completed driver run exits 0 and a failed leg exits 1 @unit", async () =
 	);
 	expect(failed.code).toBe(1);
 });
+
+test("live runtime: route verification reads serving reality, not names", async () => {
+	const { verifyRouteAdvertised } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+const listing = (ids: readonly string[]) =>
+	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), {
+		status: 200,
+	});
+	expect(
+		await verifyRouteAdvertised({
+			baseUrl: "https://t.local",
+			token: "bksk_t",
+			model: "glm-5.3",
+			fetchImpl: async () => listing(["glm-5.3"]),
+		}),
+	).toBe(true);
+	expect(
+		await verifyRouteAdvertised({
+			baseUrl: "https://t.local",
+			token: "bksk_t",
+			model: "not-served",
+			fetchImpl: async () => listing(["glm-5.3"]),
+		}),
+	).toBe(false);
+	expect(
+		await verifyRouteAdvertised({
+			baseUrl: "https://t.local",
+			token: "bksk_t",
+			model: "glm-5.3",
+			fetchImpl: async () => new Response("{}", { status: 503 }),
+		}),
+	).toBe(false);
+});
+
+test("live runtime: models carry exactly one openai-completions provider", async () => {
+	const { buildModels } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	const models = buildModels({
+		baseUrl: "https://t.local",
+		token: "bksk_t",
+		model: "glm-5.3",
+	});
+	const all = models.getModels();
+	expect(all).toHaveLength(1);
+	expect(all[0]!.provider).toBe("blam-route");
+	expect(all[0]!.api).toBe("openai-completions");
+	expect(all[0]!.id).toBe("glm-5.3");
+});
+
+test("live runtime: durable session refuses without a journal root, env stays unlogged", async () => {
+	const { runDurableSession } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	const spec = {
+		wire: "openai-completions",
+		model: "glm-5.3",
+		bounds: { maxTokens: null, turnLimit: null },
+		effort: { requested: "low", effective: null },
+		routeCompat: "unverified",
+	} as const;
+	const args = {
+		worktree: "/tmp/wt",
+		model: "glm-5.3",
+		prompt: "hi",
+		effort: "low",
+		bounds: { maxTokens: null, turnLimit: null },
+	};
+	await expect(
+		runDurableSession(spec, args, {
+			baseUrl: "https://t.local",
+			token: "bksk_t",
+		}),
+	).rejects.toThrow(/journal/);
+});
+
+test("live runtime: default driver still refuses; executor gates on env before the driver runs", async () => {
+	const { runExecutor, dryDriver } = await import(
+		"../bench/agentic/pi-durable-strategy.ts"
+	);
+	const refused = await runExecutor(
+		["--worktree", "/tmp/wt", "--model", "m", "--prompt", "p"],
+		dryDriver,
+		{ BLAM_PI_DURABLE_URL: "https://t.local", BLAM_PI_DURABLE_TOKEN: "bksk_t" },
+	);
+	expect(refused.code).toBe(3);
+	const envGated = await runExecutor(
+		["--worktree", "/tmp/wt", "--model", "m", "--prompt", "p"],
+		dryDriver,
+		{ BLAM_PI_DURABLE_URL: "https://t.local" },
+	);
+	expect(envGated.code).toBe(2);
+});

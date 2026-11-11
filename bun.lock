@@ -64,6 +64,9 @@
         "blam-label": "tools/label.ts",
       },
       "dependencies": {
+        "@earendil-works/chord": "1.5.0",
+        "@earendil-works/pi-ai": "1.5.0",
+        "@earendil-works/pi-durable": "1.5.0",
         "@klh/suspenders": "2.2.0",
         "zod": "4.6.7",
       },

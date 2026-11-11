@@ -94,7 +94,14 @@ export type AttemptResult = {
 export type SessionDriver = (
 	spec: DurableRunSpec,
 	args: ExecutorArgs,
-	env: { readonly baseUrl: string; readonly token: string },
+	env: {
+		readonly baseUrl: string;
+		readonly token: string;
+		/** Host directory for the durable JSONL journal (never an image layer). */
+		readonly journalRoot?: string;
+		/** Optional wall-clock deadline in ms; absent = unbounded (no silent ceilings). */
+		readonly deadlineMs?: number;
+	},
 ) => Promise<AttemptResult>;
 
 export class ExecutorError extends Error {
@@ -191,11 +198,35 @@ export function buildRunSpec(
 }
 
 /**
- * The default driver refuses to fabricate: no durable runtime host has
- * landed yet, and a silent zero-usage success would pollute receipts.
+ * The live driver: one durable pi-durable session over the host-owned JSONL
+ * journal, riding the route named by BLAM_PI_DURABLE_URL. Import is lazy so
+ * unit tests of the strategy itself never load the full harness graph.
+ */
+export const durableDriver: SessionDriver = async (spec, args, env) => {
+	const { runDurableSession } = await import("./pi-durable-runtime.ts");
+	return runDurableSession(
+		spec,
+		args,
+		{
+			baseUrl: env.baseUrl,
+			token: env.token,
+			BLAM_PI_DURABLE_ROOT: env.journalRoot,
+			BLAM_PI_DURABLE_DEADLINE_MS:
+				env.deadlineMs === undefined ? undefined : String(env.deadlineMs),
+		},
+	);
+};
+
+/**
+ * The default driver still refuses to fabricate: callers must opt into the
+ * live arm explicitly (a bench runner wires durableDriver itself), so a
+ * bare `main` can never silently run a live session without the host-side
+ * journal root it needs.
  */
 export const dryDriver: SessionDriver = async () => {
-	throw new ExecutorError("live arm not landed (W2971 next commit)");
+	throw new ExecutorError(
+		"no session driver wired — pass durableDriver from a host context with BLAM_PI_DURABLE_ROOT",
+	);
 };
 
 /**
@@ -249,7 +280,14 @@ export async function runExecutor(
 	}
 	const spec = buildRunSpec(args);
 	try {
-		const result = await driver(spec, args, { baseUrl, token });
+		const result = await driver(spec, args, {
+			baseUrl,
+			token,
+			journalRoot: env.BLAM_PI_DURABLE_ROOT,
+			deadlineMs: env.BLAM_PI_DURABLE_DEADLINE_MS
+				? Number.parseInt(env.BLAM_PI_DURABLE_DEADLINE_MS, 10)
+				: undefined,
+		});
 		console.log(
 			usageLine([result], { worktree: args.worktree, mode: "solo" }),
 		);

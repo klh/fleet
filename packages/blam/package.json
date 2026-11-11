@@ -1,7 +1,7 @@
 {
 	"name": "@klh/blam",
 	"version": "2.2.0",
-	"description": "BLAM — Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
+	"description": "BLAM \u2014 Benchmark of LLM Agent Mishaps: a failure taxonomy, labeled dataset, and reproducible benchmark for LLM agent fleets on shared repositories",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
 	"packageManager": "bun@1.4.2",
@@ -13,6 +13,9 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
+		"@earendil-works/chord": "1.5.0",
+		"@earendil-works/pi-ai": "1.5.0",
+		"@earendil-works/pi-durable": "1.5.0",
 		"@klh/suspenders": "2.2.0",
 		"zod": "4.6.7"
 	},
