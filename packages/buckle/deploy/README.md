@@ -58,3 +58,11 @@ linkage before pushing; it requests BuildKit SBOM and maximum provenance.
 Verify the actual published index, per-platform attestations and digest-pinned
 runtime checks before marking those descriptor evidence fields verified.
 Earlier negative observations are retained in negative-history.json.
+
+Published experiment: [service descriptor](releases/0.1.0-experimental.w2989.json)
+and [verification receipt](releases/0.1.0-experimental.w2989.receipt.json).
+The immutable index contains amd64 and arm64 manifests with linked SBOM and
+provenance attestations; both published platform variants passed the packaged
+API/control tests. The receipt records synthetic upstreams and Docker-host
+context, not native amd64 hardware or full production feature acceptance.
+Recording these receipts does not rebuild the image or move its published tag.
