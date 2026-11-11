@@ -2211,3 +2211,20 @@ Both arms use the same pinned driver/image, low effort, parallel read tool,
 public reproduction and private judge; no turn or wire output-token ceiling.
 The public reproduction fails on the base and passes on the reference.
 The reference patch and judge are never mounted in the candidate sandbox.
+
+The first held-out pair completed with verified route, positive usage,
+unchanged public fixture and key/container cleanup. Both failed the private
+target while preserving 45/45 regressions. Baseline: 210.936 model-run
+seconds, 19 requests and 151,546 reported tokens. Quoted excerpts: 71.948
+seconds, 9 requests and 34,246 tokens. Both passed the public reproduction;
+therefore that reproduction alone did not capture the complete contract.
+The shorter failed attempt is not a correctness-qualified speed improvement.
+
+The paired driver SHA-256 is
+`a15504c15023ae37daf6459bcb670ed2dfde7b9e3e1714074860be6976184c85`.
+The finite three-attempt-per-arm block uses counterbalanced order AB BA AB,
+with frozen controller SHA-256
+`8aef0a08d94ddafe5a529f1a5927c65aef9ea183ef02271546c76b664ca4a7b8`.
+After that block the existing exploratory matrix resumes within the owner's
+November 12 deadline. An evidence/cleanup error stops the block for review;
+a genuine quality failure stays in its denominator and does not stop it.

@@ -586,3 +586,11 @@ Serial inspection also failed two of three renewed trials. A fast early
 pass is not enough to recommend a recipe; retain these later failures
 alongside the structural-only treatment's three confirmations and test
 transfer on a distinct issue before making a general recommendation.
+
+The first held-out Sphinx 9602 pair failed 0/1 private target checks in
+both arms, with 45/45 regressions preserved. Both had passed the public
+Literal[True/False] reproduction. The structural-excerpt arm was shorter
+(71.948 versus 210.936 model-run seconds) but still incorrect under the
+private contract. Do not report that difference as faster successful work.
+Keep the public fixture frozen for the matched repetitions; any broader
+public-contract test generation must be a separately labeled treatment.
