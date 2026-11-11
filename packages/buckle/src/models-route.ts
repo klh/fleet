@@ -18,6 +18,8 @@ import type { AppDeps } from "./handlers.ts";
 import type { IngressLocal } from "./ingress-routes.ts";
 import { principalOf } from "./gov/federation.ts";
 import { providerPoolIdOf } from "./router-attempt.ts";
+import type { UpstreamPool } from "./upstreams.ts";
+import type { ModelCapabilities } from "./wire-schemas.ts";
 
 /** W2635: pool caps + live counters one model row carries (numbers describe
  *  the POOL, not the row — all member deployments share one admission). */
@@ -65,6 +67,27 @@ export function poolNumbersOf(
 	};
 }
 
+/** W2979: the conf-pinned serving capabilities one model row reports —
+ *  present only when EVERY bound deployment pins capabilities and they
+ *  agree exactly (a group whose deployments disagree advertises nothing:
+ *  half-honest metadata is worse than none). Values are operator conf,
+ *  never invented here. */
+export function capabilitiesOf(
+	pool: UpstreamPool,
+	group: string,
+): ModelCapabilities | null {
+	const deployments = pool.deployments(group);
+	if (deployments.length === 0) return null;
+	const first = deployments[0]?.capabilities;
+	if (first === undefined) return null;
+	const agree = deployments.every(
+		(dep) =>
+			dep.capabilities !== undefined &&
+			JSON.stringify(dep.capabilities) === JSON.stringify(first),
+	);
+	return agree ? first : null;
+}
+
 export function modelsRoute(
 	deps: AppDeps,
 	req: Request,
@@ -90,11 +113,28 @@ export function modelsRoute(
 		.filter((id) => groups === null || groups.some((g) => globMatch(g, id)))
 		.map((id) => {
 			const pool = poolNumbersOf(deps, id);
+			const caps = capabilitiesOf(deps.pool, id);
 			return {
 				id,
 				object: "model",
 				owned_by: "buckle",
 				...(pool === null ? {} : { admission: pool }),
+				...(caps === null
+					? {}
+					: {
+							...(caps.context_length !== undefined
+								? { context_length: caps.context_length }
+								: {}),
+							...(caps.max_output_tokens !== undefined
+								? { max_output_tokens: caps.max_output_tokens }
+								: {}),
+							...(caps.reasoning !== undefined
+								? { reasoning: caps.reasoning }
+								: {}),
+							...(caps.capability_source !== undefined
+								? { capability_source: caps.capability_source }
+								: {}),
+						}),
 			};
 		});
 	return Response.json({ object: "list", data });
