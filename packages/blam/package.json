@@ -7,6 +7,7 @@
 	"packageManager": "bun@1.4.2",
 	"scripts": {
 		"test": "bun test test/",
+		"test:playwright": "bun --bun playwright test --config test/playwright.config.ts",
 		"validate": "bun tools/label.ts validate dataset/incidents.jsonl"
 	},
 	"engines": {
