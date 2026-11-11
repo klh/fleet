@@ -204,6 +204,51 @@ async function waitForSettle(
 	return outcome;
 }
 
+/** Cumulative usage totals from the durable ledger (null when nothing reported). */
+export type UsageTotals = {
+	readonly tokens: number;
+	readonly cacheReadTokens: number;
+	readonly cacheWriteTokens: number;
+};
+
+export function usageTotalsOf(usage: unknown): UsageTotals | null {
+	let tokens = 0;
+	let cacheRead = 0;
+	let cacheWrite = 0;
+	let reported = false;
+	const models = (usage as { models?: unknown } | null)?.models;
+	if (!isRecord(models)) return null;
+	for (const bucket of Object.values(models)) {
+		const value = (bucket as { value?: unknown }).value;
+		if (!isRecord(value)) continue;
+		const input = typeof value.input === "number" ? value.input : 0;
+		const output = typeof value.output === "number" ? value.output : 0;
+		const read = typeof value.cacheRead === "number" ? value.cacheRead : 0;
+		const write = typeof value.cacheWrite === "number" ? value.cacheWrite : 0;
+		tokens += input + output;
+		cacheRead += read;
+		cacheWrite += write;
+		reported = true;
+	}
+	return reported ? { tokens, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } : null;
+}
+
+/** Per-attempt DELTA (#123069): post − pre against the cumulative durable
+ *  ledger. First legs (nothing reported before) count from zero; an attempt
+ *  with no newly-reported legs stays null — unreported is never 0. */
+export function usageDelta(
+	before: UsageTotals | null,
+	after: UsageTotals | null,
+): UsageTotals | null {
+	if (after === null) return null;
+	if (before === null) return after;
+	return {
+		tokens: after.tokens - before.tokens,
+		cacheReadTokens: after.cacheReadTokens - before.cacheReadTokens,
+		cacheWriteTokens: after.cacheWriteTokens - before.cacheWriteTokens,
+	};
+}
+
 /**
  * Run one live attempt end-to-end: verify the route (fail closed), open the
  * durable journal + harness under `env.BLAM_PI_DURABLE_ROOT`, submit the
@@ -309,6 +354,7 @@ export async function runDurableSession(
 			},
 			TODO_CONTEXT as Context,
 		);
+		const before = usageTotalsOf(await harness.usage(TODO_CONTEXT as Context));
 		await conversation.submit(
 			{
 				type: "input",
@@ -322,30 +368,17 @@ export async function runDurableSession(
 			},
 			TODO_CONTEXT as Context,
 		);
+		// Per-attempt usage DELTA (#123069): snapshot the cumulative durable
+		// ledger before the submit; the receipt reports post − pre, never the
+		// journal-wide cumulative total.
 		const outcome = await waitForSettle(harness, { deadlineMs: deadline });
-		const usage = await harness.usage(TODO_CONTEXT as Context);
-		let tokens = 0;
-		let cacheRead = 0;
-		let cacheWrite = 0;
-		let reported = false;
-		for (const bucket of Object.values(usage.models)) {
-			const value = (bucket as { value?: unknown }).value;
-			if (!isRecord(value)) continue;
-			const input = typeof value.input === "number" ? value.input : 0;
-			const output = typeof value.output === "number" ? value.output : 0;
-			const read = typeof value.cacheRead === "number" ? value.cacheRead : 0;
-			const write = typeof value.cacheWrite === "number" ? value.cacheWrite : 0;
-			tokens += input + output;
-			cacheRead += read;
-			cacheWrite += write;
-			reported = true;
-		}
+		const delta = usageDelta(before, usageTotalsOf(await harness.usage(TODO_CONTEXT as Context)));
 		return {
 			exit: outcome === "idle" ? 0 : 1,
 			timedOut: outcome === "timeout",
-			tokens: reported ? tokens : null,
-			cacheReadTokens: reported ? cacheRead : null,
-			cacheWriteTokens: reported ? cacheWrite : null,
+			tokens: delta === null ? null : delta.tokens,
+			cacheReadTokens: delta === null ? null : delta.cacheReadTokens,
+			cacheWriteTokens: delta === null ? null : delta.cacheWriteTokens,
 			conversationId: conversation.id,
 		};
 	} finally {

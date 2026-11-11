@@ -389,3 +389,37 @@ test("live runtime: --resume argv parses as a bare boolean switch", async () => 
 	const plain = parseArgs(["--worktree", "/tmp/wt", "--model", "m", "--prompt", "p"]);
 	expect(plain.resume).toBe(false);
 });
+
+test("live runtime: per-attempt usage DELTA — never the cumulative journal", async () => {
+	const { usageTotalsOf, usageDelta } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	const ledger = (input: number, output: number) => ({
+		models: {
+			"blam-route/m": { value: { input, output, cacheRead: 0, cacheWrite: 0 } },
+		},
+	});
+	expect(usageTotalsOf(ledger(100, 20))).toEqual({
+		tokens: 120,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+	});
+	// attempt 2 sees a grown ledger; receipt = delta, not cumulative
+	const before = usageTotalsOf(ledger(100, 20));
+	const after = usageTotalsOf(ledger(300, 60));
+	expect(usageDelta(before, after)).toEqual({
+		tokens: 240,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+	});
+	// first attempt on an empty ledger counts from zero
+	expect(usageDelta(null, after)).toEqual({
+		tokens: 360,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+	});
+	// no newly-reported legs → null, never 0 (owner law: unreported ≠ measured 0)
+	expect(usageDelta(before, null)).toBeNull();
+	expect(usageDelta(null, null)).toBeNull();
+	expect(usageTotalsOf({ models: {} })).toBeNull();
+});
