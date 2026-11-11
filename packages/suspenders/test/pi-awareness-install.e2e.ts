@@ -4,6 +4,8 @@ import {
 	mkdirSync,
 	readFileSync,
 	statSync,
+	unlinkSync,
+	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
@@ -91,6 +93,51 @@ test("Pi install preserves dangling user symlinks and predicts conflicts in dry-
 			"conflict",
 		);
 		expect(lstatSync(entry).isSymbolicLink()).toBe(true);
+	} finally {
+		world.clean();
+	}
+});
+
+test("Pi cockpit wire sync uses tracked source and preserves manual installs @unit", async () => {
+	const { installPiCockpit } = await import(
+		"../scripts/install/install-pi-awareness.ts"
+	);
+	const world = scratchWorld({ prefix: "pi-cockpit-install-" });
+	try {
+		const options = { piHome: world.home };
+		const source = join(world.repo, "extensions/fleet-cockpit");
+		const installed = join(world.home, "extensions/fleet-cockpit");
+		const entry = join(installed, "index.js");
+		expect((await installPiCockpit(world.repo, options)).status).toBe(
+			"skipped",
+		);
+		mkdirSync(source, { recursive: true });
+		writeFileSync(join(source, "index.ts"), "export default function () {}");
+		expect(
+			(await installPiCockpit(world.repo, { ...options, dryRun: true })).status,
+		).toBe("planned");
+		expect(existsSync(installed)).toBe(false);
+		mkdirSync(installed, { recursive: true });
+		const manual = join(installed, "index.ts");
+		writeFileSync(manual, "// manually installed");
+		expect((await installPiCockpit(world.repo, options)).status).toBe(
+			"conflict",
+		);
+		expect(readFileSync(manual, "utf8")).toBe("// manually installed");
+		unlinkSync(manual);
+		expect((await installPiCockpit(world.repo, options)).action).toBe("synced");
+		expect(statSync(entry).mode & 0o777).toBe(0o600);
+		expect(
+			JSON.parse(readFileSync(join(installed, "package.json"), "utf8"))
+				.fleetManaged,
+		).toBe("fleet-cockpit-v1");
+		expect((await installPiCockpit(world.repo, options)).action).toBe(
+			"current",
+		);
+		appendFileSync(entry, "// edited");
+		expect((await installPiCockpit(world.repo, options)).status).toBe(
+			"conflict",
+		);
 	} finally {
 		world.clean();
 	}

@@ -8,7 +8,7 @@ import { z } from "zod";
 
 const MetadataSchema = z.strictObject({
 	type: z.literal("module"),
-	fleetManaged: z.literal("fleet-awareness-v1"),
+	fleetManaged: z.enum(["fleet-awareness-v1", "fleet-cockpit-v1"]),
 	bundleSha256: z.string().regex(/^[0-9a-f]{64}$/),
 	sdkVersion: z.string().max(40),
 });
@@ -19,19 +19,53 @@ type Result = {
 	note: string;
 	bytes?: number;
 };
-const conflict = (): Result => ({
-	status: "conflict",
-	action: "none",
-	note: "Pi awareness user files or incompatible install preserved; resolve conflict before syncing",
-});
+type InstallOptions = { home?: string; piHome?: string; dryRun?: boolean };
 
-export async function installPiAwareness(
-	options: { home?: string; piHome?: string; dryRun?: boolean } = {},
+export function installPiAwareness(
+	options: InstallOptions = {},
 ): Promise<Result> {
+	return installPiExtension(
+		"fleet-awareness",
+		fileURLToPath(
+			new URL("../../pi-extensions/fleet-awareness/index.ts", import.meta.url),
+		),
+		options,
+	);
+}
+
+export function installPiCockpit(
+	repo: string,
+	options: InstallOptions = {},
+): Promise<Result> {
+	return installPiExtension(
+		"fleet-cockpit",
+		join(repo, "extensions/fleet-cockpit/index.ts"),
+		options,
+	);
+}
+
+async function installPiExtension(
+	name: "fleet-awareness" | "fleet-cockpit",
+	source: string,
+	options: InstallOptions,
+): Promise<Result> {
+	const label = name === "fleet-awareness" ? "awareness" : "cockpit";
+	const manager = `${name}-v1` as const;
+	const conflict = (): Result => ({
+		status: "conflict",
+		action: "none",
+		note: `Pi ${label} user files or incompatible install preserved; resolve conflict before syncing`,
+	});
 	const piHome = options.piHome ?? join(options.home ?? homedir(), ".pi/agent");
 	if (!existsSync(piHome))
 		return { status: "skipped", action: "none", note: "Pi agent home absent" };
-	const dir = join(piHome, "extensions/fleet-awareness"),
+	if (name === "fleet-cockpit" && !existsSync(source))
+		return {
+			status: "skipped",
+			action: "none",
+			note: `Pi ${label} source absent`,
+		};
+	const dir = join(piHome, "extensions", name),
 		entry = join(dir, "index.js"),
 		metaPath = join(dir, "package.json");
 	if (
@@ -47,6 +81,7 @@ export async function installPiAwareness(
 			previous = MetadataSchema.parse(
 				JSON.parse(readFileSync(metaPath, "utf8")),
 			);
+			if (previous.fleetManaged !== manager) return conflict();
 		} catch {
 			return conflict();
 		}
@@ -66,27 +101,20 @@ export async function installPiAwareness(
 		return {
 			status: "planned",
 			action: "none",
-			note: "Would sync Node Pi awareness bundle",
+			note: `Would sync Node Pi ${label} bundle`,
 		};
 	const build = await Bun.build({
-		entrypoints: [
-			fileURLToPath(
-				new URL(
-					"../../pi-extensions/fleet-awareness/index.ts",
-					import.meta.url,
-				),
-			),
-		],
+		entrypoints: [source],
 		target: "node",
 		format: "esm",
 		minify: true,
 	});
 	if (!build.success || build.outputs.length !== 1)
-		throw new Error("Pi awareness bundle build failed");
-	const code = `// fleet-managed:fleet-awareness:1\n${await build.outputs[0].text()}`;
+		throw new Error(`Pi ${label} bundle build failed`);
+	const code = `// fleet-managed:${name}:1\n${await build.outputs[0].text()}`;
 	const metadata = MetadataSchema.parse({
 		type: "module",
-		fleetManaged: "fleet-awareness-v1",
+		fleetManaged: manager,
 		bundleSha256: hash(code),
 		sdkVersion: "1.5.0",
 	});
@@ -105,7 +133,7 @@ export async function installPiAwareness(
 	return {
 		status: "ok",
 		action: current ? "current" : "synced",
-		note: "Node awareness bundle synced; Pi 1.5.0 API required",
+		note: `Node ${label} bundle synced; Pi 1.5.0 API required`,
 		bytes: Buffer.byteLength(code),
 	};
 }

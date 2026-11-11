@@ -1,8 +1,11 @@
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, delimiter, join } from "node:path";
 import { scratchWorld } from "@klh/test-kit";
 import { expect, test } from "@playwright/test";
-import { installPiAwareness } from "../scripts/install/install-pi-awareness.ts";
+import {
+	installPiAwareness,
+	installPiCockpit,
+} from "../scripts/install/install-pi-awareness.ts";
 
 test("Node Pi SDK discovers Fleet registration and disposes during real startup without an unhandled rejection @unit", async () => {
 	const world = scratchWorld({ prefix: "pi-sdk-" });
@@ -14,6 +17,17 @@ test("Node Pi SDK discovers Fleet registration and disposes during real startup 
 			join(world.home, "extensions/fleet-statusline.ts"),
 			'export default function(pi) { pi.registerCommand("fleet", { description: "Status widget", handler: async () => {} }); }',
 		);
+		const cockpit = join(world.repo, "extensions/fleet-cockpit");
+		mkdirSync(cockpit, { recursive: true });
+		writeFileSync(
+			join(cockpit, "index.ts"),
+			'export default function(pi) { pi.registerCommand("fleetcockpit", { description: "Cockpit", handler: async () => {} }); }',
+		);
+		expect(
+			await installPiCockpit(world.repo, { piHome: world.home }),
+		).toMatchObject({
+			status: "ok",
+		});
 		for (const command of ["coord", "work"])
 			writeFileSync(
 				join(world.home, command),
@@ -34,7 +48,7 @@ const {session}=await createAgentSession({cwd:process.cwd(),agentDir:process.cwd
 let tools;try{await session.bindExtensions({uiContext:{setStatus:()=>{statusWrites++}}});tools=session.getAllTools().map(t=>t.name);}finally{session.dispose()}
 await new Promise(r=>setTimeout(r,250));
 const loaded=resourceLoader.getExtensions();
-console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,panelCommands:loaded.extensions.filter(e=>e.commands.has("fleetpanel")).length,widgetCommands:loaded.extensions.filter(e=>e.commands.has("fleet")).length,errors:loaded.errors}));
+console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,panelCommands:loaded.extensions.filter(e=>e.commands.has("fleetpanel")).length,widgetCommands:loaded.extensions.filter(e=>e.commands.has("fleet")).length,cockpitCommands:loaded.extensions.filter(e=>e.commands.has("fleetcockpit")).length,errors:loaded.errors}));
 `,
 		);
 		const node =
@@ -67,6 +81,7 @@ console.log(JSON.stringify({runtime:typeof Bun,tools,statusWrites,panelCommands:
 			runtime: "undefined",
 			panelCommands: 1,
 			widgetCommands: 1,
+			cockpitCommands: 1,
 			statusWrites: 0,
 			errors: [],
 		});

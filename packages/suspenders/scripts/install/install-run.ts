@@ -425,15 +425,21 @@ async function userLevelWire(ctx: StepContext): Promise<StepResult> {
 		ctx.home,
 	);
 	const extras = await runWireExtras(ctx);
-	const { installPiAwareness } = await import("./install-pi-awareness.ts");
-	const awareness = await installPiAwareness({
-		home: ctx.home,
-		dryRun: ctx.dryRun,
-	});
-	const piNote =
-		awareness.status === "skipped"
-			? ""
-			: ` — Pi awareness ${awareness.status}: ${awareness.note}`;
+	const { installPiAwareness, installPiCockpit } = await import(
+		"./install-pi-awareness.ts"
+	);
+	const options = { home: ctx.home, dryRun: ctx.dryRun };
+	const awareness = await installPiAwareness(options);
+	const cockpit = await installPiCockpit(ctx.repo, options);
+	const piNote = [
+		{ label: "awareness", result: awareness },
+		{ label: "cockpit", result: cockpit },
+	]
+		.filter(({ result }) => result.status !== "skipped")
+		.map(
+			({ label, result }) => ` — Pi ${label} ${result.status}: ${result.note}`,
+		)
+		.join("");
 	return {
 		status: awareness.status === "conflict" ? "failed" : "ok",
 		note: wireNote(settingsPath, added, removed, extras + piNote),
