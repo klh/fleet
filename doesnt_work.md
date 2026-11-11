@@ -594,3 +594,7 @@ Literal[True/False] reproduction. The structural-excerpt arm was shorter
 private contract. Do not report that difference as faster successful work.
 Keep the public fixture frozen for the matched repetitions; any broader
 public-contract test generation must be a separately labeled treatment.
+
+### Medium planning and pipefail did not rescue held-out Sphinx 9602
+
+On 2026-11-11 the AST arm completed but failed the private target (0/1) and one regression (44/45); 321.308 driver seconds, 335,171 tokens. Baseline pipefail also failed target acceptance. Both are retained in benchmarks.md with immutable controller/driver hashes and per-run receipts. Fast first tool output and correct pipeline exit propagation did not yield a correct patch. Reject this combination pending a separately labelled treatment; do not hide it behind the successful original-case streak.

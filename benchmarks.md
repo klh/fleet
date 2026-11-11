@@ -2253,3 +2253,11 @@ an isolated guest `false | tail` probe returned exit one under pipefail.
 The first medium-effort pipefail diagnostic still failed the canonical target
 after 129.195 model-run seconds and 56,208 tokens, preserving 45/45 regressions.
 This repairs a measurement weakness but has not established a quality gain.
+
+### Held-out 9602: medium planning plus pipefail, AST arm (2026-11-11)
+
+The finite run completed at ast-medium-contract-planning-uH5rdB under outputs/w2960-sphinx/holdout. Controller SHA256 74cf83a729f4b6ff93f2ad9db60aa1cd152fa5f38322284276a9104be19b052d; driver ff081511c8fa526382d589b53fe34d1e6fbef4314b9c7d379907b315bc37c170. Same official 9602 base/image/private judge and predeclared public contract fixture as the paired baseline.
+
+Driver elapsed 321.308 seconds, first successful command 3.133 seconds, 26 requests and 31 commands. Usage 335,171 tokens: 22,757 fresh input, 11,678 output, 300,736 cache reads; 6,961 reasoning tokens are a reported subcategory, not added again. Private judge: target 0/1, regressions 44/45. Fixture unchanged, served route verified, key revoked. Run process exit0 and grade process exit0 do NOT mean accepted: accepted=false.
+
+The prior baseline/medium/contract/planning/pipefail arm also failed target acceptance (0/1, regressions45/45). Pipefail reliably exposes shell pipeline failures; this pair provides no quality-qualified improvement and the AST arm introduced a regression. Do not promote this combination or generalize earlier single-case 3/3 streaks. The public brief was fixed before later private-log inspection; no private assertions were injected.
