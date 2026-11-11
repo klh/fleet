@@ -154,10 +154,31 @@ export type DrainResponse = z.infer<typeof DrainResponseSchema>;
 
 // ─── GET /v1/models ───────────────────────────────────────────────────────
 
+// W2979: optional serving-capability metadata a route may advertise —
+// published ONLY from operator-pinned conf (never invented); consumers
+// (Pi discovery, BLAM fail-closed preflight) budget against these.
+export const ModelCapabilitiesSchema = z.object({
+	context_length: z.number().int().positive().optional(),
+	max_output_tokens: z.number().int().positive().optional(),
+	reasoning: z.boolean().optional(),
+	capability_source: z
+		.enum(["provider-published", "locally-demonstrated", "operator-pinned"])
+		.optional(),
+});
+export type ModelCapabilities = z.infer<typeof ModelCapabilitiesSchema>;
+
 export const ModelRowSchema = z.object({
 	id: z.string(),
 	object: z.literal("model"),
 	owned_by: z.string(),
+	// W2979: present only when the upstream conf pins capabilities and every
+	// bound deployment agrees — absent = unadvertised, never guessed.
+	context_length: z.number().int().positive().optional(),
+	max_output_tokens: z.number().int().positive().optional(),
+	reasoning: z.boolean().optional(),
+	capability_source: z
+		.enum(["provider-published", "locally-demonstrated", "operator-pinned"])
+		.optional(),
 });
 export type ModelRow = z.infer<typeof ModelRowSchema>;
 
