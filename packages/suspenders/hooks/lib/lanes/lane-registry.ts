@@ -92,9 +92,21 @@ export function memoProjectRoot(
 	return hit.root;
 }
 
+const REGISTRY_MEMO_TTL_MS = 2_000;
+const registryMemo = new Map<string, { at: number; lanes: RegistryLane[] }>();
+
+/** Drop the read-memo entry for a registry file (or every entry). The
+ * module's own locked writers call this after publishing, so a same-process
+ * write-then-read never serves pre-write rows; cross-process writers stay
+ * bounded by the TTL instead (W2862). */
+export const invalidateRegistryMemo = (file?: string): void => {
+	if (file === undefined) registryMemo.clear();
+	else registryMemo.delete(resolve(file));
+};
+
 export const laneRegistryFile = (
 	input: string,
-	resolveRoot: ProjectRootResolver = canonicalProjectRoot,
+	resolveRoot: ProjectRootResolver = memoProjectRoot,
 ): string => join(resolveRoot(input), ".fleet", "lanes.json");
 export type RegistryRead<T> =
 	| { known: true; lanes: T[] }
@@ -133,8 +145,15 @@ export function loadLaneRegistryFile<T extends RegistryLane>(
 export function loadLaneRegistry<T extends RegistryLane>(
 	input: string,
 	resolveRoot?: ProjectRootResolver,
+	now = Date.now(),
+	ttlMs = REGISTRY_MEMO_TTL_MS,
 ): T[] {
-	return loadLaneRegistryFile<T>(laneRegistryFile(input, resolveRoot));
+	const file = resolve(laneRegistryFile(input, resolveRoot));
+	const hit = registryMemo.get(file);
+	if (hit && now - hit.at < ttlMs) return (hit.lanes as T[]).slice();
+	const lanes = loadLaneRegistryFile<T>(file);
+	registryMemo.set(file, { at: now, lanes });
+	return lanes;
 }
 
 export function newerLane<T extends RegistryLane>(current: T, incoming: T): T {
@@ -216,6 +235,7 @@ function writeRegistryBytes(file: string, bytes: string | Buffer): void {
 			closeSync(fd);
 		}
 		renameSync(temp, file);
+		invalidateRegistryMemo(file);
 	} finally {
 		rmSync(temp, { force: true });
 	}
@@ -293,6 +313,7 @@ export function mergeLaneRegistry<T extends RegistryLane>(
 				closeSync(fd);
 			}
 			renameSync(temp, file);
+			invalidateRegistryMemo(file);
 		} finally {
 			rmSync(temp, { force: true });
 		}
@@ -335,6 +356,7 @@ export function repairLaneRegistryPid<
 				closeSync(fd);
 			}
 			renameSync(temp, file);
+			invalidateRegistryMemo(file);
 			return true;
 		} finally {
 			rmSync(temp, { force: true });
@@ -378,6 +400,7 @@ export function pruneLaneRegistry<T extends RegistryLane>(
 				closeSync(fd);
 			}
 			renameSync(temp, file);
+			invalidateRegistryMemo(file);
 			return { removed, kept };
 		} finally {
 			rmSync(temp, { force: true });
