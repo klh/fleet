@@ -74,12 +74,21 @@ const stableCmd = (c: string): boolean => {
 // gen pin = HOOKS_ROOT + `suspenders.generation-<id>` + `/<REL_GATE>`,
 // anchored by SEGMENT SHAPE (round-3 review): exactly ONE generation dir
 // between the hooks root and .harness — nested unrelated dirs
-// (suspenders.generation-x/unrelated/.harness/…) are foreign.
+// (suspenders.generation-x/unrelated/.harness/…) are foreign, and so is any
+// foreign prefix of the same LENGTH as the root (round-4: the gen tail is
+// only examined after the path provably starts with the root).
 const GEN_PREFIX = "suspenders.generation-";
 const genCmd = (c: string): boolean => {
 	const a = gateArg(c);
 	if (a === undefined) return false;
-	const segs = normPath(a).slice(HOOKS_ROOT.length).split("/");
+	const np = normPath(a);
+	// round-4 (root #123853): a foreign prefix of the same LENGTH as
+	// HOOKS_ROOT followed by a gen-shaped tail sliced to an exact gen pin —
+	// the entry got owned and deleted. The path must actually START WITH the
+	// root before the slice; the trailing "/" in HOOKS_ROOT is the segment
+	// boundary, so a same-length foreign prefix (`hooksX/…`) stays foreign.
+	if (!np.startsWith(HOOKS_ROOT)) return false;
+	const segs = np.slice(HOOKS_ROOT.length).split("/");
 	const g = segs[0];
 	return (
 		segs.length === 6 &&
