@@ -528,6 +528,30 @@ describe("gate-wire-codex generation stability (W2961)", () => {
 		expect(pre[0].hooks[0].command).toBe(nested); // exactly ONE gen dir between root and .harness
 	});
 
+	test("length-matched foreign prefix before a gen-shaped tail is preserved, never deleted", () => {
+		// round-4 (root #123853): a foreign prefix of the SAME LENGTH as
+		// HOOKS_ROOT followed by a gen-shaped tail sliced to an exact gen pin
+		// — the entry got owned and deleted. The prefix guard must reject it
+		// before the slice; the entry stays verbatim.
+		const foreign = `${process.execPath} ${GHOME}/.claude/hookX/suspenders.generation-private/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [{ hooks: [{ type: "command", command: foreign }] }],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(2);
+		expect(pre[0].hooks[0].command).toBe(foreign); // same length ≠ ownership
+		expect(pre[1].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		);
+	});
+
 	test("mixed entry keeps the foreign command and entry metadata, drops only the owned one", () => {
 		const stable = `${process.execPath} ${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex pre-tool`;
 		writeFileSync(
