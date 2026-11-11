@@ -82,3 +82,18 @@ files too, so the marker precedes the command's execution.
 Graceful workspace checkpoint and restore remain under implementation. A
 Durable journal alone is not a workspace backup, and the current HOST runner
 must not be presented as restart-safe on the strength of journal reopening.
+
+The checkpoint storage foundation streams opaque archive bytes into a private
+directory and publishes its manifest last, with file and directory fsync. The
+caller must durably provision its private storage root first. Size and digest
+checks share the same nofollow file descriptor later used for replay. The
+manifest binds the original job, image, deadline, lease epoch and conversation.
+This foundation does not validate an archive, authorize resume or establish
+workspace consistency; lifecycle capture and restore are not yet wired.
+
+The separate Docker process transport has tested per-command cancellation and
+bounded cleanup. Guest exit frames are not authenticated: a same-UID command
+can forge success and kill its guardian. Before checkpoint or reuse, close
+intake, join tracked commands and require the daemon-backed PID-only quiescence
+check; residue or uncertain cleanup requires destroying the guest. Integration
+into the production executor remains pending.
