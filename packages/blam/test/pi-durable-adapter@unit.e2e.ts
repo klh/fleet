@@ -145,37 +145,48 @@ test("a completed driver run exits 0 and a failed leg exits 1 @unit", async () =
 });
 
 test("live runtime: route verification reads serving reality, not names", async () => {
-	const { verifyRouteAdvertised } = await import(
+	const { verifyRoute } = await import(
 		"../bench/agentic/pi-durable-runtime.ts"
 	);
-const listing = (ids: readonly string[]) =>
-	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), {
-		status: 200,
+	const listing = (entries: readonly unknown[]) =>
+		new Response(JSON.stringify({ data: entries }), { status: 200 });
+	const hit = await verifyRoute({
+		baseUrl: "https://t.local",
+		token: "bksk_t",
+		model: "glm-5.3",
+		fetchImpl: async () =>
+			listing([
+				{
+					id: "glm-5.3",
+					context_window: 131072,
+					max_output_tokens: 16384,
+					reasoning: true,
+				},
+			]),
 	});
-	expect(
-		await verifyRouteAdvertised({
-			baseUrl: "https://t.local",
-			token: "bksk_t",
-			model: "glm-5.3",
-			fetchImpl: async () => listing(["glm-5.3"]),
-		}),
-	).toBe(true);
-	expect(
-		await verifyRouteAdvertised({
-			baseUrl: "https://t.local",
-			token: "bksk_t",
-			model: "not-served",
-			fetchImpl: async () => listing(["glm-5.3"]),
-		}),
-	).toBe(false);
-	expect(
-		await verifyRouteAdvertised({
-			baseUrl: "https://t.local",
-			token: "bksk_t",
-			model: "glm-5.3",
-			fetchImpl: async () => new Response("{}", { status: 503 }),
-		}),
-	).toBe(false);
+	expect(hit).toEqual({
+		advertised: true,
+		model: {
+			id: "glm-5.3",
+			contextWindow: 131072,
+			maxTokens: 16384,
+			reasoning: true,
+		},
+	});
+	const miss = await verifyRoute({
+		baseUrl: "https://t.local",
+		token: "bksk_t",
+		model: "not-served",
+		fetchImpl: async () => listing([{ id: "glm-5.3" }]),
+	});
+	expect(miss.advertised).toBe(false);
+	const down = await verifyRoute({
+		baseUrl: "https://t.local",
+		token: "bksk_t",
+		model: "glm-5.3",
+		fetchImpl: async () => new Response("{}", { status: 503 }),
+	});
+	expect(down.advertised).toBe(false);
 });
 
 test("live runtime: models carry exactly one openai-completions provider", async () => {
@@ -185,13 +196,35 @@ test("live runtime: models carry exactly one openai-completions provider", async
 	const models = buildModels({
 		baseUrl: "https://t.local",
 		token: "bksk_t",
-		model: "glm-5.3",
+		advertised: {
+			id: "glm-5.3",
+			contextWindow: 131072,
+			maxTokens: 16384,
+			reasoning: true,
+		},
 	});
 	const all = models.getModels();
 	expect(all).toHaveLength(1);
 	expect(all[0]!.provider).toBe("blam-route");
 	expect(all[0]!.api).toBe("openai-completions");
 	expect(all[0]!.id).toBe("glm-5.3");
+	// Advertised serving metadata only — never hardcoded numbers (122898.4).
+	expect(all[0]!.contextWindow).toBe(131072);
+	expect(all[0]!.maxTokens).toBe(16384);
+	expect(all[0]!.reasoning).toBe(true);
+});
+
+test("live runtime: unadvertised serving metadata is a typed refusal, not a guess", async () => {
+	const { buildModels } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	expect(() =>
+		buildModels({
+			baseUrl: "https://t.local",
+			token: "bksk_t",
+			advertised: { id: "glm-5.3" },
+		}),
+	).toThrow(/context_window/);
 });
 
 test("live runtime: durable session refuses without a journal root, env stays unlogged", async () => {
@@ -210,6 +243,7 @@ test("live runtime: durable session refuses without a journal root, env stays un
 		model: "glm-5.3",
 		prompt: "hi",
 		effort: "low",
+		resume: false,
 		bounds: { maxTokens: null, turnLimit: null },
 	};
 	await expect(
@@ -236,4 +270,122 @@ test("live runtime: default driver still refuses; executor gates on env before t
 		{ BLAM_PI_DURABLE_URL: "https://t.local" },
 	);
 	expect(envGated.code).toBe(2);
+});
+
+test("live runtime: fail-closed — an unadvertised route never opens a conversation", async () => {
+	const { runDurableSession } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	const { mkdtempSync } = await import("node:fs");
+	const root = mkdtempSync("/tmp/blam-journal-");
+	const spec = {
+		wire: "openai-completions",
+		model: "ghost-model",
+		bounds: { maxTokens: null, turnLimit: null },
+		effort: { requested: "low", effective: null },
+		routeCompat: "unverified",
+	} as const;
+	const args = {
+		worktree: "/tmp/wt",
+		model: "ghost-model",
+		prompt: "hi",
+		effort: "low",
+		resume: false,
+		bounds: { maxTokens: null, turnLimit: null },
+	};
+	await expect(
+		runDurableSession(
+			spec,
+			args,
+			{
+				baseUrl: "https://t.local",
+				token: "bksk_t",
+				BLAM_PI_DURABLE_ROOT: root,
+			},
+			async () =>
+				new Response(JSON.stringify({ data: [{ id: "other" }] }), {
+					status: 200,
+				}),
+		),
+	).rejects.toThrow(/fail-closed/);
+});
+
+test("live runtime: --resume without a prior session is a typed usage error", async () => {
+	const { runDurableSession } = await import(
+		"../bench/agentic/pi-durable-runtime.ts"
+	);
+	const { mkdtempSync } = await import("node:fs");
+	const root = mkdtempSync("/tmp/blam-journal-");
+	const spec = {
+		wire: "openai-completions",
+		model: "glm-5.3",
+		bounds: { maxTokens: null, turnLimit: null },
+		effort: { requested: "low", effective: null },
+		routeCompat: "unverified",
+	} as const;
+	const args = {
+		worktree: "/tmp/wt",
+		model: "glm-5.3",
+		prompt: "hi",
+		effort: "low",
+		resume: true,
+		bounds: { maxTokens: null, turnLimit: null },
+	};
+	await expect(
+		runDurableSession(
+			spec,
+			args,
+			{
+				baseUrl: "https://t.local",
+				token: "bksk_t",
+				BLAM_PI_DURABLE_ROOT: root,
+			},
+			async () =>
+				new Response(
+					JSON.stringify({
+						data: [
+							{
+								id: "glm-5.3",
+								context_window: 131072,
+								max_output_tokens: 16384,
+							},
+						],
+					}),
+					{ status: 200 },
+				),
+		),
+	).rejects.toThrow(/no prior durable session/);
+});
+
+test("live runtime: malformed deadline is a usage error, never a NaN timer", async () => {
+	const { parseDeadlineMs, ExecutorError } = await import(
+		"../bench/agentic/pi-durable-strategy.ts"
+	);
+	expect(parseDeadlineMs(undefined)).toBeUndefined();
+	expect(parseDeadlineMs("5000")).toBe(5000);
+	try {
+		parseDeadlineMs("abc");
+		throw new Error("should have thrown");
+	} catch (error) {
+		expect(error).toBeInstanceOf(ExecutorError);
+		expect((error as InstanceType<typeof ExecutorError>).exitCode).toBe(2);
+	}
+});
+
+test("live runtime: --resume argv parses as a bare boolean switch", async () => {
+	const { parseArgs } = await import(
+		"../bench/agentic/pi-durable-strategy.ts"
+	);
+	const parsed = parseArgs([
+		"--worktree",
+		"/tmp/wt",
+		"--model",
+		"m",
+		"--prompt",
+		"p",
+		"--resume",
+	]);
+	expect(parsed.resume).toBe(true);
+	const plain = parseArgs(["--worktree", "/tmp/wt", "--model", "m", "--prompt", "p"]);
+	expect(plain.resume).toBe(false);
 });

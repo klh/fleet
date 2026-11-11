@@ -62,6 +62,8 @@ export const ExecutorArgsSchema = z.strictObject({
 	model: RouteIdSchema,
 	prompt: PromptSchema,
 	effort: EffortSchema,
+	/** Resume the journal's last conversation instead of opening a fresh one. */
+	resume: z.boolean().default(false),
 });
 export type ExecutorArgs = z.infer<typeof ExecutorArgsSchema>;
 
@@ -88,6 +90,8 @@ export type AttemptResult = {
 	readonly tokens: number | null;
 	readonly cacheReadTokens: number | null;
 	readonly cacheWriteTokens: number | null;
+	/** Durable conversation id — the resume identity across processes (122898.2). */
+	readonly conversationId?: number;
 };
 
 /** A durable session driver — the W2971 live arm injects the real runner. */
@@ -105,14 +109,18 @@ export type SessionDriver = (
 ) => Promise<AttemptResult>;
 
 export class ExecutorError extends Error {
+	/** 2 = usage/args/env/config error; 3 = leg refused (fabrication guard). Default 3. */
 	constructor(
 		readonly usage: string,
+		readonly exitCode: 2 | 3 = 3,
 		options?: { cause?: unknown },
 	) {
 		super(usage, options);
 	}
 }
 
+/** Flags that take no value. */
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["--resume"]);
 const FLAG_MAP: Record<string, keyof z.infer<typeof ExecutorArgsSchema>> = {
 	"--worktree": "worktree",
 	"--model": "model",
@@ -133,17 +141,27 @@ export function parseArgs(argv: readonly string[]): ExecutorArgs & {
 	bounds: { maxTokens: number | null; turnLimit: number | null };
 } {
 	const flags = new Map<string, string>();
-	for (let i = 0; i < argv.length; i += 2) {
+	for (let i = 0; i < argv.length; ) {
 		const flag = argv[i];
-		const value = argv[i + 1];
-		if (!flag?.startsWith("--") || value === undefined)
+		if (!flag?.startsWith("--"))
 			throw new ExecutorError(
 				`expected --flag value pairs, got: ${argv.join(" ")}`,
 			);
 		if (flags.has(flag)) throw new ExecutorError(`duplicate flag ${flag}`);
+		if (BOOLEAN_FLAGS.has(flag)) {
+			flags.set(flag, "true");
+			i += 1;
+			continue;
+		}
+		const value = argv[i + 1];
+		if (value === undefined)
+			throw new ExecutorError(
+				`expected --flag value pairs, got: ${argv.join(" ")}`,
+			);
 		flags.set(flag, value);
+		i += 2;
 	}
-	const core: Record<string, unknown> = { effort: "low" };
+	const core: Record<string, unknown> = { effort: "low", resume: false };
 	for (const [flag, key] of Object.entries(FLAG_MAP)) {
 		const value = flags.get(flag);
 		if (value === undefined) {
@@ -153,6 +171,7 @@ export function parseArgs(argv: readonly string[]): ExecutorArgs & {
 		}
 		core[key] = value;
 	}
+	if (flags.has("--resume")) core.resume = true;
 	const bounds: { maxTokens: number | null; turnLimit: number | null } = {
 		maxTokens: null,
 		turnLimit: null,
@@ -284,12 +303,16 @@ export async function runExecutor(
 			baseUrl,
 			token,
 			journalRoot: env.BLAM_PI_DURABLE_ROOT,
-			deadlineMs: env.BLAM_PI_DURABLE_DEADLINE_MS
-				? Number.parseInt(env.BLAM_PI_DURABLE_DEADLINE_MS, 10)
-				: undefined,
+			deadlineMs: parseDeadlineMs(env.BLAM_PI_DURABLE_DEADLINE_MS),
 		});
 		console.log(
-			usageLine([result], { worktree: args.worktree, mode: "solo" }),
+			usageLine([result], {
+				worktree: args.worktree,
+				mode: "solo",
+				...(result.conversationId !== undefined
+					? { conversation_id: result.conversationId }
+					: {}),
+			}),
 		);
 		return { code: result.exit === 0 && result.tokens !== null ? 0 : 1 };
 	} catch (error) {
@@ -297,8 +320,25 @@ export async function runExecutor(
 			`pi-durable-strategy: attempt did not run: ${(error as Error).message}`,
 		);
 		console.error("pi-durable-strategy: DRY — no fabricated attempt emitted");
-		return { code: 3 };
+		return {
+			code: error instanceof ExecutorError ? error.exitCode : 3,
+		};
 	}
+}
+
+/**
+ * Wall-clock deadline parsing (122898.5): a present but malformed value is a
+ * usage error (exit 2), never a NaN timer. Absent stays unbounded.
+ */
+export function parseDeadlineMs(raw: string | undefined): number | undefined {
+	if (raw === undefined || raw === "") return undefined;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0)
+		throw new ExecutorError(
+			`BLAM_PI_DURABLE_DEADLINE_MS must be a positive integer (ms), got: ${raw}`,
+			2,
+		);
+	return parsed;
 }
 
 if (import.meta.main) {
