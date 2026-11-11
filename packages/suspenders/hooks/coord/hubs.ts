@@ -11,9 +11,13 @@
 // whether a pin will queue or shed) — sourced from the hub buckle
 // /v1/models face, which rides the router's admission pool snapshots.
 import { arg, die, dim, green, red } from "./shared.ts";
-import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { alive, readRegistry, REGISTRY_PATH } from "../lib/hub/hub-locate.ts";
+import {
+	alive,
+	profileToken,
+	readRegistry,
+	REGISTRY_PATH,
+} from "../lib/hub/hub-locate.ts";
 import { loadStack, STACK_PATH, type HubProfile } from "../lib/stack-config.ts";
 
 /** W2635: one model row from a hub's /v1/models face — the admission block
@@ -226,19 +230,16 @@ const hubModelsTimeoutMs = (): number => {
 	return Math.min(10_000, Math.max(100, Math.round(n)));
 };
 
-/** W2635: fetch one up hub's model listing from its buckle front — the
- *  stack token_file is the credential (the belt hubProviderObservations
- *  precedent); no credential or unreachable face = null, never a guess. */
-export async function fetchHubModels(
+/** Read the catalog only with the credential declared for this front. */
+async function fetchHubModels(
 	base: string,
-	tokenFile: string | undefined,
+	key: string | undefined,
 ): Promise<HubModelRow[] | null> {
-	if (!tokenFile) return null;
+	if (!key) return null;
 	try {
-		const key = readFileSync(tokenFile, "utf8").trim();
-		if (!key) return null;
 		const response = await fetch(new URL("/v1/models", base), {
 			headers: { Authorization: `Bearer ${key}` },
+			redirect: "error",
 			signal: AbortSignal.timeout(hubModelsTimeoutMs()),
 		});
 		if (!response.ok) return null;
@@ -251,7 +252,7 @@ export async function fetchHubModels(
 export async function cmdHubs(rest: string[]): Promise<void> {
 	const wantLabel = arg("--label");
 	const asJson = rest.includes("--json");
-	const { labels, candidates, stackLoaded } = hubTopology();
+	const { labels, candidates, registry, stackLoaded } = hubTopology();
 	if (wantLabel && !labels.has(wantLabel.toLowerCase()))
 		die(
 			`hub "${wantLabel}" not in hubs.json or stack.json — known: ${[...labels.values()].join(", ") || "none"}`,
@@ -273,22 +274,33 @@ export async function cmdHubs(rest: string[]): Promise<void> {
 	}
 
 	if (asJson) {
-		// W2635: each UP hub carries its model listing + pool aggregates in
-		// parallel (bounded wait; a down hub or missing credential simply
-		// reports models: null). The listing rides the BUCKLE front — the
-		// first up hubs.json candidate or stack.json buckle port, never a
-		// probe winner that happens to be the board/store.
+		// Reachability and catalog authentication are separate. A registry
+		// candidate can point at a different front even for the same label.
 		const stackHubs = stackHubsByLabel();
+		const registryHubs = new Map(
+			Object.entries(registry).map(([label, entry]) => [
+				label.toLowerCase(),
+				entry,
+			]),
+		);
 		const offerings = await Promise.all(
 			probed.map(async (hub) => {
-				const buckle = hub.candidates.find(
-					(c) =>
-						c.up &&
-						(c.source === "hubs.json" || c.source === "stack.json buckle"),
-				)?.url;
-				if (!buckle) return null;
-				const profile = stackHubs.get(hub.label.toLowerCase());
-				return fetchHubModels(buckle, profile?.token_file);
+				const label = hub.label.toLowerCase();
+				const profile = stackHubs.get(label);
+				const stackFront = hub.candidates.find(
+					(c) => c.source === "stack.json buckle",
+				);
+				const stackKey = profile && profileToken(profile);
+				if (stackFront && stackKey)
+					return stackFront.up
+						? fetchHubModels(stackFront.url, stackKey)
+						: null;
+				const registryFront = hub.candidates.find(
+					(c) => c.up && c.source === "hubs.json",
+				);
+				return registryFront
+					? fetchHubModels(registryFront.url, registryHubs.get(label)?.token)
+					: null;
 			}),
 		);
 		const hubs = probed.map((hub, i) => {
