@@ -105,3 +105,78 @@ test.describe("@api", () => {
 		expect(() => loadUpstreams(path)).toThrow(/capabilities/);
 	});
 });
+
+test.describe("@api", () => {
+	// W2979.1 (C448): the router walk crosses fallback groups — claims are
+	// only guaranteed when EVERY reachable group agrees.
+	test("fallback chain that agrees publishes the claim", async () => {
+		const fallback: Deployment[] = [
+			{ group: "glm-5.3-flash-fb", url: "https://fb.z.ai", dialect: "anthropic", capabilities: { ...CAPS } },
+		];
+		const deps = testDeps(poolOf(capped, fallback), {
+			policy: { fallbacks: { "glm-5.3-flash": ["glm-5.3-flash-fb"] } },
+		});
+		const app = createApp(deps);
+		const res = await app.fetch(
+			new Request("http://buckle.test/v1/models", { method: "GET" }),
+		);
+		const out = (await res.json()) as { data: Array<Record<string, unknown>> };
+		expect(out.data.find((m) => m.id === "glm-5.3-flash")).toMatchObject(CAPS);
+	});
+
+	test("mismatched fallback limits omit the claim — never an invented minimum", async () => {
+		const smaller: Deployment[] = [
+			{
+				group: "glm-5.3-flash-fb",
+				url: "https://fb.z.ai",
+				dialect: "anthropic",
+				capabilities: { ...CAPS, context_length: 131072 },
+			},
+		];
+		const deps = testDeps(poolOf(capped, smaller), {
+			policy: { fallbacks: { "glm-5.3-flash": ["glm-5.3-flash-fb"] } },
+		});
+		const app = createApp(deps);
+		const res = await app.fetch(
+			new Request("http://buckle.test/v1/models", { method: "GET" }),
+		);
+		const out = (await res.json()) as { data: Array<Record<string, unknown>> };
+		const glm = out.data.find((m) => m.id === "glm-5.3-flash");
+		expect(glm).toEqual({
+			id: "glm-5.3-flash",
+			object: "model",
+			owned_by: "buckle",
+		});
+	});
+
+	test("fallback group without capabilities omits the claim", async () => {
+		const deps = testDeps(poolOf(capped, bare), {
+			policy: { fallbacks: { "glm-5.3-flash": ["gpt-6-sol"] } },
+		});
+		const app = createApp(deps);
+		const res = await app.fetch(
+			new Request("http://buckle.test/v1/models", { method: "GET" }),
+		);
+		const out = (await res.json()) as { data: Array<Record<string, unknown>> };
+		expect(out.data.find((m) => m.id === "glm-5.3-flash")).toEqual({
+			id: "glm-5.3-flash",
+			object: "model",
+			owned_by: "buckle",
+		});
+	});
+
+	test("dangling fallback name (no deployments) omits the claim; cycles terminate", async () => {
+		const cyclePolicy = { fallbacks: { "glm-5.3-flash": ["glm-5.3-flash", "ghost-group"] } };
+		const deps = testDeps(poolOf(capped, bare), { policy: cyclePolicy });
+		const app = createApp(deps);
+		const res = await app.fetch(
+			new Request("http://buckle.test/v1/models", { method: "GET" }),
+		);
+		const out = (await res.json()) as { data: Array<Record<string, unknown>> };
+		expect(out.data.find((m) => m.id === "glm-5.3-flash")).toEqual({
+			id: "glm-5.3-flash",
+			object: "model",
+			owned_by: "buckle",
+		});
+	});
+});

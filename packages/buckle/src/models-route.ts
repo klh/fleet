@@ -67,25 +67,52 @@ export function poolNumbersOf(
 	};
 }
 
-/** W2979: the conf-pinned serving capabilities one model row reports —
- *  present only when EVERY bound deployment pins capabilities and they
- *  agree exactly (a group whose deployments disagree advertises nothing:
- *  half-honest metadata is worse than none). Values are operator conf,
- *  never invented here. */
+/** W2979: the conf-pinned serving capabilities one model row reports.
+ *
+ *  Publication rule (conservative truthful omission — C448):
+ *  the router walk CROSSES fallback groups (GatewayPolicy.fallbacks), so a
+ *  group's claim is only guaranteed when EVERY group reachable on the walk —
+ *  itself, its transitive fallbacks, and every deployment inside each — pins
+ *  capabilities and they all agree exactly. Any unreachable/missing/mismatched
+ *  rung ⇒ the row advertises NOTHING: half-honest metadata (or an invented
+ *  minimum across rungs) is worse than none. Values are operator conf,
+ *  never computed here. */
 export function capabilitiesOf(
 	pool: UpstreamPool,
 	group: string,
+	fallbacks?: Record<string, string[]>,
 ): ModelCapabilities | null {
-	const deployments = pool.deployments(group);
-	if (deployments.length === 0) return null;
-	const first = deployments[0]?.capabilities;
-	if (first === undefined) return null;
-	const agree = deployments.every(
-		(dep) =>
-			dep.capabilities !== undefined &&
-			JSON.stringify(dep.capabilities) === JSON.stringify(first),
-	);
-	return agree ? first : null;
+	// Walk the fallback chain: cycle-safe, bounded by the reachable set.
+	const reachable = new Set<string>([group]);
+	const queue = [group];
+	while (queue.length > 0) {
+		const g = queue.pop() as string;
+		for (const fb of fallbacks?.[g] ?? []) {
+			if (!reachable.has(fb)) {
+				reachable.add(fb);
+				queue.push(fb);
+			}
+		}
+	}
+	let first: string | undefined;
+	let agreed: ModelCapabilities | undefined;
+	for (const g of reachable) {
+		const deployments = pool.deployments(g);
+		// A reachable group with no deployments (dangling fallback name) can
+		// still be walked onto at serve time — its limits are unknown ⇒ omit.
+		if (deployments.length === 0) return null;
+		for (const dep of deployments) {
+			if (dep.capabilities === undefined) return null;
+			const key = JSON.stringify(dep.capabilities);
+			if (first === undefined) {
+				first = key;
+				agreed = dep.capabilities;
+			} else if (key !== first) {
+				return null;
+			}
+		}
+	}
+	return agreed ?? null;
 }
 
 export function modelsRoute(
@@ -113,7 +140,7 @@ export function modelsRoute(
 		.filter((id) => groups === null || groups.some((g) => globMatch(g, id)))
 		.map((id) => {
 			const pool = poolNumbersOf(deps, id);
-			const caps = capabilitiesOf(deps.pool, id);
+			const caps = capabilitiesOf(deps.pool, id, deps.router.policy.fallbacks);
 			return {
 				id,
 				object: "model",
