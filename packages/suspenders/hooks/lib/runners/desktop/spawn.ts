@@ -12,6 +12,8 @@ export interface RunOutput {
 export interface RunOptions {
 	stdin?: string;
 	timeoutMs?: number;
+	/** Cancel only this HOST-owned subprocess, and join its exit and pipes. */
+	signal?: AbortSignal;
 	/** Host-side drain ceiling per pipe — the child is KILLED on excess
 	 *  (model-controlled output must not OOM the host, root #117936). */
 	maxBytes?: number;
@@ -59,6 +61,8 @@ const drainBounded = async (
  *  A missing binary returns code 127 with the OS message — honest
  *  absence, never a fake success. */
 export const runArgv: RunArgv = async (argv, opts) => {
+	const signal = opts?.signal;
+	signal?.throwIfAborted();
 	let proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
 	try {
 		proc = Bun.spawn({
@@ -77,19 +81,17 @@ export const runArgv: RunArgv = async (argv, opts) => {
 		};
 	}
 	const cap = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-	const timer = setTimeout(() => {
-		proc.kill();
-	}, opts?.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS);
+	const kill = () => proc.kill("SIGKILL");
+	signal?.addEventListener("abort", kill, { once: true });
+	if (signal?.aborted) kill();
+	const timer = setTimeout(kill, opts?.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS);
 	timer.unref();
+	const drains = [
+		drainBounded(proc.stdout, cap, kill),
+		drainBounded(proc.stderr, cap, kill),
+	] as const;
 	try {
-		const [stdout, stderr] = await Promise.all([
-			drainBounded(proc.stdout, cap, () => {
-				proc.kill();
-			}),
-			drainBounded(proc.stderr, cap, () => {
-				proc.kill();
-			}),
-		]);
+		const [stdout, stderr] = await Promise.all(drains);
 		const code = await proc.exited;
 		const mk = (d: { bytes: Uint8Array; truncated: boolean }): string => {
 			const text = new TextDecoder().decode(d.bytes);
@@ -100,6 +102,9 @@ export const runArgv: RunArgv = async (argv, opts) => {
 		return { code, stdout: mk(stdout), stderr: mk(stderr) };
 	} finally {
 		clearTimeout(timer);
+		signal?.removeEventListener("abort", kill);
+		kill();
+		await Promise.allSettled([...drains, proc.exited]);
 	}
 };
 
@@ -107,7 +112,10 @@ export const runArgv: RunArgv = async (argv, opts) => {
 export const boundedBinaryRunner =
 	(timeoutMs = 8_000): RunArgv =>
 	async (argv, opts) =>
-		runArgv(argv, { timeoutMs: opts?.timeoutMs ?? timeoutMs });
+		runArgv(argv, {
+			timeoutMs: opts?.timeoutMs ?? timeoutMs,
+			signal: opts?.signal,
+		});
 
 export interface StreamRun {
 	/** Raw stdout byte stream — the artifact export walks `docker cp … -`
