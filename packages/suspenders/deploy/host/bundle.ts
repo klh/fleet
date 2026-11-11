@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { HOST_BUILD_PINS } from "./contract.ts";
+import { HOST_BUILD_PINS, runtimeInputKind } from "./contract.ts";
 
 const MetafileSchema = z.object({ inputs: z.record(z.string(), z.unknown()) });
 const PackageNoticeSchema = z.object({
@@ -42,12 +42,7 @@ for (const [name, entry] of Object.entries(entries)) {
 	for (const path of Object.keys(
 		MetafileSchema.parse(JSON.parse(readFileSync(metadata, "utf8"))).inputs,
 	)) {
-		if (
-			/(^|\/)(benchmarks?|datasets?|evals?|judges?|fixtures?|tests?)(\/|$)|(^|\/)packages\/blam\/|pi-coding-agent|pi-cli/.test(
-				path,
-			)
-		)
-			throw new Error(`Forbidden runtime input: ${path}`);
+		runtimeInputKind(path);
 		inputs.add(path);
 	}
 }
@@ -114,6 +109,22 @@ if (
 		.includes(`Docker version ${HOST_BUILD_PINS.dockerVersion},`)
 )
 	throw new Error("Docker CLI identity mismatch");
+const sdkEvaluationClientInputs = [...inputs]
+	.filter((path) => runtimeInputKind(path) === "sdk-evaluation-client")
+	.sort()
+	.map((path) => ({
+		path,
+		package: "openai",
+		version: "7.19.0",
+		sha256: new Bun.CryptoHasher("sha256")
+			.update(readFileSync(path))
+			.digest("hex"),
+	}));
+if (
+	sdkEvaluationClientInputs.length &&
+	!packages.some((pkg) => pkg.name === "openai" && pkg.version === "7.19.0")
+)
+	throw new Error("SDK client package identity mismatch");
 writeFileSync(
 	"/runtime/runtime-closure.json",
 	`${JSON.stringify(
@@ -122,6 +133,7 @@ writeFileSync(
 			entries,
 			inputs: [...inputs].sort(),
 			packages,
+			sdkEvaluationClientInputs,
 			dockerCli: {
 				image: HOST_BUILD_PINS.docker,
 				version: HOST_BUILD_PINS.dockerVersion,

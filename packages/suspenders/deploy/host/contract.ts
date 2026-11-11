@@ -11,6 +11,30 @@ export const HOST_BUILD_PINS = {
 		"948a5572ecda216e97995657888ba3431a7068c8e1d27a7e7f70683d5b382c33",
 } as const;
 export const CommitSchema = z.string().regex(/^[a-f0-9]{40}$/);
+/** Compiler input audit; public SDK API code is distinct from private assets. */
+export function runtimeInputKind(
+	path: string,
+): "runtime" | "sdk-evaluation-client" {
+	const prefix =
+		"node_modules/.bun/openai@7.19.0+c3b1d5d045878bb4/node_modules/openai/resources/evals/";
+	const modules = [
+		"evals.mjs",
+		"index.mjs",
+		"runs.mjs",
+		"runs/index.mjs",
+		"runs/output-items.mjs",
+		"runs/runs.mjs",
+	];
+	if (path.startsWith(prefix) && modules.includes(path.slice(prefix.length)))
+		return "sdk-evaluation-client";
+	if (
+		/(^|\/)(benchmarks?|datasets?|evals?|judges?|fixtures?|tests?)(\/|$)|(^|\/)packages\/blam\/|pi-coding-agent|pi-cli/.test(
+			path,
+		)
+	)
+		throw new Error(`Forbidden runtime input: ${path}`);
+	return "runtime";
+}
 export const VersionSchema = z
 	.string()
 	.regex(/^\d+\.\d+\.\d+-experimental[.\w-]*$/);
