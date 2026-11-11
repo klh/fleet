@@ -9,8 +9,9 @@
 // install re-pinning its own import.meta.dir staled the previous binding,
 // so a later generation whose SettingsSchema rejected a new settings key
 // silently fell back to last-known-good. Legacy generation pins upgrade in
-// place; a marker-bearing command OUTSIDE the install root is an
-// intentional active-session pin and is preserved verbatim. Rollback
+// place; a marker-bearing command that is not a fleet gate shape — outside
+// the install root, or a sibling private harness under it — is foreign and
+// preserved verbatim. Rollback
 // surface = the symlink itself (flip it; the wiring keeps resolving).
 // Per-lane `-c` overrides were the spec's preference but remain unverified
 // (codex exec was permission-blocked in the implementing session); the
@@ -34,21 +35,23 @@ const INSTALLED = existsSync(GATE_STABLE);
 const GATE = INSTALLED ? GATE_STABLE : GATE_LOCAL;
 const HOOKS_ROOT = `${HOME}/.claude/hooks/`;
 
-// Managed-command shapes (W2961). With an install present (the stable
-// symlink resolves) the contract is strict: STABLE rides the symlink
-// (current), GEN rides a suspenders.generation-* dir (a stale previous
-// install — upgraded in place), FOREIGN carries the marker outside the
-// install root (an intentional active-session pin — never touched).
-// Without an install there is no root to distinguish against: any marker
-// command is managed — the original W73 contract.
+// Managed-command shapes (W2961, reviewer-hardened). With an install
+// present (the stable symlink resolves) the contract is strict and
+// SHAPE-MATCHED: stable rides <root>/suspenders/.harness/… (current), gen
+// rides <root>/suspenders.generation-*/.harness/… (a stale previous
+// install — upgraded in place), and EVERYTHING ELSE carrying the marker is
+// foreign — outside the install root OR a sibling private harness under it
+// — never touched. Without an install there is no root to distinguish
+// against: any marker command is managed — the original W73 contract.
 const stableCmd = (c: string): boolean =>
-	c.includes(MARK) && (!INSTALLED || c.includes(`${HOOKS_ROOT}suspenders/`));
-const managedCmd = (c: string): boolean =>
-	c.includes(MARK) && (!INSTALLED || c.includes(HOOKS_ROOT));
-const staleGenCmd = (c: string): boolean =>
+	c.includes(MARK) &&
+	(!INSTALLED || c.includes(`${HOOKS_ROOT}suspenders/.harness/`));
+const genCmd = (c: string): boolean =>
 	INSTALLED &&
 	c.includes(MARK) &&
-	c.includes(`${HOOKS_ROOT}suspenders.generation-`);
+	c.includes(`${HOOKS_ROOT}suspenders.generation-`) &&
+	c.includes(".harness/");
+const managedCmd = (c: string): boolean => stableCmd(c) || genCmd(c);
 
 // event → gate.ts codex <mode>: the adapter's one switch (gates/codex.ts)
 const WIRING: Array<[string, string]> = [
@@ -94,7 +97,7 @@ const run = (): number => {
 			(e) =>
 				Array.isArray(e.hooks) &&
 				e.hooks.some(
-					(h) => typeof h?.command === "string" && staleGenCmd(h.command),
+					(h) => typeof h?.command === "string" && genCmd(h.command),
 				),
 		),
 	);
@@ -119,7 +122,9 @@ const run = (): number => {
 		hooks[event] = next;
 	}
 	if (check) {
-		if (wiredNow) {
+		// stale priority: a mixed stable+stale file is NOT wired — the stale
+		// pins stay executable and must be reported (reviewer finding)
+		if (wiredNow && !staleNow) {
 			console.log(`wired: ${FILE}`);
 			return 0;
 		}

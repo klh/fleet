@@ -413,6 +413,67 @@ describe("gate-wire-codex generation stability (W2961)", () => {
 		expect(foreign.out).toContain("not wired");
 	});
 
+	test("sibling foreign harness under the install root is never touched", () => {
+		const sibling = `${process.execPath} ${GHOME}/.claude/hooks/my-private-harness/gate.ts codex pre-tool`;
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{ hooks: [{ type: "command", command: "user-own-tool" }] },
+						{ hooks: [{ type: "command", command: sibling }] },
+					],
+				},
+			}),
+		);
+		const r = wire();
+		expect(r.code).toBe(0);
+		const pre = doc().hooks.PreToolUse;
+		expect(pre).toHaveLength(3); // user + sibling foreign + our stable
+		expect(pre[1].hooks[0].command).toBe(sibling); // preserved verbatim
+		expect(pre[2].hooks[0].command).toContain(
+			`${GHOME}/.claude/hooks/suspenders/.harness`,
+		);
+	});
+
+	test("--check: mixed stable+stale on all events reports stale, disk untouched", () => {
+		const mk = (
+			mode: string,
+			gen: boolean,
+		): {
+			hooks: Array<{ type: string; command: string }>;
+		} => ({
+			hooks: [
+				{
+					type: "command",
+					command: gen
+						? `${process.execPath} ${GHOME}/.claude/hooks/suspenders.generation-old/.harness/packages/suspenders/hooks/dialects/codex/../../gate.ts codex ${mode}`
+						: `${process.execPath} ${GHOME}/.claude/hooks/suspenders/.harness/packages/suspenders/hooks/gate.ts codex ${mode}`,
+				},
+			],
+		});
+		const events = [
+			"PreToolUse",
+			"PostToolUse",
+			"SessionStart",
+			"Stop",
+			"SessionEnd",
+		];
+		writeFileSync(
+			GFILE,
+			JSON.stringify({
+				hooks: Object.fromEntries(
+					events.map((e) => [e, [mk(e, false), mk(e, true)]]),
+				),
+			}),
+		);
+		const before = readFileSync(GFILE, "utf8");
+		const r = wire(["--check"]);
+		expect(r.code).toBe(1);
+		expect(r.out).toContain("stale generation pin"); // wiredNow alone must not green-light a mixed file
+		expect(readFileSync(GFILE, "utf8")).toBe(before); // --check never writes
+	});
+
 	test("symlink flip = the rollback surface; wiring is generation-stable", () => {
 		writeFileSync(GFILE, "{}");
 		expect(wire().out).toContain("wired 5 codex hook events");
