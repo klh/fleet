@@ -2115,3 +2115,33 @@ The live Buckle catalog did not advertise context or output limits.
 Keep the existing 64K-context baseline labeled explicitly; W2979 tracks
 capability publication with provenance. First successful command timing
 is distinct from the first useful source or behavioral-test result.
+
+### First eleven renewed trials
+
+Six trials produced accepted patches; five failed target checks. Every
+trial preserved 59/59 regression checks and revoked its scoped keys.
+The following includes failures; wall time includes grading and cleanup.
+
+| Treatment | Block | Target checks | Wall seconds | Model requests |
+| --- | --- | --- | --- | --- |
+| Structural excerpts, low | 1 | 3/3 | 477.6 | 47 |
+| Serial inspection, low | 1 | 2/3 | 784.8 | 56 |
+| Verification + structural excerpts, low | 2 | 3/3 | 286.1 | 30 |
+| Verification, low | 2 | 2/3 | 453.5 | 31 |
+| Verification + directed workflow, low | 2 | 2/3 | 450.9 | 28 |
+| Structural excerpts, low | 2 | 3/3 | 323.3 | 24 |
+| Serial inspection, low | 2 | 3/3 | 537.9 | 48 |
+| Scoped context, low | 2 | 3/3 | 452.9 | 38 |
+| Scoped context, medium | 2 | 3/3 | 589.8 | 37 |
+| Implementation then review, medium | 2 | 0/3 | 902.6 | 77 |
+| Contract context, low | 2 | 0/3 | 269.4 | 36 |
+
+The two-pass row includes both model stages. More review did not ensure
+a correct patch. The previously promising verification treatment also
+failed a fresh trial; its earlier success streak does not establish
+ongoing reliability. The faster combined treatment has only one fresh
+trial here and cannot be promoted from this result.
+
+Normalized snapshot: `renewed-interim-11trials.json`, SHA-256
+`06a2f55965f9a6ded1526eac4867469650c4692c8f1570ada1ffcbe4c6e4ef32`.
+The full immutable trial receipts remain in the experiment artifact store.
