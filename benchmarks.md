@@ -2228,3 +2228,28 @@ with frozen controller SHA-256
 After that block the existing exploratory matrix resumes within the owner's
 November 12 deadline. An evidence/cleanup error stops the block for review;
 a genuine quality failure stays in its denominator and does not stop it.
+
+The completed six-attempt transfer block accepted no patches: baseline 0/3,
+quoted excerpts 0/3, with 45/45 regressions in every run. Immutable snapshot
+`holdout-9602-block-1.json` has SHA-256
+`16a17a059957787c57ed6dc0d88ce424fb4b28df2e569c73780a90c93048e0dd`.
+Broader public-contract reproduction controls still failed on the base and
+passed on the reference. Medium-effort diagnosis-first attempts also failed
+the canonical target: baseline 344.595 seconds/183,359 reported tokens;
+excerpts 156.517 seconds/82,084 tokens. Both preserved 45/45 regressions.
+
+Post-run grading inspection identified a document-node structure mismatch,
+despite warning-free public rendering. Keep the canonical failures; do not
+replace that judge with the public fixture or feed its private assertions
+into candidate prompts. Any later diagnosis-informed experiments are labeled
+as such rather than represented as a fresh blind confirmation.
+
+Tool traces also showed `pytest ... | tail` returning shell exit zero after
+a failed test process. A separate optional Bash/pipefail treatment now exposes
+pipeline failures. Its regression test failed before implementation; 39 BLAM
+tests and Qlty passed afterward. The pinned 9602 guest smoke verified read-only
+Git, clipped output, timeout and key/container cleanup with zero model calls;
+an isolated guest `false | tail` probe returned exit one under pipefail.
+The first medium-effort pipefail diagnostic still failed the canonical target
+after 129.195 model-run seconds and 56,208 tokens, preserving 45/45 regressions.
+This repairs a measurement weakness but has not established a quality gain.

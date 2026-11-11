@@ -1,4 +1,8 @@
-import { createSandbox, ReplayImageSchema } from "./replay-sandbox";
+import {
+	createSandbox,
+	ReplayImageSchema,
+	ReplayShellSchema,
+} from "./replay-sandbox";
 
 import { traceModelFetch } from "./replay-wire";
 import { createModels, createProvider } from "@earendil-works/pi-ai/models";
@@ -29,6 +33,7 @@ import { basename, dirname, join } from "node:path";
 const front = "http://127.0.0.1:4101",
 	model = "zai-glm-5.3-flash";
 const replayImage = ReplayImageSchema.parse(process.argv[7]);
+const replayShell = ReplayShellSchema.parse(process.argv[8]);
 const maxTokensField = "max_tokens";
 const suppliedWorkspace = process.argv[2];
 if (!suppliedWorkspace?.startsWith("/"))
@@ -70,6 +75,7 @@ console.log(
 	JSON.stringify({
 		event: "pair-settings",
 		image: replayImage,
+		shellMode: replayShell,
 		arm,
 		thinkingLevel,
 		briefSha256: Bun.CryptoHasher.hash("sha256", brief, "hex"),

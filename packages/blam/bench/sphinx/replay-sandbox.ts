@@ -6,6 +6,18 @@ export const ReplayImageSchema = z
 	.string()
 	.regex(/^[a-z0-9][a-z0-9._/:-]*@sha256:[a-f0-9]{64}$/)
 	.default(image);
+export const ReplayShellSchema = z
+	.enum(["legacy", "pipefail"])
+	.default("legacy");
+const ReplayCommandSchema = z.string().min(1).max(10000);
+export function replayShellCommand(commandInput: unknown, modeInput?: unknown) {
+	const command = ReplayCommandSchema.parse(commandInput),
+		mode = ReplayShellSchema.parse(modeInput);
+	const prepared = `export PATH=/opt/miniconda3/envs/testbed/bin:$PATH; ${command}`;
+	return mode === "pipefail"
+		? ["bash", "--noprofile", "--norc", "-o", "pipefail", "-c", prepared]
+		: ["sh", "-lc", prepared];
+}
 async function collect(stream: ReadableStream<Uint8Array>, limit: number) {
 	const reader = stream.getReader(),
 		decoder = new TextDecoder();
@@ -48,8 +60,10 @@ export function createSandbox(
 	workspace: string,
 	signal: AbortSignal,
 	imageInput?: unknown,
+	shellInput?: unknown,
 ) {
 	const image = ReplayImageSchema.parse(imageInput);
+	ReplayShellSchema.parse(shellInput);
 	function boot(name: string, readonly: boolean) {
 		return docker([
 			"run",
@@ -104,9 +118,7 @@ export function createSandbox(
 				"-k",
 				"2s",
 				`${seconds}s`,
-				"sh",
-				"-lc",
-				`export PATH=/opt/miniconda3/envs/testbed/bin:$PATH; ${command}`,
+				...replayShellCommand(command, shellInput),
 			],
 			limit,
 			AbortSignal.any([signal, AbortSignal.timeout((seconds + 8) * 1000)]),

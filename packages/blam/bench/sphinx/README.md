@@ -76,3 +76,16 @@ was triggered. A successful guest tool witnesses useful work. Keep the
 child's patch and usage separate from parent integration and review.
 Count missing receipts as missing evidence, and report an intentional
 solo decision as a distinct outcome.
+
+## Pipeline exit-status treatment
+
+The replay CLI accepts an optional final shell mode after the pinned image:
+`legacy` (default) or `pipefail`. The latter runs non-profile Bash with
+`-o pipefail`, so `pytest ... | tail` cannot hide a failing pytest process
+behind the final command's successful exit. Existing sealed drivers retain
+their original shell and remain valid historical evidence.
+
+Record the selected shell and driver hash. Bash versus the legacy shell
+is an explicit treatment, not an invisible repair to old trials. A zero
+shell exit still does not prove a behavioral test passed; the private judge
+and complete target/regression verdict remain the quality authority.
