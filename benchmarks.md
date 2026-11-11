@@ -2165,3 +2165,22 @@ a performance comparison. The running 9461 trials retain sealed drivers.
 
 Second control receipt: `holdout-9602-repeat-controls.json`, SHA-256
 `73259740761e07b4dc98aabdfa3b2519f45480c219f18de2088470c5f3a82741`.
+
+### Audit delay and controller version 3
+
+A completed 19-request trial took 162.5 model-run seconds, then its
+read-only route audit timed out. Controller version 2 treated missing
+audit evidence as a transport failure and imposed 600 seconds of idle
+time. A separate ledger requery verified all 19 requests used GLM-5.3
+Flash; the patch still failed 0/3 targets and preserved 59/59 regressions.
+The original receipt and audit failure remain unchanged, with a separate
+reconciliation referencing both receipt and supplemental-audit hashes.
+
+After a graceful drain, version 3 separates audit-evidence failures from
+execution failures. Missing audit evidence stays ineligible for acceptance
+but no longer pauses otherwise completed model work. It prioritizes a
+third confirmation for arms with two consecutive verified successes.
+Model drivers, prompts, effort, resource limits and private judge remain
+unchanged; controller versions and their observed overhead stay recorded.
+Version 3 controller SHA-256:
+`b6ebe05596cafa4068c24bc2919268c1e9285a0245a81c817fed47efff33729d`.
