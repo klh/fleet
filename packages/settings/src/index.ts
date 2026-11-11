@@ -34,6 +34,7 @@ export {
 	migrate,
 } from "./settings.migrate.ts";
 export { renderHubSettings, stripOverlays } from "./settings.overlay.ts";
+export { type PruneOutcome, pruneSettingsDoc } from "./settings.prune.ts";
 export { fromLegacyProfile, toLegacyProfile } from "./settings.project.ts";
 export {
 	expandHome,
