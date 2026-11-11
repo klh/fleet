@@ -13,14 +13,15 @@ export interface Command {
 type Options = z.output<typeof TransportOptionsSchema>;
 type Start = z.output<typeof StartFrameSchema>;
 export function launchCommand(
-	options: Options,
+	host: { options: Options; dockerArgv: (argv: readonly string[]) => string[] },
 	start: Start,
 	limits: { timeoutMs: number; maxBytes: number },
 	signal: AbortSignal | undefined,
 	taint: () => void,
 ): Command {
+	const options = host.options;
 	const proc = Bun.spawn(
-		[
+		host.dockerArgv([
 			options.dockerBin,
 			"exec",
 			"-i",
@@ -30,7 +31,7 @@ export function launchCommand(
 			"/usr/local/bin/bun",
 			"-e",
 			GUARDIAN,
-		],
+		]),
 		{ stdin: "pipe", stdout: "pipe", stderr: "pipe" },
 	);
 	let reason: string | undefined,
