@@ -4,6 +4,11 @@
 // from a completed view (the route pulls; the page only renders), honest
 // about degraded edges (reason + last-known counts). No client-side JS:
 // everything travels as the server-rendered response.
+import {
+	FLEET_NAV_CSS,
+	fleetNav,
+	THEME_HEAD,
+} from "@klh/kernel/src/kernel.theme.module.ts";
 import type {
 	FedWorkRow,
 	FedWorkView,
@@ -43,25 +48,29 @@ ${itemRows(p.feed.items)}
 </tbody></table></section>`;
 }
 
-const pageCss =
-	(): string => `body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; color: #1a1a2e; background: #fafafa; }
-h1 { font-size: 1.3rem; }
-h2 { font-size: 1.05rem; margin-bottom: 0.3rem; }
-.meta { color: #555; font-size: 0.8rem; margin-top: 0; }
-.degraded { color: #a33; font-size: 0.85rem; }
-.badge { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 0.6rem; vertical-align: middle; }
-.badge.live { background: #d8f3dc; color: #1b4332; }
-.badge.deg { background: #ffe5d9; color: #7f2f13; }
-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
-th, td { text-align: left; padding: 0.28rem 0.5rem; border-bottom: 1px solid #e5e5e5; }
-th { color: #555; font-weight: 500; }
-td.id { color: #555; white-space: nowrap; }
-.st { font-size: 0.72rem; padding: 0.08rem 0.4rem; border-radius: 0.5rem; background: #e8e8f0; }
-.st-ready { background: #d8f3dc; }
-.st-claimed, .st-running { background: #dbe7ff; }
-.st-blocked, .st-failed { background: #ffe5d9; }
-section.scope { margin-top: 1.6rem; }
-footer { margin-top: 2rem; color: #777; font-size: 0.72rem; }`;
+// W2784.6.1.4 (W2269.1.4 scope 3): the page rides the kernel theme — every
+// colour, type size, spacing step and radius is a --klh-* token; the
+// literal light palette the W370 page carried is retired.
+export const pageCss =
+	(): string => `body { font: var(--klh-text-lg)/1.45 var(--klh-font-sans); margin: 0; padding: 0 var(--klh-space-6) var(--klh-space-7); color: var(--klh-ink); background: var(--klh-bg); }
+main.fwork { max-width: 60rem; margin: 0 auto; }
+h1 { font-size: var(--klh-text-xl); letter-spacing: .08em; margin: var(--klh-space-5) 0 var(--klh-space-2); }
+h2 { font-size: var(--klh-text-md); margin-bottom: var(--klh-space-2); }
+.meta { color: var(--klh-dim); font-size: var(--klh-text-sm); margin-top: 0; }
+.degraded { color: var(--klh-danger-ink); font-size: var(--klh-text-md); }
+.badge { font-size: var(--klh-text-xs); padding: var(--klh-space-1) var(--klh-space-3); border-radius: var(--klh-radius-lg); vertical-align: middle; }
+.badge.live { background: var(--klh-ok-bg); color: var(--klh-ok-ink); }
+.badge.deg { background: var(--klh-danger-bg); color: var(--klh-danger-ink); }
+table { border-collapse: collapse; width: 100%; font-size: var(--klh-text-md); }
+th, td { text-align: left; padding: var(--klh-space-2) var(--klh-space-3); border-bottom: 1px solid var(--klh-edge-soft); }
+th { color: var(--klh-dim); font-weight: 500; }
+td.id { color: var(--klh-ink-2); white-space: nowrap; font-family: var(--klh-font-mono); }
+.st { font-size: var(--klh-text-xs); padding: var(--klh-space-1) var(--klh-space-2); border-radius: var(--klh-radius-lg); background: var(--klh-surface-hi); }
+.st-ready { background: var(--klh-ok-bg); color: var(--klh-ok-ink); }
+.st-claimed, .st-running { background: var(--klh-accent-bg); color: var(--klh-accent); }
+.st-blocked, .st-failed { background: var(--klh-danger-bg); color: var(--klh-danger-ink); }
+section.scope { margin-top: var(--klh-space-6); }
+footer { margin-top: var(--klh-space-7); color: var(--klh-dim); font-size: var(--klh-text-xs); }`;
 
 function localSection(v: FedWorkView): string {
 	return `<section class="scope">
@@ -83,15 +92,20 @@ export function federationWorkPage(v: FedWorkView): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>federated work — ${esc(v.me)}</title>
+${THEME_HEAD}
 <style>
 ${pageCss()}
+${FLEET_NAV_CSS}
 </style>
 </head>
 <body>
+${fleetNav("suspenders", "workflows")}
+<main class="fwork">
 <h1>Federated work — me=${esc(v.me)}</h1>
 <p class="meta">generated ${esc(v.generated_at)} · each section is one hub's OWN open work (hub→spoke boundary: a spoke's items never travel via another hub's feed)</p>
 ${localSection(v)}
 ${v.peers.map(edgeSection).join("\n")}
 ${footerHtml(v)}
+</main>
 </body></html>`;
 }
