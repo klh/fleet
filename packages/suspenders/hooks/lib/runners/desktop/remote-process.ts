@@ -18,15 +18,22 @@ export interface RemoteRunOptions {
  * commands can forge frames or escape a group: cleanup() joins tracked commands
  * ONLY. The owner MUST close intake, cleanup(), then assertQuiescent() before
  * any checkpoint/reuse; refusal requires destroying the owned guest. No signal
- * ever targets an observed numeric guest PID from the host. */
-export async function createRemoteProcessTransport(input: unknown) {
+ * ever targets an observed numeric guest PID from the host.
+ * deps is trusted HOST-only routing, separate from validated machine input;
+ * its rewrite applies to probes, interactive execution and quiescence. */
+export async function createRemoteProcessTransport(
+	input: unknown,
+	deps: { dockerArgv?: (argv: readonly string[]) => string[] } = {},
+) {
 	const options = TransportOptionsSchema.parse(input);
+	const dockerArgv =
+		deps.dockerArgv ?? ((argv: readonly string[]) => [...argv]);
 	let closed = false,
 		tainted = false;
 	const commands = new Set<Command>();
 	const inspect = async () => {
 		const r = await runArgv(
-			[options.dockerBin, "inspect", options.containerId],
+			dockerArgv([options.dockerBin, "inspect", options.containerId]),
 			{ timeoutMs: options.controlTimeoutMs },
 		);
 		if (r.code !== 0) throw Error("remote-process.identity");
@@ -43,14 +50,14 @@ export async function createRemoteProcessTransport(input: unknown) {
 	};
 	await inspect();
 	const prereq = await runArgv(
-		[
+		dockerArgv([
 			options.dockerBin,
 			"exec",
 			options.containerId,
 			"/usr/local/bin/bun",
 			"-e",
 			"const f=require('node:fs');for(const p of ['/usr/bin/setsid','/proc/self/stat'])f.accessSync(p);console.log('remote-process-v1')",
-		],
+		]),
 		{ timeoutMs: options.controlTimeoutMs },
 	);
 	if (prereq.code !== 0 || prereq.stdout.trim() !== "remote-process-v1")
@@ -77,7 +84,7 @@ export async function createRemoteProcessTransport(input: unknown) {
 			);
 			if (timeoutMs <= 0) throw Error("remote-process.timeout");
 			const command = launchCommand(
-				options,
+				{ options, dockerArgv },
 				frame,
 				{ ...limits, timeoutMs },
 				opts.signal,
@@ -104,7 +111,13 @@ export async function createRemoteProcessTransport(input: unknown) {
 				throw Error("remote-process.not-quiescent");
 			const row = await inspect();
 			const top = await runArgv(
-				[options.dockerBin, "top", options.containerId, "-eo", "pid"],
+				dockerArgv([
+					options.dockerBin,
+					"top",
+					options.containerId,
+					"-eo",
+					"pid",
+				]),
 				{ timeoutMs: options.controlTimeoutMs, maxBytes: 65536 },
 			);
 			const lines = top.stdout.trim().split(/\r?\n/);

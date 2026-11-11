@@ -6,6 +6,57 @@ import { createRemoteProcessTransport } from "./remote-process.ts";
 import { GUARDIAN } from "./remote-process/guardian.ts";
 import { StartFrameSchema } from "./remote-process/protocol.ts";
 
+test("trusted host rewrite selects one daemon for probes and interactive guardian @unit", async () => {
+	const data = await fixture();
+	const calls: string[][] = [];
+	let routed:
+		| Awaited<ReturnType<typeof createRemoteProcessTransport>>
+		| undefined;
+	try {
+		routed = await createRemoteProcessTransport(
+			{
+				containerId: data.id,
+				expectedPinnedImageRef: IMAGE,
+				deadlineAt: Date.now() + 10000,
+				dockerBin: "unrouted-docker-must-not-execute",
+			},
+			{
+				dockerArgv(argv: readonly string[]) {
+					calls.push([...argv]);
+					return ["docker", "--context", "desktop-linux", ...argv.slice(1)];
+				},
+			},
+		);
+		expect((await routed.run(["true"])).code).toBe(0);
+		await routed.cleanup();
+		await routed.assertQuiescent();
+		expect(calls.map((argv) => argv[1])).toEqual([
+			"inspect",
+			"exec",
+			"exec",
+			"inspect",
+			"top",
+		]);
+		expect(calls.every((argv) => argv.includes(data.id))).toBe(true);
+		expect(calls.find((argv) => argv.includes("-i"))?.slice(0, 8)).toEqual([
+			"unrouted-docker-must-not-execute",
+			"exec",
+			"-i",
+			data.id,
+			"/usr/bin/setsid",
+			"--wait",
+			"/usr/local/bin/bun",
+			"-e",
+		]);
+	} finally {
+		try {
+			await routed?.cleanup();
+		} finally {
+			await data.close();
+		}
+	}
+});
+
 test("control byte ceiling includes JSON escaping and guardian argv stays small @unit", () => {
 	expect(Buffer.byteLength(GUARDIAN)).toBeLessThan(16384);
 	expect(
