@@ -18,6 +18,8 @@
 // the profile knobs; the container env carries them in):
 //   TARGET_URL   URL to poll (--target)
 //   PORT         the sidecar's own serve port (--listen)
+//   --bind IP    listen address (CLI only; default 127.0.0.1). Container
+//                sidecars may opt into 0.0.0.0 for published/private ports.
 //   PROBE_PATH   optional path replacing the target URL's path (--path;
 //                deliberately NOT the env name PATH — that is the
 //                executable search path)
@@ -51,8 +53,20 @@
 //           health hits this) · GET /status → full JSON verdict
 //   cli:    bun probe.ts --target URL [--timeout 2000] — one-shot, exit 0/1
 
+import { isIP } from "node:net";
+
+// Standalone CLI validation: this file is mounted into bare Bun sidecars.
+// Platform IP parsing keeps this CLI-only option dependency-free; it does
+// not introduce a JSON wire/config schema.
+function parseProbeBind(value: string | undefined): string {
+	if (value === undefined || isIP(value) === 0)
+		throw new Error("--bind requires an IPv4 or IPv6 address");
+	return value;
+}
+
 export interface ProbeArgs {
 	target: string;
+	bind?: string;
 	listen?: number;
 	path?: string;
 	every: number;
@@ -88,6 +102,7 @@ type VerdictState = "up" | "degrading" | "down";
 
 interface FlagOverrides {
 	target?: string;
+	bind?: string;
 	listen?: number;
 	path?: string;
 	every?: number;
@@ -113,6 +128,11 @@ function parseFlags(argv: string[]): FlagOverrides {
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i];
 		const val = argv[i + 1];
+		if (flag === "--bind") {
+			flags.bind = parseProbeBind(val);
+			i++;
+			continue;
+		}
 		if (val === undefined) continue;
 		switch (flag) {
 			case "--target":
@@ -163,6 +183,7 @@ function resolveArgs(argv: string[]): ProbeArgs {
 	const f = parseFlags(argv);
 	return {
 		target: f.target ?? env.TARGET_URL ?? "",
+		bind: f.bind ?? "127.0.0.1",
 		listen: f.listen ?? optNum(env.PORT),
 		path: f.path ?? env.PROBE_PATH,
 		every: f.every ?? optNum(env.INTERVAL) ?? 5000,
@@ -471,10 +492,16 @@ export function createMonitor(args: ProbeArgs) {
 }
 
 async function main(): Promise<void> {
-	const args = resolveArgs(process.argv.slice(2));
+	let args: ProbeArgs;
+	try {
+		args = resolveArgs(process.argv.slice(2));
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exit(2);
+	}
 	if (args.target.length === 0) {
 		console.log(
-			"usage: probe.ts --target URL [--listen port] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--catalog-model id | --synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING CATALOG_MODEL SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
+			"usage: probe.ts --target URL [--listen port] [--bind IP (default 127.0.0.1)] [--path p] [--every ms] [--timeout ms] [--misses n] [--ring n] [--catalog-model id | --synthetic-json body] [--auth-env VAR] [--expect-path p] (env: TARGET_URL PORT PROBE_PATH INTERVAL TIMEOUT_MS MISS_LIMIT RING CATALOG_MODEL SYNTHETIC_JSON AUTH_ENV EXPECT_PATH)",
 		);
 		process.exit(2);
 	}
@@ -499,7 +526,7 @@ async function main(): Promise<void> {
 	}, args.every);
 	timer.unref?.();
 	const server = Bun.serve({
-		hostname: "127.0.0.1",
+		hostname: args.bind ?? "127.0.0.1",
 		port: args.listen,
 		fetch: (req) => {
 			const { pathname } = new URL(req.url);
@@ -534,7 +561,7 @@ async function main(): Promise<void> {
 		},
 	});
 	console.log(
-		`healthcheck: sidecar on http://127.0.0.1:${server.port}/healthz -> ${monitor.snapshot().target}`,
+		`healthcheck: sidecar on ${new URL("/healthz", server.url)} -> ${monitor.snapshot().target}`,
 	);
 }
 

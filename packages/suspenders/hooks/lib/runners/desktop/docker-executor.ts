@@ -86,12 +86,22 @@ export const ExecutorRecordSchema = z.strictObject({
 	seedDir: z.string().min(1),
 	argv: z.array(z.string()),
 	expired: z.boolean(),
-	/** Stamped on the first successful tool dispatch — a run that has
-	 *  executed at least once may never silently relaunch empty. */
+	/** Persisted before the first tool dispatch: an interrupted effect may
+	 *  already have changed files, so it must never silently relaunch empty. */
 	executed: z.boolean(),
 	startedAt: z.number(),
+	/** Missing only on legacy records; execution then needs explicit migration. */
+	deadlineAt: z.number().int().positive().optional(),
 });
 export type ExecutorRecord = z.infer<typeof ExecutorRecordSchema>;
+
+const originalDeadline = (record: ExecutorRecord): number => {
+	if (record.deadlineAt === undefined)
+		throw new Error(
+			"desktop-runner: missing original deadline — explicit migration required",
+		);
+	return record.deadlineAt;
+};
 
 export interface DesktopContainer {
 	start(spec: RunnerSpec, opts: { signal: AbortSignal }): Promise<void>;
@@ -365,6 +375,7 @@ const launchContainer = async (
 	if (containerId.length === 0) {
 		throw new Error("desktop-runner: container start returned no id");
 	}
+	const startedAt = Date.now();
 	const record: ExecutorRecord = {
 		runId: spec.runId,
 		containerName: containerNameOf(spec.runId),
@@ -374,7 +385,8 @@ const launchContainer = async (
 		argv,
 		expired: false,
 		executed: false,
-		startedAt: Date.now(),
+		startedAt,
+		deadlineAt: startedAt + ctx.limits.deadlineMs,
 	};
 	await saveRecord(ctx, record);
 	armRun(ctx, spec.runId, record, opts.signal);
@@ -398,10 +410,13 @@ const armRun = (
 		signal,
 	};
 	signal.addEventListener("abort", entry.onAbort);
-	const timer = setTimeout(() => {
-		entry.expired = true;
-		void expireRun(ctx, runId);
-	}, ctx.limits.deadlineMs);
+	const timer = setTimeout(
+		() => {
+			entry.expired = true;
+			void expireRun(ctx, runId);
+		},
+		Math.max(0, originalDeadline(record) - Date.now()),
+	);
 	timer.unref();
 	entry.timer = timer;
 	ctx.runs.set(runId, entry);
@@ -446,11 +461,15 @@ const execIn = async (
 	record: ExecutorRecord,
 	argv: readonly string[],
 	opts?: { stdin?: string; timeoutMs?: number },
-): Promise<RunOutput> =>
-	ctx.run([ctx.dockerBin, "exec", "-i", record.containerId, ...argv], {
+): Promise<RunOutput> => {
+	// Persist before crossing the effect boundary: a failed or interrupted
+	// command can still have changed the workspace.
+	if (!record.executed) await saveRecord(ctx, { ...record, executed: true });
+	return ctx.run([ctx.dockerBin, "exec", "-i", record.containerId, ...argv], {
 		stdin: opts?.stdin,
 		timeoutMs: opts?.timeoutMs ?? ctx.limits.submitTimeoutMs,
 	});
+};
 
 const relaunchFromRecord = async (
 	ctx: Ctx,
@@ -480,10 +499,7 @@ const ensureRunning = async (
 			`desktop-runner: run ${runId} has no executor record — start it first`,
 		);
 	}
-	if (
-		record.expired ||
-		ctx.limits.deadlineMs - (Date.now() - record.startedAt) <= 0
-	) {
+	if (record.expired || originalDeadline(record) <= Date.now()) {
 		await saveRecord(ctx, { ...record, expired: true });
 		await stopRun(ctx, runId);
 		throw new Error(

@@ -1,0 +1,449 @@
+{
+	"schemaVersion": 1,
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+	"recordedAt": "2026-11-11T18:53:01.066Z",
+	"sourceCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+	"recipeCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+	"verificationCommit": "ba1436cb1a12bffaf76ecc9258394e50a4987a4c",
+	"registry": {
+		"name": "fleet/buckle-seed",
+		"repository": "klh/fleet",
+		"visibility": "private"
+	},
+	"evidence": [
+		{
+			"platform": "linux/amd64",
+			"manifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+			"attestationManifest": "sha256:5ebe5da99d1c694e9fd2eb1d59fbdd35bbce4b9809f56a695c95a893f4e85e45",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"packages": 92,
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"config": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+			"localImageId": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+			"rootFSLayers": [
+				"sha256:a70f6272827f64e1427d048ced77491aab5d64ab95725e56920802ff391197d7",
+				"sha256:34b0a98ab2a9f61f1f52704d4fbce6d45de928260c4c153911eafd620bd3548d",
+				"sha256:d7f7f22c33665f3537cd7c651ba02f7a2f292a99bdf4f7d11a9fdf4be2d5290b",
+				"sha256:cd1952dd977c00dea27a27cb5f089f8e3a78cb8157f5ff5d3dd84ac371b084d3",
+				"sha256:9354dc69ee4b00b480f905724ffa52ee52c8b43e16e15e7da295d55d5059ee15",
+				"sha256:79235189883efcecee4458da9be63363f06da7f4f58d80843cc0567112a55372",
+				"sha256:470329bdf36eef1fe5f79829abe6659a64ffeef33f53a76893647eda639bb9fc",
+				"sha256:666857ae5d93292ab1f4144190edcdddbcc2cc1eb945970bb5897a49e8549b3a",
+				"sha256:a9a6b40264c2512091ce94a854c75e668fdf168efecfaeb693143edf7b306552",
+				"sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+			],
+			"rootFSMatchesLocal": true,
+			"labels": {
+				"source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+				"recipe": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+				"version": "0.1.2-experimental.w2990.2"
+			},
+			"runtimeSmoke": {
+				"platform": "linux/amd64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+				"api": {
+					"ids": ["seed-model"],
+					"catalog": [
+						{
+							"id": "seed-model",
+							"object": "model",
+							"owned_by": "buckle",
+							"context_length": 131072,
+							"max_output_tokens": 16384,
+							"reasoning": false,
+							"capability_source": "operator-pinned"
+						}
+					],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "x64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"fallbackMismatch": {
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+				"platform": "linux/amd64",
+				"fallbackMismatchOmission": true,
+				"catalog": [
+					{
+						"id": "seed-model",
+						"object": "model",
+						"owned_by": "buckle"
+					},
+					{
+						"id": "seed-fallback",
+						"object": "model",
+						"owned_by": "buckle",
+						"context_length": 131072,
+						"max_output_tokens": 8192,
+						"reasoning": false,
+						"capability_source": "operator-pinned"
+					}
+				]
+			},
+			"hostPublishedHealth": [
+				{
+					"platform": "linux/amd64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+					"bind": "0.0.0.0",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": 200,
+					"teardownChecked": true
+				},
+				{
+					"platform": "linux/amd64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+					"bind": "default127.0.0.1",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": "unreachable",
+					"networkFailureCode": "ECONNRESET",
+					"containerRunning": true,
+					"teardownChecked": true
+				}
+			],
+			"closure": {
+				"platform": "linux/amd64",
+				"uid": 1000,
+				"architecture": "x64",
+				"inputs": 192,
+				"packages": [
+					{
+						"name": "@klh/buckle",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "@klh/settings",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "zod",
+						"version": "4.6.7",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/telemetry",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "p-queue",
+						"version": "9.3.5",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/kernel",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "@klh/blam",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "p-timeout",
+						"version": "7.0.2",
+						"license": "MIT"
+					},
+					{
+						"name": "eventemitter3",
+						"version": "5.0.4",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/suspenders",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					}
+				],
+				"forbiddenRuntimeInputs": 0,
+				"neutralGroups": [],
+				"fleetLicensePresent": true,
+				"packageNoticesPresent": true
+			}
+		},
+		{
+			"platform": "linux/arm64",
+			"manifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+			"attestationManifest": "sha256:be0e92817f25891aff0f754b3c8386fb21165b7dbcecee632c933b7bafe7780d",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"packages": 92,
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"config": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+			"localImageId": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+			"rootFSLayers": [
+				"sha256:e5593b7179d10a64cfe451e886e3ab13ccd476f906dc670865322ae1dbdf969f",
+				"sha256:70825c6b9bc17e0870e00ab5c72d3e3065b774ebee5b51fec35c44e2bf457632",
+				"sha256:d8c56744418311a95b470ef0bcde5de8377a84549c0d5bf380cd33fa59e5821c",
+				"sha256:8fae072361589eedfa6e4daef766e3912c9edf718bca2d8a14a2a7b667674593",
+				"sha256:d130a3102c43c432a55fe08157197b70954a87ad6ebb7c2a852b65085b1790cd",
+				"sha256:c0c36fadebc7aca2a4d46ceda2dce72fcfd94f27d25b8322d581fef88b9aebac",
+				"sha256:4da717f0e709d7fa0377ae001062db28f9509605dc968200c09c39f39200d89f",
+				"sha256:4be1100f1054f71c157b35e484b089291927439974166eac422dda57e92762b8",
+				"sha256:e558065df5207a776385621f02c7ee37983ec6b5089e44e7cd01faf052013e32",
+				"sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+			],
+			"rootFSMatchesLocal": true,
+			"labels": {
+				"source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+				"recipe": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+				"version": "0.1.2-experimental.w2990.2"
+			},
+			"runtimeSmoke": {
+				"platform": "linux/arm64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+				"api": {
+					"ids": ["seed-model"],
+					"catalog": [
+						{
+							"id": "seed-model",
+							"object": "model",
+							"owned_by": "buckle",
+							"context_length": 131072,
+							"max_output_tokens": 16384,
+							"reasoning": false,
+							"capability_source": "operator-pinned"
+						}
+					],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "arm64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"fallbackMismatch": {
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+				"platform": "linux/arm64",
+				"fallbackMismatchOmission": true,
+				"catalog": [
+					{
+						"id": "seed-model",
+						"object": "model",
+						"owned_by": "buckle"
+					},
+					{
+						"id": "seed-fallback",
+						"object": "model",
+						"owned_by": "buckle",
+						"context_length": 131072,
+						"max_output_tokens": 8192,
+						"reasoning": false,
+						"capability_source": "operator-pinned"
+					}
+				]
+			},
+			"hostPublishedHealth": [
+				{
+					"platform": "linux/arm64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+					"bind": "0.0.0.0",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": 200,
+					"teardownChecked": true
+				},
+				{
+					"platform": "linux/arm64",
+					"image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+					"bind": "default127.0.0.1",
+					"knownHealthyCatalogPolled": true,
+					"externalHealth": "unreachable",
+					"networkFailureCode": "ECONNRESET",
+					"containerRunning": true,
+					"teardownChecked": true
+				}
+			],
+			"closure": {
+				"platform": "linux/arm64",
+				"uid": 1000,
+				"architecture": "arm64",
+				"inputs": 192,
+				"packages": [
+					{
+						"name": "@klh/buckle",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "@klh/settings",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "zod",
+						"version": "4.6.7",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/telemetry",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "p-queue",
+						"version": "9.3.5",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/kernel",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "@klh/blam",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					},
+					{
+						"name": "p-timeout",
+						"version": "7.0.2",
+						"license": "MIT"
+					},
+					{
+						"name": "eventemitter3",
+						"version": "5.0.4",
+						"license": "MIT"
+					},
+					{
+						"name": "@klh/suspenders",
+						"version": "2.2.0",
+						"license": "SEE LICENSE IN LICENSE"
+					}
+				],
+				"forbiddenRuntimeInputs": 0,
+				"neutralGroups": [],
+				"fleetLicensePresent": true,
+				"packageNoticesPresent": true
+			}
+		}
+	],
+	"publication": {
+		"helperCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+		"helper": "packages/buckle/deploy/build.ts",
+		"helperArgv": [
+			"bun",
+			"packages/buckle/deploy/build.ts",
+			"--source",
+			"f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+			"--version",
+			"0.1.2-experimental.w2990.2",
+			"--mode",
+			"publish",
+			"--metadata",
+			"<metadata-file>"
+		],
+		"dockerArgv": [
+			"docker",
+			"buildx",
+			"build",
+			"--platform",
+			"linux/amd64,linux/arm64",
+			"--tag",
+			"ghcr.io/klh/fleet/buckle-seed:0.1.2-experimental.w2990.2",
+			"--build-arg",
+			"SOURCE_COMMIT=f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+			"--build-arg",
+			"RECIPE_COMMIT=f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+			"--build-arg",
+			"SEED_VERSION=0.1.2-experimental.w2990.2",
+			"--sbom=true",
+			"--provenance=mode=max",
+			"--metadata-file",
+			"<metadata-file>",
+			"--push",
+			"."
+		],
+		"context": "Clean detached helper checkout at recipeCommit; stageContext archives sourceCommit into isolated source/, reads Dockerfile and bundle.ts from recipeCommit; excludes host/untracked files and .git; cleans staging in finally.",
+		"newTagAbsentBeforePush": true,
+		"authenticatedPriorDigestControlStatus": 200,
+		"newTagStatusBeforePush": 404,
+		"signatureVerification": "not performed; attestations are content-verified, no signed identity claim",
+		"receiptCommitRebuildsPayload": false
+	},
+	"testEvidence": {
+		"old166bPositiveCapabilities": "2 expected failures: missing all four capability fields",
+		"fixtureLoaderRed": "2 expected failures before Docker: misplaced document knobs produce retries1/timeout120/no fallbacks",
+		"localCandidate": "8/8 passed,11.5s",
+		"publishedDigest": "8/8 passed,11.5s",
+		"publisherUnit": "5/5 passed,293ms",
+		"qlty": "No issues in corrected two files",
+		"verificationCommitGate": "100/100 passed",
+		"verificationPushGate": "191/191 passed; OpenAPI current; scrub clean",
+		"ownedTeardown": "checked removal; cleanup failure fails verdict; nested fixture cleanup retained"
+	},
+	"replayTests": {
+		"verificationCommit": "ba1436cb1a12bffaf76ecc9258394e50a4987a4c",
+		"command": "BUCKLE_SEED_TEST_IMAGE=<descriptor.image> bun run node_modules/@playwright/test/cli.js test --config packages/buckle/deploy/playwright.config.ts --project=container"
+	},
+	"runtimeContext": {
+		"dockerHostArchitecture": "aarch64",
+		"amd64Execution": "Docker Desktop emulation",
+		"nativeAmd64PerformanceClaim": false,
+		"syntheticUpstream": true,
+		"capabilitySource": "operator-pinned fixture values; no provider/hardware capacity claim",
+		"fullFeatureCompatibilityClaim": false,
+		"stableReleaseClaim": false,
+		"liveHubActivation": false
+	},
+	"negativeHistory": [
+		{
+			"observation": "Previous 0.1.1 seed166b advertises model IDs without new capability fields; exact catalog assertions failed on both architectures.",
+			"resolution": "New f19 payload includes integrated producer fields; exact published catalog assertions now pass."
+		},
+		{
+			"observation": "Initial candidate run was6/8: fallback tests placed policy.fallbacks at document top level, ignored by parsePolicy. Existing fixture retries/timeout knobs were also misplaced; unit testDeps bypasses document loading. This did not exercise a fallback ladder.",
+			"resolution": "Verification-only ba1436 nests knobs under gateway and validates the real loader output before launch; unchanged exact fallback-omission assertions pass on both architectures. No producer defect or payload rebuild."
+		}
+	],
+	"immutablePublication": {
+		"priorVersionRetagged": false,
+		"sourceAndRecipeAreBuiltCommit": true,
+		"verificationCommitIsNotPayloadSource": true,
+		"priorProducerNegativeHistory": "../negative-history.json"
+	}
+}
