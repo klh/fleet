@@ -1550,3 +1550,17 @@ Independent source review reproduced 12 focused and 32 existing passes;
 native review PASS event `125107` binds this source to base `cad788791`.
 Commit/push gates separately passed 100/191 tests. No actual reaper cleanup,
 installation, performance trial or model call was executed for this fix.
+
+## W2971.1 second held-out fixture: ledger reconciliation controls (2026-11-12)
+
+`bench/agentic-ledger/` — synthetic multi-module TypeScript fixture in the
+reconciliation failure-class domain (balance refund sign + inclusive
+cutoff; journal sequence dedup/range/order; idempotency window boundary +
+eviction order), deliberately distinct from the relay fixture's
+claim/cache/trace classes. Oracle: 24 deterministic checks outside the
+fixture repo; controls verified twice on clean checkouts: broken sealed
+fixture 9/24 (score 0.375, 15 contract failures), reference 24/24 (score
+1.0). Guards ratcheted in `agentic-ledger@unit.e2e.ts` (prepare refuses an
+existing target; both control numbers pinned). Measurement-row template in
+the fixture README. No scored agent arm has run yet — this lands the
+fixture + controls; live arms ride `bench/paired/live.ts` manifests.
