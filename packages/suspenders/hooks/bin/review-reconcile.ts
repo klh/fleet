@@ -6,7 +6,7 @@
 // usage: bun review-reconcile.ts
 
 import {
-	providerPressureOf,
+	providerPressureAggregate,
 	reconcileReviewLegs,
 } from "../lib/gates/review-scheduler.ts";
 import { openStore } from "../lib/govdb/govdb.ts";
@@ -14,7 +14,9 @@ import { openStore } from "../lib/govdb/govdb.ts";
 const db = openStore();
 try {
 	const summary = reconcileReviewLegs(db);
-	const pressure = providerPressureOf(db);
+	// W3012: pressure now lives on per-provider group rows — the sweep logs
+	// the worst case across every group (plus the legacy global row).
+	const pressure = providerPressureAggregate(db);
 	console.log(
 		`review-reconcile: examined=${summary.examined} active=${summary.active} stale=${summary.stale} recovered=${summary.recovered} pressure.fails=${pressure.fails} pressure.openUntil=${pressure.openUntil}`,
 	);
