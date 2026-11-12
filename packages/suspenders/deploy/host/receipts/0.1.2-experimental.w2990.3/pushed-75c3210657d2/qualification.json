@@ -1,0 +1,171 @@
+{
+	"schemaVersion": 1,
+	"kind": "pulled-registry-platform-qualification",
+	"registryIndex": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"testCodeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"checkoutHeadAtExecution": "8256c86fe2728570a58e492e1b26f80230d4eafa",
+	"testSourceAggregate": "917383bf81f966b106c485a31148cb479710d1d0b5996d5908d6ca02f4a0262d",
+	"recordedAt": "2026-11-12T03:31:35.054Z",
+	"completedAtSemantics": "terminal log last-write time",
+	"originalAcceptance": {
+		"commit": "8256c86fe2728570a58e492e1b26f80230d4eafa",
+		"path": "packages/suspenders/deploy/host/receipts/0.1.2-experimental.w2990.3/acceptance.json",
+		"unchanged": true
+	},
+	"pulledSubjects": "pulled-subjects.json",
+	"observations": "observations.json",
+	"platforms": [
+		{
+			"platform": "linux/amd64",
+			"testedReference": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"registryPlatformManifest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"originalAcceptedConfigUnchanged": true,
+			"completedAt": "2026-11-12T03:27:33.223Z",
+			"passed": 5,
+			"failed": 0,
+			"skipped": 0,
+			"rawLog": "amd64.qualification.log",
+			"rawLogSha256": "e53b8e84728c95b0b6d2efb6ff2a0d3443640b88745f1391f5e4b8c5b28d54e4",
+			"requiredPositiveHostCidBindings": [
+				{
+					"cid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+					"manifest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+					"configDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+					"architecture": "amd64"
+				},
+				{
+					"cid": "5e1fd29b8eb64f1455adfcc3f71ac254cf0f9980474de61b19d1d3946ffea49e",
+					"manifest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+					"configDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+					"architecture": "amd64"
+				}
+			],
+			"requiredPositiveGuestObservations": [
+				{
+					"cid": "8c4c57dc6211a4829e7509b5bf75d8673c83cae15ee1815f57cfb96bac1dff2c",
+					"hostCid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+					"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+					"imageManifestDescriptor": {
+						"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+						"mediaType": "application/vnd.oci.image.manifest.v1+json",
+						"platform": {
+							"architecture": "arm64",
+							"os": "linux"
+						},
+						"size": 1620
+					}
+				},
+				{
+					"cid": "dca5c00c4dd9caff2ee5d05340d796c54bd442a9e38836a623983b213f93e744",
+					"hostCid": "5e1fd29b8eb64f1455adfcc3f71ac254cf0f9980474de61b19d1d3946ffea49e",
+					"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+					"imageManifestDescriptor": {
+						"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+						"mediaType": "application/vnd.oci.image.manifest.v1+json",
+						"platform": {
+							"architecture": "arm64",
+							"os": "linux"
+						},
+						"size": 1620
+					}
+				}
+			],
+			"totalObservedServiceHosts": 7
+		},
+		{
+			"platform": "linux/arm64",
+			"testedReference": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"registryPlatformManifest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"originalAcceptedConfigUnchanged": true,
+			"completedAt": "2026-11-12T03:27:07.122Z",
+			"passed": 5,
+			"failed": 0,
+			"skipped": 0,
+			"rawLog": "arm64.qualification.log",
+			"rawLogSha256": "7458b3fde9e571a15a6d9b96cfbfc4fc1169bc9538978b052dacfaac74a532b8",
+			"requiredPositiveHostCidBindings": [
+				{
+					"cid": "f35cefde6b349de79e7a5a60fad6ac468f9a25945d2b6dbc188a2a24bb98d2a3",
+					"manifest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+					"configDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+					"architecture": "arm64"
+				},
+				{
+					"cid": "b92a89de1e3e363d4039c33147f4b11581ce46c411b102f0b96318e5d6746c5c",
+					"manifest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+					"configDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+					"architecture": "arm64"
+				}
+			],
+			"requiredPositiveGuestObservations": [
+				{
+					"cid": "95e9d3981b7e8a899078c2721ebf2060b4a24892ef0fcda68227d511bc5d3f23",
+					"hostCid": "f35cefde6b349de79e7a5a60fad6ac468f9a25945d2b6dbc188a2a24bb98d2a3",
+					"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+					"imageManifestDescriptor": {
+						"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+						"mediaType": "application/vnd.oci.image.manifest.v1+json",
+						"platform": {
+							"architecture": "arm64",
+							"os": "linux"
+						},
+						"size": 1620
+					}
+				},
+				{
+					"cid": "d3418925975d057a4b32706762c7283dce32ef9b40942993dd46a8036ff9554e",
+					"hostCid": "b92a89de1e3e363d4039c33147f4b11581ce46c411b102f0b96318e5d6746c5c",
+					"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+					"imageManifestDescriptor": {
+						"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+						"mediaType": "application/vnd.oci.image.manifest.v1+json",
+						"platform": {
+							"architecture": "arm64",
+							"os": "linux"
+						},
+						"size": 1620
+					}
+				}
+			],
+			"totalObservedServiceHosts": 7
+		}
+	],
+	"observer": {
+		"processExitCode": 0,
+		"operationDiagnostics": [
+			{
+				"operation": "host-inspect",
+				"cid": "2d761ef65fd86d73df152317239cf751eb7ff2ec98b3da179bace4ad8896eefd",
+				"code": 1
+			},
+			{
+				"operation": "host-record-read",
+				"cid": "a68236bed45c3d3f1dae83149b5fb1c0a89688da65e409249f00cafe0ad6dcf7",
+				"code": 137,
+				"signal": null
+			},
+			{
+				"operation": "host-record-read",
+				"cid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+				"code": 137,
+				"signal": null
+			}
+		],
+		"allOperationsSuccessful": false,
+		"qualificationUsesIndividualRequiredCidBindings": true,
+		"historicalObserverExit1PreservedAt": "../topology-observer-failure.log"
+	},
+	"limits": [
+		"scripted local Docker Desktop only; no live-provider quality claim",
+		"amd64 HOST emulated; exact observed guest architectures recorded per CID",
+		"registryIndex, actual Docker Id/Descriptor and configDigest retain distinct roles",
+		"no new strict acceptance or invented localIndex",
+		"operation diagnostics retained without asserting their cause harmless",
+		"no image rebuild/upload/tag promotion by qualification lane",
+		"signatures unverified"
+	]
+}

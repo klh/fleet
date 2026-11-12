@@ -1,0 +1,413 @@
+{
+	"hosts": [
+		{
+			"cid": "a68236bed45c3d3f1dae83149b5fb1c0a89688da65e409249f00cafe0ad6dcf7",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "2d761ef65fd86d73df152317239cf751eb7ff2ec98b3da179bace4ad8896eefd",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "4cb5a931f452adf1b25b2bcc700642810e218d2bf5601326b22ce1ac10478e88",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "63f27458b596d70bb06c472332665898b3e4f7b27d8f0803c29300315504e056",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "9ca32f671a53ec8729fb931e3ee5c6203f58419459ebbda3fefe6db7166dda03",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "f03e680216d0c90c1c6ec124df7836713c946101a0018a6d6ec7f28073a71a60",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "79d1d2229b7b2190eea41ec1a26be9cdf60aa37654a839b4458891cc3b9f773f",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "f35cefde6b349de79e7a5a60fad6ac468f9a25945d2b6dbc188a2a24bb98d2a3",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "58aeb254ef1afc091231562dd4a7ebd3902373269b8aa16bf3377e76840fb700",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "b92a89de1e3e363d4039c33147f4b11581ce46c411b102f0b96318e5d6746c5c",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "44d9b54bcd2f10126b6137994b59a1f76c9a39faa7140c34cfd7b0fd73861575",
+			"platform": "linux/arm64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"opaqueContainerImage": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"imageManifestDescriptor": {
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "5e1fd29b8eb64f1455adfcc3f71ac254cf0f9980474de61b19d1d3946ffea49e",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		},
+		{
+			"cid": "a26d67899fe4e766e5c28798cc35867eb34fab144f9f698f04f6851aac4137cb",
+			"platform": "linux/amd64",
+			"requestedImage": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"opaqueContainerImage": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"imageManifestDescriptor": {
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				},
+				"size": 2191
+			},
+			"verifiedConfigDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+			"configBinding": "raw verified platform manifest config descriptor"
+		}
+	],
+	"guests": [
+		{
+			"guestCid": "c6f2058ed18a5ef7831909079e112e44fefabc792d4760edb4768491e5527110",
+			"hostCid": "2d761ef65fd86d73df152317239cf751eb7ff2ec98b3da179bace4ad8896eefd",
+			"hostPlatform": "linux/arm64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "9dd60dde54fea6a038723ae4e873156c993c9092e89c2f99d53c3b8f1f61dad3",
+			"hostCid": "a68236bed45c3d3f1dae83149b5fb1c0a89688da65e409249f00cafe0ad6dcf7",
+			"hostPlatform": "linux/amd64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "47f5eb0760dcfcca2f1780160ae7c8975d18f3e6398d233b4abe7b956b3935e9",
+			"hostCid": "63f27458b596d70bb06c472332665898b3e4f7b27d8f0803c29300315504e056",
+			"hostPlatform": "linux/arm64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "67339e23fe9ad82f9c17ceea24d1c6c3481a94682e2a5653b83be2d57fcc3b63",
+			"hostCid": "f03e680216d0c90c1c6ec124df7836713c946101a0018a6d6ec7f28073a71a60",
+			"hostPlatform": "linux/amd64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "95e9d3981b7e8a899078c2721ebf2060b4a24892ef0fcda68227d511bc5d3f23",
+			"hostCid": "f35cefde6b349de79e7a5a60fad6ac468f9a25945d2b6dbc188a2a24bb98d2a3",
+			"hostPlatform": "linux/arm64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "d3418925975d057a4b32706762c7283dce32ef9b40942993dd46a8036ff9554e",
+			"hostCid": "b92a89de1e3e363d4039c33147f4b11581ce46c411b102f0b96318e5d6746c5c",
+			"hostPlatform": "linux/arm64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "8c4c57dc6211a4829e7509b5bf75d8673c83cae15ee1815f57cfb96bac1dff2c",
+			"hostCid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+			"hostPlatform": "linux/amd64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "245182cc8f3d558240165cc0a2e428e1a12ad8a7fd521a7bb7d2eb6a2243f29e",
+			"hostCid": "44d9b54bcd2f10126b6137994b59a1f76c9a39faa7140c34cfd7b0fd73861575",
+			"hostPlatform": "linux/arm64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "dca5c00c4dd9caff2ee5d05340d796c54bd442a9e38836a623983b213f93e744",
+			"hostCid": "5e1fd29b8eb64f1455adfcc3f71ac254cf0f9980474de61b19d1d3946ffea49e",
+			"hostPlatform": "linux/amd64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		},
+		{
+			"guestCid": "86a488d6e5fae88c63606cbe679dce0528758c7ced0c54b89310b4d8ef3a88eb",
+			"hostCid": "a26d67899fe4e766e5c28798cc35867eb34fab144f9f698f04f6851aac4137cb",
+			"hostPlatform": "linux/amd64",
+			"opaqueContainerImage": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+			"imageManifestDescriptor": {
+				"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				},
+				"size": 1620
+			}
+		}
+	],
+	"diagnostics": [
+		{
+			"operation": "host-inspect",
+			"cid": "2d761ef65fd86d73df152317239cf751eb7ff2ec98b3da179bace4ad8896eefd",
+			"code": 1
+		},
+		{
+			"operation": "host-record-read",
+			"cid": "a68236bed45c3d3f1dae83149b5fb1c0a89688da65e409249f00cafe0ad6dcf7",
+			"code": 137,
+			"signal": null
+		},
+		{
+			"operation": "host-record-read",
+			"cid": "5ccf5594f716c92100ceaaa5efe65fd9a580f81f804d102c958238ec52cfffe7",
+			"code": 137,
+			"signal": null
+		}
+	]
+}

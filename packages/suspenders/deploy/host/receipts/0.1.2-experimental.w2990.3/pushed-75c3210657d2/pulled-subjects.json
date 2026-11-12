@@ -1,0 +1,64 @@
+[
+	{
+		"platform": "linux/amd64",
+		"manifest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+		"config": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+		"registryIndex": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+		"reference": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+		"pull": {
+			"opaqueDockerId": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"descriptor": {
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"digest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"size": 2191
+			},
+			"architecture": "amd64",
+			"os": "linux",
+			"user": "1000:1000",
+			"entrypoint": ["bun", "/opt/fleet/runner-control.js"],
+			"rootFsDiffIds": [
+				"sha256:a70f6272827f64e1427d048ced77491aab5d64ab95725e56920802ff391197d7",
+				"sha256:34b0a98ab2a9f61f1f52704d4fbce6d45de928260c4c153911eafd620bd3548d",
+				"sha256:d7f7f22c33665f3537cd7c651ba02f7a2f292a99bdf4f7d11a9fdf4be2d5290b",
+				"sha256:cd1952dd977c00dea27a27cb5f089f8e3a78cb8157f5ff5d3dd84ac371b084d3",
+				"sha256:9354dc69ee4b00b480f905724ffa52ee52c8b43e16e15e7da295d55d5059ee15",
+				"sha256:79235189883efcecee4458da9be63363f06da7f4f58d80843cc0567112a55372",
+				"sha256:470329bdf36eef1fe5f79829abe6659a64ffeef33f53a76893647eda639bb9fc",
+				"sha256:7964ec6b58fcf53d415d577d23def55a0fa36b93fb233c5f3f8b87c3a5fb6537",
+				"sha256:9792ce306c3ad15b0010d01831d0c2b7e792f91915b40cae561a1d946df5c0a6",
+				"sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+			]
+		}
+	},
+	{
+		"platform": "linux/arm64",
+		"manifest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+		"config": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+		"registryIndex": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+		"reference": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+		"pull": {
+			"opaqueDockerId": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"descriptor": {
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"digest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"size": 2191
+			},
+			"architecture": "arm64",
+			"os": "linux",
+			"user": "1000:1000",
+			"entrypoint": ["bun", "/opt/fleet/runner-control.js"],
+			"rootFsDiffIds": [
+				"sha256:e5593b7179d10a64cfe451e886e3ab13ccd476f906dc670865322ae1dbdf969f",
+				"sha256:70825c6b9bc17e0870e00ab5c72d3e3065b774ebee5b51fec35c44e2bf457632",
+				"sha256:d8c56744418311a95b470ef0bcde5de8377a84549c0d5bf380cd33fa59e5821c",
+				"sha256:8fae072361589eedfa6e4daef766e3912c9edf718bca2d8a14a2a7b667674593",
+				"sha256:d130a3102c43c432a55fe08157197b70954a87ad6ebb7c2a852b65085b1790cd",
+				"sha256:c0c36fadebc7aca2a4d46ceda2dce72fcfd94f27d25b8322d581fef88b9aebac",
+				"sha256:4da717f0e709d7fa0377ae001062db28f9509605dc968200c09c39f39200d89f",
+				"sha256:911eaf7afb5be46049bbca572b8af69b34a174876db0025badc742f67f8e3bc8",
+				"sha256:ac556b89491612efb9a50e5dbea238ae11bb2c31c2f51ecdb4353ca0904913d0",
+				"sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+			]
+		}
+	}
+]
