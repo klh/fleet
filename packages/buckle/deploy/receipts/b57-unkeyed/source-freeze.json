@@ -1,0 +1,32 @@
+{
+  "base": "b2e0b6d08f46e4545ed73ece27ae39a2cd4c35b2",
+  "deltaAggregate": "2221dfdb2ca571e07f4171c3361e29dd838d9a8033ff85a0f5a37f6677877e8f",
+  "algorithm": "SHA256 over sorted repo-relative path+NUL+raw bytes+NUL",
+  "committedAtCapture": false,
+  "files": [
+    {
+      "sha256": "9613e2363a81203e3f2e2f255ce30303c46ed25ffb1d23d3d7efa5c27d60a3d0",
+      "path": "packages/buckle/deploy/QUALIFICATION.md"
+    },
+    {
+      "sha256": "2c8f0113b444639c3b7dfea004306350bceb44b91f504573287ea2569ed15038",
+      "path": "packages/buckle/deploy/qualification-unkeyed@unit.e2e.ts"
+    },
+    {
+      "sha256": "277445cf2b4e0591c5ecfa5930b76df3827102d643962b06ad514c79272d0bf2",
+      "path": "packages/buckle/deploy/test/qualification-unkeyed.ts"
+    },
+    {
+      "sha256": "ec25e64d563d84ace26b4ce6983920581acb11df02decc627313b99f19a600db",
+      "path": "packages/buckle/deploy/test/qualify-existing.ts"
+    }
+  ],
+  "keyedHelpersUnchanged": true,
+  "historicalKeyedEvidenceUnchanged": true,
+  "types": {
+    "current": 17,
+    "baseline": 17,
+    "equal": true,
+    "owned": []
+  }
+}

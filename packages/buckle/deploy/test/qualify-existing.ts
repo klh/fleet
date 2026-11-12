@@ -79,6 +79,7 @@ export async function qualifyExisting(
 	let cleaned = false;
 	let creationAttempted = false;
 	let primaryFailure: Error | undefined;
+	let unkeyedControls: unknown;
 	try {
 		if (mode === "fallback") await configureFallback(data);
 		const IndexSchema = z.object({
@@ -262,25 +263,34 @@ export async function qualifyExisting(
 			await Bun.sleep(100);
 		}
 		facts.mode = mode;
-		facts.api =
-			mode === "main"
-				? await qualifyApi(
-						origin,
-						data.rootKey,
-						() =>
-							data.stub.requests.filter(
-								(request) => request.path === "/v1/chat/completions",
-							).length,
-						(fact) =>
-							console.log(JSON.stringify({ event: "api-status", ...fact })),
-					)
-				: await qualifyNegative(origin, data.rootKey, mode, () =>
-						mode === "neutral"
-							? data.stub.requests.length
-							: data.stub.requests.filter(
+		if (mode === "unkeyed") {
+			const { qualifyUnkeyed } = await import("./qualification-unkeyed.ts");
+			unkeyedControls = await qualifyUnkeyed(
+				origin,
+				() => data.stub.requests.length,
+				(fact) => console.log(JSON.stringify({ event: "api-status", ...fact })),
+			);
+			facts.api = unkeyedControls;
+		} else
+			facts.api =
+				mode === "main"
+					? await qualifyApi(
+							origin,
+							data.rootKey,
+							() =>
+								data.stub.requests.filter(
 									(request) => request.path === "/v1/chat/completions",
 								).length,
-					);
+							(fact) =>
+								console.log(JSON.stringify({ event: "api-status", ...fact })),
+						)
+					: await qualifyNegative(origin, data.rootKey, mode, () =>
+							mode === "neutral"
+								? data.stub.requests.length
+								: data.stub.requests.filter(
+										(request) => request.path === "/v1/chat/completions",
+									).length,
+						);
 		console.log(
 			JSON.stringify({ event: "api-complete", mode, facts: facts.api }),
 		);
@@ -356,7 +366,20 @@ export async function qualifyExisting(
 					ids.push(await driver.recoverCreated());
 				if (!cleaned)
 					for (const id of ids.filter((id) => !removed.includes(id))) {
-						await driver.remove(id, mode !== "unkeyed");
+						if (mode === "unkeyed") {
+							if (unkeyedControls === undefined)
+								throw Error(
+									"Unkeyed controls incomplete; owned fixture retained without forced disposal",
+								);
+							const { disposeUnkeyed } = await import(
+								"./qualification-unkeyed.ts"
+							);
+							facts.disposal = await disposeUnkeyed(
+								driver.docker,
+								{ id, runId, controls: unkeyedControls },
+								(intent) => console.log(JSON.stringify(intent)),
+							);
+						} else await driver.remove(id, true);
 						removed.push(id);
 					}
 				cleaned = true;

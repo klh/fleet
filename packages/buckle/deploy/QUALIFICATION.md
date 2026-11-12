@@ -32,9 +32,19 @@ Running keyed fixtures use the existing authenticated `/v1/admin/drain` with a
 250ms grace through exact-CID Docker exec before checked stop/join. This uses only
 the isolated fixture's admin credential, never a control credential. Bare SIGTERM
 does not invoke f19's planned drain. Primary refusals are recorded before teardown;
-if teardown also fails, both errors survive. The unkeyed boot negative has no
-admin credential: its graceful-cleanup disposition remains unresolved, and exit137
-must not be presented as clean qualification.
+if teardown also fails, both errors survive.
+
+The unkeyed boot negative has no admin credential. Its separate named disposal
+requires catalog/chat401 and zero additional upstream requests during those
+requests. It rechecks the exact CID/UUID/image, Running=true, OOM=false and exit0,
+then emits a UTC intent and the exact bounded Docker stop argv before stopping.
+Only the same owned producer's subsequent NotRunning/OOM=false/exit137 permits
+removal and an absence check. Its result explicitly says `graceful:false` and
+`expectedForcedDisposal:true`; this is deliberate negative-fixture disposal,
+not graceful image shutdown. Death before intent, OOM, ownership drift, incomplete
+HTTP controls or uncertain cleanup refuse and preserve private fixture files.
+Ordinary/keyed cleanup still refuses exit137. The historical six keyed receipts
+remain unchanged; this branch requires its own reviewed execution evidence.
 
 The historical f19 builder and receipts are preserved for provenance. This new
 qualification does not invoke that builder or assert its readiness for a new

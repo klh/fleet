@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+  "payloadSourceCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+  "recipeCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+  "newControlsPassed": 2,
+  "previousKeyedControlsPassed": 6,
+  "totalControlsPassed": 8,
+  "gracefulKeyedDisposals": 6,
+  "explicitForcedNegativeDisposals": 2,
+  "allEightGracefulShutdowns": false,
+  "source": "source-freeze.json",
+  "previousEvidence": {
+    "path": "../b57-qualification/summary.json",
+    "bankCommit": "b2e0b6d08f46e4545ed73ece27ae39a2cd4c35b2",
+    "frozenAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "note": "Historical NOT_RUN fields remain unchanged because that capture preceded this separately reviewed increment."
+  },
+  "cases": [
+    {
+      "platform": "linux/arm64",
+      "execution": "Docker Desktop platform observation",
+      "durationMs": 10164,
+      "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+      "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+      "api": {
+        "mode": "unkeyed",
+        "catalogStatus": 401,
+        "completionStatus": 401,
+        "upstreamRequestDelta": 0,
+        "requestCounter": "all-upstream-requests"
+      },
+      "disposal": {
+        "graceful": false,
+        "expectedForcedDisposal": true,
+        "preintentRunningVerified": true,
+        "observedExitCode": 137,
+        "oomKilled": false,
+        "intent": {
+          "event": "unkeyed-forced-disposal-intent",
+          "at": "2026-11-12T04:27:53.120Z",
+          "containerId": "c6c1d65ad20daeccb67b0a189cde5880a935fef00838ab981ed44afafeb93ab6",
+          "runId": "a2a040e0-ed3b-4eea-838b-c62152b8cc56",
+          "argv": [
+            "docker",
+            "stop",
+            "--time",
+            "5",
+            "c6c1d65ad20daeccb67b0a189cde5880a935fef00838ab981ed44afafeb93ab6"
+          ],
+          "timeoutMs": 8000
+        },
+        "removedAndAbsent": "c6c1d65ad20daeccb67b0a189cde5880a935fef00838ab981ed44afafeb93ab6"
+      },
+      "containerIds": [
+        "c6c1d65ad20daeccb67b0a189cde5880a935fef00838ab981ed44afafeb93ab6"
+      ],
+      "removedAndAbsent": [
+        "c6c1d65ad20daeccb67b0a189cde5880a935fef00838ab981ed44afafeb93ab6"
+      ]
+    },
+    {
+      "platform": "linux/amd64",
+      "execution": "Docker Desktop amd64 emulation",
+      "durationMs": 11073,
+      "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+      "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "api": {
+        "mode": "unkeyed",
+        "catalogStatus": 401,
+        "completionStatus": 401,
+        "upstreamRequestDelta": 0,
+        "requestCounter": "all-upstream-requests"
+      },
+      "disposal": {
+        "graceful": false,
+        "expectedForcedDisposal": true,
+        "preintentRunningVerified": true,
+        "observedExitCode": 137,
+        "oomKilled": false,
+        "intent": {
+          "event": "unkeyed-forced-disposal-intent",
+          "at": "2026-11-12T04:28:04.177Z",
+          "containerId": "14e5fc0e9e656415b5257c908192f3d54bdbbf3d344739b966b73df79a2cd2d4",
+          "runId": "cde27894-0a55-4f52-b183-34530dfa4a06",
+          "argv": [
+            "docker",
+            "stop",
+            "--time",
+            "5",
+            "14e5fc0e9e656415b5257c908192f3d54bdbbf3d344739b966b73df79a2cd2d4"
+          ],
+          "timeoutMs": 8000
+        },
+        "removedAndAbsent": "14e5fc0e9e656415b5257c908192f3d54bdbbf3d344739b966b73df79a2cd2d4"
+      },
+      "containerIds": [
+        "14e5fc0e9e656415b5257c908192f3d54bdbbf3d344739b966b73df79a2cd2d4"
+      ],
+      "removedAndAbsent": [
+        "14e5fc0e9e656415b5257c908192f3d54bdbbf3d344739b966b73df79a2cd2d4"
+      ]
+    }
+  ],
+  "completedAt": "2026-11-12T04:28:09.573Z",
+  "completedAtSemantics": "Original raw stdout log filesystem mtime; not a reconstructed per-operation timestamp.",
+  "claims": {
+    "newImageBuild": false,
+    "newPublication": false,
+    "realModelInference": false,
+    "syntheticOperatorPinsOnly": true,
+    "nativeAmd64": false,
+    "performanceComparison": false,
+    "deploymentReadiness": false,
+    "newSignatureProof": false,
+    "newRegistryPrivacyAudit": false
+  },
+  "evidenceSha256": [
+    {
+      "sha256": "2e4bfd15ac1a23c177218ad13a264af2f8f90cf80a7a5394f70fbef92ca7c33e",
+      "path": "negative-controls.json"
+    },
+    {
+      "sha256": "4be7d373cd527a35ba12ef71a095fa1ae72a3c1ce2d9e07dcbd5304d6f52086b",
+      "path": "execution.log"
+    },
+    {
+      "sha256": "cb78493cb6cfe0585865b995f9903f88987045c68856c084e580cd8a65881f33",
+      "path": "focused-unit.log"
+    },
+    {
+      "sha256": "19b94f41ec16f31b50d729531900360e595523512130b2e4354fd5f04f2d7c6c",
+      "path": "source-freeze.json"
+    }
+  ]
+}
