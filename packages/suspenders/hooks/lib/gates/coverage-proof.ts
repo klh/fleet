@@ -10,7 +10,71 @@ import { dirname, join, posix } from "node:path";
 
 // test paths only: the proof keeps these, reverses everything else
 export const TEST_FILE =
-	/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
+	/(^|\/)(tests?|__tests__)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
+
+type ProofGit = (args: string[]) => { code: number; out: string };
+
+/** Model-facing review text; keep the same exact objects as the proof. */
+export function reviewedDiff(
+	base: string,
+	commit: string,
+	git: ProofGit,
+): string {
+	const result = git(["--no-replace-objects", "diff", `${base}...${commit}`]);
+	if (result.code !== 0 || result.out.length > 512_000)
+		throw new Error(
+			"review-lane: full exact diff unavailable or exceeds review budget; decompose before approval",
+		);
+	return result.out;
+}
+
+/** Exact receipt IDs only: mutable refs must never change the proof input. */
+export function coverageProofManifest(
+	base: string,
+	commit: string,
+	git: ProofGit,
+) {
+	if (![base, commit].every((id) => /^[0-9a-f]{40}$/.test(id)))
+		throw new Error("coverage proof requires full immutable commit IDs");
+	const read = (...args: string[]): string => {
+		const result = git(["--no-replace-objects", ...args]);
+		if (result.code !== 0)
+			throw new Error(`coverage proof git ${args[0]} failed`);
+		return result.out.trim();
+	};
+	for (const id of [base, commit])
+		if (read("cat-file", "-t", id) !== "commit")
+			throw new Error("coverage proof object is not a commit");
+	const range = `${base}...${commit}`;
+	const paths = (...args: string[]) =>
+		read(...args)
+			.split("\n")
+			.filter(Boolean);
+	const changed = paths("diff", "--name-only", range);
+	const tip = new Set(paths("ls-tree", "-r", "--name-only", commit));
+	const testFiles = changed.filter((f) => TEST_FILE.test(f) && tip.has(f));
+	const bunRunnable = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_|_test_/;
+	const provable = testFiles.filter((f) => bunRunnable.test(f));
+	const skip =
+		testFiles.length === 0
+			? "no test files in diff"
+			: provable.length === 0
+				? "unsupported reverse proof runner: playwright-only (no bun-collectable test files)"
+				: null;
+	return {
+		base,
+		commit,
+		range,
+		changed,
+		testFiles,
+		provable,
+		skip,
+		mergeBase: read("merge-base", base, commit),
+		addedProd: paths("diff", "--name-only", "--diff-filter=A", range).filter(
+			(f) => !TEST_FILE.test(f),
+		),
+	};
+}
 
 /** Repo-relative package.json manifests for every packages/<pkg>/ path in a
  *  changed-path list — production files INCLUDED, not just tests. The proof
