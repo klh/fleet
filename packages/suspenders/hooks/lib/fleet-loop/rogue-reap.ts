@@ -150,11 +150,12 @@ export function insideWorktrees(cwd: string, repo: string): string | null {
 
 export type ReapSig = "SIGTERM" | "SIGKILL";
 
-/** The work-graph item a scope dir stands for: the basename, except a
- *  fleet-ish tmp name resolves to its w<digits> stem as the graph id
- *  (w894-base → W894) so claimState protection applies to tmp copies. */
+/** Official numeric/dotted work IDs retain their complete identity. Other
+ *  fleet-ish tmp names resolve to their w<digits> stem (w894-base → W894)
+ *  so claimState protection still applies to benchmark copies. */
 export function worktreeItem(wt: string): string {
 	const name = basename(wt);
+	if (/^w\d+(?:\.\d+)*$/i.test(name)) return name.toUpperCase();
 	if (FLEET_TMP_SEGMENT.test(name)) {
 		return (/^w\d+/i.exec(name)?.[0] ?? name).toUpperCase();
 	}
