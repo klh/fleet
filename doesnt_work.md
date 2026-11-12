@@ -508,3 +508,13 @@ The fix preserves full numeric/dotted IDs and legacy temporary-name handling.
 Recovery refs were preserved. No live reaper trial, cleanup disablement,
 worktree restoration, installation or performance/model-quality claim was
 part of that verification.
+
+## Archived Sphinx failures in the canonical log (W2990.12)
+
+The [canonical summary](benchmarks/benchmark.md) and [structured tree](benchmarks/benchmarks.json5)
+preserve 100 known failed executions and one unknown outcome among 187 logged
+executions (171 independent attempts). These are archived failures, not new
+model runs. A [held-out 9602 attempt](benchmarks/sphinx/9602-receipts.md#sphinx-9602-ast-gjboew)
+failed its private target despite 45/45 regressions. The successful 9461
+three-confirmation series and 6/6 accepted verification-tool trials therefore
+do not establish a cross-task winner.
