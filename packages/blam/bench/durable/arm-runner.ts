@@ -87,16 +87,32 @@ function main(): void {
 	// key lifecycle (mint → run → revoke) — see README for the runner path.
 	// Until the leaf call is invoked here, the runner anchors the path
 	// mechanically: export → ledger(admitted-attempt) → exit 0 marker file.
-	const marker = join(DIR.receipts, `${problemId}-a${attempt}-PENDING.md`);
-	writeFileSync(marker, [
-		`# ${problemId} attempt ${attempt} — PENDING LEAF CALL`,
-		`tier=${chosen} plan=${JSON.stringify(plan)}`,
-		`base=${problem.baseCommit} archiveSha=${archiveSha}`,
-		`image=${image}`,
-		`export=${archivePath}`,
-		`next: mint scoped key → leaf admit/submit → supervise → extract → ${"judge"}`,
-		"",
-	].join("\n"), { mode: 0o600 });
+	// admission: stage → leaf admitAndStart (in-tree production leaf) →
+	// frozen 0600 admit receipt. Supervise/extract/judge are the next
+	// phases, each re-runnable from the receipt (done-and-redone law).
+	const { admitArm, persistAdmitReceipt } = await import("./arm-admit.ts");
+	try {
+		const receipt = await admitArm({
+			runId: row.runId,
+			issueText: problem.issueText,
+			seedRoot: join(HERE, "ledger", "exports"),
+			mintCredentialFile: mintFile,
+			model: "glm-5.3-flash",
+			wallClockMin: plan.wallClockMin,
+			imageDigest: image,
+		});
+		const receiptPath = persistAdmitReceipt(DIR.receipts, problemId, attempt, receipt);
+		console.log(`arm-runner: ADMITTED ${receipt.runId} → ${receiptPath}`);
+		writeFileSync(marker, [
+			`# ${problemId} attempt ${attempt} — ADMITTED`,
+			`runId=${receipt.runId} tier=${chosen}`,`,
+			`archive=${archivePath} sha=${archiveSha}`,
+			`next: supervise → extract → judge`,
+			"",
+		].join("\n"), { mode: 0o600 });
+	} catch (error) {
+		die(`admission refused: ${(error as Error).message.split("\n")[0]}`);
+	}
 	const row: LedgerRow = {
 		ts: Date.now(), problemId, repo: problem.repo, attempt, tier: chosen,
 		runId: crypto.randomUUID(), outcome: "refused",
