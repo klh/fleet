@@ -1,0 +1,13 @@
+
+Running 5 tests using 1 worker
+
+{"kind":"continuity-negative","evidence":{"mode":"corruptCheckpoint","refused":true,"modelEffects":0,"liveGuests":0,"liveKeys":0,"mintedAfterRefusal":0},"checkedCleanup":true}
+  ✓  1 [unit] › packages/suspenders/deploy/host/continuity@container.e2e.ts:79:2 › packaged HOST corruptCheckpoint refuses resume without surviving authority @container (16.9s)
+{"kind":"continuity-negative","evidence":{"mode":"missingJournal","refused":true,"modelEffects":0,"liveGuests":0,"liveKeys":0,"mintedAfterRefusal":0},"checkedCleanup":true}
+  ✓  2 [unit] › packages/suspenders/deploy/host/continuity@container.e2e.ts:79:2 › packaged HOST missingJournal refuses resume without surviving authority @container (17.2s)
+{"kind":"continuity-witness","evidence":{"oldHostCid":"cfbd1359b2ddc757b2d293f895f78d951ee7d7af3cb464293668ee358a3233ca","newHostCid":"5d13ae0767eaacd1afa51b01d5a357e28aa2cc08704aa3bca3b5294af335dcd6","oldGuestCid":"8749914ead218e4afbb58708819fb152e9aa146c89ba0487edc7fdbdd5cf88c4","newGuestCid":"88684f1ebb7141afe139bdec16cb80a5cfb95b5f42966002a94fde6baad5f1ba","oldEpoch":1,"newEpoch":3,"oldKeyId":"fixture-run-1","newKeyId":"fixture-run-2","resumedModelKeyId":"fixture-run-2","originalDeadline":"2026-11-12T02:34:18.568Z","resumedDeadline":"2026-11-12T02:34:18.568Z","oldKeyRevokedSequence":4,"newKeyIssuedSequence":6,"postResumeToolCallId":"call-after-resume","workspaceMarkerSha256":"20e7e2af95a7bbd0b7b28e0705bb8a86590099aa89b7a59398312c84d9166b62","resumedMarkerSha256":"20e7e2af95a7bbd0b7b28e0705bb8a86590099aa89b7a59398312c84d9166b62","priorConversationSha256":"0685fec546d9964105c9e11078e4cca0b62fb211bedf73405cf044122d18cc59","resumedPriorConversationSha256":"0685fec546d9964105c9e11078e4cca0b62fb211bedf73405cf044122d18cc59","continuedConversationSha256":"7657e3e1333c1c0fe8e1b9bffbf456534451757a678a847986cb59c53921a6f8","negatives":{"unauthorizedResume":{"refused":true,"modelEffects":0,"liveGuests":0,"liveKeys":0,"checkedCleanup":true}}},"checkedCleanup":true}
+  ✓  3 [unit] › packages/suspenders/deploy/host/continuity@container.e2e.ts:212:1 › packaged HOST graceful park and fresh authorized resume @container (30.3s)
+  ✓  4 [unit] › packages/suspenders/deploy/host/runtime@container.e2e.ts:15:1 › packaged HOST preflight, protected health, denied admission and actual sandbox tool @container (15.5s)
+  ✓  5 [unit] › packages/suspenders/deploy/host/runtime@container.e2e.ts:217:1 › failed HOST fixture setup removes its captured container and owned volume @container (1.1s)
+
+  5 passed (1.4m)

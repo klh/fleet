@@ -1,0 +1,32 @@
+[
+	{
+		"hostCid": "415537d00faa551ac3add081c91d6d76bee3e34e59f4412cbabab6e023b9ad0a",
+		"hostPlatform": "linux/arm64",
+		"guestCid": "ae8224b41209e842f08e42e45914792b4f41f8acaca5a865462a2107ea723173",
+		"guestImageIndex": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+		"guestPlatformManifest": {
+			"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+			"mediaType": "application/vnd.oci.image.manifest.v1+json",
+			"platform": {
+				"architecture": "arm64",
+				"os": "linux"
+			},
+			"size": 1620
+		}
+	},
+	{
+		"hostCid": "ab27ed1ea8763296db234d2ce63bae840ccb0e2006c9612022cfc2f9826a116b",
+		"hostPlatform": "linux/amd64",
+		"guestCid": "5979e989bba0a464c318e0ff6996b4c83b982aa051d9710a61d9540c9d5bd176",
+		"guestImageIndex": "sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+		"guestPlatformManifest": {
+			"digest": "sha256:3121e24dc54514f0e37bcc996a9e6df64519b4caff03a33bbb9993baca7c403b",
+			"mediaType": "application/vnd.oci.image.manifest.v1+json",
+			"platform": {
+				"architecture": "arm64",
+				"os": "linux"
+			},
+			"size": 1620
+		}
+	}
+]

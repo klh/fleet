@@ -1,0 +1,51 @@
+{
+	"schemaVersion": 1,
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"version": "0.1.2-experimental.w2990.3",
+	"platform": "linux/arm64",
+	"configDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+	"testCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"testSourceAggregate": "917383bf81f966b106c485a31148cb479710d1d0b5996d5908d6ca02f4a0262d",
+	"environment": "scripted-local-docker-desktop",
+	"oldHostCid": "cfbd1359b2ddc757b2d293f895f78d951ee7d7af3cb464293668ee358a3233ca",
+	"newHostCid": "5d13ae0767eaacd1afa51b01d5a357e28aa2cc08704aa3bca3b5294af335dcd6",
+	"oldGuestCid": "8749914ead218e4afbb58708819fb152e9aa146c89ba0487edc7fdbdd5cf88c4",
+	"newGuestCid": "88684f1ebb7141afe139bdec16cb80a5cfb95b5f42966002a94fde6baad5f1ba",
+	"oldEpoch": 1,
+	"newEpoch": 3,
+	"oldKeyId": "fixture-run-1",
+	"newKeyId": "fixture-run-2",
+	"resumedModelKeyId": "fixture-run-2",
+	"originalDeadline": "2026-11-12T02:34:18.568Z",
+	"resumedDeadline": "2026-11-12T02:34:18.568Z",
+	"oldKeyRevokedSequence": 4,
+	"newKeyIssuedSequence": 6,
+	"postResumeToolCallId": "call-after-resume",
+	"workspaceMarkerSha256": "20e7e2af95a7bbd0b7b28e0705bb8a86590099aa89b7a59398312c84d9166b62",
+	"resumedMarkerSha256": "20e7e2af95a7bbd0b7b28e0705bb8a86590099aa89b7a59398312c84d9166b62",
+	"priorConversationSha256": "0685fec546d9964105c9e11078e4cca0b62fb211bedf73405cf044122d18cc59",
+	"resumedPriorConversationSha256": "0685fec546d9964105c9e11078e4cca0b62fb211bedf73405cf044122d18cc59",
+	"continuedConversationSha256": "7657e3e1333c1c0fe8e1b9bffbf456534451757a678a847986cb59c53921a6f8",
+	"unauthorizedResume": {
+		"refused": true,
+		"modelEffects": 0,
+		"liveGuests": 0,
+		"liveKeys": 0,
+		"checkedCleanup": true
+	},
+	"corruptCheckpoint": {
+		"refused": true,
+		"modelEffects": 0,
+		"liveGuests": 0,
+		"liveKeys": 0,
+		"checkedCleanup": true
+	},
+	"missingJournal": {
+		"refused": true,
+		"modelEffects": 0,
+		"liveGuests": 0,
+		"liveKeys": 0,
+		"checkedCleanup": true
+	}
+}

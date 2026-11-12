@@ -1,0 +1,133 @@
+{
+	"schemaVersion": 1,
+	"kind": "local-supervisor-verification",
+	"family": "supervisor",
+	"role": "host",
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"version": "0.1.2-experimental.w2990.3",
+	"published": false,
+	"publicationEligible": false,
+	"recordedAt": "2026-11-12T02:17:40.397Z",
+	"completedAtSemantics": "per-platform completion uses terminal acceptance log filesystem last-write time",
+	"testIdentity": {
+		"commit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+		"aggregateSha256": "917383bf81f966b106c485a31148cb479710d1d0b5996d5908d6ca02f4a0262d",
+		"method": "sorted basename, NUL, bytes, NUL",
+		"files": [
+			"authority.fixture.ts",
+			"authority@unit.e2e.ts",
+			"continuity.fixture.ts",
+			"continuity@container.e2e.ts",
+			"host-process@unit.e2e.ts",
+			"runtime-cleanup@unit.e2e.ts",
+			"runtime.fixture.ts",
+			"runtime@container.e2e.ts"
+		]
+	},
+	"acceptance": "acceptance.json",
+	"platforms": [
+		{
+			"platform": "linux/amd64",
+			"mainControls": {
+				"passed": 5,
+				"failed": 0,
+				"skipped": 0,
+				"rawLog": "amd64.acceptance.log",
+				"sha256": "1029a6aebfb27f05b2017328fe20d3a8b6f9014acf4551f241868978a2dda6d4"
+			},
+			"supplementalBasic": {
+				"passed": 1,
+				"failed": 0,
+				"skipped": 0,
+				"rawLog": "amd64.topology-probe.log",
+				"sha256": "a81fb80539f5c13907b0e608dd4026b00625b32d77aa54db4ebf9ccbc0a8c4a7"
+			},
+			"evidence": {
+				"file": "amd64.evidence.json",
+				"sha256": "c2e21d25342d565a1bb314c1c60033e16d541a3da411b4a20672e59ffc327c38"
+			},
+			"buildLogSha256": "97522a5ca8acd5a28d0191aecbba4fcb08329571efe67ff4b390e2a69b7d83a8"
+		},
+		{
+			"platform": "linux/arm64",
+			"mainControls": {
+				"passed": 5,
+				"failed": 0,
+				"skipped": 0,
+				"rawLog": "arm64.acceptance.log",
+				"sha256": "b4eda348bb76c12d867ed326334b40679afbf61ca3f5bd5859db18aead6bc6be"
+			},
+			"supplementalBasic": {
+				"passed": 1,
+				"failed": 0,
+				"skipped": 0,
+				"rawLog": "arm64.topology-probe.log",
+				"sha256": "a96546b4462e6d51080a2c8d06194bf4d2166d7fda44357adba305ca9f3a00fb"
+			},
+			"evidence": {
+				"file": "arm64.evidence.json",
+				"sha256": "8665608a412b60636722d40f127343ca940123b5224ac43db30ea620bb78342c"
+			},
+			"buildLogSha256": "bf7fb9926ab742a2b0849926ff091606322b3e16bc5c3122ae1230b4ab2b878f"
+		}
+	],
+	"localAttestations": [
+		{
+			"platform": "linux/amd64",
+			"attestationManifest": "sha256:3500c926ee0f8ff7e7bcdc438fbb2f4980812966e1571c01da8c5f13bfdfd033",
+			"subject": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+			"signature": "unverified",
+			"spdx": {
+				"digest": "sha256:1586021789ceab2ef41cdf71bf225c5b9e81972b637fe82fc5070af2f550dcb4",
+				"closurePackagesMatched": 12
+			},
+			"slsa": {
+				"digest": "sha256:a95020743a00e6c323fb3a734abde0555f5c206d2f68c1902f6cd4c813cb6e51",
+				"predicateType": "https://slsa.dev/provenance/v1",
+				"buildArgumentsMatched": true,
+				"pinnedMaterialsMatched": true
+			}
+		},
+		{
+			"platform": "linux/arm64",
+			"attestationManifest": "sha256:3c9dc85cd0536aef27c88c96a14c11304798f90e75feee17aa42922ea3ab4cd3",
+			"subject": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+			"signature": "unverified",
+			"spdx": {
+				"digest": "sha256:af916ebd34abb23d5bd0b0e88869898355a949925a7dc590131ad0c9bcda01c9",
+				"closurePackagesMatched": 12
+			},
+			"slsa": {
+				"digest": "sha256:c6bd3792ae9c703ae4b5101db6e28dc941f4d746e135d7dbfc9f2157e0896e78",
+				"predicateType": "https://slsa.dev/provenance/v1",
+				"buildArgumentsMatched": true,
+				"pinnedMaterialsMatched": true
+			}
+		}
+	],
+	"supplementalTopology": {
+		"file": "supplemental-topology.json",
+		"onlyTheseExactBasicProbeCidsObserved": true,
+		"mainContinuityGuestArchitecturesIndividuallyObserved": false,
+		"observer": {
+			"outcome": "failed",
+			"exitCode": 1,
+			"error": "Owned HOST record read refused",
+			"reason": "unresolved; occurred after two observations during ending controls",
+			"rawLogSha256": "38c8a5f1e0bfb983fe17a70ca53ed4908aa5776b136fe77e1b0d4f3b55fa971e",
+			"storedSanitizedLog": "topology-observer-failure.log",
+			"storedSanitizedSha256": "3c1c754d155eab21bfaeb42d47094d891af8dbc27bf36b26da00525107ded07e"
+		}
+	},
+	"limitations": [
+		"local Docker Desktop only",
+		"amd64 HOST emulated on arm64 host; supplemental actual guests arm64",
+		"scripted model, no live-provider quality or native-amd64 performance proof",
+		"main10 acceptance and supplemental2 basic controls remain distinct",
+		"observer failure retained; no all-observer-pass claim",
+		"local SPDX/SLSA blob/subject/argument/material bindings checked; signatures unverified",
+		"no registry publication or Flock upstream descriptor",
+		"acceptance binds exact new configs; old d7 evidence preserved"
+	]
+}

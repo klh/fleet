@@ -1,0 +1,11 @@
+11 |     const host=JSON.parse(line);
+12 |     if(!/^[a-f0-9]{64}$/.test(host.cid)||!/^fleet-host-runtime-[a-f0-9-]{36}$/.test(host.owner)||!host.name.startsWith(host.owner+"-supervisor"))continue;
+13 |     const base="/var/lib/docker/volumes/"+host.owner+"/_data/state/workspaces";
+14 |     const program="const fs=require('node:fs'),base="+JSON.stringify(base)+";const rows=[];if(fs.existsSync(base))for(const id of fs.readdirSync(base)){if(!/^[a-f0-9-]{36}$/.test(id))continue;let fd;try{fd=fs.openSync(base+'/'+id+'/executor.json',fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const s=fs.fstatSync(fd);if(!s.isFile()||s.size>65536)throw Error('record bound');const r=JSON.parse(fs.readFileSync(fd,'utf8'));if(r.runId!==id||!(/^[a-f0-9]{64}$/.test(r.containerId))||r.containerName!=='fleet-runner-'+id.replaceAll('-','').slice(0,16))throw Error('record identity');rows.push({cid:r.containerId})}catch(e){if(e.code!=='ENOENT')throw e}finally{if(fd!==undefined)fs.closeSync(fd)}}console.log(JSON.stringify(rows));";
+15 |     const records=await command(["exec",host.cid,"bun","-e",program]);
+16 |     if(records.code!==0){if(/not running|No such container/i.test(new TextDecoder().decode(records.stderr)))continue;throw Error("Owned HOST record read refused")}
+                                                                                                                                ^
+error: Owned HOST record read refused
+      at <topology-observer.ts>:16:124
+
+Bun v1.4.4 (macOS arm64)

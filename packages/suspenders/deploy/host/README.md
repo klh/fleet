@@ -20,9 +20,14 @@ records five passing Docker controls on that exact arm64 config: fresh-HOST
 authorized resume, retained workspace/history/deadline, reader denial, corrupt
 checkpoint and missing journal refusal, plus the existing basic/setup controls.
 Its executed test identity is the recorded base plus reviewed file aggregate.
-Publication remains blocked pending corrected OCI metadata and fresh acceptance
-of each new config. No model weights, Pi CLI, BLAM, judges, checkout, keys,
-profiles, or journals belong in the final image.
+The [0.1.2 local verification](receipts/0.1.2-experimental.w2990.3/verification.json)
+records corrected OCI metadata and five passing controls for each new amd64 and
+arm64 config, using recipe/test commit `fe2e7e8052abea62079382350ecce3b63046cd47`.
+Its [config-bound acceptance](receipts/0.1.2-experimental.w2990.3/acceptance.json)
+keeps those ten controls separate from two supplemental topology probes and
+the [observer telemetry failure](receipts/0.1.2-experimental.w2990.3/topology-observer-failure.log).
+Publication still requires registry and release verification. No model weights,
+Pi CLI, BLAM, judges, checkout, keys, profiles, or journals belong in the final image.
 
 Build from separate immutable source and recipe commits, using the committed
 helper. Preserve existing diagnostic tags and use a new unused version for a new build; no runtime package installation
