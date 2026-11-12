@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ResolvedProvider } from "@klh/settings/connections";
 import { assertProviderPoolPolicy } from "@klh/buckle/src/provider-admission-core.ts";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
-import { resolveAdapter } from "@klh/buckle/src/adapters/index.ts";
+import { connectionAdapter, connectionPaths } from "./connection-wire.ts";
 
 /** Canonical account settings overlay only an explicit native pacing policy. */
 export function projectConnectionPolicy(
@@ -84,19 +84,17 @@ export function projectConnectionGroups(
 					!connection.allowed_models.includes(model)
 				)
 					return [];
-				const adapter =
-					connection.kind === "buckle"
-						? dialect === "openai"
-							? "openai-compat"
-							: "anthropic"
-						: connection.adapter === "openai"
-							? "openai-compat"
-							: connection.adapter;
-				try {
-					resolveAdapter({ dialect, adapter });
-				} catch {
-					throw new Error("Unsupported connection adapter");
+				let provider = profile.provider;
+				if (connection.kind === "buckle" && row.provider !== undefined) {
+					const annotation = z
+						.string()
+						.regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/)
+						.safeParse(row.provider);
+					if (!annotation.success)
+						throw new Error("Invalid peer provider annotation");
+					provider = annotation.data;
 				}
+				const adapter = connectionAdapter(connection, dialect, row.adapter);
 				const config =
 					row.adapter_config === undefined
 						? {}
@@ -116,8 +114,8 @@ export function projectConnectionGroups(
 						url,
 						model,
 						adapter,
-						adapter_config: config,
-						provider: profile.provider,
+						adapter_config: connectionPaths(url, dialect, config),
+						provider,
 						providerProfile: profile.name,
 						buckle: connection.kind === "buckle",
 						discover: connection.discovery.enabled,

@@ -775,8 +775,8 @@ export function providerKey(
 ): string | null {
 	const profiles =
 		stack === undefined
-			? loadProviderConfig()
-			: validateProviderConfig(stack?.providers);
+			? loadProviderConfig(undefined, [name])
+			: validateProviderConfig(stack?.providers, undefined, [name]);
 	return profiles[name]?.key ?? null;
 }
 

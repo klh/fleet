@@ -28,7 +28,7 @@ export function requiredProviders(
 ): ResolvedProvider[] {
 	const names = hub.provider_requirements ?? [];
 	if (names.length === 0) return [];
-	const map = providers ?? loadProviderConfig();
+	const map = providers ?? loadProviderConfig(undefined, names);
 	return names.map((name) => {
 		const r = resolveProvider(name, map);
 		if (!r)
@@ -112,7 +112,7 @@ export function providerIdentityByEnv(
 ): Record<string, { provider: string; providerProfile: string }> {
 	const names = hub.provider_requirements ?? [];
 	if (names.length === 0) return {};
-	const map = providers ?? loadProviderConfig();
+	const map = providers ?? loadProviderConfig(undefined, names);
 	if (!map) return {};
 	const out: Record<string, { provider: string; providerProfile: string }> = {};
 	for (const name of names) {

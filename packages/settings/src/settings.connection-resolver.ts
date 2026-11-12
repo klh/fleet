@@ -102,6 +102,7 @@ function credential(
 export function validateProviderConfig(
 	input: unknown,
 	directory = ".",
+	selectedNames?: readonly string[],
 ): Record<string, ProviderEntry> {
 	const parsed = ProviderEntriesSchema.safeParse(input ?? {});
 	if (!parsed.success) throw new ConnectionConfigError();
@@ -111,6 +112,7 @@ export function validateProviderConfig(
 		if (entry.env && envOwners.has(entry.env))
 			throw new ConnectionConfigError();
 		if (entry.env) envOwners.add(entry.env);
+		if (selectedNames && !selectedNames.includes(name)) continue;
 		if ("kind" in entry) {
 			result[name] = {
 				provider: entry.kind === "provider" ? entry.provider : "buckle",
@@ -150,6 +152,7 @@ export function validateProviderConfig(
 
 export function loadProviderConfig(
 	legacyFile = PROVIDER_STACK_PATH(),
+	selectedNames?: readonly string[],
 ): Record<string, ProviderEntry> {
 	const canonical = settingsPath();
 	const raw = readConnectionFile(canonical, true);
@@ -160,13 +163,18 @@ export function loadProviderConfig(
 		return validateProviderConfig(
 			validateCanonicalProviders(input),
 			dirname(filename),
+			selectedNames,
 		);
 	const doc = z
 		.object({ providers: z.unknown().optional() })
 		.passthrough()
 		.safeParse(input);
 	if (!doc.success) throw new ConnectionConfigError();
-	return validateProviderConfig(doc.data.providers, dirname(filename));
+	return validateProviderConfig(
+		doc.data.providers,
+		dirname(filename),
+		selectedNames,
+	);
 }
 
 export function resolveProvider(

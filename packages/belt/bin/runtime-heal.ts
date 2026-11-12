@@ -287,6 +287,7 @@ export async function bundleProviderResolver(
 	const result = await Bun.build({
 		entrypoints: [
 			join(repoRoot, "packages/speedy/src/provider-config.ts"),
+			join(repoRoot, "packages/belt/bin/connection-upstreams.ts"),
 			join(repoRoot, "packages/suspenders/hooks/lib/stack-config.ts"),
 		],
 		outdir: prefix,

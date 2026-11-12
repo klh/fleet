@@ -9,12 +9,12 @@ export class ConnectionConfigError extends Error {
 
 export const CONNECTION_DOCUMENT_MAX_BYTES = 1048576;
 
-/** A single owned descriptor binds posture, byte cap and the actual read. */
-export function readConnectionFile(
+/** One descriptor binds bounded bytes and their observed private-file posture. */
+export function readBoundedConfigFile(
 	filename: string,
 	absentAllowed = false,
 	maxBytes = CONNECTION_DOCUMENT_MAX_BYTES,
-): string | undefined {
+): { text: string; privateFile: boolean } | undefined {
 	let fd: number;
 	try {
 		fd = openSync(
@@ -33,13 +33,7 @@ export function readConnectionFile(
 	}
 	try {
 		const stat = fstatSync(fd);
-		if (
-			!stat.isFile() ||
-			stat.nlink !== 1 ||
-			stat.uid !== process.getuid?.() ||
-			(stat.mode & 0o777) !== 0o600 ||
-			stat.size > maxBytes
-		)
+		if (!stat.isFile() || stat.size > maxBytes)
 			throw new ConnectionConfigError();
 		const bytes = Buffer.alloc(maxBytes + 1);
 		let length = 0;
@@ -49,14 +43,31 @@ export function readConnectionFile(
 			length += count;
 		}
 		if (length > maxBytes) throw new ConnectionConfigError();
-		return new TextDecoder("utf-8", { fatal: true }).decode(
-			bytes.subarray(0, length),
-		);
+		return {
+			text: new TextDecoder("utf-8", { fatal: true }).decode(
+				bytes.subarray(0, length),
+			),
+			privateFile:
+				stat.nlink === 1 &&
+				stat.uid === process.getuid?.() &&
+				(stat.mode & 0o777) === 0o600,
+		};
 	} catch {
 		throw new ConnectionConfigError();
 	} finally {
 		closeSync(fd);
 	}
+}
+
+/** Credential files retain their existing private-only reader contract. */
+export function readConnectionFile(
+	filename: string,
+	absentAllowed = false,
+	maxBytes = CONNECTION_DOCUMENT_MAX_BYTES,
+): string | undefined {
+	const snapshot = readBoundedConfigFile(filename, absentAllowed, maxBytes);
+	if (snapshot && !snapshot.privateFile) throw new ConnectionConfigError();
+	return snapshot?.text;
 }
 
 export function parseConnectionJson(text: string): unknown {

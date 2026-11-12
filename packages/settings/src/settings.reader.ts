@@ -6,11 +6,11 @@
 // (`mode: "service"`) fail closed on a malformed file; hooks/gates
 // (`mode: "hook"`, the default — a gate must never brick a session) fall
 // back to the last-known-good snapshot with a loud warning.
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
-import { readConnectionFile } from "./settings.connection-file.ts";
+import { readBoundedConfigFile } from "./settings.connection-file.ts";
 import { coerceEnv, ENV_MAP, type EnvMapping } from "./settings.env-map.ts";
 import { renderHubSettings } from "./settings.overlay.ts";
 import {
@@ -61,26 +61,29 @@ export const expandHome = (p: string): string =>
 
 /** Read + JSON.parse the file. null = absent. Throws on malformed JSON. */
 export function readSettingsFile(file: string): Doc | null {
-	if (!existsSync(file)) return null;
+	let snapshot: ReturnType<typeof readBoundedConfigFile>;
+	try {
+		snapshot = readBoundedConfigFile(file, true);
+	} catch {
+		throw new SettingsError(file, ["Expected a bounded regular settings file"]);
+	}
+	if (!snapshot) return null;
 	let raw: unknown;
 	try {
-		raw = JSON.parse(readFileSync(file, "utf8"));
+		raw = JSON.parse(snapshot.text);
 	} catch {
 		throw new SettingsError(file, ["Invalid JSON document"]);
 	}
 	if (!isPlainObject(raw))
 		throw new SettingsError(file, ["<root>: not an object"]);
-	if (isPlainObject(raw.providers) && Object.keys(raw.providers).length) {
-		try {
-			raw = JSON.parse(readConnectionFile(file) ?? "");
-		} catch {
-			throw new SettingsError(file, [
-				"Private connection document requires an owned regular 0600 file",
-			]);
-		}
-		if (!isPlainObject(raw))
-			throw new SettingsError(file, ["Invalid settings document"]);
-	}
+	if (
+		isPlainObject(raw.providers) &&
+		Object.keys(raw.providers).length &&
+		!snapshot.privateFile
+	)
+		throw new SettingsError(file, [
+			"Private connection document requires an owned regular 0600 file",
+		]);
 	return raw;
 }
 

@@ -98,7 +98,13 @@ import {
 } from "./service-key.ts";
 import { mintHubCredentialVerb } from "./hub-credential.ts";
 import { traceTunnelVerb } from "./trace-tunnel.ts";
+import { canonicalCatalogHub } from "./canonical-catalog-policy.ts";
 import { mergeZaiHubUpstreams } from "./zai-catalog.ts";
+import {
+	projectCatalogGroups,
+	discoverConnectionCatalogs,
+	type ConnectionCatalogs,
+} from "./hub-connection-catalog.ts";
 
 const COMPOSE_TEMPLATE = join(import.meta.dir, "hub-compose.yaml");
 
@@ -204,6 +210,7 @@ function redactedRender(envText: string): string {
 export function renderUpstreams(
 	hub: HubProfile,
 	required = requiredProviders(hub),
+	catalogs?: ConnectionCatalogs,
 ): string {
 	// W1124.8.2.1 / C74: stamp non-secret central-provider identity onto
 	// deployment rows whose key env matches a required profile's binding
@@ -213,36 +220,39 @@ export function renderUpstreams(
 			.filter((r) => r.env)
 			.map((r) => [r.env, { provider: r.provider, providerProfile: r.name }]),
 	);
+	const catalogHub = canonicalCatalogHub(hub, required);
 	const groups = Object.fromEntries(
-		Object.entries(mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub))).map(
-			([group, rows]) => [
-				group,
-				rows.map((row) => {
-					const env =
-						typeof row.api_key_env === "string" ? row.api_key_env : null;
-					const canonical = required.some(
-						(profile) =>
-							profile.connection &&
-							(profile.name === row.providerProfile ||
-								(profile.env && profile.env === env)),
-					);
-					const id = !canonical && env ? identity[env] : undefined;
-					return id
-						? {
-								...row,
-								provider: id.provider,
-								providerProfile: id.providerProfile,
-							}
-						: row;
-				}),
-			],
-		),
+		Object.entries(
+			mergeZaiHubUpstreams(catalogHub, mergedHubUpstreams(catalogHub)),
+		).map(([group, rows]) => [
+			group,
+			rows.map((row) => {
+				const env =
+					typeof row.api_key_env === "string" ? row.api_key_env : null;
+				const canonical = required.some(
+					(profile) =>
+						profile.connection &&
+						(profile.name === row.providerProfile ||
+							(profile.env && profile.env === env)),
+				);
+				const id = !canonical && env ? identity[env] : undefined;
+				return id
+					? {
+							...row,
+							provider: id.provider,
+							providerProfile: id.providerProfile,
+						}
+					: row;
+			}),
+		]),
 	);
 	return `${JSON.stringify(
 		{
 			version: 1,
 			inherit_defaults: false,
-			groups: projectConnectionGroups(groups, required),
+			...(catalogs
+				? projectCatalogGroups(groups, required, catalogs)
+				: { groups: projectConnectionGroups(groups, required) }),
 		},
 		null,
 		"\t",
@@ -536,11 +546,11 @@ function pushRepoTierPolicy(hub: HubProfile, dir: string): void {
 
 /** Refresh only the Buckle ladder and its key environment. The container is
  *  recreated (not merely restarted) because Compose must reread env_file. */
-function reloadUpstreams(
+async function reloadUpstreams(
 	hub: HubProfile,
 	name: string,
 	version?: string,
-): void {
+): Promise<void> {
 	const required = requiredProviders(hub);
 	const dir = requireDir(hub);
 	renderProviderEnv(required);
@@ -549,7 +559,16 @@ function reloadUpstreams(
 		throw new Error(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
-	const rendered = renderUpstreams(hub, required);
+	renderUpstreams(hub, required);
+	const rendered = renderUpstreams(
+		hub,
+		required,
+		await discoverConnectionCatalogs(
+			required,
+			undefined,
+			hub.upstreams?.groups,
+		),
+	);
 	pushGatewayPolicy(hub, dir, required);
 	pushUpstreamEnv(hub, dir);
 	pushProviderEnv(hub, dir, required);
@@ -576,16 +595,25 @@ function reloadUpstreams(
 }
 
 /** Push the compose template + rendered .env to the hub's deploy dir. */
-function pushConfig(
+async function pushConfig(
 	hub: HubProfile,
 	name: string,
 	auth?: StackConfig["auth"],
 	version?: string,
-): void {
+): Promise<void> {
 	const required = requiredProviders(hub);
 	projectConnectionPolicy(hub.buckle_gateway, required);
 	renderProviderEnv(required);
 	renderUpstreams(hub, required);
+	const renderedUpstreams = renderUpstreams(
+		hub,
+		required,
+		await discoverConnectionCatalogs(
+			required,
+			undefined,
+			hub.upstreams?.groups,
+		),
+	);
 	if (!existsSync(COMPOSE_TEMPLATE)) {
 		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
 	}
@@ -611,10 +639,10 @@ function pushConfig(
 				hub.deploy.ssh,
 				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(`${dir}/upstreams.hub.json`)}'`,
 			],
-			{ input: renderUpstreams(hub, required) },
+			{ input: renderedUpstreams },
 		);
 	} else {
-		writeFileSync(`${dir}/upstreams.hub.json`, renderUpstreams(hub, required), {
+		writeFileSync(`${dir}/upstreams.hub.json`, renderedUpstreams, {
 			mode: 0o600,
 		});
 	}
@@ -875,16 +903,16 @@ function runtimeReport(
 /** Install-grade hub deploy (W363): the README chain in one idempotent
  *  command — mint → push → up, stop on first failure, then the outside-process
  *  probes gate the exit code (a deploy is done when health says so). */
-function deployHub(
+async function deployHub(
 	hub: HubProfile,
 	name: string,
 	auth?: StackConfig["auth"],
 	version?: string,
-): void {
+): Promise<void> {
 	// Validate the immutable source before minting or copying anything.
 	renderEnv(hub, name, auth, version);
 	mintRootKey(hub);
-	pushConfig(hub, name, auth, version);
+	await pushConfig(hub, name, auth, version);
 	composeUp(hub, name);
 	const failed = status(hub);
 	if (failed > 0) {
@@ -1037,7 +1065,7 @@ function mintLaneKey(
 	);
 }
 
-function main(): void {
+async function main(): Promise<void> {
 	const [verb, hubName, ...flags] = process.argv.slice(2);
 	const force = flags.includes("--force");
 	const stack = loadStack();
@@ -1079,10 +1107,10 @@ function main(): void {
 			mintRootKey(hub);
 			return;
 		case "push":
-			pushConfig(hub, hubName, auth, hubVersion);
+			await pushConfig(hub, hubName, auth, hubVersion);
 			return;
 		case "reload-upstreams":
-			reloadUpstreams(hub, hubName, hubVersion);
+			await reloadUpstreams(hub, hubName, hubVersion);
 			return;
 		case "up":
 			assertHubActivationPreflight(verb);
@@ -1095,7 +1123,7 @@ function main(): void {
 		case "deploy":
 			assertHubActivationPreflight(verb);
 			assertDeployRefsExist(hub, hubName, hubVersion);
-			deployHub(hub, hubName, auth, hubVersion);
+			await deployHub(hub, hubName, auth, hubVersion);
 			notePreferHubLine(hubName);
 			return;
 		case "manifest":
@@ -1169,4 +1197,4 @@ function main(): void {
 	}
 }
 
-if (import.meta.main) main();
+if (import.meta.main) await main();

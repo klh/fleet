@@ -84,6 +84,8 @@ test("actual isolated hubctl push wires canonical policy, routes and private env
 		const target = join(world.home, "generated"),
 			settings = join(world.home, "settings.json");
 		doc.version = "2.2.0";
+		doc.providers["example-account"].discovery = { enabled: false };
+		doc.providers["example-peer"].discovery = { enabled: false };
 		doc.hubs = {
 			fixture: {
 				host: "127.0.0.1",
