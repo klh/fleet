@@ -5,7 +5,9 @@
 // budget escalates (low→medium→high). The ladder is DATA (tier-ladder.json)
 // — semantics here, numbers in the file; C505 may refine the numbers
 // without touching code.
+import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { attemptCount, readLedger, TierSchema, type Tier } from "./arm-ledger.ts";
 
@@ -31,10 +33,26 @@ export const TierLadderSchema = z.strictObject({
 export type TierPlan = z.infer<typeof TierPlanSchema>;
 export type TierLadder = z.infer<typeof TierLadderSchema>;
 
+const SettingsBenchSchema = z.strictObject({
+	bench: z.strictObject({ tierLadder: z.record(z.string(), z.unknown()).optional() }).optional(),
+});
+
 export function loadTierLadder(path: string): TierLadder {
-	const parsed = TierLadderSchema.safeParse(
-		JSON.parse(readFileSync(path, "utf8")),
-	);
+	// settings-first (owner: ladder belongs to common settings.json):
+	// ~/.config/klh/settings.json bench.tierLadder overrides the bundled
+	// file; both sides re-validate against TierLadderSchema.
+	let raw: unknown;
+	try {
+		raw = JSON.parse(readFileSync(join(homedir(), ".config", "klh", "settings.json"), "utf8"));
+	} catch {
+		raw = null; // no settings conf → bundled file only
+	}
+	const override = SettingsBenchSchema.safeParse(raw);
+	const overrideLadder = override.success ? override.data.bench?.tierLadder : undefined;
+	const merged = overrideLadder
+		? { ...(JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>), ...overrideLadder }
+		: JSON.parse(readFileSync(path, "utf8"));
+	const parsed = TierLadderSchema.safeParse(merged);
 	if (!parsed.success) {
 		throw new Error(`tier-ladder drift refused at ${path}:\n${parsed.error.message}`);
 	}

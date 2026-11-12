@@ -38,6 +38,7 @@ export const SettingsSchema = z
 		paths: PathsSchema,
 		telemetry: TelemetrySchema,
 		runner: RunnerSettingsSchema,
+		bench: BenchSchema,
 	})
 	.strict()
 	.describe("klh fleet per-install settings (~/.config/klh/settings.json)");
@@ -86,3 +87,12 @@ export function settingsIssues(err: z.ZodError): string[] {
 		(i) => `${i.path.map(String).join(".") || "<root>"}: ${i.message}`,
 	);
 }
+
+/** W2971.3 bench section: tier ladder lives in common settings; the
+ *  harness re-validates with TierLadderSchema — settings only carries it. */
+export const BenchSchema = z
+	.strictObject({
+		tierLadder: z.record(z.string(), z.unknown()).optional(),
+	})
+	.optional()
+	.describe("blam/bench durable-arm options (tier ladder override)");
