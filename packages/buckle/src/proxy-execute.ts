@@ -9,6 +9,7 @@ import { prefixFingerprintOf } from "./cache-fingerprint.ts";
 import type { CandidateRow } from "./candidates.ts";
 import {
 	type DecisionKind,
+	NO_MODELS_AVAILABLE,
 	latencyClass,
 	type RouteSelection,
 } from "./decide.ts";
@@ -340,9 +341,15 @@ function handleResult(
 			(result.status === 503 || result.status === 429) &&
 			result.retryAfterS !== undefined;
 		const walkDeadline = result.lastFailure?.kind === "walk_deadline";
+		const unavailable =
+			result.status === 503 ||
+			(result.status === 502 && result.attempts === 0 && !result.lastFailure) ||
+			(result.lastFailure?.source === "network" &&
+				result.lastFailure.kind === "network" &&
+				result.lastFailure.transportTimeoutPhase == null);
 		const response = errorResponse(
-			walkDeadline ? 504 : deferred ? result.status : 502,
-			result.error,
+			walkDeadline ? 504 : unavailable ? 503 : deferred ? result.status : 502,
+			unavailable ? `${NO_MODELS_AVAILABLE} ${result.error}` : result.error,
 			result.status === 429 && deferred
 				? result.quota
 					? "quota_exhausted"
