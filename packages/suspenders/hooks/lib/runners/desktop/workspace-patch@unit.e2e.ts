@@ -69,16 +69,17 @@ async function exportFixture() {
 	};
 	let owner = "",
 		name = "";
+	const rewrite = (argv: string[]) => {
+		rewrites.push(argv);
+		return ["selected-daemon", ...argv];
+	};
 	const deps = {
 		assertOwned: async () => {
 			if (faults.denied) throw new Error("captured authority lost");
 		},
-		dockerArgv: (argv: string[]) => {
-			rewrites.push(argv);
-			return ["selected-daemon", ...argv];
-		},
+		dockerArgv: rewrite,
 		runDocker: async (argv: string[]) => {
-			const args = argv.slice(2);
+			const args = rewrite(argv).slice(2);
 			calls.push(args);
 			if (args[0] === "create") {
 				owner = args[args.indexOf("--label") + 1]?.split("=")[1] ?? "";
@@ -113,7 +114,7 @@ async function exportFixture() {
 			};
 		},
 		runDockerStream: async (argv: string[]) => {
-			calls.push(argv.slice(2));
+			calls.push(rewrite(argv).slice(2));
 			return {
 				stream: new ReadableStream<Uint8Array>({
 					start(controller) {
@@ -129,6 +130,57 @@ async function exportFixture() {
 	};
 	return { world, opts, deps, faults, calls, rewrites, bytes };
 }
+
+test("default raw runners route control and binary HOST subprocesses exactly once @unit", async () => {
+	const f = await exportFixture();
+	try {
+		const shim = join(f.world.home, "docker-shim.ts"),
+			state = join(f.world.home, "shim-state.json"),
+			inputs: string[][] = [];
+		const program =
+			'const fs=require("node:fs");const [file,bin,...args]=process.argv.slice(2);if(bin!=="missing-fixture-docker")throw Error("addressing mismatch");const s=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,"utf8")):{seen:[]};s.seen.push(args);let out="";if(args[0]==="create"){s.owner=args[args.indexOf("--label")+1].split("=")[1];s.name=args[args.indexOf("--name")+1];s.image=args.at(-2);out="e".repeat(64)}if(args[0]==="inspect")out=JSON.stringify({id:"e".repeat(64),name:"/"+s.name,image:s.image,owner:s.owner,running:true,oom:false,network:"none",cpus:2000000000,memory:1610612736,pids:128,readonlyRoot:true,user:"1000:1000",capDrop:["ALL"],security:["no-new-privileges"]});if(args.at(-1)==="write-tree")out="a".repeat(40);if(args[0]==="rm")s.removed=true;fs.writeFileSync(file,JSON.stringify(s),{mode:384});if(args.includes("--binary"))await Bun.stdout.write(new Uint8Array([255,0,1,10]));else if(out)console.log(out);';
+		await writeFile(shim, program, { mode: 0o600 });
+		const { exportWorkspacePatch } = await load();
+		const result = await exportWorkspacePatch(f.opts, {
+			assertOwned: f.deps.assertOwned,
+			dockerBin: "missing-fixture-docker",
+			dockerArgv: (argv) => {
+				inputs.push(argv);
+				return [process.execPath, shim, state, ...argv];
+			},
+		});
+		expect(result.sha256).toBe(sha(f.bytes));
+		expect(inputs.length).toBeGreaterThan(10);
+		expect(
+			inputs.every(
+				(argv) => argv[0] === "missing-fixture-docker" && !argv.includes(shim),
+			),
+		).toBe(true);
+		expect(inputs.some((argv) => argv.includes("--binary"))).toBe(true);
+		const { readFile } = await import("node:fs/promises");
+		expect(JSON.parse(await readFile(state, "utf8")).removed).toBe(true);
+	} finally {
+		f.world.clean();
+	}
+});
+
+test("injected complete runners route every control and binary command exactly once @unit", async () => {
+	const f = await exportFixture();
+	try {
+		const { exportWorkspacePatch } = await load();
+		await exportWorkspacePatch(f.opts, f.deps);
+		expect(f.rewrites.length).toBeGreaterThan(10);
+		expect(f.rewrites).toHaveLength(f.calls.length);
+		expect(
+			f.rewrites.every(
+				(argv) => argv[0] === "docker" && !argv.includes("selected-daemon"),
+			),
+		).toBe(true);
+		expect(f.rewrites.some((argv) => argv.includes("--binary"))).toBe(true);
+	} finally {
+		f.world.clean();
+	}
+});
 
 test("isolated export persists exact raw patch bytes and bound receipt after helper removal @unit", async () => {
 	const f = await exportFixture();

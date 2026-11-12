@@ -106,6 +106,7 @@ export interface WorkspacePatchDeps {
 	assertOwned(): Promise<void>;
 	dockerBin?: string;
 	dockerArgv?(argv: string[]): string[];
+	/** Injected runners already own addressing; only default raw runners apply dockerArgv. */
 	runDocker?: RunArgv;
 	runDockerStream?(argv: string[]): Promise<StreamRun>;
 }
@@ -150,10 +151,17 @@ class PatchGuest {
 		const { runArgv } = await import("./spawn.ts");
 		if (!cleanup) await this.deps.assertOwned();
 		const args = [this.deps.dockerBin ?? "docker", ...argv];
-		const result = await (this.deps.runDocker ?? runArgv)(
-			this.deps.dockerArgv ? this.deps.dockerArgv(args) : args,
-			{ timeoutMs: cleanup ? 10_000 : this.remaining(), maxBytes: 65_536 },
-		);
+		const run: RunArgv =
+			this.deps.runDocker ??
+			((argv, options) =>
+				runArgv(
+					this.deps.dockerArgv ? this.deps.dockerArgv(argv) : argv,
+					options,
+				));
+		const result = await run(args, {
+			timeoutMs: cleanup ? 10_000 : this.remaining(),
+			maxBytes: 65_536,
+		});
 		if (result.code !== 0)
 			throw new Error(`patch: Docker ${argv[0]} failed (${result.code})`);
 		return result.stdout.trim();
@@ -307,9 +315,13 @@ async function collectPatch(
 		timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		guest.remaining();
-		child = await (guest.deps.runDockerStream ?? runArgvStream)(
-			guest.deps.dockerArgv ? guest.deps.dockerArgv(args) : args,
-		);
+		const stream =
+			guest.deps.runDockerStream ??
+			((argv: string[]) =>
+				runArgvStream(
+					guest.deps.dockerArgv ? guest.deps.dockerArgv(argv) : argv,
+				));
+		child = await stream(args);
 		const owned = child;
 		timer = setTimeout(() => {
 			timedOut = true;
