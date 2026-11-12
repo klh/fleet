@@ -38,6 +38,76 @@ export type StageRunner = (
 	cwd: string,
 ) => Promise<Uint8Array>;
 
+const CommitEpochSchema = z
+	.string()
+	.regex(/^(0|[1-9]\d{0,11})$/)
+	.transform(Number)
+	.pipe(z.number().int().nonnegative().max(253402300799));
+/** OCI label time is the later immutable committer epoch, never wall-clock fallback. */
+export async function imageCreated(
+	source: string,
+	recipe: string,
+	repository: string,
+	run?: StageRunner,
+) {
+	try {
+		CommitSchema.parse(source);
+		CommitSchema.parse(recipe);
+		const read: StageRunner =
+			run ??
+			(async (argv, cwd) => {
+				const { hostProcess } = await import("./process.ts");
+				const result = await hostProcess(argv, {
+					cwd,
+					timeoutMs: 10000,
+					maxBytes: 4096,
+				});
+				if (result.code !== 0 || result.signal !== null)
+					throw new Error("Commit read failed");
+				return result.stdout;
+			});
+		const text = async (argv: string[]) =>
+			new TextDecoder("utf-8", { fatal: true })
+				.decode(await read(argv, repository))
+				.trim();
+		const epoch = async (commit: string) => {
+			if (
+				(await text([
+					"git",
+					"--no-replace-objects",
+					"cat-file",
+					"-t",
+					commit,
+				])) !== "commit"
+			)
+				throw new Error("Commit object required");
+			return CommitEpochSchema.parse(
+				await text([
+					"git",
+					"--no-replace-objects",
+					"show",
+					"-s",
+					"--format=%ct",
+					commit,
+				]),
+			);
+		};
+		const [sourceEpochSeconds, recipeEpochSeconds] = await Promise.all([
+			epoch(source),
+			epoch(recipe),
+		]);
+		const epochSeconds = Math.max(sourceEpochSeconds, recipeEpochSeconds);
+		return {
+			created: new Date(epochSeconds * 1000).toISOString(),
+			epochSeconds,
+			sourceEpochSeconds,
+			recipeEpochSeconds,
+		};
+	} catch {
+		throw new Error("Immutable commit timestamp unavailable");
+	}
+}
+
 export async function stageContext(
 	source: string,
 	recipe: string,
@@ -66,7 +136,15 @@ export async function stageContext(
 		if (options.run) {
 			const archivePath = join(context, "source.tar");
 			await options.run(
-				["git", "archive", "--format=tar", "--output", archivePath, source],
+				[
+					"git",
+					"--no-replace-objects",
+					"archive",
+					"--format=tar",
+					"--output",
+					archivePath,
+					source,
+				],
 				repository,
 			);
 			await options.run(
@@ -75,11 +153,14 @@ export async function stageContext(
 			);
 			await rm(archivePath);
 		} else {
-			const archive = Bun.spawn(["git", "archive", source], {
-				cwd: repository,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
+			const archive = Bun.spawn(
+				["git", "--no-replace-objects", "archive", source],
+				{
+					cwd: repository,
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
 			const extract = Bun.spawn(
 				["tar", "-xf", "-", "-C", join(context, "source")],
 				{ stdin: archive.stdout, stdout: "ignore", stderr: "pipe" },
@@ -105,13 +186,13 @@ export async function stageContext(
 					? "packages/suspenders/deploy/healthcheck/probe.ts"
 					: `packages/suspenders/deploy/host/${name}`;
 			const entry = await runCommand(
-				["git", "ls-tree", "-z", recipe, "--", path],
+				["git", "--no-replace-objects", "ls-tree", "-z", recipe, "--", path],
 				repository,
 			);
 			if (!/^100(?:644|755) blob [a-f0-9]+\t/.test(entry))
 				throw new Error("Recipe must be a committed regular file");
 			const bytes = await runCommand(
-				["git", "show", `${recipe}:${path}`],
+				["git", "--no-replace-objects", "show", `${recipe}:${path}`],
 				repository,
 			);
 			await Bun.write(
@@ -149,14 +230,23 @@ if (import.meta.main) {
 	const repository = resolve(import.meta.dir, "../../../..");
 	for (const name of ["build.ts", "contract.ts"]) {
 		const committed = await command(
-			["git", "show", `${plan.recipe}:packages/suspenders/deploy/host/${name}`],
+			[
+				"git",
+				"--no-replace-objects",
+				"show",
+				`${plan.recipe}:packages/suspenders/deploy/host/${name}`,
+			],
 			repository,
 		);
 		if (committed !== (await Bun.file(resolve(import.meta.dir, name)).text()))
 			throw new Error("Build helper must match committed recipe");
 	}
+	const imageMetadata = {
+		...(await imageCreated(plan.source, plan.recipe, repository)),
+		derivation: "max(sourceCommit.committerEpoch,recipeCommit.committerEpoch)",
+	};
 	if (parsed.parsed.flag("--plan")) {
-		console.log(JSON.stringify(plan, null, 2));
+		console.log(JSON.stringify({ ...plan, imageMetadata }, null, 2));
 		process.exit(0);
 	}
 	const staged = await stageContext(plan.source, plan.recipe, repository);
@@ -176,6 +266,8 @@ if (import.meta.main) {
 			`RECIPE_COMMIT=${plan.recipe}`,
 			"--build-arg",
 			`VERSION=${plan.version}`,
+			"--build-arg",
+			`CREATED=${imageMetadata.created}`,
 			"--tag",
 			plan.image,
 			"--metadata-file",
@@ -191,6 +283,7 @@ if (import.meta.main) {
 		console.log(
 			JSON.stringify({
 				...plan,
+				imageMetadata,
 				argv,
 				metadata: await Bun.file(`${staged.context}/metadata.json`).json(),
 			}),
