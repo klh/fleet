@@ -12,6 +12,7 @@
 // the leg after one attempt and the walk steps DOWN to the next rung
 // instead of burning retries + backoff into an identical rejection.
 
+import { ReviewOutputError, type ReviewFailureKind } from "./review-output.ts";
 import { wireModelMatch } from "./wire-model-check.ts";
 
 export interface LegAttempt {
@@ -22,15 +23,17 @@ export interface LegAttempt {
 	ok: boolean;
 	/** Failure reason when ok=false (HTTP status, timeout, …). */
 	error?: string;
+	failureKind?: ReviewFailureKind;
 	/** Wall time of the attempt. */
 	ms: number;
 }
 
 export interface LegWalkResult {
-	/** Every successful reply, in order — findings accumulate (W1236.1). */
+	/** Successful or partial review text; findings survive an output failure (W1236.1). */
 	texts: string[];
 	/** Last failure reason when no leg satisfied. */
 	failure: string | null;
+	failureKind: ReviewFailureKind | null;
 	trail: LegAttempt[];
 	totalMs: number;
 }
@@ -44,7 +47,7 @@ export interface WalkOptions {
 	backoffMs?: (legIndex: number, attempt: number) => number;
 	/** Await-able sleep; tests inject a no-op. */
 	sleep?: (ms: number) => Promise<void>;
-	/** A reply that fails this check is not final — walk on (default: any
+	/** A reply that fails this check ends locally as review-output (default: any
 	 * reply satisfies). */
 	satisfied?: (text: string) => boolean;
 	/** W2344: a transport failure completing under this many ms is a
@@ -100,7 +103,7 @@ const realSleep = (ms: number): Promise<void> =>
 
 /** Walk the ordered legs: transport failures retry the same leg with backoff,
  * a sustained wall (all attempts spent) or a terminal failure walks to the
- * next leg, and an unsatisfied reply (e.g. no verdict line) also walks on.
+ * next leg. A successful but unsatisfied reply ends this walk without re-generation.
  * Attempts are bounded: legs × attemptsPerLeg LLM calls max. */
 export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 	const attemptsPerLeg = o.attemptsPerLeg ?? 3;
@@ -109,6 +112,7 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 	const texts: string[] = [];
 	const trail: LegAttempt[] = [];
 	let failure: string | null = null;
+	let failureKind: ReviewFailureKind | null = null;
 	// W2785: walk-level empty-content redrive counter — capped independently
 	// of per-leg retries and of review rounds.
 	let emptyRedrives = 0;
@@ -119,7 +123,6 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 		if (exhausted) break;
 		let legSpent = false;
 		let transportTries = 0;
-		let verdictTries = 0;
 		for (let attempt = 1; !legSpent; attempt++) {
 			const at = Date.now();
 			try {
@@ -132,22 +135,53 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 				});
 				texts.push(text);
 				if (!o.satisfied || o.satisfied(text))
-					return { texts, failure: null, trail, totalMs: Date.now() - t0 };
-				verdictTries += 1;
-				failure = "reply without the required verdict line";
-				if (verdictTries >= 2) legSpent = true;
-				else await sleep(20_000); // W1236 parity: bounded same-leg retry
+					return {
+						texts,
+						failure: null,
+						failureKind: null,
+						trail,
+						totalMs: Date.now() - t0,
+					};
+				// A provider already served this review. Bank its findings and let only
+				// this request back off; do not repeat the full prompt on another leg.
+				return {
+					texts,
+					failure: "reply without the required terminal verdict line",
+					failureKind: failureKind ?? "review-output",
+					trail,
+					totalMs: Date.now() - t0,
+				};
 			} catch (error) {
 				const reason = String(error instanceof Error ? error.message : error);
 				const transport = isTransportFailure(reason);
+				const kind: ReviewFailureKind =
+					error instanceof ReviewOutputError
+						? "review-output"
+						: transport
+							? "provider"
+							: "unknown";
 				trail.push({
 					leg: o.legLabels[legIndex],
 					attempt,
 					ok: false,
 					error: reason.slice(0, 160),
+					failureKind: kind,
 					ms: Date.now() - at,
 				});
 				failure = reason;
+				if (error instanceof ReviewOutputError) {
+					if (error.text) texts.push(error.text);
+					return {
+						texts,
+						failure,
+						failureKind: failureKind ?? kind,
+						trail,
+						totalMs: Date.now() - t0,
+					};
+				}
+				failureKind = kind;
+				// Legacy untyped errors retain W2785 conservative retry behavior.
+				// Modern HTTP-success failures are typed above and stop locally.
 				// W2785: a reasoning-budget exhaustion (finish_reason=length,
 				// zero content) is a TRANSPORT failure — never a review round.
 				// The identical payload re-drives identically here, so spend the
@@ -183,7 +217,7 @@ export async function walkLegs(o: WalkOptions): Promise<LegWalkResult> {
 			}
 		}
 	}
-	return { texts, failure, trail, totalMs: Date.now() - t0 };
+	return { texts, failure, failureKind, trail, totalMs: Date.now() - t0 };
 }
 
 /** Compact machine-parseable one-liner for the receipt evidence line:

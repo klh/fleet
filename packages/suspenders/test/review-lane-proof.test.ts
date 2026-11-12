@@ -433,9 +433,11 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 			},
 			2,
 		);
-		expect(incompleteCalls).toBe(2);
+		expect(incompleteCalls).toBe(1);
 		expect(incomplete.fact.verdict).toBe("ERROR");
-		expect(String(incomplete.fact.headline)).toContain("no verdict line");
+		expect(String(incomplete.fact.headline)).toContain(
+			"did not finish normally",
+		);
 	});
 
 	test("kept child review binds its parent branch with Flash budget and proof", async () => {
@@ -505,60 +507,36 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		});
 	}
 
-	test("W1236: empty-content 200 is a diagnosed failure, not opaque leg-failed", async () => {
-		// the exact glm thinking-budget failure: HTTP 200 with content:"" and
-		// finish_reason=length — every merge-ladder receipt on 2026-10-23
-		const id = addWork("w634 proof empty-content diagnostics");
-		const branch = `suspenders/${id}`;
-		expect(git(["checkout", "-b", branch]).code).toBe(0);
-		await Bun.write(join(REPO, "docs.md"), "w1236 empty-content case\n");
-		expect(git(["add", "-A"]).code).toBe(0);
-		expect(git(["commit", "-m", "w1236 case"]).code).toBe(0);
-		git(["checkout", "main"]);
-		const stub = Bun.serve({
-			port: 0,
-			fetch: async () =>
-				Response.json({
-					choices: [
-						{
-							finish_reason: "length",
-							message: { content: "" },
-						},
-					],
-					usage: { completion_tokens: 1500 },
-				}),
+	for (const output of ["empty", "length-pass", "interrupted-pass"])
+		test(`W1236: ${output} HTTP200 remains ERROR without trusting truncated verdict`, async () => {
+			const { fact } = await runCase(
+				{
+					name: `w1236-${output}`,
+					files: { "docs.md": "incomplete review output\n" },
+					want: "skipped",
+				},
+				async () =>
+					Response.json({
+						choices: [
+							{
+								finish_reason: output === "interrupted-pass" ? null : "length",
+								message: {
+									content:
+										output === "empty"
+											? ""
+											: "B1-real: incomplete\nVERDICT: PASS",
+								},
+							},
+						],
+						usage: { completion_tokens: 1500 },
+					}),
+				2,
+			);
+			expect(fact.verdict).toBe("ERROR");
+			expect(String(fact.headline)).toContain(
+				output === "empty" ? "empty content" : "did not finish normally",
+			);
 		});
-		const p = Bun.spawn(
-			[
-				"bun",
-				join(BIN, "review-lane.ts"),
-				"--item",
-				id,
-				"--project",
-				MY_PROJ,
-				"--executor",
-				"glm-w634",
-				"--llm-url",
-				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-				"--llm-model",
-				"glm-w634-model",
-			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
-		);
-		await p.exited;
-		stub.stop(true);
-		expect(p.exitCode).toBe(2);
-		const db = new Database(DB_PATH, { readonly: true });
-		const fact = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`review.${id}.glm-w634`) as { value: string } | null;
-		db.close();
-		if (!fact) throw new Error(`no review fact for ${id}`);
-		const parsed = JSON.parse(fact.value) as Record<string, unknown>;
-		expect(parsed.verdict).toBe("ERROR");
-		expect(String(parsed.headline)).toContain("empty content");
-		expect(String(parsed.headline)).toContain("finish_reason=length");
-	});
 
 	test("W1263: reasoning-only 200 (content empty) is recovered, not an ERROR", async () => {
 		const { id, fact } = await runCase(
@@ -674,9 +652,8 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(receipt.wire_model).toBe("chatgpt/gpt-6-sol");
 	});
 
-	test("W1236.1: a retry PASS cannot erase the first attempt's blocking findings", async () => {
-		// FAIL60967: the first reply carries a blocker without a verdict line;
-		// a retry PASS must not wash the blocker out of the receipt.
+	test("W1236.1: malformed output banks its blocker without another full-prompt request", async () => {
+		// Bank the first substantive blocker; a fresh request must explicitly resolve it.
 		const id = addWork("w634 proof retry erases findings");
 		const branch = `suspenders/${id}`;
 		expect(git(["checkout", "-b", branch]).code).toBe(0);
@@ -685,27 +662,21 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(git(["commit", "-m", "w1236.1 case"]).code).toBe(0);
 		git(["checkout", "main"]);
 		let calls = 0;
-		const replies = [
-			{
-				choices: [
-					{
-						message: {
-							content:
-								"B1-erase-guard: the retry path drops a prior attempt's blocker.\n",
-						},
-					},
-				],
-			},
-			{
-				choices: [
-					{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
-				],
-			},
-		];
 		const stub = Bun.serve({
 			port: 0,
-			fetch: async () =>
-				Response.json(replies[Math.min(calls++, replies.length - 1)]),
+			fetch: async () => {
+				calls++;
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content:
+									"B1-erase-guard: the retry path drops a prior attempt's blocker.\n",
+							},
+						},
+					],
+				});
+			},
 		});
 		const p = Bun.spawn(
 			[
@@ -726,7 +697,8 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		);
 		await p.exited;
 		stub.stop(true);
-		expect(p.exitCode).toBe(0);
+		expect(p.exitCode).toBe(2);
+		expect(calls).toBe(1);
 		const db = new Database(DB_PATH, { readonly: true });
 		const event = db
 			.query(
@@ -738,7 +710,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		const receipt = JSON.parse(
 			JSON.parse(event.payload).receipt as string,
 		) as Record<string, unknown>;
-		expect(receipt.verdict).toBe("PASS");
+		expect(receipt.verdict).toBe("ERROR");
 		expect(receipt.blocking).toEqual(["B1-erase-guard"]);
 		expect(String(receipt.evidence)).toContain("B1-erase-guard");
 	});
@@ -1117,7 +1089,10 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 	// W3060: the scoped-key cleanup failure must never mask the primary
 	// outcome — a good verdict survives a dead revoke (the scoped key's
 	// TTL bounds the orphan), and a failed leg's error is what propagates.
-	function revokeFixture(title: string, file: string): {
+	function revokeFixture(
+		title: string,
+		file: string,
+	): {
 		item: string;
 		context: ReviewContext;
 	} {
@@ -1128,7 +1103,10 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		git(["add", file]);
 		git(["commit", "-m", "w3060 fixture"]);
 		git(["checkout", "main"]);
-		return { item, context: reviewContext(realpathSync(REPO), `suspenders/${item}`) };
+		return {
+			item,
+			context: reviewContext(realpathSync(REPO), `suspenders/${item}`),
+		};
 	}
 
 	test("W3060: good verdict survives a failed scoped-key revoke", async () => {
