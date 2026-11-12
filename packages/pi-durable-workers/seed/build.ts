@@ -17,15 +17,13 @@
 //      revision, resolved dep versions and SBOM
 // Nothing is pushed anywhere; no cloud writes (W2958 boundary).
 import { execFile } from "node:child_process";
+import { stagePayload } from "./stage.ts";
 import {
-	cpSync,
 	existsSync,
 	mkdtempSync,
-	mkdirSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
-	writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -73,44 +71,6 @@ const docker = async (
 		killSignal: "SIGKILL",
 	});
 	return { stdout, stderr };
-};
-
-const writeJson = (dest: string, value: unknown): void => {
-	writeFileSync(dest, `${JSON.stringify(value, null, "\t")}\n`);
-};
-
-/** Stage the exact payload the image copies; returns the package version. */
-const stagePayload = (): string => {
-	const pkgJson = JSON.parse(readFileSync(join(PKG, "package.json"), "utf8"));
-	rmSync(STAGE, { recursive: true, force: true });
-	mkdirSync(join(STAGE, "seed"), { recursive: true });
-	mkdirSync(join(STAGE, "vendor/@klh/buckle/src"), { recursive: true });
-	cpSync(join(PKG, "src"), join(STAGE, "src"), { recursive: true });
-	cpSync(join(PKG, "seed/payload/readiness.ts"), join(STAGE, "seed/readiness.ts"));
-	cpSync(join(PKG, "seed/payload/policy.json"), join(STAGE, "seed/policy.json"));
-	// Minimal @klh/buckle face: the seed's only buckle import is
-	// @klh/buckle/src/log (dependency-free). Full buckle drags
-	// blam/settings/speedy/telemetry — against the minimal-payload law.
-	cpSync(
-		join(REPO, "packages/buckle/src/log.ts"),
-		join(STAGE, "vendor/@klh/buckle/src/log.ts"),
-	);
-	writeJson(join(STAGE, "vendor/@klh/buckle/package.json"), {
-		name: "@klh/buckle",
-		version: pkgJson.dependencies["@klh/buckle"],
-		private: true,
-		description: "Minimal seed face: log only (W2958 staging)",
-		type: "module",
-	});
-	writeJson(join(STAGE, "package.json"), {
-		...pkgJson,
-		dependencies: {
-			...pkgJson.dependencies,
-			"@klh/buckle": "file:./vendor/@klh/buckle",
-		},
-		devDependencies: undefined,
-	});
-	return pkgJson.version as string;
 };
 
 /** Payload file set for digest + SBOM: everything staged EXCEPT the
@@ -164,7 +124,7 @@ const resolvedDepVersions = (): { name: string; version: string }[] => {
 const main = async (): Promise<void> => {
 	await docker(["info", "--format", "{{.ServerVersion}}"], 10_000);
 	console.log("seed.build: docker daemon reachable");
-	const version = stagePayload();
+	const version = stagePayload(PKG, REPO, STAGE);
 	console.log(`seed.build: payload staged at ${STAGE}`);
 	// Plain install (the staged manifest already strips devDependencies) —
 	// `--production` would skip writing bun.lock and the build context needs
