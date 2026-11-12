@@ -1550,3 +1550,19 @@ Independent source review reproduced 12 focused and 32 existing passes;
 native review PASS event `125107` binds this source to base `cad788791`.
 Commit/push gates separately passed 100/191 tests. No actual reaper cleanup,
 installation, performance trial or model call was executed for this fix.
+
+## W2971.3 pi-durable bench arm: SPH-13926 a10 ACCEPTED (2026-11-12)
+
+First mechanically repeatable judged run end-to-end: admit → supervise →
+extract → judge. SPH-13926 attempt 10, runId `5d75a3b1-c5ee-49cf-ae54-4132db2d0b4d`,
+tier low, supervised agent wall clock 1331 s (≈22 min), agent output token
+streams journaled in the durable NDJSON store. Judge phases are isolated
+networkless docker containers over the digest-pinned clean archive:
+base FAILED by assertion (rc=1, `1 failed, 52 deselected in 0.51s`), gold
+PASSED (rc=0, `1 passed in 0.45s`), candidate PASSED (rc=0, `1 passed in
+0.43s`) → verdict ACCEPTED. The agent's own 3439-byte unified patch
+(`ledger/receipts/SPH-13926-a10-patch.diff`, sha `db98be03a7dd…`) fixed the
+hidden `test_pytype_canonical`. Judge image `klh/blam-judge@sha256:45e8ee62…`
+(git baked, idempotent per repo+base); seed `klh/pi-durable-seed@sha256:d8a9b563…`.
+blam unit suite 47/47 green including 5 new arm-judge specs. Reproduce:
+`bun packages/blam/bench/durable/arm-runner.ts --problem SPH-13926`.
