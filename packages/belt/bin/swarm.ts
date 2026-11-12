@@ -16,7 +16,12 @@
 //                              com.suspenders.local-llm is retired).
 
 import { spawn, execSync } from "node:child_process";
-import { SPECIALISTS, DOWNLOAD_MODELS, residentSet } from "./registry.ts";
+import {
+	SPECIALISTS,
+	DOWNLOAD_MODELS,
+	EXTERNAL,
+	residentSet,
+} from "./registry.ts";
 import { hubRegistryRevision } from "./hubs.ts";
 import { spawnReserved } from "./spawner.ts";
 import {
@@ -110,6 +115,17 @@ async function cmdStart(): Promise<void> {
 		}
 	}
 
+	// W3029: belt-supervised non-MLX members (kev) boot with the swarm.
+	for (const t of fleetTargets()) {
+		if (!t.spawn || !EXTERNAL.some((e) => e.port === t.port)) continue;
+		if (await isUp(t.port)) {
+			console.log(`  ✓ :${t.port} ${t.name} (already running)`);
+			continue;
+		}
+		console.log(`  → :${t.port} ${t.name} (loading in background)`);
+		t.spawn();
+	}
+
 	// Router
 	const routerUp = await isUp(4000);
 	if (!routerUp) {
@@ -180,6 +196,7 @@ async function cmdStop(): Promise<void> {
 	}
 	killPort(4000);
 	for (const s of SPECIALISTS) killPort(s.port);
+	for (const e of EXTERNAL) if (e.supervise) killPort(e.port);
 	console.log("  All stopped.");
 }
 
@@ -201,6 +218,15 @@ async function cmdStatus(): Promise<void> {
 	}
 	const routerUp = await isUp(4000);
 	console.log(`  ${routerUp ? "✓" : "✗"} :4000  router (Anthropic API)`);
+	// W3029: belt-supervised non-MLX members (kev) are first-class rows.
+	for (const e of EXTERNAL) {
+		const up = await isUp(e.port);
+		if (up) total_ram += e.ram_gb;
+		const owner = e.supervise ? "" : " (external)";
+		console.log(
+			`  ${up ? "✓" : "✗"} :${e.port}  ${e.label.padEnd(15)} ${up ? e.model : "down"}${owner}`,
+		);
+	}
 	console.log(`\n  RAM in use: ~${total_ram.toFixed(1)}GB / 128GB`);
 }
 

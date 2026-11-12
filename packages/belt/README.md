@@ -29,7 +29,7 @@ import it; change a model in the registry and both follow.
 | 8906 | 🌐 danish/general        | Qwen3.5-9B-MLX-4bit                                                      | 5 GB   | on-demand | rapid-mlx |
 | 8907 | 🧲 embed                 | Qwen3-Embedding-0.6B-4bit-DWQ                                            | ~2 GB  | resident  | rapid-mlx |
 | 8913 | 🔀 rerank                | Qwen3-Reranker-0.6B-4bit                                                 | 0.5 GB | resident  | rapid-mlx |
-| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB  | resident  | external  |
+| 8912 | 🗂 kev (typed classifier) | `jaredpalmer/kev-4b` via [~/dev/kev](https://github.com/jaredpalmer/kev) | ~8 GB  | resident  | belt-supervised |
 
 The embedding model answers `/v1/embeddings` on `:8907`. Rapid-MLX loads it
 beside the small reranker checkpoint required by its server; the full tier
@@ -46,7 +46,7 @@ git clone https://github.com/klh/fleet && cd fleet/packages/belt
 ./install.sh                      # deploy bin/ to ~/.claude/local-llm/ (full tier)
 ./install.sh --tier minimal       # small machines: resident fleet ≤4GB (:8902 extract + :8913 rerank)
 ./install.sh --with-models        # + deps (uv/mlx-lm/rapid-mlx) + model weights (~40-60 GB)
-./install.sh --with-launchd       # + KeepAlive agents (com.suspenders.belt-swarm, com.belt.dashboard, com.belt.kev, com.belt.mcp)
+./install.sh --with-launchd       # + KeepAlive agents (com.suspenders.belt-swarm, com.belt.dashboard, com.belt.mcp)
 ```
 
 **Tiers.** `BELT_TIER` (or `--tier minimal|full` at install time) scopes the

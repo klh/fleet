@@ -127,7 +127,7 @@ if $WITH_MODELS || $WITH_LAUNCHD; then
   bun "$REPO_DIR/setup/llm-stack.ts" ${args[@]+"${args[@]}"}
 fi
 
-# --with-launchd: the templated belt agents (dashboard, kev, mcp) plus the
+# --with-launchd: the templated belt agents (dashboard, mcp) plus the
 # swarm supervisor — com.suspenders.belt-swarm since W640, the same unit the
 # suspenders manifest renders (deploy/services.yaml). bootout before bootstrap
 # so re-runs refresh cleanly. Darwin only.
@@ -150,8 +150,9 @@ if $WITH_LAUNCHD; then
     # suspenders local-llm serve label joins the boot-out list. W277:
     # com.belt.gateway (retired :4100 wrapper) joins. W640: the old hand-written
     # com.belt.swarm label joins — the kit installs com.suspenders.belt-swarm,
-    # the same unit the suspenders manifest renders (no :4000 fight).
-    for legacy in com.klh.local-llm com.klh.kev com.suspenders.local-llm com.belt.gateway com.belt.swarm com.belt.llm-8901 com.belt.llm-8902 com.belt.llm-8903 com.belt.llm-8913; do
+    # the same unit the suspenders manifest renders (no :4000 fight). W3029:
+    # com.belt.kev joins — the swarm supervisor spawns + keep-alives kev:8912.
+    for legacy in com.klh.local-llm com.klh.kev com.belt.kev com.suspenders.local-llm com.belt.gateway com.belt.swarm com.belt.llm-8901 com.belt.llm-8902 com.belt.llm-8903 com.belt.llm-8913; do
       launchctl bootout "gui/$bUid/$legacy" 2>/dev/null || true
       if [ -f "$HOME/Library/LaunchAgents/$legacy.plist" ]; then
         rm "$HOME/Library/LaunchAgents/$legacy.plist"

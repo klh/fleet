@@ -161,7 +161,8 @@ test.describe("registry operational fields (W289)", () => {
 		}
 		const kev = registryEntries().find((e) => e.port === 8912);
 		expect(kev?.healthPath).toBe("/v1/models");
-		expect(kev?.launchdLabel).toBe("com.belt.kev");
+		// W3029: kev is belt-supervised — its label is the swarm supervisor unit.
+		expect(kev?.launchdLabel).toBe("com.suspenders.belt-swarm");
 		const emb = registryEntries().find((e) => e.port === 8907);
 		expect(emb?.launchdLabel).toBe(SWARM_AGENT);
 		expect(ROUTER.healthPath).toBe("/health/liveness");
