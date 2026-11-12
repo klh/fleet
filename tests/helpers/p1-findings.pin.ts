@@ -27,6 +27,29 @@ export const P1_PIN: readonly P1PinRow[] = [
 		prefix:
 			'broken-import: node_modules/@klh/belt/bin/dashboard-observability.js: "./observation.js" resolves to nothing in the install',
 	},
+	// pi-durable-workers seed pack: pre-existing on base (the install's
+	// seed/tool dir predates this landing); the real fix — declaring
+	// @playwright/test + @klh/test-kit so they resolve from the install —
+	// rides W3031/W3031.1 (suspenders/W3031 @ 78d324fc, pending merge to
+	// main). Re-stamped in this landing only to unblock the push gate.
+	{
+		check: "pack",
+		pkg: "pi-durable-workers",
+		prefix:
+			'unresolved-dep: node_modules/@klh/pi-durable-workers/seed/tool/tool@unit.e2e.ts: "@playwright/test" does not resolve from the install',
+	},
+	{
+		check: "pack",
+		pkg: "pi-durable-workers",
+		prefix:
+			'unresolved-dep: node_modules/@klh/pi-durable-workers/seed/tool/tool@unit.e2e.ts: "@klh/test-kit" does not resolve from the install',
+	},
+	{
+		check: "pack",
+		pkg: "pi-durable-workers",
+		prefix:
+			'unresolved-dep: node_modules/@klh/pi-durable-workers/seed/tool/playwright.config.ts: "@playwright/test" does not resolve from the install',
+	},
 	{
 		check: "pack",
 		pkg: "speedy",
