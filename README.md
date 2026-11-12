@@ -149,17 +149,28 @@ Boundaries and rollout design:
 | Package                                | Responsibility                     | What lives there                                                                                                                                                                                                                                          |
 | :------------------------------------- | :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **[suspenders](packages/suspenders/)** | Coordinate the agents              | SQLite work graph, claims and leases, coordination bus, decisions, knowledge, hook gates, dispatch, merge ladder, fleet board, hub tooling                                                                                                                |
-| **[buckle](packages/buckle/)**         | Govern model access                | Two client wire dialects (OpenAI, Anthropic) over a LiteLLM-internal engine and a 100+ provider catalog carried as data rows, native dialect translation, routing ladders with retries and cooldowns, scoped `bksk_` keys, usage ledger, governance seams |
+| **[buckle](packages/buckle/)**         | Govern model access                | Six adapter families (OpenAI-compat, Anthropic, Azure OpenAI, Bedrock, Vertex, OpenAI Responses with SSE translation) over a build-time-generated catalog of 107 LiteLLM-derived provider rows (pinned LiteLLM 1.103.0 registries, MIT-attributed — LiteLLM itself runs only as a configurable upstream leg behind buckle, never as the engine), native wire translation, routing ladders with retries/cooldowns/failover drills, scoped `bksk_` keys with teams, O(1) rpm/tpm/token budget books, scope faces incl. runner + `/v1/fleet/whoami` identity, CONNECT egress proxy (opaque-TLS, fail-closed), usage ledger + route audit/spend tables, shadow router, servicemon `/status`+`/metrics`, governance seams (admission, provider pressure, stream semantics) |
 | **[belt](packages/belt/)**             | Operate the model fleet            | Specialist registry, MLX lifecycle and routing, remote discovery, dashboard, evaluation and benchmark tools                                                                                                                                               |
 | **[speedy](packages/speedy/)**         | Equip the developer environment    | CLI speed tools, curated skills, personas, commands, agents, hooks, settings, statusline, install.sh and harness configuration                                                                                                                            |
 | **[local](packages/local/)**           | Give services a local front        | Caddy registration, Bonjour/mDNS names, loopback defaults, authenticated LAN exposure, service registry and bar dashboard                                                                                                                                 |
 | **[local-llm](packages/local-llm/)**   | Ship the shared inference kit      | Flat runtime kit and config templates (env, routing ladder, memory policy); the model inventory, supervisor and Anthropic-wire router are belt-owned re-exports                                                                                           |
 | **[blam](packages/blam/)**             | Study and reproduce agent failures | CRASH taxonomy, sanitized incident dataset, deterministic LLM-optional benchmark scenarios, labeling tools, and the shared prompt-condense engine                                                                                                         |
+| **[kernel](packages/kernel/)**         | Fleet primitives                   | The dependency-free core at the bottom of the import graph — shared primitives every other package may build on and nothing imports out of                                                                                                                |
+| **[settings](packages/settings/)**     | Typed settings                     | Zod settings schemas incl. the runner settings shape and the `KNOB_REGISTRY` — the one declared home for every `SUSPENDERS_*` env knob (ratcheted by tests)                                                                                                 |
+| **[telemetry](packages/telemetry/)**   | Shared observability               | Trace/hop-contract headers and telemetry helpers shared by all services (`fleet_trace` hops on every error surface)                                                                                                                                        |
+| **[decant](packages/decant/)**         | Token accounting                   | Vendored dosu-ai/decant token-accounting toolkit (usage records erased/reported per the delta-semantics law)                                                                                                                                                |
+| **[test-kit](packages/test-kit/)**     | Shared test kit                    | The one Playwright-based test kit (`scratchWorld`/`runCli`/`freePort`/`waitUp`/`serveStub`) every new `*.e2e.ts` spec must ride (W1135.1.3)                                                                                                                  |
+| **[design-ui](packages/design-ui/)**   | Shared UI foundations              | The only home for shared Lit-based UI primitives and CSS design tokens consumed by the dashboard/board surfaces                                                                                                                                             |
+| **[pi-durable-workers](packages/pi-durable-workers/)** | Durable worker kit | Pi Durable seed build: one manifest binding base image, seed/policy digests, SBOM and source revision; OCI seed image (published to GHCR as `fleet/buckle-seed`) with provider-native Docker import — the worker image durable runner jobs boot |
 
 The boundaries matter: **suspenders assigns and tracks work; buckle controls
 LLM requests; belt operates the model fleet; speedy configures the agent
 environment.** `local` supplies service access; BLAM supplies failure
-evidence.
+evidence. `kernel` is the dependency-free floor; `settings` and `telemetry`
+are the shared typed-settings and observability planes; `test-kit` is the
+only test harness; `design-ui` is the only shared UI home; `decant` is the
+vendored token-accounting toolkit; `pi-durable-workers` builds and pins the
+durable worker seed image.
 
 ## How it fits together
 
@@ -381,7 +392,7 @@ and the [corpus audit](docs/md-corpus-audit-w693.md).
 
 Landed:
 
-- Root workspace (`packages/*`) with a shared lockfile; all seven packages
+- Root workspace (`packages/*`) with a shared lockfile; all fourteen packages
   carry manifests.
 - Root CI workflow: per-package matrix, entrypoint parse-check, installer
   round-trip, runtime SQLite job.
@@ -421,7 +432,7 @@ See the [taxonomy](packages/blam/docs/taxonomy.md),
 
 ## License
 
-**Personal use only. No redistribution.** The Fleet monorepo and its seven
+**Personal use only. No redistribution.** The Fleet monorepo and its fourteen
 packages use the [Fleet Personal Use License 1.0](LICENSE). It permits an
 individual to run and privately modify Fleet for personal, noncommercial
 study, experimentation, testing, and hobby use. It does not permit sharing
