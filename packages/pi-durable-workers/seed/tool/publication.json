@@ -1,0 +1,106 @@
+{
+  "descriptor": {
+    "schemaVersion": 1,
+    "family": "tool",
+    "version": "0.1.0-experimental.w2988",
+    "image": "ghcr.io/klh/fleet/tool-seed@sha256:e321ce90cd9268c8269cd45f347569a0561b2a90f4b4e91daa1d02e941215826",
+    "sourceCommit": "17585b556a07befb8b1114d05d78a2c09db92029",
+    "architecture": "amd64"
+  },
+  "verifiedAt": "2026-11-11T13:03:08.096Z",
+  "pull": "docker pull --platform linux/amd64 ghcr.io/klh/fleet/tool-seed@sha256:e321ce90cd9268c8269cd45f347569a0561b2a90f4b4e91daa1d02e941215826",
+  "identity": {
+    "uid": 1000,
+    "architecture": "x64",
+    "rootfs": "read-only"
+  },
+  "isolation": [
+    "--platform",
+    "linux/amd64",
+    "--rm",
+    "--read-only",
+    "--user",
+    "1000:1000",
+    "--network",
+    "none",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,size=32m"
+  ],
+  "architecture": "amd64",
+  "labels": {
+    "io.klh.seed.family": "tool",
+    "org.opencontainers.image.created": "2026-09-05T05:58:20.106Z",
+    "org.opencontainers.image.description": "Incredibly fast JavaScript runtime, bundler, test runner, and package manager – all in one",
+    "org.opencontainers.image.licenses": "NOASSERTION",
+    "org.opencontainers.image.revision": "17585b556a07befb8b1114d05d78a2c09db92029",
+    "org.opencontainers.image.source": "https://github.com/klh/fleet",
+    "org.opencontainers.image.title": "fleet/tool-seed",
+    "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+    "org.opencontainers.image.version": "0.1.0-experimental.w2988"
+  },
+  "layerAudit": {
+    "archive": "/tmp/w2988-tool-image.tar",
+    "policy": "(^|\\/)(node_modules|pi-durable-workers|\\.aws|\\.ssh|\\.env|\\.npmrc|\\.gitconfig|docker\\.sock|journals?|judges?)(\\/|$)|@earendil|pi-durable|pi-ai",
+    "layers": [
+      {
+        "layer": "blobs/sha256/27ee9a8250487842a26b1ffa1215982ba9ae27010bce1997d52f9f8628578d17",
+        "entries": 5441,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/ccb86fd70cf1a92d9dddfaaebf11f09cebaec4c7fa60a748c8313b0828b9e41c",
+        "entries": 953,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/dd000cfe5146b0540e51ab7091b532f4575a75f0b7d02da7e3b5f0c2b4f69931",
+        "entries": 4,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/1ba340e2e4f41ebc3af50c87bbd556db48c0d67b69a845466ea0500df4ff8b59",
+        "entries": 4,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/c1bdc9ba2b9ee10de067d50e69caa7454dcd7e80a7f363bc3f26c85ab44175f0",
+        "entries": 4,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/995f23d6717fb18d9e3ee7901ce64cf02d5386f0358688dcb35682d362a9fa11",
+        "entries": 22,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/1b4f41477e9a25fc12a8bc441d03b5ebb9a3bc14d066bd5fa789c596bbea8622",
+        "entries": 3,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/e6dbe286a6add76b6b99ba631ae2d75644fa4b9fe838d1485d378f2d124085b5",
+        "entries": 2,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/bbde282f7fea0ed700a08ab80158cf3109ad63930db9c6889f69d88e8a5336eb",
+        "entries": 4759,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/5be7a436f2f9d8cda9d75d28b172c93432f672acda68ec4a09ecc206f7ecf751",
+        "entries": 3,
+        "forbiddenMatches": 0
+      },
+      {
+        "layer": "blobs/sha256/78e8d8b8f14643800da0932def84f8d0bbee06ec1dc4d7321ccd9497a855d78a",
+        "entries": 1,
+        "forbiddenMatches": 0
+      }
+    ]
+  }
+}
