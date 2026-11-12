@@ -7,7 +7,7 @@
 // without touching code.
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { attemptCount, type Tier } from "./arm-ledger.ts";
+import { attemptCount, readLedger, TierSchema, type Tier } from "./arm-ledger.ts";
 
 export const TierPlanSchema = z.strictObject({
 	tokenBudget: z.number().int().positive().nullable(), // null = unlimited
@@ -19,7 +19,7 @@ export const TierPlanSchema = z.strictObject({
 
 export const TierLadderSchema = z.strictObject({
 	version: z.literal(1),
-	order: z.tuple([z.literal("low"), z.literal("medium"), z.literal("high")]),
+	order: z.array(TierSchema).min(2),
 	tiers: z.record(z.string(), TierPlanSchema),
 	// measured-run history (C505): anchors are DATA, never policy —
 	// recorded verbatim so history and proposed search stay separable

@@ -7,7 +7,7 @@
 import { appendFileSync, closeSync, openSync, statSync } from "node:fs";
 import { z } from "zod";
 
-export const TierSchema = z.enum(["low", "medium", "high"]);
+export const TierSchema = z.enum(["low", "medium", "high", "max"]);
 export type Tier = z.infer<typeof TierSchema>;
 
 export const LedgerRowSchema = z.strictObject({

@@ -1,40 +1,39 @@
 {
 	"version": 1,
-	"anchors": {
-		"_comment": "MEASURED facts from the W2971 sphinx arms — what actually solved, recorded verbatim. These are history, NOT policy; the tiers block below is the proposed search policy (C505: keep them separate).",
-		"SPH-13926": {
-			"solvedAt": "low",
-			"setting": "glm-5.3-flash, no token cap, 30m lifecycle deadline, runId 28d45f0f-4418-4f24-9c18-ffd7cbd3bcc5",
-			"evidence": "judge triple baseFAIL/goldPASS/candidatePASS (root-accepted); HOST-canary attempt a2 delta 4,268 tokens on 16-line patch"
-		},
-		"SPH-13762": {
-			"solvedAt": null,
-			"setting": "clean re-run 0/2 accepted, pytest_exit 2 twice — retained negative",
-			"evidence": "lesson.bench-oracle-isolation"
-		}
-	},
-	"order": ["low", "medium", "high"],
+	"order": ["low", "medium", "high", "max"],
 	"tiers": {
 		"low": {
-			"tokenBudget": null,
-			"wallClockMin": null,
-			"iterationCap": null,
+			"tokenBudget": 100000,
+			"wallClockMin": 30,
+			"iterationCap": 500,
 			"attemptBudget": 50,
 			"confirmRuns": 3
 		},
 		"medium": {
-			"tokenBudget": null,
-			"wallClockMin": null,
-			"iterationCap": null,
+			"tokenBudget": 250000,
+			"wallClockMin": 45,
+			"iterationCap": 500,
 			"attemptBudget": 50,
 			"confirmRuns": 3
 		},
 		"high": {
+			"tokenBudget": 1000000,
+			"wallClockMin": 120,
+			"iterationCap": 2000,
+			"attemptBudget": 25,
+			"confirmRuns": 3
+		},
+		"max": {
 			"tokenBudget": null,
 			"wallClockMin": null,
 			"iterationCap": null,
-			"attemptBudget": 25,
+			"attemptBudget": 10,
 			"confirmRuns": 3
 		}
+	},
+	"anchors": {
+		"_comment": "MEASURED sphinx facts (history, not policy): SPH-13926 solvedAt low-era unlimited — glm-5.3-flash, no token cap, 30m lifecycle, runId 28d45f0f-4418-4f24-9c18-ffd7cbd3bcc5, judge triple + 4,268-token a2 delta; SPH-13762 retained negative 0/2 (lesson.bench-oracle-isolation). Owner 2026-11-12: MAX is the unlimited rung; low/medium/high keep caps.",
+		"SPH-13926": { "solvedAt": "max", "evidence": "judge triple, runId 28d45f0f…, unlimited-era" },
+		"SPH-13762": { "solvedAt": null, "evidence": "retained negative 0/2" }
 	}
 }
