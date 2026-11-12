@@ -33,10 +33,16 @@ export async function command(argv: string[], cwd?: string) {
 	if (code !== 0) throw new Error(`${argv[0]} ${argv[1]} failed: ${err}`);
 	return out;
 }
+export type StageRunner = (
+	argv: readonly string[],
+	cwd: string,
+) => Promise<Uint8Array>;
+
 export async function stageContext(
 	source: string,
 	recipe: string,
 	repository: string,
+	options: { run?: StageRunner } = {},
 ): Promise<{
 	context: string;
 	clean(): Promise<void>;
@@ -48,25 +54,45 @@ export async function stageContext(
 	const { join } = await import("node:path");
 	const context = await mkdtemp(join(tmpdir(), "fleet-host-build-"));
 	const clean = () => rm(context, { recursive: true, force: true });
+	const runCommand = async (argv: string[], cwd: string) =>
+		options.run
+			? new TextDecoder("utf-8", { fatal: true }).decode(
+					await options.run(argv, cwd),
+				)
+			: command(argv, cwd);
 	try {
 		await mkdir(join(context, "source"));
 		await mkdir(join(context, "recipe"));
-		const archive = Bun.spawn(["git", "archive", source], {
-			cwd: repository,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const extract = Bun.spawn(
-			["tar", "-xf", "-", "-C", join(context, "source")],
-			{ stdin: archive.stdout, stdout: "ignore", stderr: "pipe" },
-		);
-		const [a, b, ae, be] = await Promise.all([
-			archive.exited,
-			extract.exited,
-			new Response(archive.stderr).text(),
-			new Response(extract.stderr).text(),
-		]);
-		if (a || b) throw new Error(`Committed source staging failed: ${ae}${be}`);
+		if (options.run) {
+			const archivePath = join(context, "source.tar");
+			await options.run(
+				["git", "archive", "--format=tar", "--output", archivePath, source],
+				repository,
+			);
+			await options.run(
+				["tar", "-xf", archivePath, "-C", join(context, "source")],
+				repository,
+			);
+			await rm(archivePath);
+		} else {
+			const archive = Bun.spawn(["git", "archive", source], {
+				cwd: repository,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const extract = Bun.spawn(
+				["tar", "-xf", "-", "-C", join(context, "source")],
+				{ stdin: archive.stdout, stdout: "ignore", stderr: "pipe" },
+			);
+			const [a, b, ae, be] = await Promise.all([
+				archive.exited,
+				extract.exited,
+				new Response(archive.stderr).text(),
+				new Response(extract.stderr).text(),
+			]);
+			if (a || b)
+				throw new Error(`Committed source staging failed: ${ae}${be}`);
+		}
 		for (const name of [
 			"Dockerfile",
 			"bundle.ts",
@@ -78,13 +104,13 @@ export async function stageContext(
 				name === "probe.ts"
 					? "packages/suspenders/deploy/healthcheck/probe.ts"
 					: `packages/suspenders/deploy/host/${name}`;
-			const entry = await command(
+			const entry = await runCommand(
 				["git", "ls-tree", "-z", recipe, "--", path],
 				repository,
 			);
 			if (!/^100(?:644|755) blob [a-f0-9]+\t/.test(entry))
 				throw new Error("Recipe must be a committed regular file");
-			const bytes = await command(
+			const bytes = await runCommand(
 				["git", "show", `${recipe}:${path}`],
 				repository,
 			);
