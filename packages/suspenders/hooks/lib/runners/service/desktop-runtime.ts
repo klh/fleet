@@ -1,10 +1,4 @@
 import { join } from "node:path";
-import { createModels, createProvider } from "@earendil-works/pi-ai";
-import {
-	stream,
-	streamSimple,
-} from "@earendil-works/pi-ai/api/openai-completions";
-import { createRegistry } from "@earendil-works/pi-durable";
 import { runArgv, runArgvStream } from "../desktop/spawn.ts";
 import { createDesktopRunnerLeaf } from "../desktop/wiring.ts";
 import { privateDirectory } from "../durable/private-paths.ts";
@@ -15,6 +9,7 @@ import {
 	checkRunnerDockerLimits,
 	runnerDockerArgv,
 } from "./desktop-preflight.ts";
+import { beltLeafRuntime } from "./belt-models.ts";
 import type { runRunnerService } from "./process.ts";
 
 export async function desktopRuntime(
@@ -35,7 +30,6 @@ export async function desktopRuntime(
 				privateDirectory(workspacesDir),
 				privateDirectory(durableRoot),
 			]);
-			const baseUrl = new URL("/v1", desktop.baseUrl).href;
 			const modelIds = new Set(
 				Object.values(profiles).map((profile) => {
 					if (profile.provider !== "belt")
@@ -43,35 +37,8 @@ export async function desktopRuntime(
 					return profile.model;
 				}),
 			);
-			const models = createModels();
-			models.setProvider(
-				createProvider({
-					id: "belt",
-					baseUrl,
-					auth: {
-						apiKey: {
-							name: "belt",
-							resolve: async () => ({
-								auth: { apiKey: "runner-leaf-credential-required" },
-								source: "runner",
-							}),
-						},
-					},
-					models: [...modelIds].map((id) => ({
-						id,
-						name: id,
-						api: "openai-completions",
-						provider: "belt",
-						baseUrl,
-						input: ["text"],
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						reasoning: false,
-						contextWindow: 32_768,
-						maxTokens: 2_048,
-					})),
-					api: { "openai-completions": { stream, streamSimple } },
-				}),
-			);
+			const runtime = beltLeafRuntime(desktop.baseUrl, [...modelIds]);
+			const models = runtime.models;
 			const leaf = createDesktopRunnerLeaf({
 				store,
 				durableRoot,
@@ -85,12 +52,7 @@ export async function desktopRuntime(
 						runArgv(runnerDockerArgv(argv), options),
 					runDockerStream: (argv) => runArgvStream(runnerDockerArgv(argv)),
 				},
-				runtime: {
-					models,
-					registry: createRegistry(),
-					settings: undefined,
-					onReport() {},
-				},
+				runtime,
 				credentials: {
 					baseUrl: desktop.baseUrl,
 					adminKey: desktop.adminKey,
