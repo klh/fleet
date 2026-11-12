@@ -486,3 +486,25 @@ Docker-capable host was available to replace the NAS/QEMU fixture. Closing
 disposition: report the Desktop-only tied result as the decision-grade
 evidence this item can produce, and record provisioning a real second
 Linux host as a separate infra decision, not a retry of this measurement.
+
+## W2990.9 — Claimed dotted child pruned through parent identity (2026-11-12)
+
+The rogue-reap classifier treated official `W2990.7` as a temporary name and
+looked up SHATTERED parent `W2990`, bypassing the child's CLAIMED protection.
+Two deleted clean operational worktrees left recovery refs
+`refs/recover/suspenders-W2990.7-1794465080025` and
+`refs/recover/suspenders-W2990.7-1794469038517`, both retaining `54d7665d`.
+Their timestamps, `06:31:20.025Z` and `07:37:18.517Z`, align with the
+2026-11-12 rogue-reap maintenance completions at `06:31:30.666Z` and
+`07:37:31.329Z`. Prune-only cleanup emits no worktree retirement event;
+maintenance retains only the final three output lines, losing the per-tree
+prune row. The exact historical PID for each prune was not retained.
+
+The injected regression reproduced 6 failures / 5 passes before correction;
+this negative result is retained rather than counted as successful protection.
+Source `9804223c63d664677bc63b0036ba602d431abcf7` then passed 12 focused
+tests and 32 existing tests; see [benchmarks.md](benchmarks.md), W2990.9.
+The fix preserves full numeric/dotted IDs and legacy temporary-name handling.
+Recovery refs were preserved. No live reaper trial, cleanup disablement,
+worktree restoration, installation or performance/model-quality claim was
+part of that verification.
