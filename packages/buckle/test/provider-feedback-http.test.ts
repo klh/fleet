@@ -120,7 +120,10 @@ test("a real provider refusal retains bounded code type and call id in the admin
 		const trace = await (
 			await fetch(`${base}/v1/admin/traces?trace_id=${traceId}`, { headers })
 		).json();
-		expect(trace.attempts).toHaveLength(1);
+		// W2585/W2617 single-flight: the first knock claims a cold-start
+		// probe (the real provider row) and the rider's local cold refusal
+		// logs its own — exactly 2 rows, evidence stays on the provider row
+		expect(trace.attempts).toHaveLength(2);
 		expect(trace.attempts[0]).toMatchObject({
 			status: 429,
 			provider_error_code: "1302",
@@ -175,4 +178,5 @@ test("a real provider refusal retains bounded code type and call id in the admin
 		if (previousPeers === undefined) delete process.env.BUCKLE_TRACE_PEERS_FILE;
 		else process.env.BUCKLE_TRACE_PEERS_FILE = previousPeers;
 	}
-});
+	// two legs, each ~4s of bounded W2585/W2617 cold-probe + ride + cold-wait
+}, 15_000);

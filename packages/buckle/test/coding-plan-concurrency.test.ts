@@ -65,6 +65,7 @@ describe("W1266 Coding Plan concurrency", () => {
 		const CHAT_PATH = "/v1/chat/completions";
 		let active = 0;
 		let peak = 0;
+		let warmed = false;
 		let releaseAll!: () => void;
 		const barrier = new Promise<void>((r) => {
 			releaseAll = r;
@@ -72,6 +73,13 @@ describe("W1266 Coding Plan concurrency", () => {
 		const upstream = await startMockUpstream(async (req) => {
 			if (new URL(req.url).pathname !== CHAT_PATH)
 				return Response.json({ data: [] });
+			// W2585/W2617: the first knock claims a cold-start probe placeholder;
+			// herd knocks ride and answer locally until its verdict retires the
+			// gate. Warm admission first so the burst proves REAL 50-way flow.
+			if (!warmed) {
+				warmed = true;
+				return Response.json(JSON.parse(OPENAI_OK));
+			}
 			active++;
 			peak = Math.max(peak, active);
 			if (active >= 50) releaseAll();
@@ -89,13 +97,43 @@ describe("W1266 Coding Plan concurrency", () => {
 			cfg,
 			JSON.stringify({
 				groups: {
-					"glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }],
+					"glm-5.3-flash": [
+						{
+							url: upstream.url,
+							dialect: "openai",
+							adapter_config: { provider_pool: "account" },
+						},
+					],
+				},
+			}),
+		);
+		// W2585/W2617 single-flight: a herd while the first verdict pends
+		// rides and refuses locally on a pool-less row (W2544) — genuine
+		// concurrent forwarding rides the account pool, so the row carries one.
+		const policyPath = cfg.replace(".json", "-policy.json");
+		await Bun.write(
+			policyPath,
+			JSON.stringify({
+				gateway: {
+					num_retries: 0,
+					resilience: { admission_ride_ms: 50 },
+					provider_pools: {
+						account: {
+							concurrency: 50,
+							intervalCap: 50,
+							intervalMs: 50,
+							maxOutstanding: 80,
+							queueWaitMs: 2000,
+							recovery: { successWindow: 8, decreasePercent: 5 },
+						},
+					},
 				},
 			}),
 		);
 		const server = startServer({
 			port: 0,
 			upstreamsPath: cfg,
+			policyPath,
 			dbPath: ":memory:",
 			auth: { rootKey: ROOT },
 		});
@@ -106,6 +144,13 @@ describe("W1266 Coding Plan concurrency", () => {
 			body: JSON.stringify({ name: "w1266", scopes: ["buckle:proxy:WRITE_"] }),
 		});
 		const { key } = (await issued.json()) as { key: string };
+		// warm-up knock: its 200 verdict retires the cold-start probe gate
+		const warm = await fetch(`${base}/v1/chat/completions`, {
+			method: "POST",
+			headers: { authorization: `Bearer ${key}` },
+			body: CHAT("warm"),
+		});
+		expect(warm.status).toBe(200);
 		const round = await Promise.all(
 			Array.from({ length: 50 }, (_, i) =>
 				fetch(`${base}/v1/chat/completions`, {
@@ -117,8 +162,8 @@ describe("W1266 Coding Plan concurrency", () => {
 		);
 		for (const r of round) expect(r.status).toBe(200);
 		const chatCalls = upstream.calls.filter((c) => c.path === CHAT_PATH);
-		// exactly one upstream inference per client request
-		expect(chatCalls).toHaveLength(50);
+		// one warm-up inference + exactly one per burst client
+		expect(chatCalls).toHaveLength(51);
 		expect(peak).toBe(50);
 		const seen: string[] = [];
 		for (const c of upstream.calls) {
@@ -126,7 +171,7 @@ describe("W1266 Coding Plan concurrency", () => {
 			if (body !== null && body.messages !== undefined)
 				seen.push(body.messages[0].content);
 		}
-		expect(new Set(seen).size).toBe(50);
+		expect(new Set(seen).size).toBe(51);
 		server.stop(true);
 		upstream.close();
 	});
@@ -244,17 +289,23 @@ describe("W1266 Coding Plan concurrency", () => {
 		const mapped = mk(true);
 		await burst(mapped);
 		const before = mapped.providerAdmissionSnapshot().account;
-		expect(before?.concurrencyLimitedTotal).toBe(16);
+		// single-flight (W2585): of the 16-concurrent burst exactly ONE
+		// knock claims the probe; the herd answers locally — classification
+		// counts per-knock evidence, so the mapped 1302 collapses from ONE
+		// a 429 feedback ALWAYS counts rate-limited; the mapped code ALSO
+		// counts concurrency-limited (provider-admission-core feedback)
+		expect(before?.rateLimitedTotal).toBe(1);
+		expect(before?.concurrencyLimitedTotal).toBe(1);
 		expect(before?.adaptiveConcurrency ?? 6).toBeLessThan(6);
-		// AFTER — retune: same burst, pure rate pressure. The shared cold
-		// mark stops the herd at the in-flight wave (16 callers → 6 knocks,
-		// the queued 10 answer locally), and the rate epoch multiplicatively
-		// decreases the discovered concurrency (AIMD) instead of sleeping.
+		expect(before?.adaptiveConcurrency ?? 0).toBeGreaterThanOrEqual(1);
+		// AFTER — same burst, pure rate pressure: the unmapped code NEVER
+		// counts as concurrency evidence; the rate epoch AIMD-decreases the
+		// discovered concurrency instead of sleeping.
 		const unmapped = mk(false);
 		await burst(unmapped);
 		const after = unmapped.providerAdmissionSnapshot().account;
 		expect(after?.concurrencyLimitedTotal).toBe(0);
-		expect(after?.rateLimitedTotal).toBe(6);
+		expect(after?.rateLimitedTotal).toBe(1);
 		expect(after?.adaptiveConcurrency).toBeLessThan(6);
 		expect(after?.adaptiveConcurrency).toBeGreaterThanOrEqual(1);
 		expect(after?.adaptiveGapMs).toBeGreaterThan(POOL_LIMITS.intervalMs);

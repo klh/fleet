@@ -8,15 +8,20 @@ import { Cooldowns } from "../src/cooldown.ts";
 import { parsePolicy } from "../src/policy.ts";
 import type { UpstreamPool } from "../src/upstreams.ts";
 
-const POLICY = parsePolicy(`
-gateway:
-  num_retries: 1
-  allowed_fails: 3
-  cooldown_time: 30
-tags:
-  glm-5.3-flash: [fast, cheap, general]
-  local-swarm: [local, code, reasoning]
-`);
+// W1253-A: routing policy is JSON (the yaml format is retired)
+const POLICY = parsePolicy(
+	JSON.stringify({
+		gateway: {
+			num_retries: 1,
+			allowed_fails: 3,
+			cooldown_time: 30,
+		},
+		tags: {
+			"glm-5.3-flash": ["fast", "cheap", "general"],
+			"local-swarm": ["local", "code", "reasoning"],
+		},
+	}),
+);
 
 const poolOf = (entries: Array<[string, string[]]>): UpstreamPool =>
 	kitPoolOf(entries);

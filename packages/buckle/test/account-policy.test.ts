@@ -282,6 +282,10 @@ describe("scopeSelection", () => {
 describe("loadAccountPolicy", () => {
 	test("absent chain = the MANDATORY general default (W1265.2)", () => {
 		const saved = process.env.BUCKLE_REPO_TIER_POLICY;
+		// hermetic: the runtime copy in ~/.claude/local-llm/ exists on real
+		// machines — point HOME at a bare dir so the chain is TRULY absent
+		const savedHome = process.env.HOME;
+		process.env.HOME = "/tmp/w1265.2-no-home";
 		delete process.env.BUCKLE_REPO_TIER_POLICY;
 		try {
 			const r = loadAccountPolicy();
@@ -290,6 +294,7 @@ describe("loadAccountPolicy", () => {
 		} finally {
 			if (saved === undefined) delete process.env.BUCKLE_REPO_TIER_POLICY;
 			else process.env.BUCKLE_REPO_TIER_POLICY = saved;
+			process.env.HOME = savedHome;
 		}
 	});
 	test("BUCKLE_REPO_TIER_POLICY=off = the one explicit disable", () => {

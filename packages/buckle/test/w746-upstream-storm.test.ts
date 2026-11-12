@@ -24,9 +24,14 @@ describe("W746 upstream 5xx storm", () => {
 				: new Response(JSON.stringify({ error: "storm" }), { status: 500 }),
 		);
 		const cfg = `/tmp/buckle-storm-${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 6)}.yaml`;
+		// W1253-A: legacy .yaml path honored only while its content is JSON
 		await Bun.write(
 			`${cfg}`,
-			`groups:\n  glm-5.3-flash:\n    - url: ${upstream.url}\n      dialect: openai\n`,
+			JSON.stringify({
+				groups: {
+					"glm-5.3-flash": [{ url: upstream.url, dialect: "openai" }],
+				},
+			}),
 		);
 		const server = startServer({
 			port: 0,

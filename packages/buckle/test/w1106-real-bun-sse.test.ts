@@ -235,6 +235,19 @@ function quietSseStream(
 					message: { usage: { input_tokens: 1 } },
 				}),
 			);
+			// the W1106 empty-stream guard (#56010) swaps a SUCCESS terminal
+			// that carried no usable output for the typed in-band error —
+			// message_start + message_stop alone IS that 483-byte incident
+			// shape. This canary's law is the quiet-wall transport (the
+			// terminal authored >120s in must reach the client), so the mock
+			// carries a usable text delta and stays outside the guard's scope.
+			c.enqueue(
+				sse("content_block_delta", {
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "text_delta", text: "canary" },
+				}),
+			);
 			armQuietTick(c, audit, t0, quietMs, () => closed);
 		},
 		cancel() {
