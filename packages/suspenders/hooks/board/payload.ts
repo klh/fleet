@@ -200,6 +200,13 @@ function buildPayload(): unknown {
 		.query("SELECT state, COUNT(*) AS n FROM consults GROUP BY state")
 		.all() as { state: string; n: number }[];
 	const cs = (k: string) => byState.find((b) => b.state === k)?.n ?? 0;
+	// W2842: ghosted lanes counted separately — the terminal GHOSTED state is
+	// neither working nor failed, so the fleet line never folds it into either
+	const ghosted = (
+		db
+			.query("SELECT COUNT(*) AS n FROM sessions WHERE state = 'GHOSTED'")
+			.get() as { n: number }
+	).n;
 	const kbRow = db
 		.query(
 			"SELECT COUNT(*) AS n, COALESCE(SUM(hits), 0) AS hits FROM consult_kb",
@@ -239,6 +246,7 @@ function buildPayload(): unknown {
 		// decisions feed stale without the payload
 		decisionsTs: Date.now(),
 		zombies,
+		ghosted,
 		consults,
 		laneGit: laneGitSnapshot(ss),
 		llm: llm(),

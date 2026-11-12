@@ -54,7 +54,7 @@ export function selectGovernorLanes<T extends GovernorLane>(
 	const current = (s: T) =>
 		fresh(s) &&
 		s.hbAgo <= 300 &&
-		!["CLOSED", "IDLE", "ZOMBIE"].includes(s.state);
+		!["CLOSED", "IDLE", "ZOMBIE", "GHOSTED"].includes(s.state);
 	const recent = (s: T) => fresh(s) && s.hbAgo <= 3600;
 	const sort = (a: T, b: T) =>
 		Number(current(b)) - Number(current(a)) ||

@@ -24,6 +24,7 @@ const HEARTBEAT_BORN: Record<string, string> = {
 	"quota-lift-retry": "W804",
 	"usage-mining": "W826",
 	"rogue-reap": "W827",
+	"ghost-sweep": "W2842",
 	"license-audit": "W828",
 	"metrics-alert": "W782.2.1",
 	"cache-sla": "W1139.1",
@@ -72,6 +73,23 @@ describe("maintenance/legacyLabels drift contract (W1256.1)", () => {
 		expect(updater?.argv("/suspenders", "/fleet")).toEqual([
 			"/suspenders/deploy/hub-update.ts",
 			"reconcile",
+		]);
+	});
+
+	test("ghost sweep runs on the heartbeat, acting, at a bounded cadence (W2842)", () => {
+		const sweeper = MAINTENANCE_TASKS.find(
+			(task) => task.name === "ghost-sweep",
+		);
+		// the sweep IS the W2842 change: without it this task is undefined and
+		// the pass below fails — the discriminating assertion the coverage
+		// proof runs against the reverted tree
+		expect(sweeper).toBeDefined();
+		expect(sweeper?.everySeconds).toBe(1800);
+		expect(sweeper?.argv("/suspenders", "/fleet")).toEqual([
+			"/suspenders/hooks/bin/ghost-sweep.ts",
+			"--act",
+			"--repo",
+			"/fleet",
 		]);
 	});
 

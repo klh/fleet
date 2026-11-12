@@ -97,7 +97,7 @@ function renderFleetLanes(el, lanes, zombies, needs){
     var s = lanes[i];
     if (!govMatches(s.label, s.sid, s.project, s.model, s.state)) continue;
     var chip = document.createElement('div');
-    chip.className = 'fleetrow' + (s.state !== 'CLOSED' && s.state !== 'IDLE' && zombieFor(s.sid, zombies) ? ' zombie' : '');
+    chip.className = 'fleetrow' + (s.state !== 'CLOSED' && s.state !== 'IDLE' && s.state !== 'GHOSTED' && zombieFor(s.sid, zombies) ? ' zombie' : '');
     chip.title = s.sid;
     var observed = hubScope().observations.filter(function(o){ return o.laneId === s.sid && o.project === s.project && o.expiresAt > Date.now(); });
     chip.title += observed.length ? ' · ' + observed.map(function(o){ return 'origin ' + o.originHub + ' via ' + o.peerHub; }).join('; ') : ' · hub provenance unknown';
@@ -205,7 +205,8 @@ function renderFleet(){
   for (var p = 0; p < proj.length; p++) if (sel.value === 'all' || proj[p].project === sel.value) gated += (proj[p].gated || []).filter(function(item){ return scopedLane(item.owner, proj[p].project); }).length;
   var waiting = openDecs().filter(function(decision){ return scopedSource(decision.asked_by || decision.target, decision.project); }).length;
   var line = 'fleet: ' + working + ' live sessions · ' + waiting + ' waiting on you · ' + gated + ' gated' +
-    ' · ' + view.recent.length + ' recent lanes' + (zN ? ' · ' + zN + ' recently flagged' : '');
+    ' · ' + view.recent.length + ' recent lanes' + (zN ? ' · ' + zN + ' recently flagged' : '') +
+    ((d.ghosted || 0) > 0 ? ' · ' + d.ghosted + ' ghosted' : '');
   var ck = d.consults;
   if (sel.value === 'all' && hubScope().origin === 'all' && hubScope().peer === 'all' && ck && (ck.human || ck.kbSolutions)) {
     line += ' · consults: ' + ck.open + ' open, ' + (ck.human + ck.kb) + ' answered' +

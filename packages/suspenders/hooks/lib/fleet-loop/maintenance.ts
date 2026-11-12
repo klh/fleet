@@ -201,6 +201,24 @@ export const MAINTENANCE_TASKS: MaintenanceTask[] = [
 		cwd: (repo) => repo,
 	},
 	{
+		// W2842: the ghost sweep — flips heartbeat-dead RUNNING sessions (no
+		// live process, no live claim, no OPEN decision waiting) to the
+		// terminal GHOSTED state so the board lanes view stops painting them
+		// as stale/failed. Bounded batch per fire; dry-run default, the loop
+		// acts. `.fleet/ghost-sweep-paused` pauses.
+		name: "ghost-sweep",
+		everySeconds: 1800,
+		nice: 10,
+		timeoutMs: 120_000,
+		argv: (root, repo) => [
+			join(root, "hooks/bin/ghost-sweep.ts"),
+			"--act",
+			"--repo",
+			repo,
+		],
+		cwd: (repo) => repo,
+	},
+	{
 		// W1247: the .fleet launch-debris janitor — dispatch/supervise fence
 		// every lane launch with launch-<nonce>.{json,sh,json.registered} in
 		// <REPO>/.fleet and nothing removed them (6,805-file backlog,
