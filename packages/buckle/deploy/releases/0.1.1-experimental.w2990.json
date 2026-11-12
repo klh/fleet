@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"family": "service",
+	"service": "buckle",
+	"version": "0.1.1-experimental.w2990",
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:166b3adfe7e2de430fe1858ad7fe2bdb1aa8aab4c6370727e242670bee0c4066",
+	"sourceCommit": "02555a4f502661830dc9ffda4e017ef7eb83c210",
+	"recipeCommit": "d36478f1dc5bfdca5e0fa097e93348898838b519",
+	"architectures": ["amd64", "arm64"],
+	"runtimeSmokePlatforms": ["linux/amd64", "linux/arm64"],
+	"producer": {
+		"name": "fleet",
+		"repository": "https://github.com/klh/fleet"
+	},
+	"build": {
+		"baseImage": "oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4",
+		"tool": "docker-buildx",
+		"provenance": "verified",
+		"sbom": "verified"
+	}
+}
