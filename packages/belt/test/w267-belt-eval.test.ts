@@ -204,11 +204,12 @@ describe("registry schema", () => {
 		}
 	});
 
-	test("Kev :8912 is declared as an external resident (~8GB)", () => {
+	test("Kev :8912 is a belt-supervised resident (~8GB)", () => {
 		const kev = EXTERNAL.find((e) => e.port === 8912);
 		expect(kev?.model).toBe("jaredpalmer/kev-4b");
 		expect(kev?.ram_gb).toBe(8);
-		expect(kev?.owner).toContain("~/dev/kev");
+		// W3029: the swarm supervisor owns the process now.
+		expect(kev?.owner).toContain("belt swarm supervisor");
 	});
 
 	test("no port is claimed twice across specialists + external", () => {

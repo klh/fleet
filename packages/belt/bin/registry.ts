@@ -90,6 +90,8 @@ export const ROUTER_PROTOCOL = "anthropic-shim";
 // W289 operational fields: which launchd agent revives it and which log to
 // tail — ONE source, so the recovery map (suspenders W273) drops its literals.
 export const SWARM_AGENT = "com.suspenders.local-llm";
+/** The live swarm-supervisor unit (W640) — what revives belt-owned rows. */
+export const BELT_SWARM_AGENT = "com.suspenders.belt-swarm";
 export const SWARM_LOG = "~/.claude-insights/swarm-serve-launchd.log";
 
 export const ROUTER = {
@@ -231,13 +233,27 @@ export const SPECIALISTS: Specialist[] = [
 ];
 
 // ─── external fleet members ───
-// Processes that hold fleet RAM/ports but are NOT launched by belt (no swarm
-// lifecycle, not in DOWNLOAD_MODELS). Declared here so the registry stays the
-// single source of truth for every port the fleet occupies — never hidden.
+// Processes that hold fleet RAM/ports but are not MLX specialists (not in
+// DOWNLOAD_MODELS). Declared here so the registry stays the single source of
+// truth for every port the fleet occupies — never hidden. A row carrying
+// `supervise` IS belt-owned (W3029): the swarm supervisor spawns and
+// keep-alives it alongside the specialists; rows without it stay probe-only.
+/** W3029: how the belt swarm supervisor spawns a non-MLX fleet member.
+ *  Present = the supervisor owns the process (spawn + keep-alive); absent =
+ *  observed only. argv is literal (no shell); env merges over process.env. */
+export interface ExternalSpawn {
+	argv: string[];
+	env?: Record<string, string>;
+	/** Log basename under the belt log dir (default: the row's alias). */
+	log?: string;
+}
+
 export interface ExternalService {
 	port: number;
 	healthPath: string;
 	launchdLabel?: string;
+	/** Supervisor-owned spawn recipe (W3029) — absent rows stay probe-only. */
+	supervise?: ExternalSpawn;
 	model: string;
 	label: string;
 	alias: string;
@@ -250,15 +266,43 @@ export interface ExternalService {
 	good_at: string;
 }
 
+// Kev-4B typed-question classifier spawn recipe (W3029) — config-over-code:
+// the uv binary and the kev checkout are env-overridable, defaults match the
+// retired com.belt.kev plist argv (port/model/dtype byte-stable).
+const KEV_UV = process.env.BELT_KEV_UV ?? "/opt/homebrew/bin/uv";
+const KEV_DIR = process.env.BELT_KEV_DIR ?? join(homedir(), "dev", "kev");
+
 export const EXTERNAL: ExternalService[] = [
 	{
 		// Kev-4B typed-question classifier (System One API), base
-		// Qwen/Qwen3.5-4B-Base; launchd/com.belt.kev.plist. Consumers: router-shim
+		// Qwen/Qwen3.5-4B-Base. Consumers: router-shim
 		// ambiguity band, fit-classifier BELT_FIT_BACKEND=kev. contextTokens =
 		// Kev's trained MAX_STATE (384); longer states are unmeasured.
+		// W3029: belt-supervised — the standalone com.belt.kev unit is retired.
 		port: 8912,
 		healthPath: "/v1/models",
-		launchdLabel: "com.belt.kev",
+		launchdLabel: BELT_SWARM_AGENT,
+		supervise: {
+			argv: [
+				KEV_UV,
+				"run",
+				"--python",
+				"3.13",
+				"--extra",
+				"serve",
+				"--directory",
+				KEV_DIR,
+				"python",
+				"-m",
+				"kev.serve",
+				"--run",
+				"jaredpalmer/kev-4b",
+				"--port",
+				"8912",
+			],
+			env: { KEV_DTYPE: "bf16" },
+			log: "kev",
+		},
 		model: "jaredpalmer/kev-4b",
 		label: "🗂 kev",
 		alias: "local-kev",
@@ -266,7 +310,7 @@ export const EXTERNAL: ExternalService[] = [
 		ram_gb: 8,
 		contextTokens: 384,
 		tier: "resident",
-		owner: "external: ~/dev/kev (launchd com.belt.kev)",
+		owner: "belt swarm supervisor (com.suspenders.belt-swarm)",
 		protocol: "systemone",
 		good_at: "typed-question classification, use-case routing verdicts",
 	},

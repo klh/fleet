@@ -358,6 +358,8 @@ legacyLabels:
   # W277 — retired :4100 litellm wrapper; a lingering loaded plist would run
   # retired code (the supervisor's litellm target owns the engine now)
   - com.belt.gateway
+  # W3029 — kev:8912 is belt-swarm-supervised now; the standalone unit retires
+  - com.belt.kev
   # W779 heartbeat fold — the no-port maintenance agents are fleet-loop
   # typed tasks now; their launchd units retire (W779)
   - com.suspenders.fleet-monitor

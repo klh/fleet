@@ -995,10 +995,19 @@ export class Supervisor {
 
 // ─── fleet wiring (registry → targets) ───
 
-const spawnLogged = (argv: string[], log: string): Child => {
+const spawnLogged = (
+	argv: string[],
+	log: string,
+	env?: Record<string, string>,
+): Child => {
 	mkdirSync(dirname(log), { recursive: true });
 	const fd = openSync(log, "a");
-	return Bun.spawn(argv, { stdin: "ignore", stdout: fd, stderr: fd });
+	return Bun.spawn(argv, {
+		stdin: "ignore",
+		stdout: fd,
+		stderr: fd,
+		...(env ? { env: { ...process.env, ...env } } : {}),
+	});
 };
 
 /** Every port the fleet occupies. Owned = what `swarm.ts` launches. */
@@ -1040,12 +1049,33 @@ export function fleetTargets(): Target[] {
 		});
 	}
 	for (const e of EXTERNAL) {
+		// W3029: a row with a spawn recipe is belt-owned — the swarm supervisor
+		// spawns + keep-alives it like a specialist (slow weight load, so no
+		// kill-on-hung and a generous bind budget).
+		const sup = e.supervise;
 		targets.push({
 			name: e.label,
 			port: e.port,
-			kind: e.tier === "ondemand" ? "ondemand" : "external",
-			owned: false,
+			kind: sup
+				? "specialist"
+				: e.tier === "ondemand"
+					? "ondemand"
+					: "external",
+			owned: Boolean(sup),
 			healthPath: e.healthPath,
+			killHung: false,
+			...(sup
+				? {
+						bindTimeoutMs: 180_000,
+						generation: digest(JSON.stringify(sup.argv)),
+						spawn: () =>
+							spawnLogged(
+								sup.argv,
+								`${LOG_DIR}/${sup.log ?? e.alias}.log`,
+								sup.env,
+							),
+					}
+				: {}),
 		});
 	}
 	const gateway = litellmTarget();
