@@ -14,7 +14,12 @@ import { join } from "node:path";
 const root = mkdtempSync(join(tmpdir(), "fleet-capsule-scope-"));
 const home = join(root, "home");
 mkdirSync(home);
-const env = { ...process.env, HOME: home, GOVERNOR_STORE_URL: "" };
+const env = {
+	...process.env,
+	HOME: home,
+	GOVERNOR_STORE_URL: "local",
+	SUSPENDERS_KEV_URL: "http://127.0.0.1:9",
+};
 const hooks = join(import.meta.dir, "../hooks");
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
