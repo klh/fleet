@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 		console.log(`arm-runner: ADMITTED ${receipt.runId} → ${receiptPath}`);
 		writeFileSync(marker, [
 			`# ${problemId} attempt ${attempt} — ADMITTED`,
-			`runId=${receipt.runId} tier=${chosen}`,`,
+			`runId=${receipt.runId} tier=${chosen}`,
 			`archive=${archivePath} sha=${archiveSha}`,
 			`next: supervise → extract → judge`,
 			"",
