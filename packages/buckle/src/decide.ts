@@ -9,6 +9,8 @@ import type { CandidateRow } from "./candidates.ts";
 import { hintFit, hintTotal, type RouteHint } from "./hints.ts";
 import type { Prefs } from "./policy.ts";
 
+export const NO_MODELS_AVAILABLE = "No models available or configured.";
+
 export type DecisionKind = "policy" | "degraded" | "fallback" | "errored";
 
 export type RouteErrorCode =
@@ -189,7 +191,7 @@ export function decideRoute(input: DecideInput): DecideResult {
 			err: {
 				code: "no_healthy_fit",
 				seen: pool.length,
-				why: `pin '${input.group}': all ${String(pool.length)} row(s) unhealthy — never substitutes`,
+				why: `${NO_MODELS_AVAILABLE} pin '${input.group}': all ${String(pool.length)} row(s) unhealthy — never substitutes`,
 			},
 		};
 	return preferOr(input, pool);
@@ -251,7 +253,13 @@ function mustPath(
 				: noFitErr(input.hintRaw, pool.length).why;
 		return {
 			ok: false,
-			err: { code: "no_healthy_fit", seen: pool.length, why },
+			err: {
+				code: "no_healthy_fit",
+				seen: pool.length,
+				why: pool.some((candidate) => candidate.healthy)
+					? why
+					: `${NO_MODELS_AVAILABLE} ${why}`,
+			},
 		};
 	}
 	return okSel(input, pool, fits, head, hintTotal(hint));
@@ -305,7 +313,7 @@ function preferOr(input: DecideInput, pool: CandidateRow[]): DecideResult {
 			err: {
 				code: "no_route",
 				seen: 0,
-				why: `no ${input.dialect} candidates in the pool`,
+				why: NO_MODELS_AVAILABLE,
 			},
 		};
 	const hint = input.hint;
@@ -317,7 +325,7 @@ function preferOr(input: DecideInput, pool: CandidateRow[]): DecideResult {
 		if (!head)
 			return {
 				ok: false,
-				err: { code: "no_route", seen: 0, why: "no candidates" },
+				err: { code: "no_route", seen: 0, why: NO_MODELS_AVAILABLE },
 			};
 		return okSel(input, pool, ordered, head, 0);
 	}
