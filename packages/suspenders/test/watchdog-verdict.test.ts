@@ -39,6 +39,11 @@ function healthy() {
 			state: "ok" as HealthState,
 			detail: "below guards",
 		},
+		conf: {
+			name: "conf" as const,
+			state: "ok" as HealthState,
+			detail: "settings.json validates",
+		},
 	};
 }
 test("aggregate publishes all dimensions and only verified healthy observations exit zero", () => {
@@ -55,6 +60,7 @@ test("aggregate publishes all dimensions and only verified healthy observations 
 		"progress",
 		"lane",
 		"memory",
+		"conf",
 	]);
 });
 test("service failures cannot be hidden by passing activation and inference probes", () => {
@@ -99,6 +105,7 @@ test("idle scheduled services are healthy while graph stalls and unavailable evi
 		["lane", "degraded"],
 		["memory", "unknown"],
 		["memory", "degraded"],
+		["conf", "degraded"],
 	] as const) {
 		const input = healthy();
 		input[dimension].state = state;

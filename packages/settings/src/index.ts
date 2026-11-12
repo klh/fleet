@@ -57,6 +57,11 @@ export {
 	RunnerSettingsSchema,
 } from "./settings.runner.ts";
 export {
+	patchSettings,
+	type WriteVerdict,
+	writeSettingsDoc,
+} from "./settings.writer.ts";
+export {
 	type SettingAt,
 	type SettingPath,
 	type Settings,
