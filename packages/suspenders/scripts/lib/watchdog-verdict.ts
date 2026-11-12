@@ -2,7 +2,7 @@ import type { ServiceVerdict } from "./service-drift.ts";
 
 export type HealthState = "ok" | "unknown" | "degraded" | "stalled";
 export interface WatchdogDimension {
-	name: "activation" | "services" | "progress" | "lane" | "memory";
+	name: "activation" | "services" | "progress" | "lane" | "memory" | "conf";
 	state: HealthState;
 	detail: string;
 }
@@ -14,6 +14,7 @@ export function watchdogVerdict(
 		progress: WatchdogDimension;
 		lane: WatchdogDimension;
 		memory: WatchdogDimension;
+		conf: WatchdogDimension;
 	},
 	now = Date.now(),
 ) {
@@ -56,6 +57,7 @@ export function watchdogVerdict(
 		input.progress,
 		input.lane,
 		input.memory,
+		input.conf,
 	];
 	const state: HealthState = dimensions.some(
 		(dimension) => dimension.state === "degraded",
