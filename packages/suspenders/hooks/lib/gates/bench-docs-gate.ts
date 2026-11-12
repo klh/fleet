@@ -1,10 +1,12 @@
 // hooks/lib/gates/bench-docs-gate.ts — W951: owner directive #47519. A bench
 // landing must carry its ledgers: a bench-shaped item's closing diff
-// (the baseline..sha path window) must touch BOTH root ledgers —
-// benchmarks.md (the measured result) and doesnt_work.md (what failed) —
-// or closure is refused. W949 landed both rows by hand; this gate makes
-// the pair mandatory for every bench after it. SUSPENDERS_DONE_DOCS=0
-// disables.
+// (the baseline..sha path window) must cover ONE accepted ledger pair —
+// the W2990.12 canonical pair (benchmarks/benchmark.md, the top-node
+// summary, + benchmarks/benchmarks.json5, the authoritative tree) or the
+// legacy root pair (benchmarks.md, the measured result, + doesnt_work.md,
+// what failed) — or closure is refused. W949 landed both rows by hand;
+// this gate makes a pair mandatory for every bench after it.
+// SUSPENDERS_DONE_DOCS=0 disables.
 //
 // The gate must never flag its own source: no marker vocabulary appears
 // contiguously (the W511 scan law).
@@ -17,8 +19,23 @@ export const isBenchItem = (
 	desc?: string | null,
 ): boolean => /bench|a\/b/i.test(`${title ?? ""} ${desc ?? ""}`);
 
-/** the two root ledgers a bench landing must touch. */
+/** the legacy root ledgers a bench landing must touch (honored while
+ *  present). */
 export const BENCH_DOC_PATHS = ["benchmarks.md", "doesnt_work.md"];
+
+/** the W2990.12 canonical pair: the top-node summary + the authoritative
+ *  tree. */
+export const CANONICAL_BENCH_DOC_PATHS = [
+	"benchmarks/benchmark.md",
+	"benchmarks/benchmarks.json5",
+];
+
+/** accepted ledger pairs — full coverage of ANY one pair satisfies the
+ *  gate; mixing across pairs satisfies nothing. */
+export const BENCH_DOC_PAIRS: ReadonlyArray<ReadonlyArray<string>> = [
+	CANONICAL_BENCH_DOC_PATHS,
+	BENCH_DOC_PATHS,
+];
 
 export type BenchDocsVerdict = {
 	ok: boolean;
@@ -37,16 +54,28 @@ export const benchDocsVerdict = (o: {
 }): BenchDocsVerdict => {
 	if (o.disabled ?? !setting("gates.done_docs")) return { ok: true };
 	if (!isBenchItem(o.title, o.desc)) return { ok: true };
-	const missing = BENCH_DOC_PATHS.filter((p) => !o.paths.includes(p));
-	if (!missing.length) return { ok: true };
+	const pairs = BENCH_DOC_PAIRS.map((pair) => ({
+		pair,
+		missing: pair.filter((p) => !o.paths.includes(p)),
+	}));
+	if (pairs.some((p) => !p.missing.length)) return { ok: true };
+	// report the pair closest to passing — canonical wins ties so the
+	// refusal steers toward the current tree shape.
+	const best = pairs.reduce((a, b) =>
+		b.missing.length < a.missing.length ? b : a,
+	);
 	return {
 		ok: false,
-		missing,
+		missing: best.missing,
 		why:
 			`bench-docs (W951): the item is bench-shaped (title/description names a bench or A/B) ` +
-			`but the closing diff never touches ${missing.join(" + ")}. ` +
-			`Land the rows: benchmarks.md carries the measured result, doesnt_work.md the ` +
-			`what-didnt-work entry — owner directive #47519. Escape hatch: SUSPENDERS_DONE_DOCS=0.`,
+			`but the closing diff covers no accepted ledger pair — canonical ` +
+			`${CANONICAL_BENCH_DOC_PATHS.join(" + ")} or legacy ` +
+			`${BENCH_DOC_PATHS.join(" + ")}. ` +
+			`Land the rows: the canonical pair lives under benchmarks/ ` +
+			`(benchmark.md the top-node summary, benchmarks.json5 the authoritative ` +
+			`tree), the legacy root pair stays honored while present — owner ` +
+			`directive #47519. Escape hatch: SUSPENDERS_DONE_DOCS=0.`,
 	};
 };
 import { setting } from "@klh/settings";
