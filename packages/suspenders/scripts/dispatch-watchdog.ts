@@ -17,6 +17,7 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { resolveSettings } from "@klh/settings";
 import type { SpawnLedger } from "../../belt/bin/spawn-admission.ts";
 import { inspectActivatedDispatch } from "./lib/activated-dispatch.ts";
 import { validateBeltWiredGuard } from "./lib/belt-wired-guard.ts";
@@ -392,6 +393,24 @@ const run = async (): Promise<number> => {
 			`dispatch activation ${parity.state}: ${parity.missing.join(", ")}; observation only, no installer or restart invoked`,
 		);
 
+	// 1b. W3056 conf dimension — an invalid settings.json silently falling
+	// back to last-known-good is a degradation the owner must decide on
+	// (the review_model incident class: never a stdout-only line).
+	const confFallback = resolveSettings({ mode: "hook" }).fallback;
+	if (confFallback)
+		emitDecision(
+			"settings-conf-invalid",
+			`dispatch-watchdog: settings conf invalid — fleet reads fall back to ${confFallback.usedLkg ? "last-known-good" : "schema defaults"}: ${confFallback.issues.join("; ")}. Fix the file; write-time guard refuses unknown keys on the next write`,
+		);
+	const conf: WatchdogDimension = {
+		name: "conf",
+		state: confFallback ? "degraded" : "ok",
+		detail: confFallback
+			? `settings.json invalid — using ${confFallback.usedLkg ? "last-known-good" : "defaults"}: ${confFallback.issues.join("; ")}`
+			: "settings.json validates",
+	};
+	verdicts.push(`conf ${conf.state}`);
+
 	// 2. Service drift is read-only. Legitimate PID changes are not restart requests.
 	const services = effectiveServices();
 	const drift = driftNotices(
@@ -562,6 +581,7 @@ const run = async (): Promise<number> => {
 			detail: probe.detail,
 		},
 		memory,
+		conf,
 	});
 	// Preserve prior action history, but observation alone never increments restart counts.
 	const exitCode = persistWatchdogState(statePath, {

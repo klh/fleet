@@ -33,6 +33,9 @@ export interface Resolved {
 	path: string;
 	/** Non-fatal problems (bad env values, last-known-good fallback). */
 	warnings: string[];
+	/** W3056: the invalid→LKG/defaults fallback, structured for the bus
+	 *  (watchdog emits NEED_DECISION from this — never stdout-only). */
+	fallback: { issues: string[]; usedLkg: boolean } | null;
 }
 
 export class SettingsError extends Error {
@@ -166,6 +169,7 @@ export function resolveSettings(
 	const key = `${file}\0${mtime}\0${mode}\0${envSignature()}`;
 	if (cache?.key === key) return cache.resolved;
 	const warnings: string[] = [];
+	let fallback: Resolved["fallback"] = null;
 	let fileDoc: Doc = {};
 	try {
 		fileDoc = readSettingsFile(file) ?? {};
@@ -183,6 +187,7 @@ export function resolveSettings(
 		const msg = `settings: ${file} is invalid — using ${lkg ? "last-known-good" : "defaults"}: ${issues.join("; ")}`;
 		warnings.push(msg);
 		process.stderr.write(`${msg}\n`);
+		fallback = { issues, usedLkg: Boolean(lkg && validateDoc(lkg).ok) };
 	}
 	const applied = applyEnv(fileDoc, file, warnings, opts.quiet === true);
 	const value = SettingsSchema.parse(applied.doc);
@@ -192,6 +197,7 @@ export function resolveSettings(
 		env: applied.env,
 		path: file,
 		warnings,
+		fallback,
 	};
 	cache = { key, resolved };
 	return resolved;
