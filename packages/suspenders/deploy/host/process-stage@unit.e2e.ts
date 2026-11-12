@@ -50,19 +50,25 @@ test("shared stageContext routes archive/extract/metadata through trusted bounde
 			"committed-probe",
 		);
 		const recipe = await commit();
+		await writeFile(join(world.home, "marker"), "replacement-source");
+		await writeFile(join(recipeDir, "Dockerfile"), "replacement-Dockerfile");
+		const replacement = await commit();
+		await git(["replace", source, replacement]);
+		await git(["replace", recipe, replacement]);
 		await writeFile(join(world.home, "private-untracked"), "never-stage");
 		await writeFile(join(recipeDir, "Dockerfile"), "LIVE-MUTATION");
 		calls.length = 0;
 		staged = await stageContext(source, recipe, world.home, { run });
-		expect(calls[0].slice(0, 4)).toEqual([
+		expect(calls[0].slice(0, 5)).toEqual([
 			"git",
+			"--no-replace-objects",
 			"archive",
 			"--format=tar",
 			"--output",
 		]);
 		expect(calls.some((argv) => argv[0] === "tar")).toBe(true);
-		expect(calls.filter((argv) => argv[1] === "ls-tree")).toHaveLength(5);
-		expect(calls.filter((argv) => argv[1] === "show")).toHaveLength(5);
+		expect(calls.filter((argv) => argv[2] === "ls-tree")).toHaveLength(5);
+		expect(calls.filter((argv) => argv[2] === "show")).toHaveLength(5);
 		expect(await Bun.file(join(staged.context, "source/marker")).text()).toBe(
 			"committed-source",
 		);
@@ -74,6 +80,17 @@ test("shared stageContext routes archive/extract/metadata through trusted bounde
 			false,
 		);
 		expect(existsSync(join(staged.context, "source.tar"))).toBe(false);
+		const streamed = await stageContext(source, recipe, world.home);
+		try {
+			expect(
+				await Bun.file(join(streamed.context, "source/marker")).text(),
+			).toBe("committed-source");
+			expect(await Bun.file(join(streamed.context, "Dockerfile")).text()).toBe(
+				"committed-Dockerfile",
+			);
+		} finally {
+			await streamed.clean();
+		}
 		const context = staged.context;
 		await staged.clean();
 		staged = undefined;
@@ -82,8 +99,8 @@ test("shared stageContext routes archive/extract/metadata through trusted bounde
 		await expect(
 			stageContext(source, recipe, world.home, {
 				run: async (argv) => {
-					if (argv[0] === "git" && argv[1] === "archive")
-						failedContext = join(String(argv[4]), "..");
+					if (argv[0] === "git" && argv[2] === "archive")
+						failedContext = join(String(argv[5]), "..");
 					throw new Error("injected bounded stage failure");
 				},
 			}),

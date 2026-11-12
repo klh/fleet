@@ -16,7 +16,12 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 ARG SOURCE_COMMIT
 ARG RECIPE_COMMIT
 ARG VERSION
-LABEL org.opencontainers.image.source="https://github.com/klh/fleet" \
+ARG CREATED
+LABEL org.opencontainers.image.title="Fleet HOST supervisor" \
+      org.opencontainers.image.description="Fleet production runner-control HOST supervisor" \
+      org.opencontainers.image.url="https://github.com/klh/fleet/tree/main/packages/suspenders/deploy/host" \
+      org.opencontainers.image.created="$CREATED" \
+      org.opencontainers.image.source="https://github.com/klh/fleet" \
       org.opencontainers.image.revision="$SOURCE_COMMIT" \
       org.opencontainers.image.version="$VERSION" \
       io.klh.fleet.seed.family="supervisor" \
