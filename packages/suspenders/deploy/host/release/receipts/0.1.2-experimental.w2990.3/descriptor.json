@@ -1,0 +1,42 @@
+{
+	"schemaVersion": 1,
+	"family": "supervisor",
+	"role": "host",
+	"service": "runner-control",
+	"version": "0.1.2-experimental.w2990.3",
+	"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"architectures": ["amd64", "arm64"],
+	"runtimeSmokePlatforms": ["linux/amd64", "linux/arm64"],
+	"producer": {
+		"name": "fleet",
+		"repository": "https://github.com/klh/fleet"
+	},
+	"build": {
+		"bunImage": "oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4",
+		"dockerCliImage": "docker.io/library/docker:29.9.3-cli@sha256:2357639ad1ea7d0194134bf3292622fd4e562483966ed674e5d7c945b5f3b28d",
+		"tool": "docker-buildx",
+		"provenance": "verified",
+		"sbom": "verified"
+	},
+	"continuity": "verified",
+	"flockInputs": [
+		{
+			"schemaVersion": 1,
+			"family": "supervisor",
+			"version": "0.1.2-experimental.w2990.3",
+			"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+			"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+			"architecture": "amd64"
+		},
+		{
+			"schemaVersion": 1,
+			"family": "supervisor",
+			"version": "0.1.2-experimental.w2990.3",
+			"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+			"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+			"architecture": "arm64"
+		}
+	]
+}

@@ -1,0 +1,7 @@
+{
+	"schemaVersion": 1,
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"version": "0.1.2-experimental.w2990.3",
+	"platforms": ["linux/amd64", "linux/arm64"]
+}

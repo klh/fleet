@@ -1,0 +1,71 @@
+{
+	"schemaVersion": 1,
+	"kind": "supervisor-seed-durable-evidence-references",
+	"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+	"publisherCommit": "503792087059417afb3e2b6a164590215bb1e683",
+	"originalAcceptance": {
+		"commit": "8256c86fe2728570a58e492e1b26f80230d4eafa",
+		"url": "https://github.com/klh/fleet/blob/8256c86fe2728570a58e492e1b26f80230d4eafa/packages/suspenders/deploy/host/receipts/0.1.2-experimental.w2990.3/acceptance.json",
+		"localCopy": "acceptance.json"
+	},
+	"pulledQualification": {
+		"commit": "97db696d60a682dc55d6e80edb8fdaedb8ee4444",
+		"url": "https://github.com/klh/fleet/blob/97db696d60a682dc55d6e80edb8fdaedb8ee4444/packages/suspenders/deploy/host/receipts/0.1.2-experimental.w2990.3/pushed-75c3210657d2/qualification.json"
+	},
+	"registryMetadata": {
+		"storage": "external content-addressed OCI registry blobs; authentication required; raw bytes not duplicated here",
+		"registry": "ghcr.io",
+		"repository": "klh/fleet/supervisor-seed",
+		"index": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+		"platforms": [
+			{
+				"platform": "linux/amd64",
+				"manifest": "sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"config": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+				"provenance": "sha256:3af1fb0582fd93aff4df7c4041eaf4b07d275bdd0d3b034a16bfa64866c9a115",
+				"spdx": "sha256:3f06b9807c85ea5afb75d7c7367a8c33d54a214d052405ae2116d183b8f0e46a",
+				"manifestUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/manifests/sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"configUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+				"provenanceUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:3af1fb0582fd93aff4df7c4041eaf4b07d275bdd0d3b034a16bfa64866c9a115",
+				"spdxUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:3f06b9807c85ea5afb75d7c7367a8c33d54a214d052405ae2116d183b8f0e46a"
+			},
+			{
+				"platform": "linux/arm64",
+				"manifest": "sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"config": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+				"provenance": "sha256:b384b11a1c973dd62e684447f0ad9c588e1f62f36ebe95eb6bd53193b5ca339d",
+				"spdx": "sha256:753e5813e705e83579568e868bd9130d8f2669e40103874b044c1c1fb1291fea",
+				"manifestUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/manifests/sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"configUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+				"provenanceUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:b384b11a1c973dd62e684447f0ad9c588e1f62f36ebe95eb6bd53193b5ca339d",
+				"spdxUrl": "https://ghcr.io/v2/klh/fleet/supervisor-seed/blobs/sha256:753e5813e705e83579568e868bd9130d8f2669e40103874b044c1c1fb1291fea"
+			}
+		]
+	},
+	"privateReviewBoundaryHashes": {
+		"storage": "audit identifiers only; original transient packets are not represented as durable attachments",
+		"preUpload11": "1cb56adb3829490803c1ac8094a7f2bb45cfcb563950cd1860ae80c08efb4ccd",
+		"recovery19": "4795b95d46ed8767b28ae9933fc93bc2b25c12c2c578b87ad12934c06d7e1f56",
+		"prePromotion35": "17fb54db349fe44f74957481d3120e88a9d8943b5511f3d3fe4ffcc2aedcbf21",
+		"publicationResult4": "cf6f57b56633701210f669ff8acdd6dcaa3eb1767aee7d893c4f320606878b5b"
+	},
+	"externalClosureArtifacts": {
+		"storage": "Exact bytes inside each immutable platform image; not duplicated in this Git receipt",
+		"pathInImage": "/opt/fleet/runtime-closure.json",
+		"replay": "Obtain this file from the exact platform-manifest-pinned image without executing candidate code, verify its SHA256, then provide that file and the local evidence report to the committed CLI artifacts input",
+		"platforms": [
+			{
+				"platform": "linux/amd64",
+				"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:6d3c40f5ed923f9ddeecdad8bce3b4979d45ba8bc0480c4629f6fb6ce987b710",
+				"configDigest": "sha256:bd03021e13bcab89b8e531e7ce1b9b1c17574d431e96fca66f6391a73aed024e",
+				"sha256": "856204baad2637faedff60526841c511895cfe7e7eaf2962c94a20235ed5e78d"
+			},
+			{
+				"platform": "linux/arm64",
+				"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:1234bd9accd2a563bdd9f17f0393be79dc82d51a75cb635ac19e88426b6fddc2",
+				"configDigest": "sha256:6588df706d4dde8ee42f3cbe6f188415cadceeceb5e06021eecaf98a6cf36f7a",
+				"sha256": "5ac23853aff26d1be7778599ad6440dd9b687188d3c615db50970a4500d5fe06"
+			}
+		]
+	}
+}

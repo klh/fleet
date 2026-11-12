@@ -1,0 +1,10 @@
+supervisor-release: [
+  {
+    "expected": "object",
+    "code": "invalid_type",
+    "path": [
+      "repository"
+    ],
+    "message": "Invalid input: expected object, received undefined"
+  }
+]; inspect registry/output before retrying

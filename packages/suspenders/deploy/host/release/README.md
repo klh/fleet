@@ -25,11 +25,13 @@ SOURCE_DATE_EPOCH override is provided. OCI config.Created/history remain
 BuildKit-produced; this label does not establish byte-reproducible builds, and
 acceptance still requires the exact pushed platform/config/diff-ID identity.
 
-Current implementation is preparation tooling. Unit fixtures are synthetic. No
-registry publication or packaged continuity acceptance is supplied by this
-directory. The reviewed local build/load and basic packaged wiring receipts do
-not satisfy the continuity schema. The image's continuity label remains
-`unverified`; runtime evidence belongs in the external receipt.
+The first private publication is recorded in the
+[0.1.2-experimental.w2990.3 receipt](receipts/0.1.2-experimental.w2990.3/README.md),
+including the immutable descriptor, exact acceptance and pulled-image
+qualification references. The failed first-upload association check and its
+subsequent repair remain part of that history. Unit fixtures remain synthetic;
+the image's continuity label remains `unverified`, with actual runtime proof in
+the separate release receipt.
 
 ## Inputs and trust
 

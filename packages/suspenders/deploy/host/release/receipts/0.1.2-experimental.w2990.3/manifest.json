@@ -1,0 +1,68 @@
+{
+	"schemaVersion": 1,
+	"kind": "supervisor-seed-publication-receipt-manifest",
+	"image": "ghcr.io/klh/fleet/supervisor-seed@sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"publisherCommit": "503792087059417afb3e2b6a164590215bb1e683",
+	"algorithm": "SHA256 over sorted relative filename + NUL + bytes + NUL; manifest excludes itself",
+	"files": [
+		{
+			"path": "README.md",
+			"size": 3083,
+			"sha256": "5546aef5909e5d9f777e7e4fb1db906117fad8ebc339d4db235b2b0fe0dd297b"
+		},
+		{
+			"path": "acceptance.json",
+			"size": 5503,
+			"sha256": "c50d3e39fa2b00e2d182bb30aea525786b3240cf01102b5e5d6af96ef6c399a6"
+		},
+		{
+			"path": "amd64-evidence.json",
+			"size": 2043,
+			"sha256": "c2e21d25342d565a1bb314c1c60033e16d541a3da411b4a20672e59ffc327c38"
+		},
+		{
+			"path": "arm64-evidence.json",
+			"size": 2043,
+			"sha256": "8665608a412b60636722d40f127343ca940123b5224ac43db30ea620bb78342c"
+		},
+		{
+			"path": "descriptor.json",
+			"size": 1568,
+			"sha256": "bc72f7d9a6c13b8b0ab6b62d55280de40821ab0a6730f32a4cd52493fc9fbc41"
+		},
+		{
+			"path": "first-upload-failure.log",
+			"size": 235,
+			"sha256": "97d544bac978209c2a174ae0ad0da6e15edc19918e334cf60dab60f9166e0aa3"
+		},
+		{
+			"path": "progression.json",
+			"size": 3144,
+			"sha256": "74b761b3ba100272a610782cc08a8a0f68758e4046f8424ac17c6ada9eb3ae52"
+		},
+		{
+			"path": "published.json",
+			"size": 17699,
+			"sha256": "13c0e172756fef7538772a4288dca9764f9ce921df8acceeb54fb6f052d43241"
+		},
+		{
+			"path": "published.raw",
+			"size": 19308,
+			"sha256": "db8473ab4565b361696306075a2d946dd5ff4ce6332738bc1b9a4335590f531e"
+		},
+		{
+			"path": "references.json",
+			"size": 4719,
+			"sha256": "7630941ec27306aaa58b34858d0894805c116e6a53826d33cbc39235b32cffe6"
+		},
+		{
+			"path": "request.json",
+			"size": 234,
+			"sha256": "37db71342d849ee32577b882ffe1d2a821e7bbbf1f4623377b614b38b95e3879"
+		}
+	],
+	"aggregate": "13c34954ea85bab79d79a3a74260b2c58f794f7f646a75dad48e54d6b983a096",
+	"externalReferences": "references.json explicitly identifies immutable Git evidence and authenticated OCI content-addressed blobs; transient audit hashes are not durable attachments"
+}

@@ -1,0 +1,80 @@
+{
+	"schemaVersion": 1,
+	"kind": "supervisor-seed-publication-progression",
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "fe2e7e8052abea62079382350ecce3b63046cd47",
+	"publisherCommit": "503792087059417afb3e2b6a164590215bb1e683",
+	"requestSha256": "1eb6c02effdc2042cd921b8a5e633213251aef0fc1d9e43749485e8fb3100cc2",
+	"registryIndex": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+	"candidate": "ghcr.io/klh/fleet/supervisor-seed:0.1.2-experimental.w2990.3-candidate-1eb6c02effdc",
+	"finalTag": "ghcr.io/klh/fleet/supervisor-seed:0.1.2-experimental.w2990.3",
+	"firstUpload": {
+		"outcome": "uploaded-then-refused",
+		"processExitCode": 1,
+		"failedPhase": "post-upload source-association metadata validation",
+		"packageVisibility": "private",
+		"sourceRepository": null,
+		"positiveCandidateReceiptEmitted": false,
+		"evidence": "first-upload-failure.log",
+		"retryUpload": false
+	},
+	"repair": {
+		"actor": "operator",
+		"method": "GitHub package Connect Repository UI",
+		"repository": "klh/fleet",
+		"repositoryPrivate": false,
+		"packageVisibility": "private",
+		"observedUpdatedAt": "2026-11-12T03:21:55Z",
+		"visibilityChanged": false,
+		"permissionInheritanceChanged": false
+	},
+	"recovery": {
+		"operation": "read-only verify existing candidate digest",
+		"processExitCode": 0,
+		"rebuilt": false,
+		"uploaded": false,
+		"platformManifestAndConfigUnchangedFromOriginalAcceptance": true
+	},
+	"actualPulledQualification": {
+		"commit": "97db696d60a682dc55d6e80edb8fdaedb8ee4444",
+		"path": "packages/suspenders/deploy/host/receipts/0.1.2-experimental.w2990.3/pushed-75c3210657d2/",
+		"fiveFileAggregate": "c2814fef8c202fca7ebade4bb33f1adbd3788696cf110bf7f43018aa8484ef54",
+		"passed": 10,
+		"failed": 0,
+		"skipped": 0,
+		"positiveHostCidBindings": 4,
+		"positiveGuestCidObservations": 4,
+		"observerOperationDiagnostics": 3,
+		"observerAllOperationsSuccessful": false,
+		"registryIndexDistinctFromObservedDockerIdAndLocalIndex": true
+	},
+	"promotion": {
+		"operation": "exact verified index bytes PUT to independent version tag",
+		"processExitCode": 0,
+		"verifiedAt": "2026-11-12T03:34:20.695Z",
+		"rebuilt": false,
+		"uploadedNewImage": false,
+		"postReadback": {
+			"observedAt": "2026-11-12T03:35:05.049Z",
+			"metadata": {
+				"name": "fleet/supervisor-seed",
+				"package_type": "container",
+				"visibility": "private",
+				"repository": {
+					"full_name": "klh/fleet",
+					"private": false
+				}
+			},
+			"finalTag": "ghcr.io/klh/fleet/supervisor-seed:0.1.2-experimental.w2990.3",
+			"finalDigest": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31",
+			"candidateDigest": "sha256:75c3210657d2501cd8b9c8765199169980c9d3cc784db1d925c5a21789d8dc31"
+		}
+	},
+	"limits": [
+		"scripted-local Docker Desktop qualification; amd64 HOST emulated, guests observed arm64",
+		"no real-provider quality, native-amd64, H100, Azure or full-HOST activation claim",
+		"signatures not-inspected",
+		"metadata verifier checks layer descriptors, not runtime layer payload hashes",
+		"GHCR tag PUT is not atomic create-only; consumers pin the verified digest"
+	]
+}
