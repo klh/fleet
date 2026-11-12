@@ -661,8 +661,9 @@ export function prepareCompletion(
 	});
 	if (!pf.ok) throw new Error(pf.why ?? "patch-first refusal");
 	// W951 bench-docs: a bench-shaped item (title/description names a bench
-	// or A/B) must land its ledgers — benchmarks.md + doesnt_work.md must
-	// both appear in the baseline..sha path window or closure is refused.
+	// or A/B) must land its ledgers — one accepted pair (canonical
+	// benchmarks/ tree or legacy root ledgers) must appear in the
+	// baseline..sha path window or closure is refused.
 	// SUSPENDERS_DONE_DOCS=0 disables (owner directive #47519).
 	const bd = benchDocsVerdict({
 		title: pfRow?.title,
