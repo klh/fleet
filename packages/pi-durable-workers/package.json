@@ -10,7 +10,9 @@
 	},
 	"files": [
 		"src",
-		"seed"
+		"seed",
+		"!seed/**/*.e2e.ts",
+		"!seed/**/playwright.config.ts"
 	],
 	"exports": {
 		".": "./src/index.ts",
@@ -26,8 +28,7 @@
 		"@earendil-works/pi-ai": "1.5.0",
 		"@earendil-works/pi-schema": "1.5.0",
 		"@klh/buckle": "2.2.0",
-		"@earendil-works/pi-durable": "1.5.0",
-		"zod": "4.6.7"
+		"@earendil-works/pi-durable": "1.5.0"
 	},
 	"devDependencies": {
 		"@klh/test-kit": "2.2.0",
