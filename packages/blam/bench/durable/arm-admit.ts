@@ -49,10 +49,9 @@ export async function admitArm(input: AdmitInput): Promise<AdmitReceipt> {
 	if (!existsSync(seedRoot)) throw new Error(`seedRoot missing: ${seedRoot}`);
 	if (!existsSync(mintCredentialFile)) throw new Error(`mint credential missing: ${mintCredentialFile}`);
 
-	// production leaf, in-tree (W2977.2.1 state of the branch)
-	const { createDesktopRunnerLeaf } = await import(
-		/* webpackIgnore: true */ "../../../suspenders/hooks/lib/runners/desktop/wiring.ts"
-	);
+	// production leaf, in-tree — package-name import (import law W1249;
+	// runtime file ⇒ declared dependency @klh/suspenders, hooks/* wildcard export)
+	const { createDesktopRunnerLeaf } = await import("@klh/suspenders/hooks/lib/runners/desktop/wiring.ts");
 	const deps = await loadLeafDeps(seedRoot, model, wallClockMin);
 	const leaf = createDesktopRunnerLeaf(deps);
 	const spec = buildSpec(runId, issueText, model, wallClockMin, leaf.policyDigest());
