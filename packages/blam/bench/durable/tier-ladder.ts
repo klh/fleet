@@ -54,7 +54,7 @@ export function nextTier(
 	const rows = attemptHistory(ladder, ledgerPath, problemId);
 	if (rows.solvedAt) return rows.solvedAt; // certified baseline — keep running there
 	for (const tier of ladder.order) {
-		if (rows.perTier[tier] < ladder.tiers[tier].attemptBudget) return tier as Tier;
+		if ((rows.perTier[tier] ?? 0) < ladder.tiers[tier].attemptBudget) return tier as Tier;
 	}
 	// every tier exhausted its budget: the problem is capped at the top tier
 	return ladder.order[ladder.order.length - 1] as Tier;
@@ -73,10 +73,10 @@ function attemptHistory(
 	let solvedAt: Tier | null = null;
 	for (const row of readLedger(ledgerPath)) {
 		if (row.problemId !== problemId) continue;
-		if (row.outcome === "accepted") {
-			perTier[row.tier] = (perTier[row.tier] ?? 0) + 1;
-			if (!solvedAt) solvedAt = row.tier;
-		}
+		// budget burn counts EVERY attempt at a tier (owner: "if over 50 runs
+		// have been made and low didn't manage it"); accepts set the baseline
+		perTier[row.tier] = (perTier[row.tier] ?? 0) + 1;
+		if (row.outcome === "accepted" && !solvedAt) solvedAt = row.tier;
 	}
 	// escalation: a tier that burned its budget without a solve escalates;
 	// the FIRST tier with a solve becomes the baseline (tightening pass
