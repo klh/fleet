@@ -48,7 +48,7 @@ function freshArchive(repoRoot: string, baseCommit: string, outPath: string): st
 	return createHash("sha256").update(bytes).digest("hex");
 }
 
-function main(): void {
+async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const problemId = argv.includes("--problem") ? argv[argv.indexOf("--problem") + 1] : die("--problem <id> required");
 	const problem = loadProblem(DIR.problemSet, problemId);
@@ -134,4 +134,4 @@ function refusedRow(problem: { id: string; repo: string }, note: string): Ledger
 		wallClockMs: null, notes: note,
 	};
 }
-main();
+main().catch((error) => die(error instanceof Error ? error.message : String(error)));
