@@ -14,7 +14,7 @@
 // speedy's shell-quote phantom in the first scan). Files that STILL fail to
 // parse are surfaced, never skipped silently (the guard asserts zero).
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 export type ImportKind =
@@ -43,6 +43,8 @@ export interface PkgScan {
 }
 
 export interface Manifest {
+	name?: string;
+	hasExports?: boolean;
 	deps: Set<string>;
 	devDeps: Set<string>;
 }
@@ -110,10 +112,16 @@ function readManifest(root: string, pkg: string): Manifest | null {
 	const path = join(root, "packages", pkg, "package.json");
 	if (!existsSync(path)) return null;
 	const json = JSON.parse(readFileSync(path, "utf8")) as {
+		name?: string;
+		exports?: unknown;
 		dependencies?: Record<string, string>;
 		devDependencies?: Record<string, string>;
 	};
 	return {
+		name: json.name,
+		hasExports:
+			json.exports !== null &&
+			(typeof json.exports === "object" || typeof json.exports === "string"),
 		deps: new Set(Object.keys(json.dependencies ?? {})),
 		devDeps: new Set(Object.keys(json.devDependencies ?? {})),
 	};
@@ -207,6 +215,18 @@ export function phantoms(fs: FleetScan): Phantom[] {
 		for (const e of fs.scans.get(pkg)?.edges ?? []) {
 			if (e.kind !== "external" && e.kind !== "klh") continue;
 			const name = specName(e.spec);
+			if (name === manifest.name && manifest.hasExports) {
+				try {
+					// Resolve actual exports; never infer identity from the directory or namespace.
+					const root = realpathSync(join(fs.root, "packages", pkg));
+					const target = realpathSync(
+						Bun.resolveSync(e.spec, dirname(join(root, e.file))),
+					);
+					if (target.startsWith(root + sep)) continue;
+				} catch {
+					// Missing/unexported targets remain findings, also checked in packed installs.
+				}
+			}
 			if (manifest.deps.has(name) || manifest.devDeps.has(name)) continue;
 			const runtime = !isDevPosition(e.file);
 			const key = `${name}\u0000${runtime}`;
