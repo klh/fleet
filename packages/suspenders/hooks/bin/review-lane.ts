@@ -63,6 +63,7 @@ import {
 	BUCKLE_FRONT,
 	mintLaneKey,
 	revokeLaneKey,
+	verifyLaneKey,
 } from "../lib/lanes/lane-auth.ts";
 import { defineVerb, parseVerb, renderVerbHelp } from "../lib/verb-kit.ts";
 
@@ -371,8 +372,18 @@ async function requestLeg(legIndex: number): Promise<string> {
 			failed = true;
 			failure = error;
 		}
-		if (!(await revokeLaneKey(scoped.keyId, admin)))
-			throw new Error("Buckle review scoped key revocation failed");
+		// W3060: cleanup must never mask the primary outcome nor discard a
+		// good verdict — a failed revoke is ambiguous (the ack can time out
+		// while the gate finished the operation), so verify the EXACT minted
+		// key, surface the resolved cleanup state loudly, and let the
+		// scoped key's TTL bound any genuine orphan; the PRIMARY failure,
+		// when one exists, is what propagates.
+		if (!(await revokeLaneKey(scoped.keyId, admin))) {
+			const active = await verifyLaneKey(scoped.key, admin);
+			console.error(
+				`review-lane: scoped key revoke failed (keyId=${scoped.keyId}, reviewer=${reviewerSid}) — ${active ? "verify: STILL ACTIVE, TTL sweep bounds it" : "verify: already revoked"}; primary outcome preserved`,
+			);
+		}
 		if (failed) throw failure;
 		return result;
 	}

@@ -153,6 +153,42 @@ export async function revokeLaneKey(
 	return r.ok;
 }
 
+/** W3060: after an AMBIGUOUS revoke (the ack can time out while the gate
+ *  finished the operation — measured: revoked ~2.8s after the error fact),
+ *  verify the EXACT minted raw key, never a global key inventory. True =
+ * the key still authenticates (a genuine orphan the TTL sweep bounds);
+ * false = it is already gone/inactive. */
+export async function verifyLaneKey(
+	rawKey: string,
+	admin: string,
+	fetchFn: typeof fetch = fetch,
+	front: string = BUCKLE_FRONT,
+): Promise<boolean> {
+	let r: Response;
+	try {
+		r = await fetchFn(`${front}/v1/admin/keys/verify`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${admin}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ key: rawKey }),
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+	} catch {
+		// partition mid-verify: honest false — treat as unverifiable, the
+		// caller logs the ambiguous state and the TTL backstop stands
+		return false;
+	}
+	if (!r.ok) return false;
+	try {
+		const body = (await r.json()) as { valid?: boolean; ok?: boolean };
+		return body.valid !== false && body.ok !== false;
+	} catch {
+		return true;
+	}
+}
+
 export const laneKeyMetaPath = (fleet: string, sid: string): string =>
 	`${fleet}/lane-key-${sid}.json`;
 export const laneSettingsPath = (fleet: string, sid: string): string =>
