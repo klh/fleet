@@ -1,14 +1,16 @@
 // hooks/lib/govdb/govdb-sessions.ts — session lifecycle helpers: the shared
 // liveness sweep and the W293 session-name bridge.
 import type { Database } from "bun:sqlite";
-import { transcriptAlive } from "../lanes/lane-liveness.ts";
+import { transcriptsAliveBatch } from "../lanes/lane-liveness.ts";
 import { dieFor } from "../verb-kit.ts";
 
-// Liveness sweep shared by gc, coord bootstrap, the monitor, and session-start
-// (every bootstrap sweeps). Two signals: hb-stale (updates only at bootstrap)
-// + transcript-dead for TOP-LEVEL rows; parented lanes close at 24h. Never
-// sweeps the coordinator (it sleeps between waves) or sessions waiting on an
-// open decision. Swept sessions keep owned work — reclaim stays a human call.
+// Liveness sweep shared by gc, coord bootstrap, the monitor, session-start,
+// and the store-server maintenance tick (W2864 — the sweep runs regardless of
+// what transport clients ride, because the server owns the db file). Two
+// signals: hb-stale (updates only at bootstrap) + transcript-dead for
+// TOP-LEVEL rows; parented lanes close at 24h. Never sweeps the coordinator
+// (it sleeps between waves) or sessions waiting on an open decision. Swept
+// sessions keep owned work — reclaim stays a human call.
 export function sweepStaleSessions(
 	db: Database,
 	maxIdleMs = 20 * 60_000,
@@ -35,6 +37,11 @@ export function sweepStaleSessions(
 		waiting = new Set(); // no decisions table yet — board never ran
 	}
 	let n = 0;
+	// W2864: transcript liveness is answered for ALL candidates by ONE bounded
+	// walk — the per-row transcriptAlive call re-walked ~/.claude/projects for
+	// every stale row (the store-server interval now sweeps on a schedule, so
+	// the per-row cost compounds at cadence instead of once per bootstrap).
+	const candidates: string[] = [];
 	for (const r of db
 		.query(
 			"SELECT sid, role FROM sessions WHERE state = 'RUNNING' AND parent_sid IS NULL AND hb < ?",
@@ -45,10 +52,14 @@ export function sweepStaleSessions(
 	}[]) {
 		if (r.role === "coordinator" || r.sid === coordinatorSid) continue;
 		if (waiting.has(r.sid)) continue;
-		if (liveTranscript(r.sid)) continue;
+		candidates.push(r.sid);
+	}
+	const alive = transcriptsAliveBatch(candidates);
+	for (const sid of candidates) {
+		if (alive.get(sid)) continue;
 		db.query(
 			"UPDATE sessions SET state = 'CLOSED' WHERE sid = ? AND state = 'RUNNING'",
-		).run(r.sid);
+		).run(sid);
 		n++;
 	}
 	for (const r of db
@@ -95,12 +106,4 @@ export function resolveSidOf(db: Database, as: string): string {
 	if (sm.length === 1) return sm[0].sid;
 	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
 	return as;
-}
-
-// a transcript written within the last 15 minutes = live process — W466:
-// one bounded liveness scan lives in lib/lane-liveness.ts; this delegate
-// retires the last unbounded `**` transcript glob (govdb sweeps hit it per
-// stale session)
-function liveTranscript(sid: string): boolean {
-	return transcriptAlive(sid);
 }

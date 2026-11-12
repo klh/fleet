@@ -4,6 +4,7 @@
 // written transcript are exempt; parented lanes close at 24h. Broadcast
 // targets only hb-fresh RUNNING sessions (honest count — the 102-row bug).
 // Isolated temp HOME + repo, spawns the real CLI (consult-kb recipe).
+import { freePort } from "@klh/test-kit";
 import { describe, test, expect, afterAll } from "bun:test";
 import {
 	mkdtempSync,
@@ -212,4 +213,42 @@ describe("broadcast targeting", () => {
 		expect(n("coord-sess-dddd0011")).toBe(1);
 		db.close();
 	});
+});
+
+// W2864: the store server owns the db file — it sweeps stale RUNNING rows at
+// boot regardless of what transport clients ride (the db.local guards skip
+// the sweep for every store-enrolled session otherwise). No CLI bootstrap in
+// between: the server's boot sweep alone must close the row.
+describe("W2864 store-server boot sweep", () => {
+	test("a stale RUNNING row is CLOSED by the server's boot sweep alone", async () => {
+		seed("store-sess-aaaa0012", { hb: STALE });
+		const port = await freePort();
+		const server = Bun.spawn(
+			[
+				"bun",
+				join(import.meta.dir, "..", "hooks", "bin", "store-server.ts"),
+				"--port",
+				String(port),
+			],
+			{ env, stdout: "ignore", stderr: "ignore" },
+		);
+		try {
+			const url = `http://127.0.0.1:${port}`;
+			let up = false;
+			for (let i = 0; i < 50; i++) {
+				try {
+					const r = await fetch(`${url}/health`);
+					if (r.ok) {
+						up = true;
+						break;
+					}
+				} catch {}
+				await Bun.sleep(100);
+			}
+			expect(up).toBe(true);
+			expect(stateOf("store-sess-aaaa0012")).toBe("CLOSED");
+		} finally {
+			server.kill();
+		}
+	}, 15_000);
 });
