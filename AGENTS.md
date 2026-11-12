@@ -117,6 +117,15 @@ GitHub push — W422.9/W422.1).
   hand-rolled mkdtemp/spawn/port/stub helpers (W1135.1.3; migrating the
   existing suites is W1135.1.4/.1.5).
 
+## Benchmark logging
+
+Every benchmark agent updates both `benchmarks/benchmarks.json5` and
+`benchmarks/benchmark.md` in the same commit, with notes in the structured
+node and its linked Markdown page. Follow `benchmarks/AGENTS.md`; run
+`bun packages/blam/tools/benchmark-log.ts render`, then `check`.
+Keep failed/incomplete runs, unknown measurements, continuations and judge
+replays explicit. The summary contains only top-node links, winner and counts.
+
 ## Supervisor reporting (W892, installed face W899/W906)
 
 W1131 (2026-10-23): the verb renders FROM one versioned JSON contract

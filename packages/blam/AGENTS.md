@@ -32,6 +32,13 @@ tree restored).
 
 ## BLAM-specific doctrine
 
+- Every benchmark agent records attempts and failures in the canonical root
+  `benchmarks/benchmarks.json5` tree and updates `benchmarks/benchmark.md`
+  in the same commit. Add notes to both the JSON node and its linked Markdown.
+  Follow root `benchmarks/AGENTS.md`; regenerate/check with
+  `bun packages/blam/tools/benchmark-log.ts render` and `check`.
+  Judge replays and continuations are not fresh reliability confirmations.
+
 - Dataset records MUST validate before commit:
   `bun tools/label.ts validate dataset/incidents.jsonl`.
 - Sanitization is a hard rule — no real names of private projects, no

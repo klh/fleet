@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "archives": [
+    {
+      "path": "legacy-main.md",
+      "sourceCommit": "ab568d63fd9dc99ccf3248db894355f053220a23",
+      "sourceGitPath": "benchmarks.md",
+      "sourceUrl": "https://github.com/klh/fleet/blob/ab568d63fd9dc99ccf3248db894355f053220a23/benchmarks.md",
+      "originalSha256": "af18935adf1071976c223909e1cf7ae8d74c4cc41022b8f82d7abdfe2d2fdf41",
+      "originalBytes": 116268,
+      "sanitizedSha256": "a2ed9c2efa81b691a13e8257ff5a827ca155f3507155553e026f366d1be0a37f",
+      "sanitizedBytes": 116254,
+      "sanitization": "One absolute HOST path at original line844 replaced by HOST_PATH_REDACTED; all other bytes unchanged.",
+      "replacementCount": 1
+    },
+    {
+      "path": "legacy-w2960.md",
+      "sourceCommit": "795d23ceba078e2c810a8bc16fc7f012253148be",
+      "sourceGitPath": "benchmarks.md",
+      "sourceUrl": "https://github.com/klh/fleet/blob/795d23ceba078e2c810a8bc16fc7f012253148be/benchmarks.md",
+      "originalSha256": "fb2789cb57bdbfb69432e27e702a758dab641af6c9d371cd198d0d6165150de2",
+      "originalBytes": 157687,
+      "sanitizedSha256": "e84452f82bc6692225f9905fde7b5eecd2acd9c678742e2294a524ae9d9d8151",
+      "sanitizedBytes": 42713,
+      "sanitization": "Original line844 private path lies in shared prefix, preserved only as sanitized legacy-main.md. W2960 added history retained verbatim from line1531.",
+      "replacementCount": 0,
+      "excerpt": {
+        "startLine": 1531,
+        "endLine": 2264,
+        "reason": "Older shared ledger prefix is already preserved in legacy-main.md; preserve W2960 added history once."
+      }
+    }
+  ]
+}
