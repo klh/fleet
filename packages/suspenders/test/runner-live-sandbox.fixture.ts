@@ -52,7 +52,7 @@ export async function runSandboxCanary(image = DESKTOP_RUNNER_IMAGE) {
 		if (path === "/v1/fleet/whoami") {
 			const scopes =
 				auth === "Bearer fixture-mint"
-					? ["buckle:admin:WRITE_"]
+					? ["buckle:admin:WRITE_", "buckle:proxy:READ_"]
 					: auth === "Bearer fixture-owner"
 						? ["buckle:runner:WRITE_"]
 						: [];
@@ -66,6 +66,22 @@ export async function runSandboxCanary(image = DESKTOP_RUNNER_IMAGE) {
 				scopes,
 			});
 		}
+		// Scripted fixture limits only; this is not a provider capacity claim.
+		if (path === "/v1/models" && auth === "Bearer fixture-mint")
+			return Response.json({
+				object: "list",
+				data: [
+					{
+						id: "fixture",
+						object: "model",
+						owned_by: "buckle",
+						context_length: 32768,
+						max_output_tokens: 2048,
+						reasoning: false,
+						capability_source: "operator-pinned",
+					},
+				],
+			});
 		if (path === "/v1/admin/keys" && auth === "Bearer fixture-mint")
 			return Response.json(
 				{

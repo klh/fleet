@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-ai/api/openai-completions";
 import { createRegistry } from "@earendil-works/pi-durable";
 import { runArgv, runArgvStream } from "../desktop/spawn.ts";
+import { createRemoteProcessTransport } from "../desktop/remote-process.ts";
 import { createDesktopRunnerLeaf } from "../desktop/wiring.ts";
 import { privateDirectory } from "../durable/private-paths.ts";
 import { loadDesktopRuntimeConfig } from "./desktop-config.ts";
@@ -36,13 +37,12 @@ export async function desktopRuntime(
 				privateDirectory(durableRoot),
 			]);
 			const baseUrl = new URL("/v1", desktop.baseUrl).href;
-			const modelIds = new Set(
-				Object.values(profiles).map((profile) => {
-					if (profile.provider !== "belt")
-						throw new Error("runner.unsupported_provider");
-					return profile.model;
-				}),
-			);
+			const { discoverRunnerModels } = await import("./model-capabilities.ts");
+			const catalog = await discoverRunnerModels({
+				baseUrl: desktop.baseUrl,
+				adminKey: desktop.adminKey,
+				profiles,
+			});
 			const models = createModels();
 			models.setProvider(
 				createProvider({
@@ -57,18 +57,7 @@ export async function desktopRuntime(
 							}),
 						},
 					},
-					models: [...modelIds].map((id) => ({
-						id,
-						name: id,
-						api: "openai-completions",
-						provider: "belt",
-						baseUrl,
-						input: ["text"],
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						reasoning: false,
-						contextWindow: 32_768,
-						maxTokens: 2_048,
-					})),
+					models: catalog.models,
 					api: { "openai-completions": { stream, streamSimple } },
 				}),
 			);
@@ -84,6 +73,17 @@ export async function desktopRuntime(
 					runDocker: (argv, options) =>
 						runArgv(runnerDockerArgv(argv), options),
 					runDockerStream: (argv) => runArgvStream(runnerDockerArgv(argv)),
+					dockerArgv: runnerDockerArgv,
+					processTransportFactory: (record) =>
+						createRemoteProcessTransport(
+							{
+								containerId: record.containerId,
+								expectedPinnedImageRef: record.image,
+								deadlineAt: record.deadlineAt,
+								dockerBin: record.argv[0] ?? "docker",
+							},
+							{ dockerArgv: runnerDockerArgv },
+						),
 				},
 				runtime: {
 					models,

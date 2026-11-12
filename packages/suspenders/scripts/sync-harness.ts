@@ -58,6 +58,7 @@ export const ENTRYPOINTS = [
 	"hooks/bin/fallback-drill.ts",
 	"hooks/bin/soak.ts",
 	"hooks/bin/review-reconcile.ts",
+	"hooks/bin/runner-control.ts",
 	"scripts/dispatch-next.ts",
 	"scripts/supervise.ts",
 ];

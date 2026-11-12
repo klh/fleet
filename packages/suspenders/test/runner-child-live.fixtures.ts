@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { DESKTOP_RUNNER_IMAGE } from "../hooks/lib/runners/desktop/prereqs.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratchWorld, serveStub } from "@klh/test-kit";
@@ -68,8 +69,7 @@ export async function liveChildWorld() {
 			throw new Error("Unexpected fixture tool");
 		}),
 		container: {
-			image:
-				"alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+			image: DESKTOP_RUNNER_IMAGE,
 			workspacesDir,
 			seedRoot,
 		},

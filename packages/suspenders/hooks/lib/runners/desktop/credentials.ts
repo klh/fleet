@@ -56,6 +56,7 @@ export interface CredentialManager {
 	 *  and `ensure` re-mints for the persisted epoch. Root #118378/#118409. */
 	resolve(
 		runId: string,
+		expectedEpoch?: number,
 	): { key: string; keyId: string; epoch: number } | undefined;
 	/** Idempotent live-key acquisition for a run+epoch: returns the held
 	 *  raw key, or re-mints for the epoch (best-effort revoking the stale
@@ -412,10 +413,12 @@ export const createCredentialManager = (
 			const minted = await mintFor(runId, epoch);
 			return { key: minted.key, receipt: minted.receipt };
 		},
-		resolve: (runId) => {
+		resolve: (runId, expectedEpoch) => {
 			let best: { key: string; keyId: string; epoch: number } | undefined;
 			for (const receipt of ctx.receipts.values()) {
 				if (receipt.runId !== runId || receipt.revokedAt !== null) continue;
+				if (expectedEpoch !== undefined && receipt.epoch !== expectedEpoch)
+					continue;
 				const raw = ctx.rawKeys.get(keyOf(runId, receipt.epoch));
 				if (!raw) continue;
 				if (!best || receipt.epoch > best.epoch) {

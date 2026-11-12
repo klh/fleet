@@ -1,8 +1,17 @@
+import {
+	existingJournalIdentity,
+	JournalIdentitySchema,
+	type JournalIdentity,
+} from "./journal-anchor.ts";
 import { readFile, realpath } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Harness, type HarnessOptions } from "@earendil-works/pi-durable";
+import {
+	Harness,
+	ROOT_CONVERSATION_ID,
+	type HarnessOptions,
+} from "@earendil-works/pi-durable";
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
 import {
@@ -25,17 +34,31 @@ export async function openDurableJob(options: {
 	spec: unknown;
 	runtime: Runtime;
 	authorize: Authorize;
+	existingOnly?: boolean;
+	expectedJournal?: JournalIdentity;
 }) {
 	const spec = JobSpecSchema.parse(options.spec),
 		context = BACKGROUND_CONTEXT;
 	await options.authorize("open", spec);
 	const root = await realpath(options.root),
 		directory = join(root, spec.runId);
-	await privateDirectory(directory);
+	if (options.existingOnly) await checkJournal();
+	else await privateDirectory(directory);
 	return openExisting();
+	async function checkJournal() {
+		const identity = await existingJournalIdentity(root, spec.runId);
+		if (
+			options.expectedJournal &&
+			JSON.stringify(identity) !==
+				JSON.stringify(JournalIdentitySchema.parse(options.expectedJournal))
+		)
+			throw new Error("runner: authoritative HOST journal was replaced");
+		return identity;
+	}
 	async function openExisting() {
 		const release = await acquireHostWriter(directory);
 		try {
+			if (options.existingOnly) await checkJournal();
 			const path = join(directory, "manifest.json"),
 				manifest = JobManifestSchema.parse({
 					spec,
@@ -53,7 +76,9 @@ export async function openDurableJob(options: {
 					throw new Error(
 						"Durable job manifest changed; explicit migration required",
 					);
-			} else atomicWrite0600(path, `${JSON.stringify(manifest)}\n`);
+			} else if (options.existingOnly)
+				throw new Error("runner: existing HOST manifest required");
+			else atomicWrite0600(path, `${JSON.stringify(manifest)}\n`);
 			await privateDirectory(join(directory, "state"));
 			const { executionGuard } = await import("./execution-guard.ts");
 			const guarded = executionGuard(options.runtime, options.authorize, spec);
@@ -78,14 +103,22 @@ export async function openDurableJob(options: {
 				throw error;
 			}
 			try {
-				const conversation = await harness.root(context, {
-					agent: { model: { provider: spec.provider, modelId: spec.model } },
-				});
+				const conversation = options.existingOnly
+					? await harness.conversation(ROOT_CONVERSATION_ID, context)
+					: await harness.root(context, {
+							agent: {
+								model: { provider: spec.provider, modelId: spec.model },
+							},
+						});
+				if (!conversation)
+					throw new Error("runner: existing HOST root conversation required");
+				const journalIdentity = await checkJournal();
 				await conversation.configure(
 					{ extensions: { add: [guarded.guard] } },
 					context,
 				);
 				let closed = false;
+				let closePromise: Promise<void> | undefined;
 				const check = async (
 					action: "read" | "submit" | "resume" | "abort",
 				) => {
@@ -94,6 +127,8 @@ export async function openDurableJob(options: {
 				};
 				return {
 					conversationId: conversation.id,
+					manifest,
+					journalIdentity,
 					async submit(input: unknown) {
 						const value = JobInputSchema.parse(input);
 						await check("submit");
@@ -142,14 +177,17 @@ export async function openDurableJob(options: {
 						await check("abort");
 						await conversation.abort(context);
 					},
-					async close() {
-						if (closed) return;
+					close(): Promise<void> {
+						if (closePromise) return closePromise;
 						closed = true;
-						try {
-							await harness.close(context);
-						} finally {
-							await release();
-						}
+						closePromise = (async () => {
+							try {
+								await harness.close(context);
+							} finally {
+								await release();
+							}
+						})();
+						return closePromise;
 					},
 				};
 			} catch (error) {

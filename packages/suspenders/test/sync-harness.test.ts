@@ -104,6 +104,7 @@ function fixture(problem?: "syntax" | "import" | "execution") {
 		"bin/fallback-drill.ts",
 		"bin/soak.ts",
 		"bin/review-reconcile.ts",
+		"bin/runner-control.ts",
 		"lib/morph.ts",
 		"board/prompt-transform.ts",
 	])
