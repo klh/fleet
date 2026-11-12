@@ -34,7 +34,7 @@ test.describe("@api", () => {
 		expect(corr.upstreamRequestId).toBe("req-123");
 		expect(corr.litellmCallId).toBe("call-abc");
 		const peer = new Headers({
-			"x-klh-upstream-request-id": "peer-9",
+			"x-buckle-upstream-request-id": "peer-9",
 			"x-request-id": "req-123",
 		});
 		expect(hopCorrelationOf(peer).upstreamRequestId).toBe("peer-9");

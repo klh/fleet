@@ -6,10 +6,11 @@
 // (`mode: "service"`) fail closed on a malformed file; hooks/gates
 // (`mode: "hook"`, the default — a gate must never brick a session) fall
 // back to the last-known-good snapshot with a loud warning.
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
+import { readBoundedConfigFile } from "./settings.connection-file.ts";
 import { coerceEnv, ENV_MAP, type EnvMapping } from "./settings.env-map.ts";
 import { renderHubSettings } from "./settings.overlay.ts";
 import {
@@ -60,10 +61,29 @@ export const expandHome = (p: string): string =>
 
 /** Read + JSON.parse the file. null = absent. Throws on malformed JSON. */
 export function readSettingsFile(file: string): Doc | null {
-	if (!existsSync(file)) return null;
-	const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
+	let snapshot: ReturnType<typeof readBoundedConfigFile>;
+	try {
+		snapshot = readBoundedConfigFile(file, true);
+	} catch {
+		throw new SettingsError(file, ["Expected a bounded regular settings file"]);
+	}
+	if (!snapshot) return null;
+	let raw: unknown;
+	try {
+		raw = JSON.parse(snapshot.text);
+	} catch {
+		throw new SettingsError(file, ["Invalid JSON document"]);
+	}
 	if (!isPlainObject(raw))
 		throw new SettingsError(file, ["<root>: not an object"]);
+	if (
+		isPlainObject(raw.providers) &&
+		Object.keys(raw.providers).length &&
+		!snapshot.privateFile
+	)
+		throw new SettingsError(file, [
+			"Private connection document requires an owned regular 0600 file",
+		]);
 	return raw;
 }
 
@@ -121,16 +141,12 @@ function applyEnv(
 		if (raw === undefined || raw.trim() === "") continue;
 		const value = coerceEnv(map, raw);
 		if (value === undefined) {
-			warnings.push(
-				`env ${map.env}=${raw} is not a valid ${map.kind}; ignored`,
-			);
+			warnings.push(`env ${map.env} is not a valid ${map.kind}; ignored`);
 			continue;
 		}
 		const trial = setPath(out, map.path, value);
 		if (!SettingsSchema.safeParse(trial).success) {
-			warnings.push(
-				`env ${map.env}=${raw} is out of bounds for ${map.path}; ignored`,
-			);
+			warnings.push(`env ${map.env} is out of bounds for ${map.path}; ignored`);
 			continue;
 		}
 		out = trial;
@@ -176,7 +192,8 @@ export function resolveSettings(
 				atomicWrite0600(lkgPath(file), `${JSON.stringify(fileDoc)}\n`);
 			} catch {}
 	} catch (err) {
-		const issues = err instanceof SettingsError ? err.issues : [String(err)];
+		const issues =
+			err instanceof SettingsError ? err.issues : ["Invalid settings document"];
 		if (mode === "service") throw new SettingsError(file, issues);
 		const lkg = readSettingsFile(lkgPath(file));
 		fileDoc = lkg && validateDoc(lkg).ok ? lkg : {};

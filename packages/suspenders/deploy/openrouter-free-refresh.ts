@@ -8,6 +8,9 @@ import {
 	PROVIDER_STACK_PATH,
 	profileForEnv,
 } from "@klh/speedy/src/provider-config.ts";
+import { join } from "node:path";
+import { requiredProviders } from "../hooks/lib/hub-providers.ts";
+import { refreshCanonicalUpstreams } from "./canonical-upstream-refresh.ts";
 import type { StackConfig } from "../hooks/lib/stack-config.ts";
 import * as activation from "./litellm-activation.ts";
 import { fetchFreeSnapshot, writeFreeSnapshot } from "./openrouter-free.ts";
@@ -30,12 +33,20 @@ export const inferenceKeyReady = (
 export async function refreshConfiguredOpenRouter(
 	stack: StackConfig,
 ): Promise<string[]> {
+	const messages = await refreshCanonicalUpstreams(stack);
 	const configured = Object.entries(stack.hubs).filter(
-		([, hub]) => hub.upstreams?.openrouter_free_catalog_file,
+		([, hub]) =>
+			hub.upstreams?.openrouter_free_catalog_file &&
+			!requiredProviders(hub).some(
+				(profile) =>
+					profile.connection?.kind === "provider" &&
+					profile.provider === "openrouter",
+			),
 	);
-	if (configured.length === 0) return [];
+	if (configured.length === 0) return messages;
 	if (!inferenceKeyReady())
 		return [
+			...messages,
 			"OpenRouter refresh idle: no OPENROUTER_API_KEY binding (env or provider profile)",
 		];
 	const eligible = configured.filter(
@@ -45,11 +56,11 @@ export async function refreshConfiguredOpenRouter(
 	);
 	if (eligible.length === 0)
 		return [
+			...messages,
 			"OpenRouter refresh idle: no hub has cloud opt-in and a LiteLLM key path",
 		];
 	const snapshot = await fetchFreeSnapshot();
 	const hash = activation.markerHash(snapshot.groups);
-	const messages: string[] = [];
 	for (const [name, hub] of eligible) {
 		const path = hub.upstreams?.openrouter_free_catalog_file;
 		if (!path) continue;

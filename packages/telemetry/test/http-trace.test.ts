@@ -34,7 +34,7 @@ test("trace context roots, forwards and creates a child span", () => {
 	expect(traceIdOf(child)).toBe(root.traceId);
 	expect(child).not.toBe(root.traceparent);
 	const forwarded = beginTrace(
-		new Headers({ traceparent: child, "x-klh-request-id": root.requestId }),
+		new Headers({ traceparent: child, "x-buckle-request-id": root.requestId }),
 	);
 	expect(forwarded).toEqual({
 		traceparent: child,
@@ -59,12 +59,12 @@ test("untrusted or malformed correlation data never becomes a header", () => {
 		attempts: 2,
 		upstreamStatus: 429,
 	});
-	expect(response.headers.get("x-klh-service")).toBe("buckle");
-	expect(response.headers.get("x-klh-refusal")).toBe("rate_limited");
-	expect(response.headers.get("x-klh-upstream-request-id")).toBeNull();
+	expect(response.headers.get("x-buckle-service")).toBe("buckle");
+	expect(response.headers.get("x-buckle-refusal")).toBe("rate_limited");
+	expect(response.headers.get("x-buckle-upstream-request-id")).toBeNull();
 	expect(response.headers.get("x-litellm-call-id")).toBe("call-123");
-	expect(response.headers.get("x-klh-attempts")).toBe("2");
-	expect(response.headers.get("x-klh-upstream-status")).toBe("429");
+	expect(response.headers.get("x-buckle-attempts")).toBe("2");
+	expect(response.headers.get("x-buckle-upstream-status")).toBe("429");
 });
 
 test("failure kind excludes messages and unsafe transport codes", () => {
@@ -88,9 +88,9 @@ test("upstream refusal codes are bounded diagnostic tokens", () => {
 test("outer hop clears stale inner refusal and private upstream metadata", async () => {
 	const inner = new Response("decoded", {
 		headers: {
-			"x-klh-service": "litellm",
-			"x-klh-refusal": "provider-rate-limit",
-			"x-klh-upstream-request-id": "provider-1",
+			"x-buckle-service": "litellm",
+			"x-buckle-refusal": "provider-rate-limit",
+			"x-buckle-upstream-request-id": "provider-1",
 			"x-litellm-key-spend": "12.34",
 			"llm_provider-api-base": "https://internal.example",
 			"content-encoding": "gzip",
@@ -99,9 +99,9 @@ test("outer hop clears stale inner refusal and private upstream metadata", async
 	});
 	const outer = stampResponse(inner, { service: "buckle", hop: "outbound" });
 	expect(await outer.text()).toBe("decoded");
-	expect(outer.headers.get("x-klh-service")).toBe("buckle");
-	expect(outer.headers.get("x-klh-refusal")).toBeNull();
-	expect(outer.headers.get("x-klh-upstream-request-id")).toBeNull();
+	expect(outer.headers.get("x-buckle-service")).toBe("buckle");
+	expect(outer.headers.get("x-buckle-refusal")).toBeNull();
+	expect(outer.headers.get("x-buckle-upstream-request-id")).toBeNull();
 	expect(outer.headers.get("x-litellm-key-spend")).toBeNull();
 	expect(outer.headers.get("llm_provider-api-base")).toBeNull();
 	expect(outer.headers.get("content-encoding")).toBeNull();

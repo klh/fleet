@@ -9,6 +9,7 @@ import { prefixFingerprintOf } from "./cache-fingerprint.ts";
 import type { CandidateRow } from "./candidates.ts";
 import {
 	type DecisionKind,
+	NO_MODELS_AVAILABLE,
 	latencyClass,
 	type RouteSelection,
 } from "./decide.ts";
@@ -304,7 +305,7 @@ function finishResponse(
 			result.kind === "exhausted"
 				? result.lastFailure?.requestId
 				: result.kind === "client-error"
-					? (result.response.headers.get("x-klh-upstream-request-id") ??
+					? (result.response.headers.get("x-buckle-upstream-request-id") ??
 						undefined)
 					: undefined,
 		callId:
@@ -340,9 +341,15 @@ function handleResult(
 			(result.status === 503 || result.status === 429) &&
 			result.retryAfterS !== undefined;
 		const walkDeadline = result.lastFailure?.kind === "walk_deadline";
+		const unavailable =
+			result.status === 503 ||
+			(result.status === 502 && result.attempts === 0 && !result.lastFailure) ||
+			(result.lastFailure?.source === "network" &&
+				result.lastFailure.kind === "network" &&
+				result.lastFailure.transportTimeoutPhase == null);
 		const response = errorResponse(
-			walkDeadline ? 504 : deferred ? result.status : 502,
-			result.error,
+			walkDeadline ? 504 : unavailable ? 503 : deferred ? result.status : 502,
+			unavailable ? `${NO_MODELS_AVAILABLE} ${result.error}` : result.error,
 			result.status === 429 && deferred
 				? result.quota
 					? "quota_exhausted"
@@ -353,7 +360,7 @@ function handleResult(
 		// SDK honours x-should-retry: false and fails fast.
 		if (result.quota === true) response.headers.set("x-should-retry", "false");
 		if (result.peerTrace)
-			response.headers.set("x-klh-peer-error-trace", result.peerTrace);
+			response.headers.set("x-buckle-peer-error-trace", result.peerTrace);
 		if (deferred)
 			response.headers.set(
 				"retry-after",

@@ -4,7 +4,7 @@ This node counts only the explicit receipt-backed trials, not an invented expans
 
 Logged runs: 131; independent attempts: 131; continuations: 0; judge replays: 0; known failures: 59; unknown/incomplete outcomes: 0.
 
-Winner: unknown; no qualified matched winner claimed.
+Matched winner: unproven.
 
 ## sphinx-9461-confirm-class-scope-ast-low-fy3gyw9u
 

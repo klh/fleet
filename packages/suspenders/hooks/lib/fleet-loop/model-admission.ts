@@ -35,6 +35,14 @@ import {
 	kevModelNote,
 	kevModelPick,
 } from "./kev-model-pick.ts";
+import { kevPairPick } from "./kev-model-pick.ts";
+import {
+	MODEL_HEALTH_PREFIX,
+	readModelHealthFacts,
+	healthStatusOf,
+} from "../hub/model-health.ts";
+import { providerOf } from "../usage/exec-quota.ts";
+import { modelCore } from "../gates/wire-model-check.ts";
 
 // W2677: lane-launch imports the brief renderer through this module (one
 // import line there — 1200-line stop rule); it composes from the same pick.
@@ -62,6 +70,26 @@ export type ModelAdmission =
 	  }
 	| { verdict: "wait"; reason: string }
 	| { verdict: "refused"; reason: string };
+
+/** W2777 load signals for the all-hubs kevPairPick: true = this model must
+ *  NOT be picked. Two evidence classes — (1) quota: the provider sits under
+ *  an active demotion penalty (rate-limit / retry-after cooling); (2) the
+ *  model's class core carries a FRESH health-down fact (stale reads unknown,
+ *  never down — the health layer's own expiry law). */
+export const modelAdmissionPenalty =
+	(store: GovernorStore, quota: ProviderPenalty) =>
+	(model: string): boolean => {
+		const provider = providerOf(modelCore(model));
+		if (provider !== null && quota.has(provider)) return true;
+		for (const [key, fact] of readModelHealthFacts(store)) {
+			if (healthStatusOf(fact) !== "down") continue;
+			if (
+				wireModelMatch(model, key.slice(MODEL_HEALTH_PREFIX.length)) === "match"
+			)
+				return true;
+		}
+		return false;
+	};
 
 /** Run the model admission gates for one launch attempt. Lists (refusals
  *  and waits) are pushed inside; the caller just branches on the verdict —
@@ -196,41 +224,65 @@ export async function admitModel(io: {
 	// a route model the hub doesn't serve falls back to default_models.
 	let kevPick: KevModelPick | null = null;
 	const hubPick = io.hubPick ?? pick.hub ?? null;
-	if (hubPick && !pick.modelPin && !io.noBelt) {
-		// work-type context from the graph — kev picks PER WORK, not per lane
-		const row = store
-			.query("SELECT title, tags FROM work_items WHERE project=? AND id=?")
-			.get(project, item) as {
-			title: string | null;
-			tags: string | null;
-		} | null;
+	// W2860 keeps plaid ELIGIBLE for the pinned-hub pick (skipDecision below
+	// skips only the free kev-ask — the serving-reality check still rides).
+	const kevEligible = !pick.modelPin && !io.noBelt;
+	// work-type context from the graph — kev picks PER WORK, not per lane
+	const row = kevEligible
+		? (store
+				.query("SELECT title, tags FROM work_items WHERE project=? AND id=?")
+				.get(project, item) as {
+				title: string | null;
+				tags: string | null;
+			} | null)
+		: null;
+	const state = row
+		? `item ${item}: ${row.title ?? ""} [${row.tags ?? ""}]`
+		: `item ${item} (fleet lane)`;
+	if (kevEligible && hubPick) {
 		kevPick = await kevModelPick({
 			hubPick,
 			hubUrls: pick.hubUrls,
 			model: laneModelOf(pick) === DEFAULT_LANE_MODEL ? null : pick.model,
-			state: row
-				? `item ${item}: ${row.title ?? ""} [${row.tags ?? ""}]`
-				: `item ${item} (fleet lane)`,
+			state,
 			env: process.env,
 			...(posture === "plaid" ? { skipDecision: true } : {}),
 			...(io.kevResolve ? { resolve: io.kevResolve } : {}),
 		});
-		if (kevPick?.model) {
-			if (kevPick.model !== pick.model)
-				console.log(
-					`NOTE — kev-chooses ${item}: ${pick.model ?? "(static default)"} → ${kevPick.model} (${kevPick.reason})`,
-				);
-			else console.log(kevModelNote(item, kevPick));
-			pick = {
-				...pick,
-				model: kevPick.model,
-				fallbackModels: pick.fallbackModels.filter((m) => m !== kevPick?.model),
-				preference: {
-					...pick.preference,
-					audit: `kev-chooses: ${kevPick.model} (${kevPick.via}) — ${kevPick.reason}`,
-				},
-			};
+	} else if (kevEligible && posture !== "plaid") {
+		// W2777: no hub pin — kev picks the (hub, model) PAIR across all
+		// machine-conf hubs under per-hub load; a health-down or quota-cooled
+		// model is never picked. The chosen hub rides the pick. Plaid stays
+		// out here (W2860): the route pin IS the deliberate pick — no free
+		// all-hubs ask.
+		kevPick = await kevPairPick({
+			state,
+			model: laneModelOf(pick) === DEFAULT_LANE_MODEL ? null : pick.model,
+			penalized: modelAdmissionPenalty(store, quota),
+			env: process.env,
+		});
+	}
+	if (kevPick?.model) {
+		if (kevPick.hub && kevPick.hub !== pick.hub) {
+			console.log(
+				`NOTE — kev-chooses ${item}: hub → ${kevPick.hub} (${kevPick.reason})`,
+			);
+			pick = { ...pick, hub: kevPick.hub };
 		}
+		if (kevPick.model !== pick.model)
+			console.log(
+				`NOTE — kev-chooses ${item}: ${pick.model ?? "(static default)"} → ${kevPick.model} (${kevPick.reason})`,
+			);
+		else console.log(kevModelNote(item, kevPick));
+		pick = {
+			...pick,
+			model: kevPick.model,
+			fallbackModels: pick.fallbackModels.filter((m) => m !== kevPick?.model),
+			preference: {
+				...pick.preference,
+				audit: `kev-chooses: ${kevPick.model} (${kevPick.via}) — ${kevPick.reason}`,
+			},
+		};
 	}
 
 	// W1712: the executor must speak the pinned model's wire. A steady

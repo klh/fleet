@@ -43,7 +43,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 		const first = await reframe(frame, "anthropic", provider, "hub-a");
 		const peer = new Response(null, {
 			status: 200,
-			headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+			headers: { "x-buckle-service": "buckle", "x-buckle-trace-id": TRACE_ID },
 		});
 		const second = await reframe(first, "anthropic", peer, "hub-b", true);
 		const body = JSON.parse(
@@ -130,7 +130,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 				"hub-inner",
 			);
 			const peer = new Response(inner, {
-				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+				headers: { "x-buckle-service": "buckle", "x-buckle-trace-id": TRACE_ID },
 			});
 			const translated = await bridgeResponse(peer, client, true, true).text();
 			const outer = await reframe(translated, client, peer, "hub-outer", true);
@@ -158,7 +158,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 		const provider = new Response(
 			`event: error\ndata: ${JSON.stringify({ type: "ping", message: "busy", fleet_trace: fake })}\n\n`,
 			{
-				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+				headers: { "x-buckle-service": "buckle", "x-buckle-trace-id": TRACE_ID },
 			},
 		);
 		const translated = await bridgeResponse(
@@ -220,7 +220,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 			`event: error\ndata: ${JSON.stringify({ type: "error", error: { message: "busy" }, fleet_trace: fake })}\n\n`,
 			"anthropic",
 			new Response(null, {
-				headers: { "x-klh-service": "buckle", "x-klh-trace-id": TRACE_ID },
+				headers: { "x-buckle-service": "buckle", "x-buckle-trace-id": TRACE_ID },
 			}),
 			"hub-real",
 		);
@@ -275,7 +275,7 @@ test.describe("remaining Buckle error boundaries @api", () => {
 			expect(res.status).toBe(413);
 			expect(fetched).toBe(0);
 			expect(errored).toBe(0);
-			expect(res.headers.get("x-klh-trace-id")).toBeNull();
+			expect(res.headers.get("x-buckle-trace-id")).toBeNull();
 		} finally {
 			server.stop(true);
 		}

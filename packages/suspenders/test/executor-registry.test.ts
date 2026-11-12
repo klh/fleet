@@ -15,7 +15,7 @@ import {
 	HARNESS_PROCESS_NAMES,
 	isSpawnableExecutor,
 	LEGACY_DISPATCHABLE_AGENTS,
-} from "../hooks/lib/executors/registry.ts";
+} from "../hooks/lib/executors/executor-registry.ts";
 import {
 	DEFAULT_ALLOWED_TOOLS,
 	executorLaunch,
@@ -354,20 +354,18 @@ describe("W1712 wire-aware executor selection", () => {
 	});
 
 	test("W1812 free-text tool vocabulary is adapter match rows", () => {
-		const reg = require("../hooks/lib/executors/registry.ts");
+		const reg = require("../hooks/lib/executors/executor-registry.ts");
 		// Substrings land on their adapter; the claude row rides LAST so a
 		// copilot path never degrades to a claude label.
 		expect(reg.toolTokenForText("~/x/.codex/sessions/r.jsonl")).toBe("codex");
-		expect(reg.toolTokenForText("~/x/.claude/projects/a.jsonl")).toBe(
-			"claude",
-		);
+		expect(reg.toolTokenForText("~/x/.claude/projects/a.jsonl")).toBe("claude");
 		expect(reg.toolTokenForText("lane .worktrees/W5 copilot")).toBe("copilot");
 		expect(reg.toolTokenForText("grok-4 transcript")).toBe("grok");
 		expect(reg.toolTokenForText("no client marker here")).toBeNull();
 	});
 
 	test("W1812 install paths expand home-relative rows, no fs probing", () => {
-		const reg = require("../hooks/lib/executors/registry.ts");
+		const reg = require("../hooks/lib/executors/executor-registry.ts");
 		expect(reg.expandInstallPaths("codex", "/h")).toEqual([
 			"/opt/homebrew/bin/codex",
 		]);

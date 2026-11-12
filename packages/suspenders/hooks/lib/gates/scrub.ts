@@ -148,7 +148,31 @@ export const scrubRules = (): ScrubRule[] => [
 export const redact = (s: string): string =>
 	s.length <= 9 ? s : `${s.slice(0, 8)}…`;
 
-// scan ONE line; marker lines are exempt. Every hit is reported.
+/** A GitHub API URL path is not an absolute operator filesystem path. */
+function isGitHubUserUrlPath(line: string, index: number): boolean {
+	const origin = "https://api.github.com";
+	const start = index - origin.length;
+	if (start < 0 || line.slice(start, index).toLowerCase() !== origin)
+		return false;
+	if (start > 0 && /[A-Za-z0-9+./:@%-]/.test(line[start - 1] ?? ""))
+		return false;
+	const token = /^[^\s"'`<>\\]+/.exec(line.slice(start, start + 4097))?.[0];
+	if (!token || token.length > 4096) return false;
+	try {
+		const url = new URL(token);
+		return (
+			url.protocol === "https:" &&
+			url.host === "api.github.com" &&
+			!url.username &&
+			!url.password &&
+			/^\/users\/[A-Za-z0-9][A-Za-z0-9-]*(?:\/|$)/.test(url.pathname)
+		);
+	} catch {
+		return false;
+	}
+}
+
+// scan ONE line; marker lines are exempt. Every remaining hit is reported.
 export function scanLine(
 	line: string,
 	rules: ScrubRule[],
@@ -158,7 +182,8 @@ export function scanLine(
 	for (const r of rules) {
 		r.re.lastIndex = 0;
 		for (let m = r.re.exec(line); m !== null; m = r.re.exec(line)) {
-			out.push({ rule: r.name, match: redact(m[0]) });
+			if (r.name !== "home-path" || !isGitHubUserUrlPath(line, m.index))
+				out.push({ rule: r.name, match: redact(m[0]) });
 			if (r.re.lastIndex === m.index) r.re.lastIndex++; // zero-width guard
 		}
 	}

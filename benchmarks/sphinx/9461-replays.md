@@ -6,7 +6,7 @@ Additional morning-regrade.json and aggregate fresh_regrade report3/3 targets an
 
 Logged runs: 1; independent attempts: 0; continuations: 0; judge replays: 1; known failures: 0; unknown/incomplete outcomes: 0.
 
-Winner: unknown; no qualified matched winner claimed.
+Matched winner: unproven.
 
 [Original morning-regrade.json](../sphinx/sources.md#sphinx-9461-morning-regrade) — SHA-256 `13a7e69591e4b846d2ae49da76d3e72b4110939cdc254f1492285956def0a91c` (external).
 

@@ -45,21 +45,21 @@ Everything below specifies these laws to implementation precision.
 One contract, chosen once:
 
     Request:   x-belt-hint: prefer local distill reasoning
-    Response:  x-belt-route: {"rid":"...","target":{...},"decision":"policy",
+    Response:  x-buckle-route: {"rid":"...","target":{...},"decision":"policy",
                               "latency_class":"fast","tier":"MEDIUM"}
 
 - `x-belt-hint` (request header, optional): the raw hint string, exactly as
   the W96 grammar defines it. Applies to every buckle ingress route:
   `POST /v1/messages`, `POST /v1/messages/count_tokens`, and
   `POST /v1/chat/completions`.
-- `x-belt-route` (response header, set on every router-decided response,
+- `x-buckle-route` (response header, set on every router-decided response,
   errors included): single-line JSON — request id, resolved target
   `{kind, host, port, model}`, decision
   (`policy | degraded | fallback | errored | denied`), latency class,
   complexity tier. Programs read the header; humans read the board.
-- `x-belt-error: <code>` (response header, errors only): the machine
+- `x-buckle-error: <code>` (response header, errors only): the machine
   error code (`bad_hint | no_healthy_fit | cloud_forbidden | no_route`).
-- `x-belt-rid` (response header): short request id, stamped on the audit
+- `x-buckle-rid` (response header): short request id, stamped on the audit
   row, echoed in the header — the join key between decision row and
   outcome row.
 
@@ -107,7 +107,7 @@ Parser rules (all deterministic, all tested in the W96 branch):
   silently — same trust class as the duplicate-location rejection).
 
 Rejection is a product surface: every refusal returns 400 with
-`x-belt-error: bad_hint` and a `why` sentence naming the first fault
+`x-buckle-error: bad_hint` and a `why` sentence naming the first fault
 (belt's messages, kept verbatim: "hint must start with 'prefer' or 'must',
 got '…'", "hint: duplicate location", …).
 
@@ -212,8 +212,8 @@ When `must` finds no healthy full fit, the router answers without calling
 any upstream:
 
     Status: 503
-    x-belt-error: no_healthy_fit
-    x-belt-route: {"rid":"…","decision":"errored",…}
+    x-buckle-error: no_healthy_fit
+    x-buckle-route: {"rid":"…","decision":"errored",…}
 
 Body — dialect envelope, code and why always inside:
 
@@ -224,7 +224,7 @@ Body — dialect envelope, code and why always inside:
 - belt's own `/api/route` keeps the W96 body shape `{"error":"no healthy
 fit","why":"…"}` — unchanged.
 
-The machine code lives in `x-belt-error` (one place, every dialect); the
+The machine code lives in `x-buckle-error` (one place, every dialect); the
 `why` sentence travels in the envelope message. `why` names the hint, the
 candidate count, and the law: "must never substitutes".
 
@@ -305,7 +305,7 @@ we actually use).
 ### 5.3 Latency classes
 
 Derived from `estimate_ms` at decision time, used in the audit row and
-the `x-belt-route` echo:
+the `x-buckle-route` echo:
 
     unproven   estimate_ms is null        (never called — conservative)
     fast       < 500 ms                   (locals: 138–400 ms measured)
@@ -322,7 +322,7 @@ SQLite table buckle already owns, plus counters. Every request writes:
 
     route_audit (
       id, ts,
-      rid,                # x-belt-rid — join key
+      rid,                # x-buckle-rid — join key
       actor,              # bearer key label (W127 join key)
       dialect,            # anthropic | openai
       hint,               # raw string, '' = none
@@ -379,7 +379,7 @@ server; tokens elided.
     {"model":"glm-5.3-flash","messages":[{"role":"user","content":"…"}]}
 
     200
-    x-belt-route: {"rid":"r1","target":{"kind":"local","host":"local",
+    x-buckle-route: {"rid":"r1","target":{"kind":"local","host":"local",
       "port":8903,"model":"mlx-community/Qwen3.5-35B-A3B-4bit"},
       "decision":"policy","latency_class":"fast","tier":"MEDIUM"}
 
@@ -394,7 +394,7 @@ the upstream's JSON, verbatim.
     {"model":"claude-sonnet-5","max_tokens":256,"messages":[…]}
 
     200
-    x-belt-route: {"rid":"r2","target":{"kind":"cloud","host":"z.ai",
+    x-buckle-route: {"rid":"r2","target":{"kind":"cloud","host":"z.ai",
       "port":443,"model":"glm-5.3-flash"},"decision":"policy",
       "latency_class":"medium","tier":"COMPLEX"}
 
@@ -407,8 +407,8 @@ convention here, not a constraint — the hint chose; the router resolved.
 Same request, prefs `allow_cloud: false`:
 
     503
-    x-belt-error: cloud_forbidden
-    x-belt-route: {"rid":"r3","decision":"errored"}
+    x-buckle-error: cloud_forbidden
+    x-buckle-route: {"rid":"r3","decision":"errored"}
     {"type":"error","error":{"type":"api_error","message":"belt:
       cloud_forbidden — must 'must cloud': cloud is disabled by owner
       prefs — must never substitutes"}}
@@ -421,7 +421,7 @@ Nothing was sent upstream. No local substitution, no silent anything.
     x-belt-hint: prefer host:box model:qwen*
 
     200
-    x-belt-route: {"rid":"r4","target":{"kind":"remote","host":"box",
+    x-buckle-route: {"rid":"r4","target":{"kind":"remote","host":"box",
       "port":8080,"model":"qwen2.5-0.5b"},"decision":"policy",
       "latency_class":"fast","tier":"SIMPLE"}
 
@@ -437,8 +437,8 @@ be §7.3's error with code `no_healthy_fit`.
     x-belt-hint: must speed
 
     503
-    x-belt-error: no_healthy_fit
-    x-belt-route: {"rid":"r5","decision":"errored"}
+    x-buckle-error: no_healthy_fit
+    x-buckle-route: {"rid":"r5","decision":"errored"}
     {"type":"error","error":{"type":"api_error","message":"belt:
       no_healthy_fit — must 'must speed': no healthy full fit among 14
       candidates — must never substitutes"}}
@@ -455,7 +455,7 @@ speed` the same way; nothing here invents a synonym at route time.
     {"model":"glm-5.3-flash","messages":[…]}
 
     200
-    x-belt-route: {"rid":"r6","target":{"kind":"local","host":"local",
+    x-buckle-route: {"rid":"r6","target":{"kind":"local","host":"local",
       "port":8903,"model":"…"},"decision":"policy","latency_class":
       "fast","tier":"COMPLEX"}
 
@@ -473,7 +473,7 @@ shape the ladder dashboards are built on.
     x-belt-hint: prefer local        (second header — refusal reason)
 
     400
-    x-belt-error: bad_hint
+    x-buckle-error: bad_hint
     {"error":{"message":"belt: bad_hint — exactly one x-belt-hint header
       allowed","type":"invalid_request_error"}}
 
@@ -495,7 +495,7 @@ refused on sight. One selector at a time, deterministic.
    duplicate location, empty host:/model:, >512-char header, multiple
    headers) refuses with the named `why`.
 4. **Semantics matrix** (§4): must-full-fit, must-empty → 503 +
-   x-belt-error code; prefer-full vs prefer-degraded ordering; the
+   x-buckle-error code; prefer-full vs prefer-degraded ordering; the
    precedence matrix (must local + VERY_COMPLEX + allow_cloud=true →
    local or error; prefer cloud + allow_cloud=false → degraded local).
 5. **Default-policy parity**: no-hint ordering of a fixture equals belt

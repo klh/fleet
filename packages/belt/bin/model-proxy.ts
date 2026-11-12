@@ -24,14 +24,14 @@ export function createModelProxy(options: { upstream: string }) {
 
 		const parent = request.headers.get("traceparent");
 		const trace =
-			request.headers.get("x-klh-trace-id") ??
+			request.headers.get("x-buckle-trace-id") ??
 			/^00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/i.exec(parent ?? "")?.[1];
 		const headers = new Headers({
 			"cache-control": "no-store",
-			"x-klh-hop": "belt",
-			"x-klh-service": "belt-model-proxy",
+			"x-buckle-hop": "belt",
+			"x-buckle-service": "belt-model-proxy",
 		});
-		if (trace) headers.set("x-klh-trace-id", trace);
+		if (trace) headers.set("x-buckle-trace-id", trace);
 		const upstreamHeaders = new Headers();
 		for (const name of ["accept", "content-type", "traceparent"]) {
 			const value = request.headers.get(name);
@@ -68,7 +68,7 @@ export function createModelProxy(options: { upstream: string }) {
 			});
 		} catch {
 			const cancelled = request.signal.aborted;
-			headers.set("x-klh-refusal", cancelled ? "client_cancelled" : "network");
+			headers.set("x-buckle-refusal", cancelled ? "client_cancelled" : "network");
 			return Response.json(
 				{
 					error: cancelled ? "client cancelled" : "model upstream unavailable",

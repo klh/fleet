@@ -1113,4 +1113,101 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 			server.stop(true);
 		}
 	});
+
+	// W3060: the scoped-key cleanup failure must never mask the primary
+	// outcome — a good verdict survives a dead revoke (the scoped key's
+	// TTL bounds the orphan), and a failed leg's error is what propagates.
+	function revokeFixture(title: string, file: string): {
+		item: string;
+		context: ReviewContext;
+	} {
+		const item = addWork(title);
+		git(["checkout", "-b", `suspenders/${item}`]);
+		Bun.spawnSync(["touch", file], { cwd: REPO });
+		writeFileSync(join(REPO, file), "W3060 fixture change.\n");
+		git(["add", file]);
+		git(["commit", "-m", "w3060 fixture"]);
+		git(["checkout", "main"]);
+		return { item, context: reviewContext(realpathSync(REPO), `suspenders/${item}`) };
+	}
+
+	test("W3060: good verdict survives a failed scoped-key revoke", async () => {
+		const { item, context } = revokeFixture(
+			"revoke fails after good verdict fixture",
+			"w3060-good.md",
+		);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		const counters = { minted: 0, revoked: 0, legs: 0 };
+		// earlier transport tests bank provider-pressure cooldowns in the
+		// shared fixture db — clear the ledger so admission is open here
+		db.exec("DELETE FROM facts WHERE key LIKE 'review.provider.pressure%'");
+		const server = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys") {
+					counters.minted += 1;
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				}
+				if (path.endsWith("/revoke")) {
+					counters.revoked += 1;
+					return new Response("revoke down", { status: 500 });
+				}
+				if (/^\/w\/review-[^/]+\/v1\/chat\/completions$/.test(path)) {
+					counters.legs += 1;
+					return Response.json({
+						choices: [
+							{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+						],
+					});
+				}
+				return new Response("unexpected endpoint", { status: 404 });
+			},
+		});
+		let child: ReturnType<typeof Bun.spawn> | undefined;
+		const scheduled = scheduleReview({
+			db: db as unknown as GovernorStore,
+			project: MY_PROJ,
+			item,
+			repo: realpathSync(REPO),
+			context,
+			env: {
+				...env,
+				GOVERNOR_STORE_URL: "",
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+				BUCKLE_ADMIN_KEY: "fixture-admin",
+			},
+			spawn: (args, childEnv) => {
+				child = Bun.spawn(args, {
+					cwd: realpathSync(REPO),
+					env: childEnv,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+			},
+		});
+		if (!child) throw new Error(`review was not scheduled: ${scheduled}`);
+		const stderrText = await new Response(child.stderr).text();
+		await child.exited;
+		try {
+			expect(child.exitCode).toBe(0);
+			expect(stderrText).toContain("scoped key revoke failed");
+			expect(stderrText).toContain("verify: already revoked");
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			expect(counters).toEqual({ minted: 1, revoked: 1, legs: 1 });
+		} finally {
+			db.close();
+			server.stop(true);
+		}
+	});
 });

@@ -1,6 +1,6 @@
 {
 	"name": "@klh/belt",
-	"version": "2.2.0",
+	"version": "2.3.1",
 	"description": "Local LLM fleet — MLX specialists, anthropic-wire router, benchmark rig",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
@@ -72,18 +72,18 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@klh/blam": "2.2.0",
-		"@klh/kernel": "2.2.0",
-		"@klh/buckle": "2.2.0",
-		"@klh/local-llm": "2.2.0",
-		"@klh/speedy": "2.2.0",
-		"@klh/suspenders": "2.2.0",
-		"@klh/telemetry": "2.2.0",
+		"@klh/blam": "2.3.1",
+		"@klh/kernel": "2.3.1",
+		"@klh/buckle": "2.3.1",
+		"@klh/local-llm": "2.3.1",
+		"@klh/speedy": "2.3.1",
+		"@klh/suspenders": "2.3.1",
+		"@klh/telemetry": "2.3.1",
 		"bonjour-service": "1.4.4",
 		"lit": "3.3.3"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.2.0",
+		"@klh/test-kit": "2.3.1",
 		"@playwright/test": "1.64.1"
 	}
 }

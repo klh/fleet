@@ -18,6 +18,8 @@ import type { AppDeps } from "./handlers.ts";
 import type { IngressLocal } from "./ingress-routes.ts";
 import { principalOf } from "./gov/federation.ts";
 import { providerPoolIdOf } from "./router-attempt.ts";
+import type { UpstreamPool } from "./upstreams.ts";
+import type { ModelCapabilities } from "./wire-schemas.ts";
 
 /** W2635: pool caps + live counters one model row carries (numbers describe
  *  the POOL, not the row — all member deployments share one admission). */
@@ -65,6 +67,54 @@ export function poolNumbersOf(
 	};
 }
 
+/** W2979: the conf-pinned serving capabilities one model row reports.
+ *
+ *  Publication rule (conservative truthful omission — C448):
+ *  the router walk CROSSES fallback groups (GatewayPolicy.fallbacks), so a
+ *  group's claim is only guaranteed when EVERY group reachable on the walk —
+ *  itself, its transitive fallbacks, and every deployment inside each — pins
+ *  capabilities and they all agree exactly. Any unreachable/missing/mismatched
+ *  rung ⇒ the row advertises NOTHING: half-honest metadata (or an invented
+ *  minimum across rungs) is worse than none. Values are operator conf,
+ *  never computed here. */
+export function capabilitiesOf(
+	pool: UpstreamPool,
+	group: string,
+	fallbacks?: Record<string, string[]>,
+): ModelCapabilities | null {
+	// Walk the fallback chain: cycle-safe, bounded by the reachable set.
+	const reachable = new Set<string>([group]);
+	const queue = [group];
+	while (queue.length > 0) {
+		const g = queue.pop() as string;
+		for (const fb of fallbacks?.[g] ?? []) {
+			if (!reachable.has(fb)) {
+				reachable.add(fb);
+				queue.push(fb);
+			}
+		}
+	}
+	let first: string | undefined;
+	let agreed: ModelCapabilities | undefined;
+	for (const g of reachable) {
+		const deployments = pool.deployments(g);
+		// A reachable group with no deployments (dangling fallback name) can
+		// still be walked onto at serve time — its limits are unknown ⇒ omit.
+		if (deployments.length === 0) return null;
+		for (const dep of deployments) {
+			if (dep.capabilities === undefined) return null;
+			const key = JSON.stringify(dep.capabilities);
+			if (first === undefined) {
+				first = key;
+				agreed = dep.capabilities;
+			} else if (key !== first) {
+				return null;
+			}
+		}
+	}
+	return agreed ?? null;
+}
+
 export function modelsRoute(
 	deps: AppDeps,
 	req: Request,
@@ -86,15 +136,34 @@ export function modelsRoute(
 	const groups = verdict.groups;
 	const data = deps.pool
 		.groups()
-		.filter((id) => deps.pool.deployments(id).length > 0)
+		.filter((id) =>
+			deps.pool.deployments(id).some((dep) => dep.discover !== false),
+		)
 		.filter((id) => groups === null || groups.some((g) => globMatch(g, id)))
 		.map((id) => {
 			const pool = poolNumbersOf(deps, id);
+			const caps = capabilitiesOf(deps.pool, id, deps.router.policy.fallbacks);
 			return {
 				id,
 				object: "model",
 				owned_by: "buckle",
 				...(pool === null ? {} : { admission: pool }),
+				...(caps === null
+					? {}
+					: {
+							...(caps.context_length !== undefined
+								? { context_length: caps.context_length }
+								: {}),
+							...(caps.max_output_tokens !== undefined
+								? { max_output_tokens: caps.max_output_tokens }
+								: {}),
+							...(caps.reasoning !== undefined
+								? { reasoning: caps.reasoning }
+								: {}),
+							...(caps.capability_source !== undefined
+								? { capability_source: caps.capability_source }
+								: {}),
+						}),
 			};
 		});
 	return Response.json({ object: "list", data });

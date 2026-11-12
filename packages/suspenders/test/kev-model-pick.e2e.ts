@@ -25,7 +25,18 @@ import {
 	kevModelNote,
 	kevModelOptions,
 	kevModelPick,
+	kevPairFallback,
+	kevPairKey,
+	kevPairOptions,
+	kevPairPick,
 } from "../hooks/lib/fleet-loop/kev-model-pick.ts";
+import type { HubSurvey } from "../hooks/lib/fleet-loop/kev-hub-survey.ts";
+
+const surveyOf = (
+	label: string,
+	offerings: string[] | null,
+	latencyMs = 100,
+): HubSurvey => ({ label, url: `https://${label}.test`, offerings, latencyMs });
 
 const world = scratchWorld({ prefix: "w2677-kev-" });
 const realHome = process.env.HOME;
@@ -372,6 +383,56 @@ test("admitModel: W2860 plaid route model unserved falls back to default_models,
 	}
 });
 
+const kevAnswer =
+	(choice: string, confidence = 0.9) =>
+	(_req: Request) =>
+		Response.json({
+			model: "kev-latest",
+			answers: {
+				d: { choice, confidence, probabilities: { [choice]: confidence } },
+			},
+			usage: { input_tokens: 10, output_tokens: 5 },
+			latency_ms: 1,
+		});
+
+test("kevPairOptions: down hubs drop, penalized excluded, dupes kept @unit", () => {
+	const surveys = [
+		surveyOf("nas", ["glm-5.3", "glm-5.3-flash"]),
+		surveyOf("zai", ["glm-5.3", "gpt-6-sol"], 40),
+		surveyOf("dead", null),
+		surveyOf("empty", []),
+	];
+	const out = kevPairOptions(surveys, (m) => m === "glm-5.3-flash");
+	expect(out.excluded).toBe(1);
+	expect(out.options).toEqual([
+		{ model: "glm-5.3", hub: "nas" },
+		{ model: "glm-5.3", hub: "zai" },
+		{ model: "gpt-6-sol", hub: "zai" },
+	]);
+	expect(kevPairKey(out.options[1])).toBe("glm-5.3@zai");
+});
+
+test("kevPairPick: kev picks the (model, hub) PAIR — reason names both @unit", async () => {
+	const kev = serveStub(kevAnswer("gpt-6-sol@zai"));
+	process.env[KEV] = kev.url;
+	try {
+		const out = await kevPairPick({
+			state: "item W1: port a router",
+			model: "glm-5.3",
+			survey: async () => [
+				surveyOf("nas", ["glm-5.3", "glm-5.3-flash"]),
+				surveyOf("zai", ["glm-5.3", "gpt-6-sol"], 40),
+			],
+		});
+		expect(out.via).toBe("kev");
+		expect(out.model).toBe("gpt-6-sol");
+		expect(out.hub).toBe("zai");
+		expect(out.reason).toContain("gpt-6-sol@zai");
+	} finally {
+		kev.close();
+	}
+});
+
 test("admitModel: W2860 plaid route model already served stands untouched @unit", async () => {
 	let kevAsked = 0;
 	const hub = serveStub(catalog(["claude-opus-5", "glm-5.3-flash"]));
@@ -417,4 +478,51 @@ test("admitModel: W2860 plaid route model already served stands untouched @unit"
 		hub.close();
 		kev.close();
 	}
+});
+test("kevPairPick: kev down → static default stands on fastest serving hub @unit", async () => {
+	const kev = serveStub(() => new Response("x", { status: 500 }));
+	process.env[KEV] = kev.url;
+	try {
+		const out = await kevPairPick({
+			state: "item W1",
+			model: "glm-5.3-flash",
+			survey: async () => [
+				surveyOf("nas", ["glm-5.3", "glm-5.3-flash"], 200),
+				surveyOf("zai", ["glm-5.3"], 40),
+			],
+		});
+		expect(out.via).toBe("fallback");
+		expect(out.model).toBe("glm-5.3-flash");
+		expect(out.hub).toBe("nas");
+		expect(out.reason).toContain("fastest serving hub nas");
+	} finally {
+		kev.close();
+	}
+});
+
+test("kevPairPick: no live hub — static pick stands, hub undefined @unit", async () => {
+	const kev = serveStub(kevAnswer("glm-5.3@nas"));
+	process.env[KEV] = kev.url;
+	try {
+		const out = await kevPairPick({
+			state: "item W1",
+			model: "glm-5.3",
+			survey: async () => [surveyOf("nas", null), surveyOf("zai", [])],
+		});
+		expect(out.via).toBe("fallback");
+		expect(out.model).toBe("glm-5.3");
+		expect(out.hub).toBeUndefined();
+		expect(out.reason).toContain("no hub serves a live catalog");
+	} finally {
+		kev.close();
+	}
+});
+
+test("kevPairFallback: fastest hub head when the static model is unserved @unit", () => {
+	const out = kevPairFallback(
+		[surveyOf("nas", ["glm-5.3"], 200), surveyOf("zai", ["gpt-6-sol"], 40)],
+		"glm-9",
+	);
+	expect(out?.hub).toBe("zai");
+	expect(out?.model).toBe("gpt-6-sol");
 });

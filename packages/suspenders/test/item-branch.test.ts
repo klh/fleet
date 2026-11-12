@@ -71,3 +71,125 @@ describe("branchForItem", () => {
 		expect(branchForItem(f.repo, "W9999")).toBeNull();
 	});
 });
+
+// W3010: the graph walk binds a kept child whose carrier tree lost its
+// lane-context (reaped/retired tree, pre-W628 split — the 77aa incident):
+// SHATTERED ancestor, ref exists, result sha on it — never a blind name.
+describe("branchForItem graph walk (W3010)", () => {
+	const rowMap =
+		(rows: Record<string, { state: string; parent_id: string | null }>) =>
+		(id: string) =>
+			rows[id] ?? null;
+	const headOf = (repo: string): string =>
+		Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		})
+			.stdout.toString()
+			.trim();
+
+	test("binds the SHATTERED ancestor whose ref contains the result sha", () => {
+		const f = keptChildFixture("carrier");
+		const sha = headOf(f.repo);
+		// the incident shape: the carrier tree's lane-context is gone
+		rmSync(join(f.tree, ".fleet", "lane-context.json"));
+		expect(
+			branchForItem(f.repo, "W1278.1", {
+				parentId: "W1278",
+				resultSha: sha,
+				rowAt: rowMap({ W1278: { state: "SHATTERED", parent_id: null } }),
+			}),
+		).toBe("suspenders/W1278");
+	});
+
+	test("a ref-bearing ancestor missing the result sha binds nothing", () => {
+		const f = keptChildFixture("wrongcarrier");
+		Bun.spawnSync(["git", "-C", f.repo, "branch", "suspenders/W1278"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		writeFileSync(join(f.repo, "late.txt"), "x");
+		Bun.spawnSync(["git", "-C", f.repo, "add", "."], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		Bun.spawnSync(["git", "-C", f.repo, "commit", "-qm", "late"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		// suspenders/W1278 sits at base; `late` is only on main — never an
+		// ancestor of the carrier ref, so the wrong carrier must not bind
+		const late = headOf(f.repo);
+		expect(
+			branchForItem(f.repo, "W1278.2", {
+				parentId: "W1278",
+				resultSha: late,
+				rowAt: rowMap({ W1278: { state: "SHATTERED", parent_id: null } }),
+			}),
+		).toBeNull();
+	});
+
+	test("walks through a ref-less SHATTERED ancestor to the standing carrier", () => {
+		const f = keptChildFixture("walkup");
+		// strip the direct carrier: remove the worktree, delete its branch
+		Bun.spawnSync(
+			["git", "-C", f.repo, "worktree", "remove", "--force", f.tree],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		Bun.spawnSync(["git", "-C", f.repo, "branch", "-D", "suspenders/W1278"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		Bun.spawnSync(["git", "-C", f.repo, "branch", "suspenders/W90"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(
+			branchForItem(f.repo, "W1278.2", {
+				parentId: "W1278",
+				resultSha: headOf(f.repo),
+				rowAt: rowMap({
+					W1278: { state: "SHATTERED", parent_id: "W90" },
+					W90: { state: "SHATTERED", parent_id: null },
+				}),
+			}),
+		).toBe("suspenders/W90");
+	});
+
+	test("a non-SHATTERED ancestor stops the walk", () => {
+		const f = keptChildFixture("readyroot");
+		Bun.spawnSync(
+			["git", "-C", f.repo, "worktree", "remove", "--force", f.tree],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		Bun.spawnSync(["git", "-C", f.repo, "branch", "-D", "suspenders/W1278"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		Bun.spawnSync(["git", "-C", f.repo, "branch", "suspenders/W90"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(
+			branchForItem(f.repo, "W1278.2", {
+				parentId: "W1278",
+				resultSha: headOf(f.repo),
+				rowAt: rowMap({
+					W1278: { state: "SHATTERED", parent_id: "W90" },
+					W90: { state: "READY", parent_id: null },
+				}),
+			}),
+		).toBeNull();
+	});
+
+	test("no pinned result sha binds nothing (shape alone never binds)", () => {
+		const f = keptChildFixture("nopin");
+		rmSync(join(f.tree, ".fleet", "lane-context.json"));
+		expect(
+			branchForItem(f.repo, "W1278.2", {
+				parentId: "W1278",
+				rowAt: rowMap({ W1278: { state: "SHATTERED", parent_id: null } }),
+			}),
+		).toBeNull();
+	});
+});

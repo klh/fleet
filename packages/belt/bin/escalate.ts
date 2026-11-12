@@ -201,7 +201,7 @@ export async function escalate(
 				authorization: `Bearer ${leg.key}`,
 				"anthropic-version": "2023-06-01",
 				"x-litellm-call-id": attemptId,
-				...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+				...(opts.requestId ? { "x-buckle-request-id": opts.requestId } : {}),
 				...(attemptTrace ? { traceparent: attemptTrace } : {}),
 				...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				...(rung ? { [HOP_CONTRACT_HEADER]: rung } : {}),
@@ -231,7 +231,7 @@ export async function escalate(
 		});
 		status = res.status;
 		upstreamCallId = safeUpstreamId(res.headers?.get("x-litellm-call-id"));
-		upstreamRid = safeUpstreamId(res.headers?.get("x-belt-rid"));
+		upstreamRid = safeUpstreamId(res.headers?.get("x-buckle-rid"));
 		if (!res.ok) {
 			failureKind = "http";
 			const error = upstreamError(await res.text(), res.status);

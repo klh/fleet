@@ -749,7 +749,7 @@ test.describe("@api", () => {
 				if (result.kind !== "exhausted") throw new Error("peer did not fail");
 				const response = errorResponse(result.status, result.error);
 				response.headers.set(
-					"x-klh-refusal",
+					"x-buckle-refusal",
 					result.lastFailure?.kind ?? "unknown",
 				);
 				return response;

@@ -98,7 +98,7 @@ for (const stream of [false, true]) {
 				error_code: "rate_limited",
 				err: "rate_limited",
 			});
-			expect(response.headers.get("x-belt-error")).toBe("rate_limited");
+			expect(response.headers.get("x-buckle-error")).toBe("rate_limited");
 		} finally {
 			upstream.close();
 		}
@@ -161,7 +161,7 @@ test("auth and generic server errors remain distinct; SSE envelopes retain rate-
 	});
 });
 
-test("already committed Anthropic SSE preserves the provider rate-limit event", async () => {
+test("already committed Anthropic SSE preserves the provider rate-limit envelope (annotated)", async () => {
 	const frame =
 		'event: error\ndata: {"type":"error","error":{"type":"rate_limit_error","code":"1302","message":"Rate limit reached"}}\n\n';
 	const upstream = await startMockUpstream(
@@ -182,7 +182,36 @@ test("already committed Anthropic SSE preserves the provider rate-limit event", 
 			}),
 		);
 		expect(response.status).toBe(200);
-		expect(await response.text()).toBe(frame);
+		// W2258/W2268 annotate in-band provider failures: the dialect envelope
+		// survives byte-comparable, the message gains the belt-origin prefix
+		// and trace marker, and the payload carries the bounded fleet_trace.
+		const body = JSON.parse(
+			(await response.text())
+				.replace(/^event: error\ndata: /, "")
+				.replace(/\n\n$/, ""),
+		) as {
+			type: string;
+			error: { type: string; code: string; message: string; trace_id?: string };
+			trace_id?: string;
+			fleet_trace?: { id: string; hops: Array<Record<string, unknown>> };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("rate_limit_error");
+		expect(body.error.code).toBe("1302");
+		expect(body.error.message).toContain("Rate limit reached");
+		expect(body.error.message).toMatch(/^belt: local\.buckle\.1302 — /);
+		expect(body.error.message).toMatch(
+			/ \[trace=[0-9a-f]{32}; origin=local; target=[^\]]+\]$/,
+		);
+		expect(body.error.trace_id).toMatch(/^[0-9a-f]{32}$/);
+		expect(body.trace_id).toBe(body.error.trace_id);
+		expect(body.fleet_trace?.id).toBe(body.trace_id);
+		expect(body.fleet_trace?.hops[0]).toMatchObject({
+			hub: "local",
+			service: "buckle",
+			status: 200,
+			code: "1302",
+		});
 	} finally {
 		upstream.close();
 	}

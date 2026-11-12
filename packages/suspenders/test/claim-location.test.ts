@@ -248,4 +248,94 @@ describe("W870 take provisioning", () => {
 		expect(t2.out).toContain("(attached)");
 		expect(existsSync(join(REPO, ".worktrees", idA))).toBe(true);
 	});
+
+	test("kept split child rides its SHATTERED parent's registered tree (W3008)", () => {
+		// split --keep 1 transfers the claim to the kept child WITHOUT minting
+		// a child tree: the child keeps editing the parent's registered tree.
+		const idP = idOf(work("add", "claim-location fixture P"));
+		expect(idP).toBeTruthy();
+		expect(work("take", idP, "--as", "loc-a").code).toBe(0);
+		const sp = work(
+			"split",
+			idP,
+			"P kept child",
+			"P other child",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(sp.code).toBe(0);
+		// first minted child = the kept child (keep=1)
+		const idKept = (sp.out.match(/W\d+\.\d+/) ?? [])[0] ?? "";
+		expect(idKept).toBeTruthy();
+		// no child tree is minted — the direct lookup misses
+		expect(existsSync(join(REPO, ".worktrees", idKept))).toBe(false);
+		// an edit inside the parent tree is the kept child's own bound tree
+		expect(
+			gate(writeHook("loc-a", TP, join(".worktrees", idP, "kept-edit.ts"))).out,
+		).toBe("{}");
+		// main-checkout edits deny naming the tree the claim actually rides
+		const denied = gate(writeHook("loc-a", TP, "kept-main-edit.ts"));
+		expect(denied.out).toContain("CLAIM-LOCATION");
+		expect(denied.out).toContain(join(".worktrees", idP));
+	});
+
+	test("fallback is graph-verified: a non-SHATTERED parent binds nothing (W3008)", () => {
+		// parent-linked child under a READY parent (never shattered): the
+		// fallback must stay exact/conventional/SHATTERED-ancestor — never a
+		// blind suffix walk that binds a foreign tree
+		const idG = idOf(work("add", "claim-location fixture G"));
+		expect(idG).toBeTruthy();
+		const c = work("add", "guard child", "--parent", idG);
+		expect(c.code).toBe(0);
+		const idGC = (c.out.match(/W\d+\.\d+/) ?? [])[0] ?? "";
+		expect(idGC).toBeTruthy();
+		expect(work("take", idGC, "--as", "loc-b").code).toBe(0);
+		rmSync(join(REPO, ".worktrees", idGC), { recursive: true, force: true });
+		gitOK(["worktree", "prune"]);
+		// READY parent → no fallback → the legacy treeless fail-open holds
+		expect(gate(writeHook("loc-b", TP, "guard-main-edit.ts")).out).toBe("{}");
+	});
+
+	test("chained splits walk up the SHATTERED chain to the standing tree (W3008)", () => {
+		const idQ = idOf(work("add", "claim-location fixture Q"));
+		expect(idQ).toBeTruthy();
+		expect(work("take", idQ, "--as", "loc-a").code).toBe(0);
+		const s1 = work(
+			"split",
+			idQ,
+			"Q kept child",
+			"Q other child",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s1.code).toBe(0);
+		const idK1 = (s1.out.match(/W\d+\.\d+/) ?? [])[0] ?? "";
+		expect(idK1).toBeTruthy();
+		const s2 = work(
+			"split",
+			idK1,
+			"Q kept grandchild",
+			"Q other grandchild",
+			"--reason",
+			"independent-scopes",
+			"--keep",
+			"1",
+		);
+		expect(s2.code).toBe(0);
+		// the header names the dotted parent — the kept grandchild is the
+		// first THREE-segment id in the output
+		const idK2 = (s2.out.match(/W\d+\.\d+\.\d+/) ?? [])[0] ?? "";
+		expect(idK2).toBeTruthy();
+		// W<q>.1 has no tree; the kept grandchild rides .worktrees/<q>
+		expect(
+			gate(writeHook("loc-a", TP, join(".worktrees", idQ, "gk-edit.ts"))).out,
+		).toBe("{}");
+		const denied = gate(writeHook("loc-a", TP, "gk-main-edit.ts"));
+		expect(denied.out).toContain("CLAIM-LOCATION");
+		expect(denied.out).toContain(join(".worktrees", idQ));
+	});
 });

@@ -15,7 +15,7 @@ import {
 import {
 	adapterForExact,
 	EXECUTOR_ADAPTERS,
-} from "../../hooks/lib/executors/registry.ts";
+} from "../../hooks/lib/executors/executor-registry.ts";
 import type { LaneWire } from "../../hooks/lib/lanes/lane.ts";
 import {
 	type StackConfig,

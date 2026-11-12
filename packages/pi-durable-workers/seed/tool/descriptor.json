@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "family": "tool",
+  "version": "0.1.0-experimental.w2988",
+  "image": "ghcr.io/klh/fleet/tool-seed@sha256:e321ce90cd9268c8269cd45f347569a0561b2a90f4b4e91daa1d02e941215826",
+  "sourceCommit": "17585b556a07befb8b1114d05d78a2c09db92029",
+  "architecture": "amd64"
+}

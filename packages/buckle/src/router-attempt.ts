@@ -112,10 +112,10 @@ async function classifyFailure(
 	// A provider may send Fleet-looking headers. Only a configured Buckle
 	// peer with a matching, validated body may contribute a previous hop.
 	for (const header of [
-		"x-klh-peer-error-trace",
-		"x-klh-service",
-		"x-klh-trace-id",
-		"x-klh-error-origin",
+		"x-buckle-peer-error-trace",
+		"x-buckle-service",
+		"x-buckle-trace-id",
+		"x-buckle-error-origin",
 	])
 		headers.delete(header);
 	headers.delete("content-length");
@@ -125,9 +125,9 @@ async function classifyFailure(
 	headers.delete("x-litellm-model-api-base");
 	if (!requestId) headers.delete("x-request-id");
 	if (!callId) headers.delete("x-litellm-call-id");
-	if (requestId) headers.set("x-klh-upstream-request-id", requestId);
+	if (requestId) headers.set("x-buckle-upstream-request-id", requestId);
 	if (callId) headers.set("x-litellm-call-id", callId);
-	if (peerTrace) headers.set("x-klh-peer-error-trace", peerTrace);
+	if (peerTrace) headers.set("x-buckle-peer-error-trace", peerTrace);
 	const replay = new Response(text, {
 		status: resp.status,
 		statusText: resp.statusText,
@@ -298,6 +298,38 @@ export async function tryOnce(
 		}
 		timeoutMs = Math.min(timeoutMs, remainingMs);
 	}
+	const transport = host.connectionLimits?.get(dep.providerProfile ?? dep.url);
+	if (transport) {
+		let connection: ProviderLease | null;
+		try {
+			connection = transport.acquire(req.signal);
+		} catch (error) {
+			lease?.release();
+			host.cooldowns.cold.releaseProbe(dep);
+			throw error;
+		}
+		if (!connection) {
+			lease?.release();
+			host.cooldowns.cold.releaseProbe(dep);
+			return {
+				ok: false,
+				localAdmission: true,
+				localCause: "full",
+				providerPool: null,
+				status: 503,
+				error: "Relay connection limit reached",
+				retryAfterS: 0,
+			};
+		}
+		const account = lease;
+		lease = {
+			release: () => {
+				connection.release();
+				account?.release();
+			},
+			...(account?.feedback ? { feedback: account.feedback } : {}),
+		};
+	}
 	try {
 		const raw = await host.fetchImpl(
 			dep,
@@ -390,7 +422,7 @@ export async function tryOnce(
 			});
 		const base = {
 			transportTimeoutPhase: dep.buckle
-				? safeTimeoutPhase(resp.headers.get("x-klh-transport-timeout-phase"))
+				? safeTimeoutPhase(resp.headers.get("x-buckle-transport-timeout-phase"))
 				: null,
 			providerPool: poolId,
 			queueWaitMs: lease ? queueWaitMs : null,
@@ -425,14 +457,14 @@ export async function tryOnce(
 			requestId,
 			callId,
 			peerTrace,
-			upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-klh-refusal")),
+			upstreamRefusalCode: safeRefusalCode(resp.headers.get("x-buckle-refusal")),
 		};
 		// W1118.1: a peer's hop-contract refusal is a chain verdict — the
 		// contract binds every fleet leg, so the walk must not detour to
 		// another rung (an A→B→A cycle must not serve itself via a
-		// provider failover). The specific code rides x-belt-error, stamped
+		// provider failover). The specific code rides x-buckle-error, stamped
 		// by the peer's deny(); the refusing peer is healthy — no bench.
-		const peerCode = safeRefusalCode(resp.headers.get("x-belt-error"));
+		const peerCode = safeRefusalCode(resp.headers.get("x-buckle-error"));
 		if (peerCode?.startsWith("hop_contract_")) {
 			return {
 				...base,

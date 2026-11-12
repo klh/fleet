@@ -1,5 +1,5 @@
 // src/wire-stamp.ts — W136 wire-header stamping on responses
-// (x-belt-rid/route/error) + hop headers; SSE header pass-through.
+// (x-buckle-rid/route/error) + hop headers; SSE header pass-through.
 
 import { stampHopHeaders } from "@klh/telemetry/src/http-trace.ts";
 import { PREFER_HEADER } from "@klh/telemetry/src/prefer-header.ts";
@@ -19,8 +19,8 @@ export const SSE_HEADERS = (h: Headers): Headers => {
 			k === "content-length" ||
 			k === "transfer-encoding" ||
 			k === "connection" ||
-			k === "x-klh-peer-error-trace" ||
-			k === "x-klh-error-origin"
+			k === "x-buckle-peer-error-trace" ||
+			k === "x-buckle-error-origin"
 		)
 			continue;
 		out.set(k, v);
@@ -35,8 +35,8 @@ const HEADERS_JSON = (h: Record<string, string>): Headers => {
 };
 
 /** Stamp the W136 wire headers on a response without touching its body:
- *  x-belt-rid always; x-belt-route (single-line JSON: rid, target, decision,
- *  latency_class, tier) on every router-decided response; x-belt-error on
+ *  x-buckle-rid always; x-buckle-route (single-line JSON: rid, target, decision,
+ *  latency_class, tier) on every router-decided response; x-buckle-error on
  *  errors. */
 export function stamped(
 	resp: Response,
@@ -45,7 +45,7 @@ export function stamped(
 		decision: string;
 		row?: CandidateRow;
 		/** Configured provider of the failing/delivered leg (config identity,
-		 *  never inferred from error text) — rides x-belt-route. */
+		 *  never inferred from error text) — rides x-buckle-route. */
 		providerTarget?: string;
 		streaming?: boolean;
 		code?: string | null;
@@ -91,9 +91,9 @@ export function stamped(
 	if (route.attempts !== undefined) payload.attempts = route.attempts;
 	if (route.refusal) payload.refusal = route.refusal;
 	const hs = HEADERS_JSON({
-		"x-belt-rid": ctx.rid,
-		"x-belt-route": JSON.stringify(payload),
-		...(route.code ? { "x-belt-error": route.code } : {}),
+		"x-buckle-rid": ctx.rid,
+		"x-buckle-route": JSON.stringify(payload),
+		...(route.code ? { "x-buckle-error": route.code } : {}),
 	});
 	stampHopHeaders(hs, {
 		service: "buckle",

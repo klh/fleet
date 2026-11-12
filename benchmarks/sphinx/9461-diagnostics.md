@@ -4,7 +4,7 @@ These 26 separately described implementation attempts precede the receipt-backed
 
 Logged runs: 26; independent attempts: 26; continuations: 0; judge replays: 0; known failures: 25; unknown/incomplete outcomes: 0.
 
-Winner: unknown; no qualified matched winner claimed.
+Matched winner: unproven.
 
 ## sphinx-9461-legacy-serial-initial
 

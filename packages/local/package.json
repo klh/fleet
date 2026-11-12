@@ -1,6 +1,6 @@
 {
 	"name": "@klh/local",
-	"version": "2.2.0",
+	"version": "2.3.1",
 	"private": true,
 	"description": "the local service front — Caddy registration, Bonjour/mDNS names, loopback defaults, service registry",
 	"type": "module",
@@ -10,8 +10,8 @@
 		"bun": "1.4.2"
 	},
 	"dependencies": {
-		"@klh/kernel": "2.2.0",
-		"@klh/local-llm": "2.2.0",
+		"@klh/kernel": "2.3.1",
+		"@klh/local-llm": "2.3.1",
 		"lit": "3.3.3"
 	},
 	"scripts": {

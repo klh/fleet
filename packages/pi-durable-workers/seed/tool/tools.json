@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "family": "tool",
+  "architecture": "amd64",
+  "base": "oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895",
+  "tools": ["bun", "git", "rg", "fd", "bat", "sd", "jq", "fzf", "eza", "unzip", "ambr"],
+  "languageToolchains": ["bun"],
+  "apt": {
+    "git": "1:2.47.3-0+deb13u1",
+    "ripgrep": "14.1.1-1+b4",
+    "fd-find": "10.2.0-1+b5",
+    "bat": "0.25.0-2+b2",
+    "sd": "1.0.0-3+b6",
+    "jq": "1.7.1-6+deb13u4",
+    "fzf": "0.60.3-1+b2",
+    "eza": "0.21.0-1+b1",
+    "unzip": "6.0-29+deb13u1"
+  },
+  "amber": { "version": "0.6.1", "sha256": "fcf828a849e601ac20402709ef9f6c4700295a53b6aa90078ff6ca606b27faa9" }
+}

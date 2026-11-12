@@ -1,0 +1,117 @@
+{
+	"schemaVersion": 1,
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:92b85908b4968404f1ebd6ed3823058bc41cd73d923db5f32b3c7266e8c5c364",
+	"recordedAt": "2026-11-11T14:48:45.610Z",
+	"registry": {
+		"visibility": "private",
+		"repository": "klh/fleet"
+	},
+	"evidence": [
+		{
+			"platform": "linux/amd64",
+			"manifest": "sha256:42f63f8a03e8e0e1e8697e8aa85600d51d03ccf2fb859c531f326a481a982bd8",
+			"attestationManifest": "sha256:8e9940d91dc958c3832fb589eb1fc33f4eb88a83141c987aa65cbd856b2a155d",
+			"provenance": {
+				"sourceCommit": "f12f82bd8523dd4701c53d5335d154d651e56601",
+				"recipeCommit": "f727e408f8d60deab68366d814883d4c3115a0e3",
+				"baseImage": "oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4",
+				"contentBindingsVerified": true,
+				"signaturesVerified": false
+			},
+			"sbom": {
+				"format": "SPDX-2.3",
+				"packages": 92
+			},
+			"runtimeSmoke": {
+				"platform": "linux/amd64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:92b85908b4968404f1ebd6ed3823058bc41cd73d923db5f32b3c7266e8c5c364",
+				"api": {
+					"ids": ["seed-model"],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "x64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"probeListenModeHealthStatus": 200,
+			"teardownChecked": true
+		},
+		{
+			"platform": "linux/arm64",
+			"manifest": "sha256:6301c1454f15f85cd557745e0dd67d3b09371742503cdf9ac67cad75d9015437",
+			"attestationManifest": "sha256:d8b383ce2343e85b0bef497d6a933d7882106f37e943a90b694bd59b1a23b392",
+			"provenance": {
+				"sourceCommit": "f12f82bd8523dd4701c53d5335d154d651e56601",
+				"recipeCommit": "f727e408f8d60deab68366d814883d4c3115a0e3",
+				"baseImage": "oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4",
+				"contentBindingsVerified": true,
+				"signaturesVerified": false
+			},
+			"sbom": {
+				"format": "SPDX-2.3",
+				"packages": 92
+			},
+			"runtimeSmoke": {
+				"platform": "linux/arm64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:92b85908b4968404f1ebd6ed3823058bc41cd73d923db5f32b3c7266e8c5c364",
+				"api": {
+					"ids": ["seed-model"],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": {
+						"uid": 1000,
+						"arch": "arm64",
+						"db": true
+					},
+					"probeExitCode": 0
+				},
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				}
+			},
+			"probeListenModeHealthStatus": 200,
+			"teardownChecked": true
+		}
+	],
+	"testEvidence": {
+		"focused": "7/7 passed (5unit,2container)",
+		"publishedDigest": "2/2 passed,9.2s",
+		"nativeCommit": "100/100 passed",
+		"nativePush": "191/191 passed; OpenAPI current; P1 contract holds; scrub clean"
+	},
+	"runtimeContext": {
+		"dockerHostArchitecture": "aarch64",
+		"nativeAmd64HardwareClaim": false,
+		"syntheticUpstream": true,
+		"fullFeatureCompatibilityClaim": false,
+		"stableReleaseClaim": false
+	},
+	"negativeHistory": "../negative-history.json"
+}

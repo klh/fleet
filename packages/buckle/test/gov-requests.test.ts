@@ -112,8 +112,8 @@ describe("W824 per-request rows", () => {
 				{
 					status: 429,
 					headers: {
-						"x-klh-refusal": "local_cold",
-						"x-klh-service": "belt",
+						"x-buckle-refusal": "local_cold",
+						"x-buckle-service": "belt",
 						"retry-after": "1",
 					},
 				},

@@ -43,6 +43,10 @@ import {
 	MERGE_DEFER_DIR,
 	mergeDeferredActive,
 } from "./merge-defer.ts";
+import {
+	QLTY_ATTESTATION_MARK,
+	postQltyAttestation,
+} from "./merge-attestation.ts";
 import { guardedMerge } from "./merge-guard.ts";
 import { mergeHoldActive } from "./merge-hold.ts";
 
@@ -305,7 +309,7 @@ export function createMergeLadder(
 			deferStuck(b, claim.item, exact.why);
 			return { branch: b, outcome: "deferred", why: exact.why };
 		}
-		const verifyReview = (candidate?: string) => {
+		const verifyReview = (candidate?: string, candidateTree?: string) => {
 			const store = openStore();
 			try {
 				const context = reviewContext(REPO, b);
@@ -318,6 +322,18 @@ export function createMergeLadder(
 						ok: false,
 						why: "integration changed reviewed instructions",
 					};
+				// W2940: the receipt binds the branch head; the published
+				// candidate must be the reviewed BYTES — tree identity is the
+				// exact attestation (a qlty autofix commit inside the guard
+				// moves the tree and refuses here, fail-closed).
+				if (candidate) {
+					const attest = postQltyAttestation({
+						repo: REPO,
+						branch: b,
+						candidateTree,
+					});
+					if (!attest.ok) return attest;
+				}
 				return checkReviewReceipt(
 					store,
 					projectIdentity(REPO),
@@ -628,6 +644,15 @@ export function createMergeLadder(
 			receipt = { branch: b, outcome: "merged", head: after };
 		} else if (mv.tail.startsWith("review required:")) {
 			log(`MERGE-DEFER ${b} — ${mv.tail}`);
+			// W2940: a branch-bound review can never satisfy the post-qlty
+			// attestation — scheduling another branch review would loop
+			// (PASS → tree gate refuse → re-schedule). Fail closed with the
+			// deterministic repair instead: apply the autofix ON the branch,
+			// re-complete, and let the fresh review attest the fixed bytes.
+			if (mv.tail.includes(QLTY_ATTESTATION_MARK))
+				log(
+					`REPAIR-QUEUED ${b} — ${repairItem(b, "repair", `merge-time qlty autofix changed reviewed bytes; apply the fix on the branch worktree (qlty check --fix), re-complete, fresh review attests the published bytes. ${mv.tail}`)}`,
+				);
 			receipt = { branch: b, outcome: "deferred", why: mv.tail };
 		} else {
 			mergeFail(b, mv.tail);

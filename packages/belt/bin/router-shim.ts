@@ -690,7 +690,7 @@ Bun.serve({
 						headers: {
 							"content-type": "application/json",
 							traceparent: kevTrace,
-							"x-klh-request-id": trace.requestId,
+							"x-buckle-request-id": trace.requestId,
 						},
 						signal: AbortSignal.any([requestSignal, AbortSignal.timeout(4000)]),
 						body: JSON.stringify({

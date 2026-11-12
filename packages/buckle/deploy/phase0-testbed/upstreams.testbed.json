@@ -1,0 +1,31 @@
+{
+	"comment": [
+		"Phase 0 rehearsal testbed (C380/C382/C384) — inner-Buckle upstream rows.",
+		"inherit_defaults:false is load-bearing: the pool is EXACTLY this row —",
+		"no committed ladder underneath, so fail-closed-with-zero-fallback is",
+		"structural, not policy. Hostname `stub` is the compose service name on",
+		"the internal testbed network; the e2e",
+		"spec writes its own temp rows with dynamic loopback ports instead of",
+		"reading this file. Neutral ids only: the private rollout doc maps",
+		"test-model to the pilot model id. Port 8191 is the compose wiring",
+		"choice (fleet flash C384/#121218).",
+		"Env law: STUB_TOKEN names an env var read at request time — the value",
+		"never lives in this file or any committed file."
+	],
+	"version": 1,
+	"inherit_defaults": false,
+	"groups": {
+		"test-model": [
+			{
+				"provider": "vllm-testbed",
+				"url": "http://stub:8191/v1",
+				"dialect": "openai",
+				"model": "test-model",
+				"api_key_env": "STUB_TOKEN",
+				"adapter": "openai-compat",
+				"priority": 1,
+				"group": "test-model"
+			}
+		]
+	}
+}

@@ -49,7 +49,7 @@ const hostile = serveStub((req) => {
 const belt = serveStub(() =>
 	Response.json(
 		{ data: [{ id: "live-belt-model" }] },
-		{ headers: { "x-klh-hop": "belt" } },
+		{ headers: { "x-buckle-hop": "belt" } },
 	),
 );
 const machine = (port: number): RemoteMachine => ({

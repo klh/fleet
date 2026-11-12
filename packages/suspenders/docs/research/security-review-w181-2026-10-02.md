@@ -273,7 +273,7 @@ gov/federation.ts:202-225`, `middleware.ts:292-297`): any spoke:WRITE_ key can
   SseSniffer unbounded line buffer (`sse.ts:28-34`); ledger ring drops rows on
   flush failure (`ledger.ts:164-178`).
 
-- **L15** internal endpoint disclosure to authed clients: `x-belt-route` header
+- **L15** internal endpoint disclosure to authed clients: `x-buckle-route` header
   (`handlers.ts:106-121`), upstream 4xx bodies verbatim (`handlers.ts:368-389`),
   `scrubText` misses `/Volumes/…` paths (`handlers.ts:142-144`). Gate header on
   principal; extend scrub patterns.

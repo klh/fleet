@@ -15,7 +15,10 @@ and its linked Markdown page; `render` derives the Markdown from those notes.
   adaptive screen or repeated grading of one patch is not a reliable winner.
 - Keep credentials, private judge contents, journals and private HOST paths
   out. Preserve original evidence hashes; label sanitized/external evidence.
-- `benchmark.md` is only the top-node link/winner/run/failure table. Detailed
+- `treatmentFindings` stores sourced, non-additive single-task observations:
+  successful recipes and task-specific best observed results. It never adds
+  execution leaves or turns an exploratory result into a cross-task winner.
+- `benchmark.md` is only the top-node findings/winner/run/failure table. Detailed
   history belongs in the linked nodes; archived prose is not invented leaves.
 
 From the repository root, run `bun packages/blam/tools/benchmark-log.ts render`

@@ -65,6 +65,7 @@ describe("configured Claude to GLM fallback", () => {
 			);
 			const glm = await startMockUpstream(() => glmAnswer());
 			try {
+				const waits: number[] = [];
 				const d = testDeps(
 					poolOf(
 						[
@@ -89,23 +90,27 @@ describe("configured Claude to GLM fallback", () => {
 							fallbacks: { "claude-sonnet-5": ["glm-5.3-flash"] },
 						},
 						prefs: { cost_speed: "balanced", allow_cloud: true },
-						sleepMs: async () => {
-							if (status === 429) throw new Error("quota wall must not sleep");
+						sleepMs: async (ms: number) => {
+							waits.push(ms);
 						},
 					},
 				);
 				const res = await createApp(d).fetch(message(claude.url));
 				expect(res.status).toBe(200);
-				const route = JSON.parse(res.headers.get("x-belt-route") ?? "{}");
+				const route = JSON.parse(res.headers.get("x-buckle-route") ?? "{}");
 				expect(route.decision).toBe("fallback");
 				expect(route.target.model).toBe("zai-glm-5.3-flash");
-				expect(route.rid).toBe(res.headers.get("x-belt-rid"));
+				expect(route.rid).toBe(res.headers.get("x-buckle-rid"));
 				expect(claude.calls).toHaveLength(1);
 				expect(glm.calls).toHaveLength(1);
 				expect(glm.calls[0]?.body?.model).toBe("zai-glm-5.3-flash");
 				expect(glm.calls[0]?.body?.tools).toBeDefined();
 				const body = (await res.json()) as { content: Array<{ text: string }> };
 				expect(body.content[0]?.text).toBe("ready");
+				// W2617: the interactive caller waits min(retry-after, budget) for
+				// a rate-shaped cold — the quota wall (996295s) is policy-capped,
+				// never slept in full
+				expect(waits.every((w) => w <= 2_000)).toBe(true);
 			} finally {
 				claude.close();
 				glm.close();
@@ -138,7 +143,7 @@ describe("configured Claude to GLM fallback", () => {
 			);
 			const res = await createApp(d).fetch(message(glm.url));
 			expect(res.status).toBe(200);
-			const route = JSON.parse(res.headers.get("x-belt-route") ?? "{}");
+			const route = JSON.parse(res.headers.get("x-buckle-route") ?? "{}");
 			expect(route.decision).toBe("fallback");
 			expect(route.target.model).toBe("zai-glm-5.3-flash");
 		} finally {

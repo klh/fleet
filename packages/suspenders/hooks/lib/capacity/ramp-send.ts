@@ -100,8 +100,8 @@ export async function sendOne(
 	const json: unknown = await res.json().catch(() => null);
 	if (json === null && sig.aborted) return failed(failClass(sig, c.abort));
 	const got = res.ok ? extractResult(route.wire, json) : null;
-	const code = res.headers.get("x-belt-error") ?? bodyCode(json);
-	const refusal = refusalOf(res.headers.get("x-belt-route"));
+	const code = res.headers.get("x-buckle-error") ?? bodyCode(json);
+	const refusal = refusalOf(res.headers.get("x-buckle-route"));
 	const retry = Number(res.headers.get("retry-after"));
 	return {
 		...base,

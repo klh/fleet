@@ -56,6 +56,82 @@ export const RunSchema = z.strictObject({
 });
 export type Run = z.infer<typeof RunSchema>;
 export type Evidence = z.infer<typeof EvidenceSchema>;
+const RatioSchema = z.strictObject({ passed: CountSchema, total: CountSchema });
+export const TreatmentFindingSchema = z
+	.strictObject({
+		id: IdSchema,
+		task: z.string().min(1),
+		recipe: z.string().min(1),
+		scope: z.literal("single-task"),
+		sourceKind: z.literal("archived-treatment-summary"),
+		assessment: z.enum([
+			"successful-recipe",
+			"best-observed-on-task",
+			"study-summary",
+			"exploratory",
+		]),
+		sample: z.string().min(1),
+		attempts: CountSchema,
+		graded: CountSchema,
+		accepted: CountSchema,
+		targets: RatioSchema,
+		regressions: RatioSchema,
+		qualityBasis: z.string().min(1),
+		wallSeconds: z.array(z.number().nonnegative()),
+		medianAcceptedWallSeconds: z.number().nonnegative().nullable(),
+		secondsPerAccepted: z.number().nonnegative().nullable(),
+		wallBasis: z.string().min(1),
+		positiveUsage: z.boolean().nullable(),
+		servedModelLedgerJoined: z.boolean().nullable(),
+		auditBasis: z.string().min(1),
+		evidence: z
+			.array(EvidenceSchema)
+			.min(1)
+			.refine(
+				(items) =>
+					items.some(
+						(item) => item.availability === "committed" && item.sha256 !== null,
+					),
+				"Treatment finding requires hash-bound committed source",
+			),
+		caveats: z.array(z.string().min(1)).min(1),
+	})
+	.superRefine((finding, ctx) => {
+		for (const [part, whole] of [
+			[finding.accepted, finding.attempts],
+			[finding.graded, finding.attempts],
+			[finding.accepted, finding.graded],
+			[finding.targets.passed, finding.targets.total],
+			[finding.regressions.passed, finding.regressions.total],
+		])
+			if (part !== null && whole !== null && part > whole)
+				ctx.addIssue({
+					code: "custom",
+					message: "Finding count exceeds its denominator",
+				});
+		if (
+			finding.assessment === "best-observed-on-task" &&
+			(finding.accepted === null ||
+				finding.accepted <= 0 ||
+				finding.attempts === null ||
+				finding.secondsPerAccepted === null ||
+				finding.secondsPerAccepted <= 0 ||
+				finding.positiveUsage !== true ||
+				finding.servedModelLedgerJoined !== true ||
+				finding.targets.total === null ||
+				finding.targets.total <= 0 ||
+				finding.targets.passed !== finding.targets.total ||
+				finding.regressions.total === null ||
+				finding.regressions.total <= 0 ||
+				finding.regressions.passed !== finding.regressions.total)
+		)
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"Best observed requires audited accepted quality and recorded per-accepted timing",
+			});
+	});
+export type TreatmentFinding = z.infer<typeof TreatmentFindingSchema>;
 export type Group = {
 	kind: "group";
 	id: string;
@@ -65,6 +141,7 @@ export type Group = {
 	winner: { arm: string; runs: string[]; assessment: string } | null;
 	notes: string[];
 	evidence: Evidence[];
+	treatmentFindings?: TreatmentFinding[];
 	children: Entry[];
 };
 export type Entry = Run | Group;
@@ -84,6 +161,7 @@ export const GroupSchema: z.ZodType<Group> = z.strictObject({
 	notes: z.array(z.string()),
 	evidence: z.array(EvidenceSchema),
 	children: z.array(z.lazy(() => z.union([RunSchema, GroupSchema]))),
+	treatmentFindings: z.array(TreatmentFindingSchema).optional(),
 });
 export const BenchmarkLogSchema = z.strictObject({
 	schemaVersion: z.literal(1),
@@ -127,6 +205,11 @@ export function validate(input: unknown): Group {
 				if (passed !== null && total !== null && passed > total)
 					throw Error(`Invalid quality counts: ${entry.id}`);
 			return;
+		}
+		for (const finding of entry.treatmentFindings ?? []) {
+			if (ids.has(finding.id))
+				throw Error(`Duplicate benchmark finding id: ${finding.id}`);
+			ids.add(finding.id);
 		}
 		if (documents.has(entry.document))
 			throw Error(`Duplicate node document: ${entry.document}`);
@@ -211,19 +294,104 @@ const link = (from: string, target: string) =>
 	/^https:\/\//.test(target)
 		? target
 		: "../".repeat(from.split("/").length - 1) + target;
+function sourcedFindings(
+	node: Group,
+): { finding: TreatmentFinding; document: string }[] {
+	return [
+		...(node.treatmentFindings ?? []).map((finding) => ({
+			finding,
+			document: node.document,
+		})),
+		...node.children.flatMap((child) =>
+			child.kind === "group" ? sourcedFindings(child) : [],
+		),
+	];
+}
+function taskResult(node: Group, from: string) {
+	const all = sourcedFindings(node);
+	const selected = [
+		...all.filter(
+			({ finding }) => finding.assessment === "best-observed-on-task",
+		),
+		...all.filter(({ finding }) => finding.assessment === "successful-recipe"),
+	];
+	return selected.length
+		? selected
+				.map(({ finding: f, document }) => {
+					const description =
+						f.assessment === "best-observed-on-task"
+							? `Best observed on ${cell(f.task)}: ${cell(f.recipe)}; ${cell(f.accepted)}/${cell(f.attempts)} accepted; ${cell(f.targets.passed)}/${cell(f.targets.total)} targets, ${cell(f.regressions.passed)}/${cell(f.regressions.total)} regressions; ${cell(f.secondsPerAccepted)} s/accepted`
+							: `Successful recipe: ${cell(f.recipe)}; ${cell(f.accepted)}/${cell(f.attempts)} accepted (${cell(f.sample)}), each ${cell(f.targets.passed)}/${cell(f.targets.total)} targets and ${cell(f.regressions.passed)}/${cell(f.regressions.total)} regressions`;
+					return `[${description}](${link(from, document)})`;
+				})
+				.join("; ")
+		: "not yet summarized";
+}
 export function renderSummary(tree: Group) {
 	const rows = tree.children.map((entry) => {
 		if (entry.kind !== "group")
 			throw Error("Top-level benchmark entries must be nodes");
 		const stats = summarize(entry);
-		return `| [${cell(entry.title)}](${entry.document}) | ${cell(entry.winner?.arm ?? null)} | ${count(stats.totalRuns, stats.loggedRuns, "logged")} | ${count(stats.totalFailures, stats.knownFailures, "known")} |`;
+		return `| [${cell(entry.title)}](${entry.document}) | ${taskResult(entry, "benchmark.md")} | ${cell(entry.winner?.arm ?? "unproven across tasks")} | ${count(stats.totalRuns, stats.loggedRuns, "logged")} | ${count(stats.totalFailures, stats.knownFailures, "known")} |`;
 	});
 	return [
-		"| Benchmark | Winner | Total runs | Total failures |",
-		"| --- | --- | ---: | ---: |",
+		"| Benchmark | Task-specific best observed / successful recipes | Cross-task winner | Total runs | Total failures |",
+		"| --- | --- | --- | ---: | ---: |",
 		...rows,
 		"",
 	].join("\n");
+}
+function renderFindings(node: Group) {
+	const own = node.treatmentFindings ?? [],
+		lines: string[] = [],
+		best = taskResult(node, node.document);
+	if (best !== "not yet summarized")
+		lines.push(
+			`**Task-specific successful recipes / best observed (exploratory):** ${best}. Cross-task transfer remains unproven.`,
+			"",
+		);
+	if (!own.length) return lines;
+	lines.push(
+		"## Successful recipes and archived treatment findings",
+		"",
+		"These source summaries overlap existing execution history. They add no runs or confirmations to the tree.",
+		"",
+		"| Recipe / recorded sample | Accepted attempts | Checks per accepted patch | Recorded wall time / basis |",
+		"| --- | ---: | --- | --- |",
+	);
+	for (const f of own) {
+		const timing =
+			[
+				f.wallSeconds.length ? `trials: ${f.wallSeconds.join(", ")} s` : null,
+				f.medianAcceptedWallSeconds !== null
+					? `accepted median: ${f.medianAcceptedWallSeconds} s`
+					: null,
+				f.secondsPerAccepted !== null
+					? `per accepted patch: ${f.secondsPerAccepted} s`
+					: null,
+			]
+				.filter((value) => value !== null)
+				.join("; ") || "not reported";
+		lines.push(
+			`| ${cell(f.recipe)} — ${cell(f.sample)} | ${cell(f.accepted)}/${cell(f.attempts)}${f.graded !== null ? ` (${f.graded} graded)` : ""} | ${cell(f.targets.passed)}/${cell(f.targets.total)} targets; ${cell(f.regressions.passed)}/${cell(f.regressions.total)} regressions | ${cell(timing)}; ${cell(f.wallBasis)} |`,
+		);
+	}
+	lines.push("");
+	for (const f of own) {
+		lines.push(
+			`**${f.recipe}** (${f.assessment}; ${f.task}). ${f.qualityBasis} ${f.wallBasis}`,
+			"",
+			`Usage positive: ${cell(f.positiveUsage === null ? null : String(f.positiveUsage))}; served-model ledger joined: ${cell(f.servedModelLedgerJoined === null ? null : String(f.servedModelLedgerJoined))}. ${f.auditBasis}`,
+			"",
+			...f.caveats.flatMap((note) => [note, ""]),
+		);
+		for (const e of f.evidence)
+			lines.push(
+				`[${e.label}](${link(node.document, e.href)})${e.sha256 ? ` — SHA-256 \`${e.sha256}\`` : ""} (${e.availability}).`,
+				"",
+			);
+	}
+	return lines;
 }
 export function renderNode(node: Group) {
 	const stats = summarize(node),
@@ -231,9 +399,10 @@ export function renderNode(node: Group) {
 			`# ${node.title}`,
 			"",
 			...node.notes.flatMap((note) => [note, ""]),
+			...renderFindings(node),
 			`Logged runs: ${stats.loggedRuns}; independent attempts: ${stats.attempts}; continuations: ${stats.continuations}; judge replays: ${stats.judgeReplays}; known failures: ${stats.knownFailures}; unknown/incomplete outcomes: ${stats.unknownOutcomes}.`,
 			"",
-			`Winner: ${node.winner?.arm ?? "unknown; no qualified matched winner claimed"}.`,
+			`Matched winner: ${node.winner?.arm ?? "unproven"}.`,
 			"",
 		];
 	for (const evidence of node.evidence)
@@ -289,6 +458,9 @@ export async function benchmarkLog(
 		tree = validate(log.tree);
 	const references = (node: Entry): Evidence[] => [
 		...node.evidence,
+		...(node.kind === "group"
+			? (node.treatmentFindings ?? []).flatMap((f) => f.evidence)
+			: []),
 		...(node.kind === "group" ? node.children.flatMap(references) : []),
 	];
 	const { createHash } = await import("node:crypto");

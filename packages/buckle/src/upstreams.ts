@@ -6,10 +6,19 @@
 // request time.
 
 import { existsSync, readFileSync } from "node:fs";
+import { z } from "zod";
+export const DeploymentConnectionSchema = z.strictObject({
+	connection_limit: z.number().int().positive().optional(),
+	discover: z.boolean().optional(),
+});
 import { validateDeploymentEgress } from "./adapters/egress.ts";
 import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
+import {
+	ModelCapabilitiesSchema,
+	type ModelCapabilities,
+} from "./wire-schemas.ts";
 
 export type Dialect = "openai" | "anthropic";
 
@@ -17,7 +26,9 @@ export interface Deployment {
 	/** Canonical non-secret identity materialized from the central provider profile. */
 	provider?: string;
 	providerProfile?: string;
+	connection_limit?: number;
 	url: string;
+	discover?: boolean;
 	dialect: Dialect;
 	// upstream's real model id when the group alias differs — the request
 	// body's model field is patched toward this deployment; absent = forward
@@ -43,6 +54,10 @@ export interface Deployment {
 	// Lower number wins among healthy deployments for the same request fit.
 	// Omitted preserves measured latency ordering.
 	priority?: number;
+	// W2979: operator-pinned serving capabilities (machine conf — the repo
+	// placeholder NEVER carries numbers). Validated in poolFrom; published on
+	// /v1/models rows only when every bound deployment agrees.
+	capabilities?: ModelCapabilities;
 	group: string;
 }
 
@@ -59,6 +74,8 @@ interface UpstreamsDoc {
 interface DeploymentSpec {
 	provider?: string;
 	providerProfile?: string;
+	connection_limit?: number;
+	discover?: boolean;
 	url: string;
 	dialect: Dialect;
 	model?: string;
@@ -68,6 +85,7 @@ interface DeploymentSpec {
 	visibility?: string;
 	buckle?: boolean;
 	priority?: number;
+	capabilities?: ModelCapabilities;
 }
 
 export interface UpstreamPool {
@@ -110,6 +128,13 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 			group,
 			(specs ?? []).map((s) => {
 				const dep = { ...s, group };
+				if (
+					!DeploymentConnectionSchema.safeParse({
+						connection_limit: dep.connection_limit,
+						discover: dep.discover,
+					}).success
+				)
+					throw new Error("Invalid deployment connection controls");
 				for (const field of ["provider", "providerProfile"] as const) {
 					const value = dep[field];
 					if (
@@ -127,6 +152,16 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 					throw new Error(
 						`upstreams: group "${group}": priority must be a non-negative integer`,
 					);
+				// W2979 (schema law): conf-pinned capabilities safeParse through the
+				// named wire schema — malformed metadata is startup fatal, never a
+				// silently malformed catalog row.
+				if (dep.capabilities !== undefined) {
+					const caps = ModelCapabilitiesSchema.safeParse(dep.capabilities);
+					if (!caps.success)
+						throw new Error(
+							`upstreams: group "${group}": capabilities: ${caps.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+						);
+				}
 				// startup fatal (W134 §4.2): unknown adapter names — and known
 				// tier-2 families with no adapter yet — fail closed here,
 				// naming the offending group, never a silent passthrough.

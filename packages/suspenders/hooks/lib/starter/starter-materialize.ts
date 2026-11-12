@@ -19,7 +19,7 @@ import {
 	type StarterRead,
 } from "./starter-distribution.ts";
 import { listStarters, starterRegistryDir } from "./starter-artifacts.ts";
-import { adapterForExact } from "../executors/registry.ts";
+import { adapterForExact } from "../executors/executor-registry.ts";
 
 export type MaterializeIdentity = {
 	sid: string;

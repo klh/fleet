@@ -5,7 +5,7 @@
 import { afterEach, expect, test } from "bun:test";
 import {
 	finishReviewRequest,
-	providerPressureKey,
+	providerPressureKeyOf,
 	providerPressureOf,
 	reconcileReviewLegs,
 	reviewRequestKey,
@@ -16,6 +16,11 @@ import {
 	type GovernorStore,
 	openMemoryStore,
 } from "../hooks/lib/govdb/govdb-store.ts";
+
+// W3012: the fixture env pins SUSPENDERS_REVIEW_MODEL="fixture-model" —
+// every reserve stamps model=FM, so the AIMD ledger row this suite exercises
+// is the FM group row (providerPressureKeyOf(FM)), not the legacy global row.
+const FM = "fixture-model";
 
 const stores: GovernorStore[] = [];
 afterEach(() => {
@@ -80,13 +85,13 @@ const setPressure = (
 	p: Partial<{ fails: number; openUntil: number }>,
 ): void => {
 	const now = Date.now();
-	const current = providerPressureOf(f.db);
+	const current = providerPressureOf(f.db, FM);
 	f.db
 		.query(
 			"INSERT INTO facts(key,value,source,version,ts) VALUES (?,?,'review-scheduler',1,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, version=facts.version+1,ts=excluded.ts",
 		)
 		.run(
-			providerPressureKey,
+			providerPressureKeyOf(FM),
 			JSON.stringify({ ...current, updated: now, ...p }),
 			now,
 		);
@@ -112,10 +117,10 @@ function failOnce(f: ReturnType<typeof fixture>, item = "W1"): void {
 	);
 	finishReviewRequest(f.db, keyOf(f, item), requestOf(f, item).token, true);
 }
-test("transport failure opens a global pressure pause that defers new admissions", () => {
+test("transport failure opens a provider-group pressure pause that defers new admissions", () => {
 	const f = fixture();
 	failOnce(f);
-	const pressure = providerPressureOf(f.db);
+	const pressure = providerPressureOf(f.db, FM);
 	expect(pressure.fails).toBe(1);
 	expect(pressure.openUntil).toBeGreaterThan(Date.now());
 	// a different, fresh exact context is deferred without reserving
@@ -154,7 +159,7 @@ test("served verdict decays pressure but an active cooldown survives isolated su
 	failOnce(f, "W1");
 	setPressure(f, { openUntil: Date.now() + 600_000, fails: 1 });
 	failOnce(f, "W2");
-	expect(providerPressureOf(f.db).fails).toBe(2);
+	expect(providerPressureOf(f.db, FM).fails).toBe(2);
 	// one isolated success mid-storm must NOT cancel the 429 cooldown (#70140):
 	// re-admit W2 (window lapsed, memory kept), finish it DONE
 	const w2 = requestOf(f, "W2");
@@ -163,7 +168,7 @@ test("served verdict decays pressure but an active cooldown survives isolated su
 		.query("UPDATE facts SET value=? WHERE key=?")
 		.run(JSON.stringify(w2), keyOf(f, "W2"));
 	finishReviewRequest(f.db, keyOf(f, "W2"), w2.token, false);
-	const decayed = providerPressureOf(f.db);
+	const decayed = providerPressureOf(f.db, FM);
 	expect(decayed.fails).toBe(1); // 2 → 1: halved, not cleared
 	expect(decayed.openUntil).toBeGreaterThan(Date.now() - 1); // floor kept
 });
@@ -267,7 +272,7 @@ test("pressure pause ceiling is 2m — sustained failures cannot stack a 10m fre
 	const f = fixture();
 	setPressure(f, { fails: 5, openUntil: Date.now() - 1 });
 	failOnce(f);
-	const pressure = providerPressureOf(f.db);
+	const pressure = providerPressureOf(f.db, FM);
 	expect(pressure.fails).toBe(6);
 	// 30s doubling would demand 960s at fails=6; the W2356 ceiling caps 2m
 	expect(pressure.openUntil).toBeGreaterThan(Date.now());
@@ -281,7 +286,7 @@ test("lapsed pause admits ONE canary; a served canary fully reopens admission", 
 	expect(
 		scheduleReview({ ...f.options, item: "W2", spawn: f.spawn }),
 	).toContain("requested through Buckle");
-	const stamped = providerPressureOf(f.db).probe;
+	const stamped = providerPressureOf(f.db, FM).probe;
 	expect(stamped?.key).toBe(keyOf(f, "W2"));
 	expect(stamped?.until).toBeGreaterThan(Date.now());
 	// peers hold while the canary flies — no herd refire
@@ -292,7 +297,7 @@ test("lapsed pause admits ONE canary; a served canary fully reopens admission", 
 	// served verdict: memory drained, probe cleared, full reopen
 	const w2 = requestOf(f, "W2");
 	finishReviewRequest(f.db, keyOf(f, "W2"), w2.token, false);
-	const drained = providerPressureOf(f.db);
+	const drained = providerPressureOf(f.db, FM);
 	expect(drained.fails).toBe(0);
 	expect(drained.openUntil).toBe(0);
 	expect(drained.probe).toBeUndefined();
@@ -309,7 +314,7 @@ test("failed canary re-arms the pause — peers never see a false reopen", () =>
 	).toContain("requested through Buckle");
 	const w2 = requestOf(f, "W2");
 	finishReviewRequest(f.db, keyOf(f, "W2"), w2.token, true);
-	const rearmed = providerPressureOf(f.db);
+	const rearmed = providerPressureOf(f.db, FM);
 	expect(rearmed.fails).toBe(2);
 	expect(rearmed.openUntil).toBeGreaterThan(Date.now());
 	expect(rearmed.probe).toBeUndefined();
@@ -331,7 +336,7 @@ test("hung canary self-releases when the probe window lapses", () => {
 		scheduleReview({ ...f.options, item: "W3", spawn: f.spawn }),
 	).toContain("requested through Buckle");
 	// the new admission took over the canary slot
-	expect(providerPressureOf(f.db).probe?.key).toBe(keyOf(f, "W3"));
+	expect(providerPressureOf(f.db, FM).probe?.key).toBe(keyOf(f, "W3"));
 });
 test("SUSPENDERS_REVIEW_CANARY=0 restores the W1280 full-herd reopen", () => {
 	const f = fixture();
@@ -345,5 +350,5 @@ test("SUSPENDERS_REVIEW_CANARY=0 restores the W1280 full-herd reopen", () => {
 		expect(scheduleReview({ ...herd, item, spawn: f.spawn })).toContain(
 			"requested through Buckle",
 		);
-	expect(providerPressureOf(f.db).probe).toBeUndefined();
+	expect(providerPressureOf(f.db, FM).probe).toBeUndefined();
 });

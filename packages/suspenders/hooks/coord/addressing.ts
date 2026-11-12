@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { validScopeToken } from "../lib/cred-scope.ts";
-import { toolTokenForText } from "../lib/executors/registry.ts";
+import { toolTokenForText } from "../lib/executors/executor-registry.ts";
 import {
 	foreignLaneMatch,
 	forwardDirectEvent,

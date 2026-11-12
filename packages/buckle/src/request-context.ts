@@ -13,7 +13,7 @@ import type { ServedIdentity } from "./served-identity.ts";
 import type { TraceContext } from "./trace.ts";
 import type { Dialect } from "./upstreams.ts";
 
-/** Short request id — the audit join key echoed as x-belt-rid. */
+/** Short request id — the audit join key echoed as x-buckle-rid. */
 export function newRid(): string {
 	return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
