@@ -164,7 +164,7 @@ export type TryOutcome = {
 			peerTrace?: string | null;
 			upstreamRefusalCode?: string | null;
 			/** W1118.1: set when this failure IS a peer's typed hop-contract
-			 *  refusal (x-belt-error hop_contract_*) — always rides exhaustTier
+			 *  refusal (x-buckle-error hop_contract_*) — always rides exhaustTier
 			 *  so the tier cannot retry the refusing leg either. */
 			hopRefusal?: string | null;
 			/** W134 §1 normalized kind (adapters/errors.ts) */

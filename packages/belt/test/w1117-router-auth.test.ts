@@ -189,7 +189,7 @@ describe("w1117 authenticated ingress e2e", () => {
 		const hitsBefore = gateHits.length;
 		const r = await post({});
 		expect(r.status).toBe(401);
-		expect(r.headers.get("x-klh-refusal")).toBe("unauthorized");
+		expect(r.headers.get("x-buckle-refusal")).toBe("unauthorized");
 		expect(gateHits.length).toBe(hitsBefore);
 	});
 
@@ -202,7 +202,7 @@ describe("w1117 authenticated ingress e2e", () => {
 				body: "{}",
 			});
 			expect(r.status).toBe(503);
-			expect(r.headers.get("x-klh-refusal")).toBe("unconfigured");
+			expect(r.headers.get("x-buckle-refusal")).toBe("unconfigured");
 		} finally {
 			bare.proc.kill();
 			rmSync(bare.home, { recursive: true, force: true });

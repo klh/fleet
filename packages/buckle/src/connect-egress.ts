@@ -545,7 +545,7 @@ export class ConnectEgress {
 				},
 			});
 			s.write(
-				`HTTP/1.1 ${code} ${why}\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\nx-klh-trace-id: ${leg.traceId}\r\nx-klh-error-origin: ${hub}\r\nx-klh-error-code: ${cause}\r\ncontent-type: application/problem+json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`,
+				`HTTP/1.1 ${code} ${why}\r\nuser-agent: ${CONNECT_EGRESS_UA}\r\nx-buckle-trace-id: ${leg.traceId}\r\nx-buckle-error-origin: ${hub}\r\nx-klh-error-code: ${cause}\r\ncontent-type: application/problem+json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`,
 			);
 			s.end();
 		} catch {

@@ -85,9 +85,9 @@ test.describe("problem+json (RFC 9457)", () => {
 			"allowed: GET",
 			"/api/status",
 		);
-		expect(res.headers.get("x-klh-service")).toBe("belt");
-		expect(res.headers.get("x-klh-hop")).toBe("ingress");
-		expect(res.headers.get("x-klh-refusal")).toBe("method_not_allowed");
+		expect(res.headers.get("x-buckle-service")).toBe("belt");
+		expect(res.headers.get("x-buckle-hop")).toBe("ingress");
+		expect(res.headers.get("x-buckle-refusal")).toBe("method_not_allowed");
 	});
 });
 

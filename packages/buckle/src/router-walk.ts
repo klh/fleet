@@ -178,7 +178,7 @@ export async function attemptTier(
 		if (r.ok) {
 			const upstreamId = safeCorrelationId(
 				r.response.headers.get("x-request-id") ??
-					r.response.headers.get("x-klh-upstream-request-id"),
+					r.response.headers.get("x-buckle-upstream-request-id"),
 			);
 			const callId = safeCorrelationId(
 				r.response.headers.get("x-litellm-call-id"),

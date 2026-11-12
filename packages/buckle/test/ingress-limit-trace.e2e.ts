@@ -36,7 +36,7 @@ const headers = {
 
 async function expectTraced413(response: Response): Promise<void> {
 	expect(response.status).toBe(413);
-	expect(response.headers.get("x-klh-trace-id")).toBe("a".repeat(32));
+	expect(response.headers.get("x-buckle-trace-id")).toBe("a".repeat(32));
 	expect(await response.json()).toMatchObject({
 		code: "buckle.body_too_large",
 		trace_id: "a".repeat(32),
@@ -263,8 +263,8 @@ test("an inner hub's 413 retains its origin across a second Buckle hub @api", as
 		// The outer hub reports a 502 for its failed upstream attempt, while
 		// the trace preserves the inner hub's actual 413 and origin.
 		expect(response.status).toBe(502);
-		expect(response.headers.get("x-klh-trace-id")).toBe("a".repeat(32));
-		expect(response.headers.get("x-klh-error-origin")).toBe("inner");
+		expect(response.headers.get("x-buckle-trace-id")).toBe("a".repeat(32));
+		expect(response.headers.get("x-buckle-error-origin")).toBe("inner");
 		expect(await response.json()).toMatchObject({
 			trace_id: "a".repeat(32),
 			fleet_trace: {

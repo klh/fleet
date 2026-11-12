@@ -7,7 +7,7 @@
 // one source of truth, no route table duplicated here.
 
 // ─── problem+json (RFC 9457) — error bodies for the gate and the limiter ───
-// W1081: every problem envelope names its emitter — x-klh-service is fixed
+// W1081: every problem envelope names its emitter — x-buckle-service is fixed
 // (belt owns this module), callers pass more identity via `headers`.
 import {
 	stampHopHeaders,
@@ -93,7 +93,7 @@ export const problem = (
 		},
 	);
 	// W1081: refusal codes name the refusing belt face — the envelope is
-	// attributable from headers alone (x-klh-refusal = the stable code).
+	// attributable from headers alone (x-buckle-refusal = the stable code).
 	stampHopHeaders(res.headers, {
 		service: "belt",
 		hop: "ingress",

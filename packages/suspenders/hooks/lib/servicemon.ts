@@ -19,8 +19,8 @@
 //
 // W1081: the identity-header choke point — every wrapped response (including
 // the 500 this wrapper synthesizes) is stamped with the fleet citizenship
-// x-headers (telemetry/src/http-trace.ts): x-klh-service names the emitting
-// service, x-klh-hop marks the observability face, and x-klh-refusal marks
+// x-headers (telemetry/src/http-trace.ts): x-buckle-service names the emitting
+// service, x-buckle-hop marks the observability face, and x-buckle-refusal marks
 // this wrapper's own admission (handler throw = "handler_throw"). One wrap
 // per service ⇒ every error envelope out of store/board/knowledge-api/
 // model-store is attributable from headers alone.

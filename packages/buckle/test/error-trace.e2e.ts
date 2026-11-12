@@ -27,15 +27,15 @@ test("generated errors expose a stable trace in body and headers @unit", async (
 				status: 502,
 				headers: {
 					"content-type": "application/problem+json",
-					"x-belt-rid": "r123",
+					"x-buckle-rid": "r123",
 				},
 			},
 		),
 		"desktop",
 	);
 	const body = await result.json();
-	expect(result.headers.get("x-klh-trace-id")).toBe(ID);
-	expect(result.headers.get("x-klh-error-origin")).toBe("desktop");
+	expect(result.headers.get("x-buckle-trace-id")).toBe(ID);
+	expect(result.headers.get("x-buckle-error-origin")).toBe("desktop");
 	expect(body.trace_id).toBe(ID);
 	expect(body.fleet_trace.hops).toEqual([
 		{
@@ -59,13 +59,13 @@ test("a two-hub refusal carries both bounded hops into the outer error @unit", a
 			{
 				status: 502,
 				headers: {
-					"x-klh-service": "buckle",
-					"x-klh-trace-id": ID,
-					"x-belt-rid": "inner123",
-					"x-belt-route": JSON.stringify({
+					"x-buckle-service": "buckle",
+					"x-buckle-trace-id": ID,
+					"x-buckle-rid": "inner123",
+					"x-buckle-route": JSON.stringify({
 						target: { host: "host.docker.internal", port: 4100 },
 					}),
-					"x-klh-upstream-status": "502",
+					"x-buckle-upstream-status": "502",
 					"x-litellm-call-id": "call-123",
 				},
 			},
@@ -81,20 +81,20 @@ test("a two-hub refusal carries both bounded hops into the outer error @unit", a
 			{
 				status: 502,
 				headers: {
-					"x-klh-peer-error-trace": peer ?? "",
-					"x-belt-rid": "outer123",
-					"x-belt-route": JSON.stringify({
+					"x-buckle-peer-error-trace": peer ?? "",
+					"x-buckle-rid": "outer123",
+					"x-buckle-route": JSON.stringify({
 						target: { host: "127.0.0.1", port: 4301 },
 					}),
-					"x-klh-upstream-status": "502",
+					"x-buckle-upstream-status": "502",
 				},
 			},
 		),
 		"desktop",
 	);
 	const body = await outer.json();
-	expect(outer.headers.get("x-klh-error-origin")).toBe("zai");
-	expect(outer.headers.get("x-klh-peer-error-trace")).toBeNull();
+	expect(outer.headers.get("x-buckle-error-origin")).toBe("zai");
+	expect(outer.headers.get("x-buckle-peer-error-trace")).toBeNull();
 	expect(body.fleet_trace.hops).toHaveLength(2);
 	expect(body.fleet_trace.hops[0]).toMatchObject({
 		hub: "zai",
@@ -125,7 +125,7 @@ test("provider-shaped errors keep their envelope and cannot forge a peer chain @
 	expect(peerErrorTrace(provider, forged, ID, false)).toBeNull();
 	const spoofed = Response.json(forged, {
 		status: 502,
-		headers: { "x-klh-service": "buckle", "x-klh-trace-id": ID },
+		headers: { "x-buckle-service": "buckle", "x-buckle-trace-id": ID },
 	});
 	expect(peerErrorTrace(spoofed, forged, ID, false)).toBeNull();
 	expect(
@@ -168,7 +168,7 @@ test("non-JSON errors become scrubbed, traced JSON @unit", async () => {
 	const body = await result.json();
 	expect(body.error.message).toContain(`trace=${ID}`);
 	expect(body.error.message).not.toContain("upstream unavailable");
-	expect(result.headers.get("x-klh-trace-id")).toBe(ID);
+	expect(result.headers.get("x-buckle-trace-id")).toBe(ID);
 });
 
 test("mid-stream Anthropic errors include the same trace and hop @unit", async () => {
@@ -332,9 +332,9 @@ test("real Buckle two-hop 502 names the downstream target and call ID @unit", as
 					status: 502,
 					headers: {
 						"x-litellm-call-id": "provider-call-123",
-						"x-klh-peer-error-trace": JSON.stringify(forgedTrace),
-						"x-klh-service": "buckle",
-						"x-klh-trace-id": ID,
+						"x-buckle-peer-error-trace": JSON.stringify(forgedTrace),
+						"x-buckle-service": "buckle",
+						"x-buckle-trace-id": ID,
 					},
 				},
 			),

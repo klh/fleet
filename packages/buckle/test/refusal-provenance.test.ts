@@ -57,12 +57,12 @@ function pool(
 }
 
 function expectCorrelation(response: Response): void {
-	expect(response.headers.get("x-klh-service")).toBe("buckle");
-	expect(response.headers.get("x-klh-trace-id")).toBe(
+	expect(response.headers.get("x-buckle-service")).toBe("buckle");
+	expect(response.headers.get("x-buckle-trace-id")).toBe(
 		TRACE.split("-")[1] ?? "",
 	);
-	expect(response.headers.get("x-belt-rid")).toMatch(/^r/);
-	expect(response.headers.get("x-klh-attempts")).not.toBeNull();
+	expect(response.headers.get("x-buckle-rid")).toMatch(/^r/);
+	expect(response.headers.get("x-buckle-attempts")).not.toBeNull();
 }
 
 test("generated local refusal says buckle and carries no upstream status", async () => {
@@ -71,9 +71,9 @@ test("generated local refusal says buckle and carries no upstream status", async
 		code: "buckle.overloaded",
 		why: "local cap",
 	});
-	expect(response.headers.get("x-klh-service")).toBe("buckle");
-	expect(response.headers.get("x-klh-refusal")).toBe("buckle");
-	expect(response.headers.get("x-klh-upstream-status")).toBeNull();
+	expect(response.headers.get("x-buckle-service")).toBe("buckle");
+	expect(response.headers.get("x-buckle-refusal")).toBe("buckle");
+	expect(response.headers.get("x-buckle-upstream-status")).toBeNull();
 });
 
 test("upstream 429 is distinguished from a local throttle", async () => {
@@ -99,11 +99,11 @@ test("upstream 429 is distinguished from a local throttle", async () => {
 		const response = await createApp(deps).fetch(request("model-a"));
 		expect(response.status).toBe(429);
 		expectCorrelation(response);
-		expect(response.headers.get("x-klh-refusal")).toBe("upstream");
-		expect(response.headers.get("x-klh-upstream-status")).toBe("429");
-		expect(response.headers.get("x-klh-upstream-kind")).toBe("rate_limited");
+		expect(response.headers.get("x-buckle-refusal")).toBe("upstream");
+		expect(response.headers.get("x-buckle-upstream-status")).toBe("429");
+		expect(response.headers.get("x-buckle-upstream-kind")).toBe("rate_limited");
 		expect(response.headers.get("retry-after")).toBe("7");
-		expect(response.headers.get("x-klh-upstream-request-id")).toBe("req_429");
+		expect(response.headers.get("x-buckle-upstream-request-id")).toBe("req_429");
 		expect(response.headers.get("x-litellm-call-id")).toBe("call-429");
 		expect(deps.sm.expose()).toContain("buckle_refusals_total");
 		expect(deps.sm.expose()).toContain('source="upstream"');
@@ -170,9 +170,9 @@ test("exhausted 503 preserves bounded retry and upstream trace attribution", asy
 		expect(response.status).toBe(503);
 		expect(response.headers.get("retry-after")).toBe("2");
 		expectCorrelation(response);
-		expect(response.headers.get("x-klh-refusal")).toBe("upstream");
-		expect(response.headers.get("x-klh-upstream-status")).toBe("503");
-		expect(response.headers.get("x-klh-upstream-request-id")).toBe("req_cold");
+		expect(response.headers.get("x-buckle-refusal")).toBe("upstream");
+		expect(response.headers.get("x-buckle-upstream-status")).toBe("503");
+		expect(response.headers.get("x-buckle-upstream-request-id")).toBe("req_cold");
 	} finally {
 		upstream.close();
 	}
@@ -195,8 +195,8 @@ test("request-wide first-byte deadline is a traced 504", async () => {
 		).fetch(request("slow-model"));
 		expect(response.status).toBe(504);
 		expectCorrelation(response);
-		expect(response.headers.get("x-klh-upstream-kind")).toBe("walk_deadline");
-		expect(response.headers.get("x-klh-refusal")).toBe("network");
+		expect(response.headers.get("x-buckle-upstream-kind")).toBe("walk_deadline");
+		expect(response.headers.get("x-buckle-refusal")).toBe("network");
 	} finally {
 		upstream.close();
 	}
@@ -223,11 +223,11 @@ test("a bridged upstream 400 remains attributable after ladder exhaustion", asyn
 		).fetch(request("model-b"));
 		expect(response.status).toBe(502);
 		expectCorrelation(response);
-		expect(response.headers.get("x-klh-refusal")).toBe("bridged-upstream");
-		expect(response.headers.get("x-klh-upstream-status")).toBe("400");
-		expect(response.headers.get("x-klh-upstream-kind")).toBe("bad_request");
-		expect(response.headers.get("x-belt-error")).toBe("no_route");
-		expect(response.headers.get("x-klh-upstream-request-id")).toBe("req_400");
+		expect(response.headers.get("x-buckle-refusal")).toBe("bridged-upstream");
+		expect(response.headers.get("x-buckle-upstream-status")).toBe("400");
+		expect(response.headers.get("x-buckle-upstream-kind")).toBe("bad_request");
+		expect(response.headers.get("x-buckle-error")).toBe("no_route");
+		expect(response.headers.get("x-buckle-upstream-request-id")).toBe("req_400");
 		expect(response.headers.get("x-litellm-call-id")).toBe("call-400");
 	} finally {
 		upstream.close();
@@ -254,7 +254,7 @@ test("provider-controlled correlation headers cannot inject arbitrary text", asy
 				policy: { num_retries: 0 },
 			}),
 		).fetch(request("model-c"));
-		expect(response.headers.get("x-klh-upstream-request-id")).toBeNull();
+		expect(response.headers.get("x-buckle-upstream-request-id")).toBeNull();
 		expect(response.headers.get("x-litellm-call-id")).toBeNull();
 		expect(response.headers.get("x-litellm-model-api-base")).toBeNull();
 	} finally {
@@ -267,9 +267,9 @@ test("no configured route is a Buckle refusal with zero attempts", async () => {
 	const response = await createApp(testDeps(empty)).fetch(request("missing"));
 	expect(response.status).toBe(503);
 	expectCorrelation(response);
-	expect(response.headers.get("x-klh-refusal")).toBe("buckle");
-	expect(response.headers.get("x-klh-attempts")).toBe("0");
-	expect(response.headers.get("x-klh-upstream-status")).toBeNull();
+	expect(response.headers.get("x-buckle-refusal")).toBe("buckle");
+	expect(response.headers.get("x-buckle-attempts")).toBe("0");
+	expect(response.headers.get("x-buckle-upstream-status")).toBeNull();
 });
 
 test("unreachable hop is network provenance without a fabricated upstream HTTP status", async () => {
@@ -279,7 +279,7 @@ test("unreachable hop is network provenance without a fabricated upstream HTTP s
 	const response = await createApp(deps).fetch(request("offline"));
 	expect(response.status).toBe(502);
 	expectCorrelation(response);
-	expect(response.headers.get("x-klh-refusal")).toBe("network");
-	expect(response.headers.get("x-klh-upstream-kind")).toBe("network");
-	expect(response.headers.get("x-klh-upstream-status")).toBeNull();
+	expect(response.headers.get("x-buckle-refusal")).toBe("network");
+	expect(response.headers.get("x-buckle-upstream-kind")).toBe("network");
+	expect(response.headers.get("x-buckle-upstream-status")).toBeNull();
 });

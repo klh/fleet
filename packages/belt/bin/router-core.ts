@@ -643,7 +643,7 @@ export async function viaLocal(
 				headers: {
 					"content-type": "application/json",
 					...(attemptTrace ? { traceparent: attemptTrace } : {}),
-					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+					...(opts.requestId ? { "x-buckle-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
 				// W1117 caller lifetime joins the W1303.3 per-attempt deadline
@@ -834,7 +834,7 @@ export async function openLocalStream(
 					"content-type": "application/json",
 					accept: "text/event-stream",
 					...(attemptTrace ? { traceparent: attemptTrace } : {}),
-					...(opts.requestId ? { "x-klh-request-id": opts.requestId } : {}),
+					...(opts.requestId ? { "x-buckle-request-id": opts.requestId } : {}),
 					...(opts.preference ? { "x-klh-prefer": opts.preference } : {}),
 				},
 				signal: opts.signal

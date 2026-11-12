@@ -241,7 +241,7 @@ export function beginTrace(headers: Headers): FleetTrace {
 		traceparent,
 		traceId: traceId ?? traceparent.slice(3, 35),
 		requestId:
-			safeCorrelationId(headers.get("x-klh-request-id")) ?? randomUUID(),
+			safeCorrelationId(headers.get("x-buckle-request-id")) ?? randomUUID(),
 	};
 }
 
@@ -254,16 +254,16 @@ function setLabel(
 }
 
 const OWNED_HEADERS = [
-	"x-klh-transport-timeout-phase",
-	"x-klh-service",
-	"x-klh-hop",
-	"x-klh-refusal",
-	"x-klh-upstream-kind",
-	"x-klh-trace-id",
-	"x-klh-request-id",
-	"x-klh-upstream-request-id",
-	"x-klh-attempts",
-	"x-klh-upstream-status",
+	"x-buckle-transport-timeout-phase",
+	"x-buckle-service",
+	"x-buckle-hop",
+	"x-buckle-refusal",
+	"x-buckle-upstream-kind",
+	"x-buckle-trace-id",
+	"x-buckle-request-id",
+	"x-buckle-upstream-request-id",
+	"x-buckle-attempts",
+	"x-buckle-upstream-status",
 ] as const;
 
 /** Shared emitter: these fields identify the emitting layer. Clear a
@@ -271,23 +271,23 @@ const OWNED_HEADERS = [
  * Native Retry-After and LiteLLM's own call ID remain separate. */
 export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 	for (const name of OWNED_HEADERS) headers.delete(name);
-	setLabel(headers, "x-klh-service", fields.service);
-	setLabel(headers, "x-klh-hop", fields.hop);
-	setLabel(headers, "x-klh-refusal", fields.refusal);
-	setLabel(headers, "x-klh-upstream-kind", fields.upstreamKind);
+	setLabel(headers, "x-buckle-service", fields.service);
+	setLabel(headers, "x-buckle-hop", fields.hop);
+	setLabel(headers, "x-buckle-refusal", fields.refusal);
+	setLabel(headers, "x-buckle-upstream-kind", fields.upstreamKind);
 	const phase = safeTimeoutPhase(fields.transportTimeoutPhase);
-	if (phase) headers.set("x-klh-transport-timeout-phase", phase);
+	if (phase) headers.set("x-buckle-transport-timeout-phase", phase);
 	if (fields.traceId && /^[0-9a-f]{32}$/.test(fields.traceId))
-		headers.set("x-klh-trace-id", fields.traceId);
+		headers.set("x-buckle-trace-id", fields.traceId);
 	const requestId = safeCorrelationId(fields.requestId);
-	if (requestId) headers.set("x-klh-request-id", requestId);
+	if (requestId) headers.set("x-buckle-request-id", requestId);
 	const callId = safeCorrelationId(fields.callId);
 	const upstreamId = safeCorrelationId(fields.upstreamId);
-	if (upstreamId) headers.set("x-klh-upstream-request-id", upstreamId);
+	if (upstreamId) headers.set("x-buckle-upstream-request-id", upstreamId);
 	if (callId) headers.set("x-litellm-call-id", callId);
 	const attempts = fields.attempts;
 	if (attempts !== undefined && Number.isSafeInteger(attempts) && attempts >= 0)
-		headers.set("x-klh-attempts", String(attempts));
+		headers.set("x-buckle-attempts", String(attempts));
 	const upstreamStatus = fields.upstreamStatus;
 	if (
 		upstreamStatus !== undefined &&
@@ -295,7 +295,7 @@ export function stampHopHeaders(headers: Headers, fields: HopFields): void {
 		upstreamStatus >= 100 &&
 		upstreamStatus <= 599
 	)
-		headers.set("x-klh-upstream-status", String(upstreamStatus));
+		headers.set("x-buckle-upstream-status", String(upstreamStatus));
 }
 
 export function stampResponse(response: Response, fields: HopFields): Response {

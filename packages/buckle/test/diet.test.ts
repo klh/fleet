@@ -528,7 +528,7 @@ describe("wire e2e: prune (kept window + raw one GET away)", () => {
 				body: JSON.stringify(anthropicTrajectory()),
 			}),
 		);
-		const rid = res.headers.get("x-belt-rid") ?? "";
+		const rid = res.headers.get("x-buckle-rid") ?? "";
 		const sentMsgs = ((upstream.calls[0]?.body ?? {}) as AnyRec)
 			.messages as AnyRec[];
 		const kept = ((sentMsgs[8]?.content ?? []) as AnyRec[])[0] as AnyRec;
@@ -576,7 +576,7 @@ describe("wire e2e: prune (kept window + raw one GET away)", () => {
 			.messages as AnyRec[];
 		const c0 = ((sentMsgs[2]?.content ?? []) as AnyRec[])[0] as AnyRec;
 		expect(String(c0.content ?? "").length).toBe(10 * 1024);
-		const rid = res.headers.get("x-belt-rid") ?? "";
+		const rid = res.headers.get("x-buckle-rid") ?? "";
 		expect(d.diet.get(rid)).toBeNull();
 		upstream.close();
 	});

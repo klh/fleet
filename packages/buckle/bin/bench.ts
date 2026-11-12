@@ -569,7 +569,7 @@ async function scenMust503(srv: BenchServer): Promise<Record<string, unknown>> {
 			body: JSON.stringify(BODY_SHORT),
 		});
 		await res.text();
-		const code = res.headers.get("x-belt-error");
+		const code = res.headers.get("x-buckle-error");
 		if (res.status === 503 && code === "no_healthy_fit") ok503++;
 		abs.push(performance.now() - t0);
 	}

@@ -46,7 +46,7 @@ const cloud = serveStub((req) => {
 				"x-klh-prefer":
 					"v=1;source=default;directive=default;line=0;index=0;target=fake;can=absent",
 				"x-litellm-call-id": req.headers.get("x-litellm-call-id") ?? "",
-				"x-belt-rid": "gate-rid-1",
+				"x-buckle-rid": "gate-rid-1",
 			},
 		},
 	);
@@ -91,7 +91,7 @@ const post = () =>
 			"content-type": "application/json",
 			authorization: "Bearer bksk_test-scoped-fake",
 			traceparent: "00-11111111111111111111111111111111-2222222222222222-01",
-			"x-klh-request-id": "lane-request-1",
+			"x-buckle-request-id": "lane-request-1",
 			"x-klh-prefer":
 				"v=1;source=dotfile;directive=must;line=2;index=0;target=glm-5.3-flash;can=absent",
 		},
@@ -110,17 +110,17 @@ test("local slot overflow reports the attempted cloud refusal and its retry wind
 	const refused = await post();
 	expect(refused.status).toBe(429);
 	expect(refused.headers.get("retry-after")).toBe("7");
-	expect(refused.headers.get("x-klh-service")).toBe("belt");
-	expect(refused.headers.get("x-klh-hop")).toBe("buckle-gate");
-	expect(refused.headers.get("x-klh-refusal")).toBe("upstream_rate_limit");
-	expect(refused.headers.get("x-klh-trace-id")).toBe(
+	expect(refused.headers.get("x-buckle-service")).toBe("belt");
+	expect(refused.headers.get("x-buckle-hop")).toBe("buckle-gate");
+	expect(refused.headers.get("x-buckle-refusal")).toBe("upstream_rate_limit");
+	expect(refused.headers.get("x-buckle-trace-id")).toBe(
 		"11111111111111111111111111111111",
 	);
-	expect(refused.headers.get("x-klh-request-id")).toBe("lane-request-1");
+	expect(refused.headers.get("x-buckle-request-id")).toBe("lane-request-1");
 	expect(refused.headers.get("x-klh-prefer")).toBe(cloudPreference);
 	expect(cloudPreference).toContain("directive=must;line=2");
-	expect(refused.headers.get("x-klh-upstream-status")).toBe("429");
-	expect(refused.headers.get("x-klh-upstream-request-id")).toBe("gate-rid-1");
+	expect(refused.headers.get("x-buckle-upstream-status")).toBe("429");
+	expect(refused.headers.get("x-buckle-upstream-request-id")).toBe("gate-rid-1");
 	expect(refused.headers.get("x-litellm-call-id")).toMatch(
 		/^belt_11111111111111111111111111111111_[0-9a-f]{16}$/,
 	);
