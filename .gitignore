@@ -23,3 +23,6 @@ packages/buckle/test/test-results/
 # research scratch: raw third-party page captures + fetch tooling stay local;
 # the analysis is docs/w1075-conductor-jepsen-applicability.md
 .research-*/
+
+# W2971.3 bench runtime records — machine-local, never committed
+packages/blam/bench/durable/ledger/

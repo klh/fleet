@@ -508,3 +508,22 @@ The fix preserves full numeric/dotted IDs and legacy temporary-name handling.
 Recovery refs were preserved. No live reaper trial, cleanup disablement,
 worktree restoration, installation or performance/model-quality claim was
 part of that verification.
+
+## W2971.3 what didn't work on the road to a10 (2026-11-12)
+
+Ten attempts taught four mechanical lessons, each now a landed guard.
+(1) Stale seed image `w2990.3` had an old `runner-control` ENTRYPOINT and no
+git — the executor's `sleep infinity` became an entrypoint arg (instant
+exit) and the agent crashed with `git: command not found`; fixed by
+rebuilding the seed and baking git into the judge image too (sphinx shells
+git at import). (2) Assuming the agent commits its work is wrong: a10 left
+no git repo but an explicit `fix-13926-py-type-canonical.patch` — the
+extractor now walks a contract ladder instead of dying on `git add -A`.
+(3) SPH hidden tests ship WITH the fix commit: judging base against a
+nonexistent test "fails" for the wrong reason; the judge now mounts
+fixCommit test files into every phase so base fails by assertion.
+(4) Docker's platform-mismatch WARNING can land AFTER the `echo RC=$?`
+line, so an end-anchored `RC=` regex silently fell back to docker's exit 0
+and verdict() threw precondition drift; rcFromLog now anchors per-line and
+takes the last marker. Post-admission phase crashes also died unfenced
+(a10 leaked its container); the runner now fences and records a phase-failed row.
