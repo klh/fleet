@@ -527,3 +527,14 @@ line, so an end-anchored `RC=` regex silently fell back to docker's exit 0
 and verdict() threw precondition drift; rcFromLog now anchors per-line and
 takes the last marker. Post-admission phase crashes also died unfenced
 (a10 leaked its container); the runner now fences and records a phase-failed row.
+## W2971.1 what didn't work while pinning the ledger fixture (2026-11-12)
+
+Judging broken-then-reference against ONE worktree in a single process
+silently re-scored 9/24 for the reference arm: Bun caches imported modules
+by path and ignores query-string cache busters on file URLs, so the
+overwritten src modules never reloaded. A query-nonce on the import URL
+did not fix it; the guard now seals the reference into a SECOND prepared
+worktree and judges each exactly once — different paths, no cache to
+bust. Also caught pre-commit: the reference balance module initially
+inherited the fixture's refund-sign bug (written once, copied to both) —
+the controls spec now fails loudly on any such drift.

@@ -1566,3 +1566,16 @@ hidden `test_pytype_canonical`. Judge image `klh/blam-judge@sha256:45e8ee62…`
 (git baked, idempotent per repo+base); seed `klh/pi-durable-seed@sha256:d8a9b563…`.
 blam unit suite 47/47 green including 5 new arm-judge specs. Reproduce:
 `bun packages/blam/bench/durable/arm-runner.ts --problem SPH-13926`.
+## W2971.1 second held-out fixture: ledger reconciliation controls (2026-11-12)
+
+`bench/agentic-ledger/` — synthetic multi-module TypeScript fixture in the
+reconciliation failure-class domain (balance refund sign + inclusive
+cutoff; journal sequence dedup/range/order; idempotency window boundary +
+eviction order), deliberately distinct from the relay fixture's
+claim/cache/trace classes. Oracle: 24 deterministic checks outside the
+fixture repo; controls verified twice on clean checkouts: broken sealed
+fixture 9/24 (score 0.375, 15 contract failures), reference 24/24 (score
+1.0). Guards ratcheted in `agentic-ledger@unit.e2e.ts` (prepare refuses an
+existing target; both control numbers pinned). Measurement-row template in
+the fixture README. No scored agent arm has run yet — this lands the
+fixture + controls; live arms ride `bench/paired/live.ts` manifests.
