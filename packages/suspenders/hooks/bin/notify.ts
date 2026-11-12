@@ -29,6 +29,7 @@ import { fleetWarm, readMiningLines } from "../lib/usage/cache-drilldown.ts";
 import { readLicenseLines } from "../lib/fleet-loop/license-audit.ts";
 import { readSweepNotices } from "../lib/fleet-loop/sweep-state.ts";
 import { readCostLines } from "../lib/notify/cost-alerts.ts";
+import { driftAlertLine, readDriftAlerts } from "../lib/work/lane-drift.ts";
 import { defineVerb, runCli } from "../lib/verb-kit.ts";
 
 const log = (m: string): void =>
@@ -134,10 +135,11 @@ async function runPulse(fleetFlag: string | undefined): Promise<void> {
 		? resolveProject(fleetFlag).root
 		: resolveProject().root;
 	const proj = resolveProject(fleetRoot).id;
+	const store = openStore();
 	const res = await firePulse({
 		config: cfg,
 		senders: sendersFor(cfg, homedir()),
-		store: openStore(),
+		store,
 		project: proj,
 		fleetRoot,
 		statePath: PULSE_STATE_PATH(),
@@ -149,6 +151,8 @@ async function runPulse(fleetFlag: string | undefined): Promise<void> {
 		license: () => readLicenseLines(),
 		maintenance: () => readSweepNotices(),
 		cost: () => readCostLines(),
+		// W2794: the sweep's emitted lane.drift events, one line per alert
+		drift: () => readDriftAlerts(store, proj, Date.now()).map(driftAlertLine),
 		log,
 	});
 	for (const [c, r] of Object.entries(res.channels)) log(`pulse ${c}: ${r}`);

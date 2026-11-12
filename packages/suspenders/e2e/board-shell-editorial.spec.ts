@@ -136,7 +136,7 @@ test("orchestrate strip stays a flat ruled panel with intact expand/collapse", {
 test("lane status rail reads status as tone-colored text", {
 	tag: "@ui",
 }, async ({ page }) => {
-	await page.goto(`${mustBoard().BASE}/#lanes`);
+	await page.goto(`${mustBoard().BASE}/#lanes?view=cards`);
 	const ready = page.locator('#kstatusnav button[data-tone="ready"]');
 	await expect(ready).toBeVisible();
 	const readyStyle = await ready.evaluate(

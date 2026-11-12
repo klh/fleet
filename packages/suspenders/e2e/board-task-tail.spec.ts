@@ -110,7 +110,7 @@ test("kanban card carries the bound tail on the lanes view", {
 	tag: "@ui",
 }, async ({ page }) => {
 	const b = mustBoard();
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${b.BASE}/#lanes?view=cards`);
 	// approved09 (#103658): the tail is card information — it rides its own
 	// bounded .ctx line AFTER the execution/wait context, never suppressed
 	// by it; the retired .ktail node is gone

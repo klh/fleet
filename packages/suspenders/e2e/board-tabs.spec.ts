@@ -72,7 +72,7 @@ test("Usage filters and old links preserve the board shell", {
 test("changing sections starts at the header after a deep scroll", {
 	tag: "@ui",
 }, async ({ page, board }) => {
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	await page.evaluate(() => {
 		const filler = document.createElement("div");
 		filler.style.height = "2400px";
@@ -93,7 +93,7 @@ test("lane status rail reaches offscreen columns by mouse and keyboard", {
 	tag: "@ui",
 }, async ({ page, board }) => {
 	await page.setViewportSize({ width: 960, height: 700 });
-	await page.goto(`${board.BASE}/#lanes`);
+	await page.goto(`${board.BASE}/#lanes?view=cards`);
 	const rail = page.locator("#kstatusnav");
 	// W1294.2: five always-visible columns (paused/blocked/failed hide while
 	// empty) — the jump buttons the rail guarantees — plus the W1188

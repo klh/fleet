@@ -81,7 +81,7 @@ test("gui: lanes kanban paints the micro-strip sparkline + strip text", {
 	// item's series is in the FIRST /api/spend-series payload (the worker
 	// board's 5s memo still held the api test's W1-only series at goto)
 	const wId = seedSpend(cleanBoard, 2);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	// scope to the seeded card — the worker board may carry earlier claimed
 	// items whose strips paint too (strict mode)
 	const card = page.locator(`.kcard[data-kid="${wId}"]`);
@@ -132,7 +132,7 @@ test("gui: spark bars span the measured track edge-to-edge at both widths", {
 			body: JSON.stringify({ ok: true, series: { [key]: pts } }),
 		}),
 	);
-	await page.goto(`${cleanBoard.BASE}/#lanes`);
+	await page.goto(`${cleanBoard.BASE}/#lanes?view=cards`);
 	// the series paints after an async fetch — measure only once bars exist
 	await expect(
 		page.locator(`.kcard[data-kid="${wId}"] klh-card-activity rect`).first(),

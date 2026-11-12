@@ -12,6 +12,7 @@ import {
 	reportFace,
 	reportRowDetail,
 } from "../lib/work/report-face.ts";
+import { lanesFace } from "../lib/work/lanes-face.ts";
 import { attemptTimelinesPayload } from "./attempt-timeline.ts";
 import { beltRegistry } from "./belt.ts";
 import { db } from "./context.ts";
@@ -428,6 +429,16 @@ export async function handleData(
 			),
 		});
 	}
+	if (url.pathname === "/api/lanes-table") {
+		// W2269.2: the per-lane W892 table the #lanes board view renders —
+		// same reportRows/buildReportContract spine as /api/report, joined
+		// with lane identity (sid, name, verdict, launch failures). 3s
+		// single-slot memo like the report face: N clients, one compute.
+		return json({
+			ok: true,
+			...lanesFaceMemo(db as unknown as Database, url.searchParams.get("project")),
+		});
+	}
 	if (url.pathname === "/api/report-row") {
 		// W1198 per-row expand: item + last event ts + the lane's current
 		// turn/tool. Demand-driven (one row, only while expanded) — never
@@ -463,5 +474,24 @@ function reportFaceMemo(db: Database, project: string | null): unknown {
 	const scope = project ?? reportDefaultProject(db) ?? "";
 	const data = reportFace(db, scope);
 	reportMemo = { at: Date.now(), key, data };
+	return data;
+}
+
+// W2269.2: same 3s single-slot memo shape for the lanes-table payload (the
+// compute adds only the lane-identity joins over the report spine).
+let lanesMemo: { at: number; key: string; data: unknown } | null = null;
+function lanesFaceMemo(db: Database, project: string | null): unknown {
+	const key = project ?? "";
+	if (
+		lanesMemo &&
+		lanesMemo.key === key &&
+		Date.now() - lanesMemo.at < REPORT_TTL_MS
+	)
+		return lanesMemo.data;
+	const scope = project ?? reportDefaultProject(db) ?? "";
+	const data = lanesFace(db, scope);
+	// zod law: the payload rides the same JSON.parse-safe shape the contract
+	// builder emits; lanesFace is typed, no hand-cast re-validation needed.
+	lanesMemo = { at: Date.now(), key, data };
 	return data;
 }

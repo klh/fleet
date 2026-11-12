@@ -5,7 +5,8 @@ export const TABS = String.raw`// --- 7: tab shell (location.hash driven, deep-l
 // tab entry: a forced kick of the tab's feed (fresh data on every switch);
 // the 1Hz cadence afterwards is the feed store's (tick → feeds.kickDue)
 function pollActiveTab(){
-  if (curTab === 'tasks' || curTab === 'lanes') pollTasks();
+  if (curTab === 'tasks' || (curTab === 'lanes' && lanesView === 'cards')) pollTasks();
+  else if (curTab === 'lanes') feeds.kick('lanesTable', true);
   else if (curTab === 'activity') pollAct();
   else if (curTab === 'decisions') { if (feeds && feeds.kick) feeds.kick('hist', true); } // no-op while history is collapsed (url() gates)
   else if (curTab === 'setup') pollSetup();
@@ -15,7 +16,7 @@ function pollActiveTab(){
 }
 function renderTab(){
   if (curTab === 'tasks') renderTasks();
-  else if (curTab === 'lanes') renderKanban();
+  else if (curTab === 'lanes') { renderLanesTable(); renderKanban(); }
   else if (curTab === 'activity') renderAct();
   else if (curTab === 'usage') pollUsage();
   else if (curTab === 'report') renderReport(); // W1198 live work-report pane

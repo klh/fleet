@@ -29,7 +29,7 @@ test("gui: age-only refresh keeps the card node, keyboard focus and hover while 
 }, async ({ page }) => {
 	const wId = b.mintedId(b.workOk(["add", "w998.3 volatile age item"], "add"));
 	b.workOk(["take", wId, "--as", "autow998-3-e2e"], "take");
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${b.BASE}/#lanes?view=cards`);
 	const card = page.locator(`.kcard[data-kid="${wId}"]`).first();
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	// keyboard focus on the card's id button, pointer parked on the card
@@ -92,7 +92,7 @@ test("gui: real status and product changes still render", {
 	tag: "@ui",
 }, async ({ page }) => {
 	const wId = b.mintedId(b.workOk(["add", "w998.3 real-change item"], "add"));
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${b.BASE}/#lanes?view=cards`);
 	const card = page.locator(`.kcard[data-kid="${wId}"]`).first();
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	// status change: the claim moves the card to the claimed column with the
@@ -110,7 +110,7 @@ test("gui: rename containing '· observed' re-renders the stale card title", {
 }, async ({ page }) => {
 	const oldTitle = "rename probe · observed old finding";
 	const wId = b.mintedId(b.workOk(["add", oldTitle], "add"));
-	await page.goto(`${b.BASE}/#lanes`);
+	await page.goto(`${b.BASE}/#lanes?view=cards`);
 	const card = page.locator(`.kcard[data-kid="${wId}"]`).first();
 	await expect(card).toBeVisible({ timeout: 20_000 });
 	const title = card.locator(".ktitle");
