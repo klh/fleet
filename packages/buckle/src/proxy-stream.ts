@@ -13,6 +13,7 @@ import { jsonResponse } from "./proxy-body.ts";
 import { type Ctx, observe } from "./request-context.ts";
 import type { ExecuteResult } from "./router.ts";
 import { SseSniffer, sseReframer } from "./sse.ts";
+import { withSseHeartbeats } from "./sse-heartbeat.ts";
 import { hopCorrelationOf, streamActivityOf } from "./stream-correlation.ts";
 import {
 	blackHole,
@@ -412,7 +413,7 @@ export function streamResponse(
 	// shared helper: jsonResponse/client-error pass through other bodies).
 	const headers = SSE_HEADERS(upstream.headers);
 	headers.set("content-type", "text/event-stream");
-	return new Response(downstream.readable, {
+	return new Response(withSseHeartbeats(downstream.readable, ctx.signal), {
 		status: 200,
 		headers,
 	});
