@@ -15,11 +15,12 @@ import { join } from "node:path";
 import {
 	addedWorkspaceDependencies,
 	changedPackageManifests,
+	coverageProofManifest,
 	missingImportsExplained,
 	type Proof,
 	pureTestDiff,
+	reviewedDiff,
 	shareNodeModules,
-	TEST_FILE,
 } from "../lib/gates/coverage-proof.ts";
 import {
 	fingerprintVerdict,
@@ -157,16 +158,6 @@ const gitRun = (args: string[], cwd = repo): { code: number; out: string } => {
 	return { code: p.exitCode ?? 1, out: p.stdout.toString() };
 };
 
-// the branch diff vs main — capped; absent branch = claims-only review
-function gitDiff(base: string, commit: string): string {
-	const result = gitRun(["diff", `${base}...${commit}`]);
-	if (result.code !== 0 || result.out.length > 512_000)
-		throw new Error(
-			"review-lane: full exact diff unavailable or exceeds review budget; decompose before approval",
-		);
-	return result.out;
-}
-
 // the coord thread: last 20 events on the item (work + project stamped);
 // W1236.1: each line also carries the event's note text (parsed from the
 // payload JSON, capped) — prior review findings and their B-IDs live there,
@@ -213,7 +204,7 @@ const priorBlocking = priorBlockingReviewLines(
 );
 if (requestKey && requestKey !== reviewRequestKey(project, item, boundContext))
 	throw new Error("review context changed before scheduled runner started");
-const diff = gitDiff(boundContext.base, boundContext.commit);
+const diff = reviewedDiff(boundContext.base, boundContext.commit, gitRun);
 const reviewerSid = `review-${crypto.randomUUID()}`;
 db.query(
 	"INSERT INTO sessions (sid, project, role, started_at, hb, state) VALUES (?, ?, 'reviewer', ?, ?, 'RUNNING')",
@@ -422,66 +413,24 @@ async function requestLeg(legIndex: number): Promise<string> {
 
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
-async function coverageProof(branch: string): Promise<Proof> {
-	if (
-		gitRun(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
-			.code !== 0
-	)
-		return { status: "skipped", detail: "no branch diff" };
-	const diffTests = gitRun(["diff", "--name-only", `main...${branch}`])
-		.out.trim()
-		.split("\n")
-		.filter(Boolean);
-	// W1294.9.1.1: a pure test port (every changed path is a test file) has a
-	// tautological no-coverage signal — the reverted diff restores exactly the
-	// tests being proven, so they pass by construction. Carried on the Proof;
-	// the verdict site demotes the downgrade to advisory on it.
+async function coverageProof(base: string, commit: string): Promise<Proof> {
+	const inputs = coverageProofManifest(base, commit, gitRun);
+	const { changed: diffTests, provable, addedProd, mergeBase } = inputs;
 	const purePort = pureTestDiff(diffTests);
-	const tests = diffTests.filter((f) => TEST_FILE.test(f));
-	// W1306.1: a test rename pair lists the old path as branch-DELETED. It has
-	// no index entry at the branch tip, and one dead pathspec fails the whole
-	// restore checkout wholesale ("test restore failed"). Keep only tests that
-	// exist in the tip tree — deleted tests are main's, not the branch's proof.
-	const tipTree = new Set(
-		gitRun(["ls-tree", "-r", "--name-only", branch]).out.trim().split("\n"),
-	);
-	const testFiles = tests.filter((f) => tipTree.has(f));
-	if (testFiles.length === 0)
-		return { status: "skipped", detail: "no test files in diff" };
-	// The proof runs plain `bun test`, which collects only its own naming
-	// pattern — a @playwright *.e2e.ts never runs there (forced, its test()
-	// throws at collection: change-independent noise, not proof). Prove the
-	// bun-collectable subset; an all-playwright diff skips, honestly.
-	const bunRunnable = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_|_test_/;
-	const provable = testFiles.filter((f) => bunRunnable.test(f));
-	if (provable.length === 0)
-		return {
-			status: "skipped",
-			detail: "no bun-collectable test files in diff (playwright-only)",
-		};
-	// W1262 (W1258 regression): reverse-applying the diff removes exactly the
-	// modules the diff ADDED — a restored new test importing one fails right
-	// there. That failure is the proof itself (the change is what provides the
-	// module), so it must not classify as an environmental error; only missing
-	// imports that resolve to NOTHING the diff added stay environmental.
-	const addedProd = gitRun([
-		"diff",
-		"--name-only",
-		"--diff-filter=A",
-		`main...${branch}`,
-	])
-		.out.trim()
-		.split("\n")
-		.filter((f) => f && !TEST_FILE.test(f));
-	const mergeBase = gitRun(["merge-base", "main", branch]).out.trim();
+	if (inputs.skip) return { status: "skipped", detail: inputs.skip };
+
 	// every package the DIFF touches, prod files included: a changed prod
 	// file's cross-package relative import needs the sibling package's
 	// node_modules links in the scratch, or the proof dies environmental
 	// on content that is fine (the W2633 trail)
 	const manifestPaths = changedPackageManifests(diffTests);
 	const addedWorkspaceDeps = manifestPaths.flatMap((path) => {
-		const before = gitRun(["show", `${mergeBase}:${path}`]);
-		const after = gitRun(["show", `${branch}:${path}`]);
+		const before = gitRun([
+			"--no-replace-objects",
+			"show",
+			`${mergeBase}:${path}`,
+		]);
+		const after = gitRun(["--no-replace-objects", "show", `${commit}:${path}`]);
 		return addedWorkspaceDependencies(
 			before.code === 0 ? before.out : "{}",
 			after.code === 0 ? after.out : "{}",
@@ -492,7 +441,14 @@ async function coverageProof(branch: string): Promise<Proof> {
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
 	let added = false;
 	try {
-		const wt = gitRun(["worktree", "add", "--detach", scratch, branch]);
+		const wt = gitRun([
+			"--no-replace-objects",
+			"worktree",
+			"add",
+			"--detach",
+			scratch,
+			commit,
+		]);
 		if (wt.code !== 0)
 			return {
 				status: "error",
@@ -508,7 +464,10 @@ async function coverageProof(branch: string): Promise<Proof> {
 		shareNodeModules(repo, scratch, manifestPaths);
 		// disable the change: reverse the full diff (drops the new tests too)…
 		const patch = join(scratch, "proof.patch");
-		await Bun.write(patch, gitRun(["diff", `main...${branch}`]).out);
+		await Bun.write(
+			patch,
+			gitRun(["--no-replace-objects", "diff", inputs.range]).out,
+		);
 		const rev = gitRun(["apply", "-R", "proof.patch"], scratch);
 		if (rev.code !== 0)
 			return {
@@ -684,7 +643,10 @@ const trailHeadline =
 // diff restores exactly the tests being proven, so no-coverage there is
 // tautological and must not override the reviewer's PASS. Any production
 // delta keeps today's blocking FAIL.
-const proof = verdict === "PASS" ? await coverageProof(boundBranch) : null;
+const proof =
+	verdict === "PASS"
+		? await coverageProof(boundContext.base, boundContext.commit)
+		: null;
 const proofHeadline =
 	proof === null
 		? ""

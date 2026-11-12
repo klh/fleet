@@ -4,7 +4,9 @@
 // Mirrors the OpenHands sandbox /health contract: readiness only after
 // tools initialize — here the real @klh/pi-durable-workers extension
 // factory, the pi-durable registry, git presence and tmp writability.
-import { READY_MARKER, realProbes, runReadinessChecks } from "../src/seed-readiness.ts";
+// The declared self-export resolves here in a packed install and after
+// build.ts flattens this entrypoint to seed/readiness.ts in the image.
+import { READY_MARKER, realProbes, runReadinessChecks } from "@klh/pi-durable-workers/seed-readiness";
 
 const expectedBun = process.argv[2] ?? "1.4.2";
 const result = runReadinessChecks(realProbes(expectedBun));

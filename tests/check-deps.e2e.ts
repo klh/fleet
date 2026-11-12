@@ -59,6 +59,100 @@ test.describe("@api", () => {
 		}
 	});
 
+	test("a real declared package self-export is not an external dependency", async () => {
+		const root = makeFleetFixture((w) => {
+			w(
+				"packages/belt/package.json",
+				JSON.stringify({
+					name: "@klh/actual-name",
+					exports: { "./ready": "./src/ready.ts" },
+				}),
+			);
+			w("packages/belt/src/ready.ts", "export const ready = true;\n");
+			w(
+				"packages/belt/seed/entry.ts",
+				'import {ready} from "@klh/actual-name/ready";\n',
+			);
+		});
+		try {
+			expect(
+				Bun.resolveSync(
+					"@klh/actual-name/ready",
+					join(root, "packages/belt/seed"),
+				),
+			).toContain("ready.ts");
+			expect((await checkDeps(root)).findings).toEqual([]);
+		} finally {
+			dropFixture(root);
+		}
+	});
+
+	test("foreign, same-prefix and dangling self references still refuse", async () => {
+		const root = makeFleetFixture((w) => {
+			w(
+				"packages/belt/package.json",
+				JSON.stringify({
+					name: "@klh/belt",
+					exports: { "./dangling": "./src/missing.ts" },
+				}),
+			);
+			w("packages/belt/src/hidden.ts", "export const hidden = true;\n");
+			for (const [file, spec] of [
+				["foreign", "@klh/foreign/ready"],
+				["prefix", "@klh/belt-other/ready"],
+				["dangling", "@klh/belt/dangling"],
+				["unexported", "@klh/belt/hidden"],
+			])
+				w(`packages/belt/src/${file}.ts`, `import "${spec}";\n`);
+		});
+		try {
+			const rows = (await checkDeps(root)).findings.filter(
+				(row) => row.kind === "phantom",
+			);
+			expect(rows).toHaveLength(3);
+			const self = rows.find((row) =>
+				row.detail.includes("@klh/belt imported"),
+			);
+			expect(self?.detail).toContain("src/dangling.ts");
+			expect(self?.detail).toContain("src/unexported.ts");
+			for (const name of ["@klh/belt", "@klh/belt-other", "@klh/foreign"])
+				expect(
+					rows.some((row) => row.detail.includes(`${name} imported`)),
+				).toBe(true);
+		} finally {
+			dropFixture(root);
+		}
+	});
+
+	test("self export resolving outside its package is not exempted", async () => {
+		const { symlinkSync } = await import("node:fs");
+		const root = makeFleetFixture((w) => {
+			w("outside.ts", "export const outside = true;\n");
+			w(
+				"packages/belt/package.json",
+				JSON.stringify({
+					name: "@klh/belt",
+					exports: { "./linked": "./src/linked.ts" },
+				}),
+			);
+			w("packages/belt/src/needs.ts", 'import "@klh/belt/linked";\n');
+		});
+		try {
+			symlinkSync(
+				join(root, "outside.ts"),
+				join(root, "packages/belt/src/linked.ts"),
+			);
+			expect(
+				(await checkDeps(root)).findings.some(
+					(row) =>
+						row.kind === "phantom" && row.detail.includes("@klh/belt imported"),
+				),
+			).toBe(true);
+		} finally {
+			dropFixture(root);
+		}
+	});
+
 	test("unused: declared @klh/* never imported", async () => {
 		const root = makeFleetFixture((w) => {
 			w(
@@ -135,10 +229,7 @@ test.describe("@api", () => {
 
 	test("package scoping: findings filter to the named package only", async () => {
 		const root = makeFleetFixture((w) => {
-			w(
-				"packages/blam/package.json",
-				JSON.stringify({ name: "@klh/blam" }),
-			);
+			w("packages/blam/package.json", JSON.stringify({ name: "@klh/blam" }));
 			w("packages/belt/src/needs.ts", `import x from "never-declared";\n`);
 		});
 		try {
