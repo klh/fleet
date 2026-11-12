@@ -13,8 +13,9 @@
 // module- OR describe-scoped declaration breaks the playwright transform
 // here ("Parser skipped input between top-level statements", opaque
 // AggregateError build errors). Statements inside test bodies are safe.
-import { expect, test } from "@playwright/test";
+
 import { join, resolve } from "node:path";
+import { expect, test } from "@playwright/test";
 import { checkDeps } from "../scripts/check-deps.ts";
 import {
 	dropFixture,

@@ -3,14 +3,14 @@ import {
 	cpSync,
 	mkdirSync,
 	mkdtempSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { expect, test } from "@playwright/test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { expect, test } from "@playwright/test";
 import { stagePayload } from "../seed/stage.ts";
 
 const packageRoot = resolve(import.meta.dir, "..");
