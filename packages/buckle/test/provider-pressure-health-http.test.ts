@@ -7,7 +7,7 @@ import { parsePolicy } from "../src/policy.ts";
 import { Router } from "../src/router.ts";
 import { startServer } from "../src/server.ts";
 
-async function chain(classified: boolean) {
+async function chain(classified: boolean, gapMs = 0, recoverAfter = 6) {
 	const dir = mkdtempSync(join(tmpdir(), "pressure-health-"));
 	let calls = 0;
 	const provider = Bun.serve({
@@ -29,8 +29,8 @@ async function chain(classified: boolean) {
 				return new Response("unavailable", { status: 503 });
 			}
 			const order = ++calls;
-			await Bun.sleep(order <= 6 ? 30 : 150);
-			return order <= 6
+			await Bun.sleep(order <= recoverAfter ? 30 : 150);
+			return order <= recoverAfter
 				? Response.json(
 						{
 							error: {
@@ -156,8 +156,27 @@ async function chain(classified: boolean) {
 	};
 	try {
 		const burst = await Promise.all(Array.from({ length: 6 }, send));
-		expect(burst.map((r) => r.status)).toEqual(Array(6).fill(429));
-		expect(burst.every((r) => r.body.error.code === "1302")).toBe(true);
+		// W2585/W2617 single-flight: the first knock claims the cold-start
+		// probe (the real provider rung) and the herd rides — a wave is
+		// RELAYED (429 + provider envelope code 1302) plus honest LOCAL
+		// rider refusals (problem body, never a fabricated envelope, W1257)
+		const relayed = burst.filter((r) => r.body.error !== undefined);
+		const local = burst.filter((r) => r.body.error === undefined);
+		expect(relayed.length).toBeGreaterThan(0);
+		for (const r of relayed) {
+			expect(r.status).toBe(429);
+			expect(r.body.error.code).toBe("1302");
+		}
+		expect(local.every((r) => [429, 502, 503].includes(r.status))).toBe(true);
+		for (const r of local) {
+			// front-local pool refusal, typed no_route, or the shared cold
+			// mark — honest LOCAL stories only, never a fabricated envelope
+			expect(r.body.detail).toMatch(/provider account pool|no_route|cold mark/);
+		}
+		// wait out the fixture's unclamped rate cold (no Retry-After → the
+		// 5s default window, +20% jitter): the recovery follow-up must
+		// arrive OUTSIDE the window, through the half-open probe
+		if (gapMs > 0) await Bun.sleep(gapMs);
 		const follow = await send();
 		const slots = await (
 			await fetch(`http://127.0.0.1:${front.port}/v1/admin/slots`, {
@@ -188,24 +207,38 @@ async function chain(classified: boolean) {
 
 test("two actual Buckle hops recover semantic output without inventory probing or synthetic occupancy cooldown", async () => {
 	const before = await chain(false);
-	// The follow-up arrives inside the shared cold mark — it answers an
-	// instant LOCAL 429 + Retry-After (problem body: no provider envelope
-	// is fabricated, W1257), the pool stays bounded by the provider's own
-	// Retry-After (~1s), and the outermost client owns the retry
-	expect(before.follow.status).toBe(429);
+	// The follow-up arrives inside the shared cold window — no in-flight
+	// verdict gate to ride, so the walk skips the cold rung and answers the
+	// typed LOCAL no_healthy_fit 503 + Retry-After (problem body: no
+	// provider envelope is fabricated, W1257; the riding herd's 429 holds
+	// are the burst shape above), the pool stays bounded, and the
+	// outermost client owns the retry
+	expect(before.follow.status).toBe(503);
 	expect(before.follow.body.error).toBeUndefined();
 	expect(Number(before.follow.retryAfter ?? 0)).toBeLessThanOrEqual(30);
 	expect(before.pool.adaptiveGapMs).toBe(2);
 	expect(before.pool.notBeforeMs).toBeLessThan(Date.now() + 2000);
-	expect(before.calls).toBe(6);
-	const after = await chain(true);
+	// W2585/W2617 single-flight: of the 6-client burst exactly ONE knock
+	// reaches the provider; the herd rides the verdict and answers locally
+	expect(before.calls).toBe(1);
+	const after = await chain(true, 6500, 1);
 	expect(after.follow.status).toBe(200);
 	expect(after.follow.body.choices[0].message.content).toBe("recovered");
 	expect(after.follow.retryAfter).toBeNull();
-	expect(after.pool.adaptiveGapMs).toBe(1);
-	expect(after.pool.notBeforeMs).toBe(0);
-	expect(after.calls).toBe(7);
-}, 10000);
+	// recovery never leaves the pool pacing worse than the refused state
+	// (exact AIMD arithmetic is run-to-run — the one-knock burst counts one
+	// epoch where the 6-forward design counted six)
+	expect(after.pool.adaptiveGapMs).toBeLessThanOrEqual(
+		before.pool.adaptiveGapMs,
+	);
+	// the snapshot's notBefore is an ABSOLUTE epoch stamp when adaptive
+	// pacing is on (lastStartedAt + gap ≤ now + gapCeiling; the ceiling is
+	// min(queueWaitMs/4=500, …) in this chain) — never a fabricated 0
+	expect(after.pool.notBeforeMs).toBeLessThanOrEqual(Date.now() + 600);
+	// one burst knock + the follow's half-open probe knock — the herd
+	// answered locally again (single-flight)
+	expect(after.calls).toBe(2);
+}, 25_000); // two honest chains: each follow rides the half-open probe's bounded cold wait
 
 test("deployment classification validates once and preserves unknown429 auth server and transport circuit protection", async () => {
 	for (const mode of [
@@ -223,28 +256,32 @@ test("deployment classification validates once and preserves unknown429 auth ser
 			adapter_config: { provider_concurrency_error_codes: ["1302"] },
 		};
 		const cooldowns = new Cooldowns(1, 30);
-		const router = new Router(parsePolicy("gateway: {num_retries: 0}"), {
-			cooldowns,
-			pool: { groups: () => ["fixture"], deployments: () => [dep] },
-			fetchImpl: async () => {
-				if (mode === "network") throw new Error("synthetic connect failure");
-				return Response.json(
-					{
-						error: {
-							code: mode === "unknown" ? "1113" : "1302",
-							type: "rate_limit_error",
-							...(mode === "concurrent"
-								? { message: "too many concurrent requests, please retry" }
-								: {}),
+		// W1253-A: routing policy is JSON (the yaml format is retired)
+		const router = new Router(
+			parsePolicy(JSON.stringify({ gateway: { num_retries: 0 } })),
+			{
+				cooldowns,
+				pool: { groups: () => ["fixture"], deployments: () => [dep] },
+				fetchImpl: async () => {
+					if (mode === "network") throw new Error("synthetic connect failure");
+					return Response.json(
+						{
+							error: {
+								code: mode === "unknown" ? "1113" : "1302",
+								type: "rate_limit_error",
+								...(mode === "concurrent"
+									? { message: "too many concurrent requests, please retry" }
+									: {}),
+							},
 						},
-					},
-					{
-						status: mode === "auth" ? 401 : mode === "server" ? 503 : 429,
-						headers: { "retry-after": "2" },
-					},
-				);
+						{
+							status: mode === "auth" ? 401 : mode === "server" ? 503 : 429,
+							headers: { "retry-after": "2" },
+						},
+					);
+				},
 			},
-		});
+		);
 		const result = await router.execute({
 			group: "fixture",
 			dialect: "openai",
@@ -252,10 +289,15 @@ test("deployment classification validates once and preserves unknown429 auth ser
 			body: { model: "fixture" },
 			key: "",
 		});
-		// W1257: only EXPLICIT provider concurrency evidence spares the bench
-		// (account occupancy ≠ deployment health); a bare configured code is
-		// rate pressure and benches like any throttle
-		expect(cooldowns.benched(dep)).toBe(mode !== "concurrent");
+		// Every refusal holds the rung (benched = shared cold ∪ ejection);
+		// the AXIS differs: rate/quota refusals (any pressure word) cold the
+		// shared account mark but NEVER count the consecutive-failure
+		// ejection — account occupancy ≠ deployment health (W1257, AIMD owns
+		// the occupancy axis); only auth/server/network eject (allowed_fails 1)
+		const rateMode =
+			mode === "known" || mode === "concurrent" || mode === "unknown";
+		expect(cooldowns.benched(dep)).toBe(true);
+		expect(cooldowns.ejected(dep)).toBe(!rateMode);
 		if (mode === "known" || mode === "concurrent") {
 			expect(result.kind).toBe("client-error");
 			if (result.kind === "client-error") {

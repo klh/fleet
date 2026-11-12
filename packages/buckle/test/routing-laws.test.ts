@@ -10,17 +10,21 @@ import type { UpstreamPool } from "../src/upstreams.ts";
 
 const SIMPLE = "what is 2+2";
 
-const POLICY = parsePolicy(`
-gateway:
-  num_retries: 1
-  allowed_fails: 3
-  cooldown_time: 30
-  fallbacks:
-    glm-5.3-flash: [gpt-5.2]
-tags:
-  glm-5.3-flash: [fast, cheap, general]
-  gpt-5.2: [frontier, reasoning, code]
-`);
+// W1253-A: routing policy is JSON (the yaml format is retired)
+const POLICY = parsePolicy(
+	JSON.stringify({
+		gateway: {
+			num_retries: 1,
+			allowed_fails: 3,
+			cooldown_time: 30,
+			fallbacks: { "glm-5.3-flash": ["gpt-5.2"] },
+		},
+		tags: {
+			"glm-5.3-flash": ["fast", "cheap", "general"],
+			"gpt-5.2": ["frontier", "reasoning", "code"],
+		},
+	}),
+);
 
 function poolOf(entries: Array<[string, string[]]>): UpstreamPool {
 	const map = new Map(entries);

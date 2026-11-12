@@ -142,7 +142,7 @@ const sharedAccountPlan = {
 };
 
 test.each([1, 60])(
-	"account 429 Retry-After %ds skips same-account alias and reaches independent fallback without waiting",
+	"account 429 Retry-After %ds skips same-account alias and reaches independent fallback (wait policy-capped)",
 	async (retryAfterS) => {
 		const started = performance.now();
 		const report = await runForcedFailoverDrill({
@@ -154,7 +154,11 @@ test.each([1, 60])(
 		expect(report.ok).toBe(true);
 		expect(report.deliveredGroup).toBe("local");
 		expect(report.attempts.map((a) => a.group)).toEqual(["primary", "local"]);
-		expect(report.simulatedWaitMs).toBe(0);
+		// W2617 supersedes the absolute zero-wait law (W1174) for the
+		// interactive caller: the cold wait is min(retry-after, budget) —
+		// bounded, never the raw quota wall
+		expect(report.simulatedWaitMs).toBeGreaterThan(0);
+		expect(report.simulatedWaitMs).toBeLessThanOrEqual(2_000);
 	},
 );
 
@@ -209,5 +213,8 @@ test("an all-same-account ladder truthfully cannot deliver through its blocked a
 	expect(report.ok).toBe(false);
 	expect(report.deliveredGroup).toBeNull();
 	expect(report.attempts.map((a) => a.status)).toEqual([429]);
-	expect(report.simulatedWaitMs).toBe(0);
+	// the blocked-alias walk still waits its policy-capped cold before
+	// reporting failure (W2617) — bounded, never the raw wall
+	expect(report.simulatedWaitMs).toBeGreaterThan(0);
+	expect(report.simulatedWaitMs).toBeLessThanOrEqual(2_000);
 });

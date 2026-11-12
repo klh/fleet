@@ -38,6 +38,9 @@ test("existing private capacity and metrics expose a real queued account lease",
 		JSON.stringify({
 			gateway: {
 				num_retries: 0,
+				// rider must reach pool admission INSIDE the poll window — the
+				// W2585 placeholder ride (default 1500ms) would out-wait it
+				resilience: { admission_ride_ms: 50 },
 				provider_pools: {
 					account: {
 						concurrency: 1,

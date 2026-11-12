@@ -65,6 +65,7 @@ describe("configured Claude to GLM fallback", () => {
 			);
 			const glm = await startMockUpstream(() => glmAnswer());
 			try {
+				const waits: number[] = [];
 				const d = testDeps(
 					poolOf(
 						[
@@ -89,8 +90,8 @@ describe("configured Claude to GLM fallback", () => {
 							fallbacks: { "claude-sonnet-5": ["glm-5.3-flash"] },
 						},
 						prefs: { cost_speed: "balanced", allow_cloud: true },
-						sleepMs: async () => {
-							if (status === 429) throw new Error("quota wall must not sleep");
+						sleepMs: async (ms: number) => {
+							waits.push(ms);
 						},
 					},
 				);
@@ -106,6 +107,10 @@ describe("configured Claude to GLM fallback", () => {
 				expect(glm.calls[0]?.body?.tools).toBeDefined();
 				const body = (await res.json()) as { content: Array<{ text: string }> };
 				expect(body.content[0]?.text).toBe("ready");
+				// W2617: the interactive caller waits min(retry-after, budget) for
+				// a rate-shaped cold — the quota wall (996295s) is policy-capped,
+				// never slept in full
+				expect(waits.every((w) => w <= 2_000)).toBe(true);
 			} finally {
 				claude.close();
 				glm.close();
