@@ -38,7 +38,8 @@ test("bounded ingress parses valid JSON and rejects excess bytes", async () => {
 
 test("real Buckle returns 408 for an incomplete request body", async () => {
 	const path = `/tmp/buckle-ingress-${process.pid}-${Date.now()}.yaml`;
-	await Bun.write(path, "groups: {}\n");
+	// W1253-A: legacy .yaml path honored only while its content is JSON
+	await Bun.write(path, JSON.stringify({ groups: {} }));
 	const gate = startServer({
 		port: 0,
 		dbPath: ":memory:",

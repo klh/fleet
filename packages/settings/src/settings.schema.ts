@@ -92,7 +92,9 @@ export type SettingAt<
 
 /** Render a zod error as `path: message` lines (the loud-failure text). */
 export function settingsIssues(err: z.ZodError): string[] {
-	return err.issues.map(
-		(i) => `${i.path.map(String).join(".") || "<root>"}: ${i.message}`,
+	return err.issues.map((i) =>
+		i.path[0] === "providers"
+			? "providers: invalid connection configuration"
+			: `${i.path.map(String).join(".") || "<root>"}: ${i.message}`,
 	);
 }

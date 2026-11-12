@@ -54,9 +54,15 @@ test.beforeAll(() => {
 	dir = join(tmpdir(), `provider-parity-${process.pid}`);
 	mkdirSync(dir, { recursive: true });
 	stackPath = join(dir, "stack.json");
+	process.env.KLH_SETTINGS = join(dir, "absent-settings.json");
 });
 
-test.afterAll(() => rmSync(dir, { recursive: true, force: true }));
+const previousSettings = process.env.KLH_SETTINGS;
+test.afterAll(() => {
+	if (previousSettings === undefined) delete process.env.KLH_SETTINGS;
+	else process.env.KLH_SETTINGS = previousSettings;
+	rmSync(dir, { recursive: true, force: true });
+});
 
 test.describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 	test("identical typed profiles from the same stack @unit", () => {
@@ -112,25 +118,31 @@ test.describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 					},
 				})}\n`,
 			);
-			expect(() => load(stackPath)).toThrow("legacy key_file");
+			expect(() => load(stackPath)).toThrow(
+				"Invalid private connection configuration",
+			);
 			expect(() =>
 				validate({
 					a: { provider: "zai", key: "k", env: "E1" },
 					b: { provider: "zai", key: "k2", env: "E1" },
 				}),
-			).toThrow("both bind env E1");
+			).toThrow("Invalid private connection configuration");
 		}
 	});
 
 	test("file posture enforced identically (mode, absence) @unit", () => {
 		writeStack(CODED, 0o644);
-		expect(() => loadProviderProfiles(stackPath)).toThrow("mode 600");
-		expect(() => loadProviderConfig(stackPath)).toThrow("mode 600");
+		expect(() => loadProviderProfiles(stackPath)).toThrow(
+			"Invalid private connection configuration",
+		);
+		expect(() => loadProviderConfig(stackPath)).toThrow(
+			"Invalid private connection configuration",
+		);
 		expect(() => loadProviderProfiles(join(dir, "absent.json"))).toThrow(
-			"not readable",
+			"Invalid private connection configuration",
 		);
 		expect(() => loadProviderConfig(join(dir, "absent.json"))).toThrow(
-			"not readable",
+			"Invalid private connection configuration",
 		);
 		writeStack(CODED);
 	});
@@ -145,7 +157,7 @@ test.describe("provider-profile parity (belt twin ↔ speedy resolver)", () => {
 				attempt();
 			} catch (error) {
 				const message = String(error);
-				expect(message).toContain("profile x");
+				expect(message).toContain("Invalid private connection configuration");
 				expect(message).not.toContain("fake-zai");
 			}
 		}

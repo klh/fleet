@@ -28,14 +28,14 @@ export function requiredProviders(
 ): ResolvedProvider[] {
 	const names = hub.provider_requirements ?? [];
 	if (names.length === 0) return [];
-	const map = providers ?? loadProviderConfig();
+	const map = providers ?? loadProviderConfig(undefined, names);
 	return names.map((name) => {
 		const r = resolveProvider(name, map);
 		if (!r)
 			throw new Error(
 				`hub requires provider profile "${name}" — stack.yaml providers has no such profile`,
 			);
-		if (!r.env)
+		if (!r.env && (r.key !== undefined || !r.connection))
 			throw new Error(
 				`provider profile "${name}" declares no env binding — hub delivery needs profile.env`,
 			);
@@ -49,7 +49,23 @@ export function requiredProviders(
 export function renderProviderEnv(
 	required: readonly ResolvedProvider[],
 ): string {
-	const lines = required.map((r) => `${r.env}=${r.key}`);
+	const lines = required
+		.filter((r) => r.key !== undefined)
+		.map((r) => {
+			if (
+				!r.env ||
+				!/^[A-Z][A-Z0-9_]*$/.test(r.env) ||
+				!r.key ||
+				[...r.key].some(
+					(character) =>
+						character.charCodeAt(0) <= 32 ||
+						character.charCodeAt(0) >= 127 ||
+						["$", "\\", "'", '"'].includes(character),
+				)
+			)
+				throw new Error("Invalid provider output binding");
+			return `${r.env}=${r.key}`;
+		});
 	return lines.length > 0 ? `${lines.join("\n")}\n` : "";
 }
 
@@ -96,7 +112,7 @@ export function providerIdentityByEnv(
 ): Record<string, { provider: string; providerProfile: string }> {
 	const names = hub.provider_requirements ?? [];
 	if (names.length === 0) return {};
-	const map = providers ?? tryLoadProviderConfig();
+	const map = providers ?? loadProviderConfig(undefined, names);
 	if (!map) return {};
 	const out: Record<string, { provider: string; providerProfile: string }> = {};
 	for (const name of names) {

@@ -1,5 +1,5 @@
-import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{L,N,j}from"./lit-545c35c70481d3d8.js";var o=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends n{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=r`
-		${h(j)}
+import{_,n,e,o}from"./lit-ac8284bbd881cce8.js";import{rt,nt,ot}from"./lit-391ba2761ad300cb.js";var r=(t)=>t&&t!=="unassigned"?t.charAt(0).toUpperCase():"?",l=(t)=>["team","department"].filter((a)=>t[a]).join(" · ")||"no team tags";class c extends o{static properties={me:{type:Object},open:{state:!0},themePref:{state:!0}};static styles=n`
+		${_(ot)}
 		:host {
 			display: block;
 		}
@@ -127,7 +127,7 @@ import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{L,N,j}from"./lit-545c35c70
 		}
 	`;constructor(){super();this.open=!1,this.themePref="system",this.onDocClick=this.onDocClick.bind(this),this.onDocKeydown=this.onDocKeydown.bind(this),this.onThemeChange=this.onThemeChange.bind(this)}connectedCallback(){if(super.connectedCallback(),document.addEventListener("click",this.onDocClick),document.addEventListener("keydown",this.onDocKeydown),document.addEventListener("klh-themechange",this.onThemeChange),this.themePref=window.klhTheme?.pref()??"system",!this.me)this.hydrate()}disconnectedCallback(){super.disconnectedCallback(),document.removeEventListener("click",this.onDocClick),document.removeEventListener("keydown",this.onDocKeydown),document.removeEventListener("klh-themechange",this.onThemeChange)}async hydrate(){try{let t=await fetch("/api/console/me");if(!t.ok)return;let a=await t.json();if(!a.ok)return;this.me=a,window.__execPrefs=a.executor_prefs??[]}catch{}}onDocClick(t){if(this.open&&!t.composedPath().includes(this))this.open=!1}onDocKeydown(t){if(this.open&&t.key==="Escape")this.open=!1,this.renderRoot.querySelector(".cavbtn")?.focus()}onThemeChange(t){let a=t.detail;if(a)this.themePref=a.pref}toggle(){this.open=!this.open}setTheme(t){let a=t.target.value;window.klhTheme?.set(a)}actorOptions(){let t=this.me;if(!t)return[];let a=t.defaultActor??t.default_actor??"",s=t.actors.slice();if(a&&!s.includes(a))s.unshift(a);return s.length?s:["unassigned"]}mePanel(){let t=this.me,a=t.actor||"unassigned",s=t.defaultActor??t.default_actor??"";return e`
 			<div class="cavhead">
-				<span class="cavbig">${o(a)}</span>
+				<span class="cavbig">${r(a)}</span>
 				<span>
 					<span class="cavname">${a}</span><br />
 					<span class="cavsub">${l(t.tags??{})}</span>
@@ -150,11 +150,11 @@ import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{L,N,j}from"./lit-545c35c70
 				<div class="klh-settings-panel" role="group" aria-label="settings">
 					<fieldset class="klh-theme">
 						<legend>theme</legend>
-						${N.map((t)=>e`
+						${nt.map((t)=>e`
 								<label>
 									<input
 										type="radio"
-										name=${L}
+										name=${rt}
 										value=${t}
 										?checked=${this.themePref===t}
 										@change=${this.setTheme}
@@ -180,7 +180,7 @@ import{h,r,e,n}from"./lit-b59bf30faa0b21f8.js";import{L,N,j}from"./lit-545c35c70
 							aria-label="current actor"
 							@click=${this.toggle}
 						>
-							${o(this.me?.actor??"")}
+							${r(this.me?.actor??"")}
 						</button>
 						<div class="cavdrop" ?hidden=${!this.open}>
 							${this.me?this.mePanel():e`<div class="cavname">loading actor…</div>`}

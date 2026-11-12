@@ -22,7 +22,12 @@ function start(): { base: string; stop(): void } {
 	tmpDirs.push(dir);
 	Bun.write(
 		`${dir}/upstreams.yaml`,
-		`groups:\n  glm-5.3-flash:\n    - url: http://127.0.0.1:1\n      dialect: openai\n`,
+		// W1253-A: legacy .yaml path honored only while its content is JSON
+		JSON.stringify({
+			groups: {
+				"glm-5.3-flash": [{ url: "http://127.0.0.1:1", dialect: "openai" }],
+			},
+		}),
 	);
 	const server = startServer({
 		port: 0,

@@ -27,7 +27,7 @@ import {
 import { dirname, join } from "node:path";
 // W422: fork support per harness is adapter data (exact lookup — an unknown
 // harness cold-starts, it never inherits claude's fork grammar).
-import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { adapterForExact } from "../../hooks/lib/executors/executor-registry.ts";
 import { assertStablePrefix, PREFIX_CHURN_PATTERN } from "./lane-layout.ts";
 import { listStarters } from "../../hooks/lib/starter/starter-artifacts.ts";
 import { readStarterAuthorized } from "../../hooks/lib/starter/starter-distribution.ts";

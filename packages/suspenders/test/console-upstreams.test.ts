@@ -77,5 +77,6 @@ test("absent override retains base including explicit dormant groups", () => {
 			{ name: "disabled", tiers: 0, dormant: true, source: "fleet default" },
 		],
 		source: "fleet default",
+		connections: 0,
 	});
 });

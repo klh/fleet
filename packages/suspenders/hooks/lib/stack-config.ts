@@ -4,7 +4,11 @@
 // install migrate step runs — W1253 Amendment A: fleet config is JSON).
 // deploy/hubctl.ts renders deploys from it; coord hubs (W356) projects the
 // topology from it. KLH_STACK overrides the path (tests).
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
+import {
+	loadProviderConfig,
+	validateProviderConfig,
+} from "@klh/settings/connections";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { GatewayPolicy } from "@klh/buckle/src/policy.ts";
@@ -557,8 +561,7 @@ export function loadStack(): StackConfig {
 	// settings.json is THE per-install config: when it exists (and KLH_STACK
 	// does not pin a legacy file explicitly) the stack view projects from it;
 	// stack.json stays the read-compat fallback for one release.
-	const projected =
-		process.env.KLH_STACK === undefined ? stackFromSettings() : null;
+	const projected = stackFromSettings();
 	if (projected) {
 		lastStackSource = "settings";
 		return projected;
@@ -577,7 +580,7 @@ export function loadStack(): StackConfig {
  *  or it failed the StackConfig shape — the legacy file then answers). */
 function stackFromSettings(): StackConfig | null {
 	if (!existsSync(settingsPath())) return null;
-	const s = resolveSettings({ quiet: true }).settings;
+	const s = resolveSettings({ quiet: true, mode: "service" }).settings;
 	const hubs: Record<string, HubProfile> = {};
 	for (const [label, hub] of Object.entries(s.hubs)) {
 		const prof = toLegacyProfile(hub) as Record<string, unknown>;
@@ -627,7 +630,9 @@ function stackFromSettings(): StackConfig | null {
 		},
 		hubs,
 	});
-	return parsed.success ? parsed.data : null;
+	if (!parsed.success)
+		throw new Error("Canonical settings cannot project to stack configuration");
+	return parsed.data;
 }
 
 /** loadStack() with every failure (missing file, malformed YAML) → null —
@@ -761,17 +766,6 @@ export function modelCapabilityClasses(
 	return parsed.data.capability_classes;
 }
 
-const unquote = (v: string): string => {
-	const t = v.trim();
-	if (
-		(t.startsWith('"') && t.endsWith('"')) ||
-		(t.startsWith("'") && t.endsWith("'"))
-	) {
-		return t.slice(1, -1);
-	}
-	return t;
-};
-
 /** W230 providers: resolve a provider's key — inline `key` → env var named
  *  by `env` → `key_file` (dotenv-style, mode-600 enforced, 1 MiB cap),
  *  variable `key_name ?? <PROVIDER>_API_KEY`. Nothing resolvable → null. */
@@ -779,37 +773,11 @@ export function providerKey(
 	name: string,
 	stack?: StackConfig | null,
 ): string | null {
-	const entry = (stack === undefined ? tryLoadStack() : stack)?.providers?.[
-		name
-	];
-	if (!entry) return null;
-	if (entry.key) return entry.key;
-	if (entry.env) {
-		const v = process.env[entry.env];
-		if (v) return v;
-	}
-	if (entry.key_file) {
-		const raw = entry.key_file;
-		const path =
-			raw === "~" || raw.startsWith("~/") ? join(homedir(), raw.slice(1)) : raw;
-		const st = statSync(path);
-		if ((st.mode & 0o777) !== 0o600) {
-			throw new Error(
-				`provider ${name}: key_file ${raw} must be mode 600 (got ${(st.mode & 0o777).toString(8)})`,
-			);
-		}
-		if (st.size > 1024 * 1024) {
-			throw new Error(`provider ${name}: key_file over the 1 MiB cap`);
-		}
-		const want =
-			entry.key_name ??
-			`${name.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`;
-		for (const line of readFileSync(path, "utf8").split("\n")) {
-			const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-			if (m && m[1] === want) return unquote(m[2]);
-		}
-	}
-	return null;
+	const profiles =
+		stack === undefined
+			? loadProviderConfig(undefined, [name])
+			: validateProviderConfig(stack?.providers, undefined, [name]);
+	return profiles[name]?.key ?? null;
 }
 
 // ---- quiet hours (W483) ----------------------------------------------------

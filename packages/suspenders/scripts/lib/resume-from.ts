@@ -28,7 +28,7 @@
 // NEW session continuing the old context, never an in-place append.
 import { statSync } from "node:fs";
 import { basename } from "node:path";
-import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { adapterForExact } from "../../hooks/lib/executors/executor-registry.ts";
 import { transcriptPath } from "../../hooks/lib/lanes/lane-liveness.ts";
 import { continuationPrompt } from "./lane-layout.ts";
 import { starterInstructionContext } from "./lane-starter.ts";

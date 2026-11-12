@@ -1,6 +1,7 @@
 // @klh/settings — the ONE per-install settings surface. Import from here.
 
 export { type CliIo, runSettingsCli } from "./settings.cli.ts";
+export { redactSettings } from "./settings.redact.ts";
 export {
 	type DistillConfig,
 	DistillConfigSchema,

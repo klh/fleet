@@ -136,7 +136,9 @@ export function modelsRoute(
 	const groups = verdict.groups;
 	const data = deps.pool
 		.groups()
-		.filter((id) => deps.pool.deployments(id).length > 0)
+		.filter((id) =>
+			deps.pool.deployments(id).some((dep) => dep.discover !== false),
+		)
 		.filter((id) => groups === null || groups.some((g) => globMatch(g, id)))
 		.map((id) => {
 			const pool = poolNumbersOf(deps, id);

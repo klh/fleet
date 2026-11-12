@@ -7,7 +7,7 @@ import { dirname } from "node:path";
 import {
 	expandInstallPaths,
 	isSpawnableExecutor,
-} from "../lib/executors/registry.ts";
+} from "../lib/executors/executor-registry.ts";
 import { projectRootOf } from "../lib/govdb/govdb.ts";
 import { CLI, DEMO, db, WORK_CLI } from "./context.ts";
 import {
