@@ -57,6 +57,7 @@ async function main(): Promise<void> {
 	if (!repoRoot || !existsSync(repoRoot)) die(`repo root for "${problem.repo}" missing in bench.local.json`);
 	mkdirSync(DIR.receipts, { recursive: true });
 	mkdirSync(join(HERE, "ledger"), { recursive: true });
+	mkdirSync(join(HERE, "ledger", "exports"), { recursive: true });
 
 	// retained-negative problems REFUSE admission (oracle-isolation law)
 	if (problem.retainedNegative) {
@@ -82,14 +83,30 @@ async function main(): Promise<void> {
 	const mintFile = String(local.mintCredentialFile);
 	if (!existsSync(mintFile)) die(`mint credential file missing: ${mintFile}`);
 
-	// admission happens through the installed production leaf; the driver
-	// hands off to the leaf service runner with the staged archive + scoped
-	// key lifecycle (mint → run → revoke) — see README for the runner path.
-	// Until the leaf call is invoked here, the runner anchors the path
-	// mechanically: export → ledger(admitted-attempt) → exit 0 marker file.
+	const marker = join(DIR.receipts, `${problemId}-a${attempt}-PENDING.md`);
+	writeFileSync(marker, [
+		`# ${problemId} attempt ${attempt} — ANCHOR`,
+		`runId=TBD tier=${chosen}`,
+		`base=${problem.baseCommit} archiveSha=${archiveSha}`,
+		`export=${archivePath}`,
+		"",
+	].join("\n"), { mode: 0o600 });
+
+	// ledger row FIRST (append-only law: every attempt is recorded even if
+	// admission throws — infra refusals are part of the mechanical record)
+	const row: LedgerRow = {
+		ts: Date.now(), problemId, repo: problem.repo, attempt, tier: chosen,
+		runId: crypto.randomUUID(), outcome: "refused",
+		tokens: { input: null, output: null, cacheRead: null, total: null },
+		hashes: { archiveSha256: archiveSha, imageDigest: image.slice(-24), judgeLogSha256: null, patchSha256: null },
+		wallClockMs: null,
+		notes: "anchor attempt: fresh export done; leaf admission below",
+	};
+	appendLedgerRow(DIR.ledger, row);
+
 	// admission: stage → leaf admitAndStart (in-tree production leaf) →
-	// frozen 0600 admit receipt. Supervise/extract/judge are the next
-	// phases, each re-runnable from the receipt (done-and-redone law).
+	// frozen 0600 admit receipt; on throw the leaf revokes the just-minted
+	// key itself (abort-observing admit). Anchor row already retained.
 	const { admitArm, persistAdmitReceipt } = await import("./arm-admit.ts");
 	try {
 		const receipt = await admitArm({
@@ -110,19 +127,11 @@ async function main(): Promise<void> {
 			`next: supervise → extract → judge`,
 			"",
 		].join("\n"), { mode: 0o600 });
+		appendLedgerRow(DIR.ledger, { ...row, ts: Date.now(), outcome: "admitted", notes: `admitted; receipt ${receiptPath}` });
+		console.log(`arm-runner: ledger rows appended (${DIR.ledger})`);
 	} catch (error) {
-		die(`admission refused: ${(error as Error).message.split("\n")[0]}`);
+		die(`admission refused (anchor row retained): ${(error as Error).message.split("\n")[0]}`);
 	}
-	const row: LedgerRow = {
-		ts: Date.now(), problemId, repo: problem.repo, attempt, tier: chosen,
-		runId: crypto.randomUUID(), outcome: "refused",
-		tokens: { input: null, output: null, cacheRead: null, total: null },
-		hashes: { archiveSha256: archiveSha, imageDigest: image.slice(-24), judgeLogSha256: null, patchSha256: null },
-		wallClockMs: null,
-		notes: "anchor attempt: export+ledger done; leaf admission handoff next (W2971.3 runner path)",
-	};
-	appendLedgerRow(DIR.ledger, row);
-	console.log(`arm-runner: ledger row appended (${DIR.ledger}); marker ${marker}`);
 }
 function refusedRow(problem: { id: string; repo: string }, note: string): LedgerRow {
 	return {
