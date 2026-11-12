@@ -354,6 +354,11 @@
             "additionalProperties": false,
             "description": "Service ports this hub serves"
           },
+          "runner_inventory_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
           "health_ports": {
             "type": "object",
             "properties": {
@@ -1769,6 +1774,20 @@
             "mint_credential_file"
           ],
           "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "bench": {
+      "description": "blam/bench durable-arm options (tier ladder override)",
+      "type": "object",
+      "properties": {
+        "tierLadder": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
         }
       },
       "additionalProperties": false

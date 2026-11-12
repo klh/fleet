@@ -16,6 +16,7 @@ export {
 	ENV_MAP,
 	type EnvMapping,
 	PLUMBING_ENV,
+	readMappedEnv,
 	SECRET_ENV,
 } from "./settings.env-map.ts";
 export { type Hub, HubSchema } from "./settings.hubs.ts";
