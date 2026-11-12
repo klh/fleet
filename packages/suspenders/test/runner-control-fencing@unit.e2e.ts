@@ -553,6 +553,40 @@ test("active admission replay requires the captured lease and original controlle
 	expect(getLease(store, spec.runId)?.state).toBe("revoked");
 });
 
+test("fast path refuses a stale-epoch token from the lease holder (W2977.2.1.1)", async () => {
+	const store = memoryStore();
+	// advisory scenario: a permissive custom authorizer must not turn the
+	// fast path into an echo — the stored-lease fence lives in the
+	// controller itself
+	const ctl = openRunnerController({
+		store,
+		now,
+		authorizer: { authorize: async () => {} },
+	});
+	const spec = specInput();
+	const actor = {
+		...controlActor(),
+		leaseToken: null,
+	} as typeof controlActor & {
+		leaseToken: { epoch: number } | null;
+	};
+	const { token } = await ctl.admit({
+		spec,
+		actor: { ...actor, leaseToken: null },
+	});
+	// same sid presenting a WRONG epoch: refused by the stored fence, not echoed
+	await expect(
+		ctl.admit({
+			spec,
+			actor: { ...actor, leaseToken: { epoch: token.epoch + 7 } },
+		}),
+	).rejects.toThrow(/fenced — live epoch 1 ≠ token epoch 8/);
+	// the real token still round-trips verbatim (no lease churn)
+	expect(
+		await ctl.admit({ spec, actor: { ...actor, leaseToken: token } }),
+	).toEqual({ token });
+});
+
 test("repair: re-admission with a mutated spec refuses and leaves the lease", async () => {
 	let t = 1_000_000;
 	const store = memoryStore();

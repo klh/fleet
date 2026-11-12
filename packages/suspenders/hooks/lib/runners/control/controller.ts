@@ -26,6 +26,7 @@ import { readRunnerEvents } from "./feed.ts";
 import {
 	admitLease,
 	ensureRunnerLeaseSchema,
+	fenceCheck,
 	getLease,
 	type LeaseToken,
 	revokeLease,
@@ -271,6 +272,16 @@ export const openRunnerController = (deps: {
 			}
 			const held = getLease(deps.store, parsed.runId);
 			if (boundSpec && actor.leaseToken && held?.controller_sid === actor.sid) {
+				// stored-lease equality is enforced HERE against the shared
+				// table, not delegated to the pluggable authorizer: a mutated
+				// or stale token from the sid holder is refused, never echoed
+				const fence = fenceCheck(
+					deps.store,
+					parsed.runId,
+					actor.leaseToken,
+					at,
+				);
+				if (!fence.ok) throw new Error(fence.reason);
 				await authorizer.authorize("execute", { runId: parsed.runId, actor });
 				return { token: actor.leaseToken };
 			}

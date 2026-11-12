@@ -87,8 +87,6 @@ export const admitChildRun = async (
 		actor: RunnerActor;
 		/** Fleet-authoritative route entitlement for delegated children. */
 		routes: readonly ChildRoute[];
-		/** Digests of the host-approved executor seed and policy. */
-		execution?: { seedDigest: string; policyDigest: string };
 		/** Host-side reservation after validation, before recording admission. */
 		reserveBudget?: () => void;
 		/** Digests of the host-approved executor seed and policy. */
