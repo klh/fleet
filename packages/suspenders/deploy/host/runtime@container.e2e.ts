@@ -89,7 +89,7 @@ test("packaged HOST preflight, protected health, denied admission and actual san
 		});
 		const runId = randomUUID();
 		const name = containerNameOf(runId);
-		host.trackGuest(name);
+		host.trackGuest(name, runId);
 		expect(
 			(
 				await wire(

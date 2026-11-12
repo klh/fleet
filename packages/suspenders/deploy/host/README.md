@@ -15,9 +15,14 @@ Local version `0.1.1-experimental.w2990.3` uses source
 `dd942694436137a43845c723d20a134af47a89e2`.
 Its [local basic verification receipt](receipts/local-basic-0.1.1-experimental.w2990.3.json)
 records two actual Docker tests, a scripted model and checked owned cleanup.
-Packaged continuity is **unverified** until its full positive and negative
-controls pass. Publication remains blocked. No model weights, Pi CLI, BLAM,
-judges, checkout, keys, profiles, or journals belong in the final image.
+The [later local continuity receipt](receipts/local-continuity-0.1.1-experimental.w2990.3.json)
+records five passing Docker controls on that exact arm64 config: fresh-HOST
+authorized resume, retained workspace/history/deadline, reader denial, corrupt
+checkpoint and missing journal refusal, plus the existing basic/setup controls.
+Its executed test identity is the recorded base plus reviewed file aggregate.
+Publication remains blocked pending corrected OCI metadata and fresh acceptance
+of each new config. No model weights, Pi CLI, BLAM, judges, checkout, keys,
+profiles, or journals belong in the final image.
 
 Build from separate immutable source and recipe commits, using the committed
 helper. Preserve existing diagnostic tags and use a new unused version for a new build; no runtime package installation

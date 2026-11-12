@@ -1,46 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { configurationScript } from "./configuration.fixture.ts";
-import { execFile } from "node:child_process";
+import { hostProcess } from "./process.ts";
 import { HOST_BUILD_PINS } from "./contract.ts";
 
-export function hostArgv(
-	argv: string[],
-	timeoutMs: number,
-): Promise<{
-	code: number;
-	stdout: string;
-	stderr: string;
-	signal: string | null;
-}> {
-	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || !argv[0])
-		throw new Error("Positive HOST process deadline required");
-	return new Promise((resolve) => {
-		execFile(
-			argv[0],
-			argv.slice(1),
-			{
-				encoding: "utf8",
-				timeout: timeoutMs,
-				killSignal: "SIGKILL",
-				maxBuffer: 1048576,
-			},
-			(error, stdout, stderr) => {
-				resolve({
-					code: error
-						? typeof error.code === "number"
-							? error.code
-							: error.killed
-								? 124
-								: 127
-						: 0,
-					stdout,
-					stderr,
-					signal: error?.signal ?? null,
-				});
-			},
-		);
-	});
+export async function hostArgv(argv: string[], timeoutMs: number) {
+	const result = await hostProcess(argv, { timeoutMs, maxBytes: 1048576 });
+	return {
+		code: result.code ?? 1,
+		stdout: new TextDecoder().decode(result.stdout),
+		stderr: new TextDecoder().decode(result.stderr),
+		signal: result.signal,
+	};
 }
 async function checkedDocker(argv: string[], timeoutMs = 10000) {
 	if (argv[0] !== "docker") throw new Error("Docker fixture argv required");
@@ -54,38 +25,55 @@ async function checkedDocker(argv: string[], timeoutMs = 10000) {
 		);
 	return result.stdout;
 }
-async function containerId(
-	name: string,
-	timeoutMs = 10000,
-): Promise<string | undefined> {
+const ContainerInfoSchema = z.object({
+	Id: z.string().regex(/^[a-f0-9]{64}$/),
+	Name: z.string(),
+	Config: z.object({
+		Image: z.string(),
+		Labels: z.record(z.string(), z.string()).nullable(),
+	}),
+	Mounts: z.array(
+		z.object({
+			Type: z.string(),
+			Source: z.string(),
+			Destination: z.string(),
+			RW: z.boolean(),
+		}),
+	),
+});
+async function containerInfo(ref: string, timeoutMs = 10000) {
 	const result = await hostArgv(
 		[
 			"docker",
 			"--context",
 			"desktop-linux",
 			"inspect",
-			name,
+			ref,
 			"--format",
-			"{{.Id}}",
+			"{{json .}}",
 		],
 		timeoutMs,
 	);
-	if (result.code === 0 && /^[a-f0-9]{64}$/.test(result.stdout.trim()))
-		return result.stdout.trim();
 	if (result.code === 1 && /No such (object|container)/i.test(result.stderr))
 		return undefined;
-	throw new Error(
-		`HOST fixture inspection failed (${result.code}): ${result.stderr}`,
-	);
+	if (result.code !== 0)
+		throw new Error(
+			`HOST fixture inspection failed (${result.code}): ${result.stderr}`,
+		);
+	return ContainerInfoSchema.parse(JSON.parse(result.stdout));
 }
-async function removeOwned(name: string) {
-	const cid = await containerId(name);
-	if (cid) {
-		await checkedDocker(["docker", "rm", "-f", cid]);
-		if (await containerId(cid))
-			throw new Error("Owned HOST fixture container survived removal");
-	}
-	return cid;
+async function removeOwned(ref: string, owner: string, expectedCid?: string) {
+	const info = await containerInfo(ref);
+	if (!info) return;
+	if (
+		info.Config.Labels?.["io.klh.fleet.host-fixture"] !== owner ||
+		(expectedCid !== undefined && info.Id !== expectedCid)
+	)
+		throw new Error("Unowned fixture container refusal");
+	await checkedDocker(["docker", "rm", "-f", info.Id]);
+	if (await containerInfo(info.Id))
+		throw new Error("Owned HOST fixture container survived removal");
+	return info.Id;
 }
 async function volumeInfo(name: string) {
 	const result = await hostArgv(
@@ -136,6 +124,10 @@ export async function openHostFixture(
 	z.uuid().parse(id.slice("fleet-host-runtime-".length));
 	const names: string[] = [];
 	const cids = new Map<string, string>();
+	const guests = new Map<string, string>();
+	let cleanupGuest:
+		| ((name: string, runId: string) => Promise<void>)
+		| undefined;
 	const deadline = Date.now() + 80000;
 	const remaining = (limit: number) => {
 		const left = deadline - Date.now();
@@ -146,31 +138,102 @@ export async function openHostFixture(
 		checkedDocker(argv, remaining(timeoutMs));
 	let volumeAttempted = false;
 	const clean = async () => {
+		const joined = await Promise.allSettled(
+			names
+				.filter((name) => name.startsWith(`${id}-supervisor`))
+				.map(async (name) => {
+					const info = await containerInfo(cids.get(name) ?? name);
+					if (!info) return;
+					if (
+						info.Config.Labels?.["io.klh.fleet.host-fixture"] !== id ||
+						info.Id !== cids.get(name)
+					)
+						throw new Error("Unowned HOST producer refusal");
+					await checkedDocker(
+						["docker", "stop", "--time", "20", info.Id],
+						25000,
+					);
+					const StateSchema = z.object({
+						Running: z.literal(false),
+						ExitCode: z.literal(0),
+					});
+					StateSchema.parse(
+						JSON.parse(
+							await checkedDocker([
+								"docker",
+								"inspect",
+								info.Id,
+								"--format",
+								"{{json .State}}",
+							]),
+						),
+					);
+				}),
+		);
+		const guestResults = await Promise.allSettled(
+			(joined.every((result) => result.status === "fulfilled")
+				? [...guests]
+				: []
+			).map(async ([name, runId]) => {
+				if (!cleanupGuest)
+					throw new Error("Guest cleanup identity reader unavailable");
+				await cleanupGuest(name, runId);
+			}),
+		);
 		const removed = await Promise.allSettled(
 			names.map(async (name) => {
-				const cid = await removeOwned(cids.get(name) ?? name);
+				const cid = await removeOwned(
+					cids.get(name) ?? name,
+					id,
+					cids.get(name),
+				);
 				if (cid) cids.set(name, cid);
 			}),
 		);
-		const volume = await Promise.allSettled(
-			volumeAttempted ? [removeFixtureVolume(id)] : [],
+		const finalGuests = await Promise.allSettled(
+			[...guests.keys()].map(async (name) => {
+				if (await containerInfo(name))
+					throw new Error("Guest survived HOST cleanup");
+			}),
 		);
-		if ([...removed, ...volume].some((result) => result.status === "rejected"))
+		const volume = await Promise.allSettled(
+			volumeAttempted &&
+				[...joined, ...guestResults, ...removed, ...finalGuests].every(
+					(result) => result.status === "fulfilled",
+				)
+				? [removeFixtureVolume(id)]
+				: [],
+		);
+		if (
+			[...joined, ...guestResults, ...removed, ...finalGuests, ...volume].some(
+				(result) => result.status === "rejected",
+			)
+		)
 			throw new Error("Owned HOST runtime fixture cleanup failed");
 	};
 	const run = async (
 		args: string[],
 		name = `${id}-${names.length}`,
 		timeoutMs = 10000,
+		cleanup = false,
 	) => {
 		names.push(name);
-		const result = await command(
-			["docker", "run", "--name", name, ...args],
+		const result = await (cleanup ? checkedDocker : command)(
+			[
+				"docker",
+				"run",
+				"--name",
+				name,
+				"--label",
+				`io.klh.fleet.host-fixture=${id}`,
+				...args,
+			],
 			timeoutMs,
 		);
-		const cid = await containerId(name, remaining(10000));
-		if (!cid) throw new Error("Owned fixture container identity missing");
-		cids.set(name, cid);
+		const info = await containerInfo(name, cleanup ? 10000 : remaining(10000));
+		if (!info || info.Config.Labels?.["io.klh.fleet.host-fixture"] !== id)
+			throw new Error("Owned fixture container identity missing");
+		cids.set(name, info.Id);
 		return result;
 	};
 	const client = (script: string) =>
@@ -302,11 +365,34 @@ export async function openHostFixture(
 			"--env",
 			`KLH_SETTINGS=${root}/private/settings.json`,
 		];
+		let generation = 0;
 		const supervisor = (argv: string[], detached = false) =>
 			run(
 				[...(detached ? ["-d"] : []), ...args, image, ...argv],
-				detached ? `${id}-supervisor` : undefined,
+				detached ? `${id}-supervisor${generation++ || ""}` : undefined,
 				detached ? 10000 : 30000,
+			);
+		const storage = (script: string, cleanup = false) =>
+			run(
+				[
+					"--network",
+					"none",
+					"--user",
+					"1000:1000",
+					"--read-only",
+					"--cap-drop=ALL",
+					"--security-opt=no-new-privileges",
+					"--mount",
+					`type=volume,source=${id},target=${root}`,
+					"--entrypoint",
+					"bun",
+					image,
+					"-e",
+					`const root=${JSON.stringify(root)};${script}`,
+				],
+				undefined,
+				10000,
+				cleanup,
 			);
 		const health = () =>
 			run([
@@ -328,9 +414,60 @@ export async function openHostFixture(
 				"--key-file",
 				"/run/reader.key",
 			]);
-		const trackGuest = (name: string) => names.push(name);
+		const trackGuest = (name: string, runId: string) => {
+			z.uuid().parse(runId);
+			if (name !== `fleet-runner-${runId.replaceAll("-", "").slice(0, 16)}`)
+				throw new Error("Guest name binding required");
+			guests.set(name, runId);
+		};
+		const guestIdentity = async (name: string, cleanup = false) => {
+			const runId = guests.get(name);
+			if (!runId) throw new Error("Unregistered guest refusal");
+			const info = await containerInfo(
+				name,
+				cleanup ? 10000 : remaining(10000),
+			);
+			if (!info) return;
+			const RecordSchema = z.object({
+				runId: z.literal(runId),
+				containerId: z.literal(info.Id),
+				containerName: z.literal(name),
+				image: z.literal(guest),
+				seedDir: z.literal(`${root}/state/workspaces/${runId}/seed`),
+			});
+			const record = RecordSchema.parse(
+				JSON.parse(
+					await storage(
+						`const fs=require('node:fs');
+const fd=fs.openSync(root+'/state/workspaces/'+${JSON.stringify(runId)}+'/executor.json',fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+try{const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>65536)throw Error('Guest record invalid');
+const r=JSON.parse(fs.readFileSync(fd,'utf8'));console.log(JSON.stringify({runId:r.runId,containerId:r.containerId,containerName:r.containerName,image:r.image,seedDir:r.seedDir}))}finally{fs.closeSync(fd)}`,
+						cleanup,
+					),
+				),
+			);
+			if (info.Name !== `/${name}` || info.Config.Image !== record.image)
+				throw new Error("Guest container binding refusal");
+			const binds = info.Mounts.filter((m) => m.Type === "bind");
+			if (
+				binds.length !== 1 ||
+				binds[0]?.Source !== record.seedDir ||
+				binds[0]?.Destination !== "/seed" ||
+				binds[0]?.RW !== false
+			)
+				throw new Error("Guest seed binding refusal");
+			return info.Id;
+		};
+		cleanupGuest = async (name) => {
+			const cid = await guestIdentity(name, true);
+			if (!cid) return;
+			await checkedDocker(["docker", "rm", "-f", cid]);
+			if (await containerInfo(cid))
+				throw new Error("Owned guest survived removal");
+			cids.set(name, cid);
+		};
 		const captureGuest = async (name: string) => {
-			const cid = await containerId(name, remaining(10000));
+			const cid = await guestIdentity(name);
 			if (!cid) throw new Error("Guest identity missing");
 			cids.set(name, cid);
 			return cid;
@@ -342,6 +479,7 @@ export async function openHostFixture(
 			identityUrl,
 			controlUrl,
 			supervisor,
+			storage,
 			health,
 			client,
 			trackGuest,
