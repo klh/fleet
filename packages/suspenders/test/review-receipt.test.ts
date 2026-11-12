@@ -54,6 +54,10 @@ function fixture() {
 		join(repo, "packages/app/value.ts"),
 		"export const value = 1;\n",
 	);
+	writeFileSync(
+		join(repo, "packages/app/shared.ts"),
+		"export const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n",
+	);
 	git("add", ".");
 	git("commit", "-m", "base");
 	git("checkout", "-b", "suspenders/W1");
@@ -488,4 +492,68 @@ test("W1243.1.1.1: unresolved mention and genuine finding stay fail-closed", () 
 	);
 	expect(midline.blocking).toEqual(["B1-no-coverage-proof"]);
 	expect(midline.resolved).toEqual([]);
+});
+
+// W2946 — the re-review wave: settle-wave merges touch nested json/yaml
+// fixtures and OTHER members' files constantly; those are not shared
+// surfaces, so outstanding reviews must survive instead of re-reviewing.
+
+for (const inertAdvance of [
+	"packages/other/test/fixtures/data.json",
+	"packages/other/README.md",
+	"docs/guide.yaml",
+	"packages/other/package.json",
+]) {
+	test(`advance in another member's ${inertAdvance} preserves a PASS (W2946)`, () => {
+		const f = fixture();
+		publishReviewReceipt(f.db, "project", "W1", f.receipt);
+		mkdirSync(join(f.repo, inertAdvance, ".."), { recursive: true });
+		writeFileSync(join(f.repo, inertAdvance), "Independent member content.\n");
+		f.git("add", ".");
+		f.git("commit", "-m", "unrelated member change");
+		expect(f.check()).toMatchObject({ ok: true });
+	});
+}
+
+test("root-level config surface still invalidates, with the offending path named (W2946)", () => {
+	const f = fixture();
+	publishReviewReceipt(f.db, "project", "W1", f.receipt);
+	writeFileSync(join(f.repo, "qlty.toml"), "coverage = true\n");
+	f.git("add", ".");
+	f.git("commit", "-m", "root config change");
+	const verdict = f.check();
+	expect(verdict.ok).toBe(false);
+	expect(verdict.why).toContain("stale");
+	expect(verdict.why).toContain("qlty.toml");
+});
+
+test("stale-by-intersection names the reviewed path main touched (W2946)", () => {
+	const f = fixture();
+	// branch edits a second region of an existing multi-line file, so main's
+	// own edit of ANOTHER region auto-merges cleanly (no conflict) while the
+	// path still intersects the candidate's diff window.
+	f.git("checkout", "suspenders/W1");
+	writeFileSync(
+		join(f.repo, "packages/app/shared.ts"),
+		"export const a = 11;\nexport const b = 2;\nexport const c = 3;\nexport const d = 4;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "candidate edits shared.ts region a");
+	const ctx = reviewContext(f.repo, "suspenders/W1", f.context.base);
+	f.db.query("UPDATE work_items SET result_sha = ? WHERE id = 'W1'").run(ctx.commit);
+	f.db.query("DELETE FROM work_completion_records WHERE item = 'W1'").run();
+	f.db
+		.query("INSERT INTO work_completion_records VALUES ('project', 'W1', ?, 'author')")
+		.run(ctx.commit);
+	publishReviewReceipt(f.db, "project", "W1", { ...f.receipt, commit: ctx.commit, base: ctx.base, instructions: ctx.instructions });
+	f.git("checkout", "main");
+	writeFileSync(
+		join(f.repo, "packages/app/shared.ts"),
+		"export const a = 1;\nexport const b = 2;\nexport const c = 3;\nexport const d = 44;\n",
+	);
+	f.git("add", ".");
+	f.git("commit", "-m", "main edits shared.ts region d");
+	const verdict = f.check();
+	expect(verdict.ok).toBe(false);
+	expect(verdict.why).toContain("packages/app/shared.ts");
 });

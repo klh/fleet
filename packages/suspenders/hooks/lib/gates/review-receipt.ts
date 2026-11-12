@@ -74,50 +74,62 @@ const isAncestor = (repo: string, before: string, after: string): boolean =>
 	}).exitCode === 0;
 
 /** A disjoint file may still change how the reviewed files build, load, or
- * test. Treat configuration and automation inputs as shared dependencies. */
-const isSharedReviewInput = (path: string): boolean => {
+ * test — but only through SURFACES the candidate actually shares: the repo
+ * root (lockfiles, manifests, root configs), root coordination directories
+ * (.github, scripts, …), and the candidate's own workspace member. A nested
+ * json fixture or config under a DIFFERENT member is not shared surface:
+ * the settle-wave merges mostly touch that class, and treating them as
+ * shared re-staled every outstanding review on every main move (the
+ * constant re-review wave W2946 kills). */
+const ROOT_COORD_DIRS = new Set([
+	".github",
+	".githooks",
+	".qlty",
+	"scripts",
+	"build",
+	"config",
+]);
+const ROOT_INERT_NAMES = new Set([
+	".npmrc",
+	".yarnrc",
+	".pnp.cjs",
+	"Gemfile",
+	"go.mod",
+	"go.sum",
+	"requirements.txt",
+]);
+const CONFIGISH_NAME = /(?:^|[.-])(?:build|config|lint|setup|workspace)(?:[.-]|$)/i;
+const MANIFESTISH_NAME = (name: string): boolean =>
+	/\.(?:json|jsonc|ya?ml|toml|lock|lockb)$/.test(name) ||
+	CONFIGISH_NAME.test(name) ||
+	ROOT_INERT_NAMES.has(name) ||
+	/^(?:Dockerfile|Makefile|Procfile|justfile)$/.test(name) ||
+	/\.(?:sh|bash)$/.test(name);
+const memberOf = (path: string): string => {
 	const parts = path.split("/");
-	const name = parts.at(-1) ?? "";
-	return (
-		parts
-			.slice(0, -1)
-			.some((part) =>
-				[
-					".github",
-					".githooks",
-					".qlty",
-					"build",
-					"config",
-					"scripts",
-				].includes(part),
-			) ||
-		/\.(?:json|jsonc|ya?ml|toml|lock|lockb)$/.test(name) ||
-		/(?:^|[.-])(?:build|config|lint|setup|workspace)(?:[.-]|$)/i.test(name) ||
-		[
-			".npmrc",
-			".yarnrc",
-			".pnp.cjs",
-			"Gemfile",
-			"go.mod",
-			"go.sum",
-			"requirements.txt",
-		].includes(name) ||
-		/^(?:Dockerfile|Makefile|Procfile|justfile)$/.test(name) ||
-		/\.(?:sh|bash)$/.test(name)
-	);
+	return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : "";
+};
+const isSharedReviewInput = (path: string, candidateMembers: Set<string>): boolean => {
+	const parts = path.split("/");
+	if (parts.length === 1) return MANIFESTISH_NAME(parts[0]!);
+	if (ROOT_COORD_DIRS.has(parts[0]!)) return true;
+	// same-member config surfaces stay shared for that member's candidates;
+	// other members' files are ordinary disjoint paths.
+	return candidateMembers.has(memberOf(path)) && MANIFESTISH_NAME(parts.at(-1) ?? "");
 };
 
 /** An old review may survive only when Git proves the candidate's merged
  * effect is unchanged. Path disjointness is a conservative structural proof,
- * not a proof of independence between modules. */
+ * not a proof of independence between modules. `detail` names the exact
+ * surface that voided survival — the re-review wave must be debuggable. */
 const unchangedReviewedEffect = (
 	repo: string,
 	oldBase: string,
 	base: string,
 	commit: string,
-): { ok: boolean; preview: string } => {
+): { ok: boolean; preview: string; detail: string } => {
 	if (!/^[0-9a-f]{40,64}$/.test(oldBase) || !isAncestor(repo, oldBase, base))
-		return { ok: false, preview: "" };
+		return { ok: false, preview: "", detail: "reviewed base is not an ancestor of the current base" };
 	const oldPreview = previewTree(repo, oldBase, commit);
 	const preview = previewTree(repo, base, commit);
 	const shared = git(repo, ["merge-base", base, commit]).trim();
@@ -126,15 +138,28 @@ const unchangedReviewedEffect = (
 		git(repo, ["rev-parse", `${base}^{tree}`]).trim() ===
 			git(repo, ["rev-parse", `${shared}^{tree}`]).trim()
 	)
-		return { ok: true, preview };
+		return { ok: true, preview, detail: "" };
 	const candidatePaths = changedPaths(repo, oldBase, oldPreview);
 	const advancePaths = new Set(changedPaths(repo, oldBase, base));
-	if (
-		!candidatePaths.length ||
-		[...advancePaths].some(isSharedReviewInput) ||
-		candidatePaths.some((path) => advancePaths.has(path))
-	)
-		return { ok: false, preview };
+	const candidateMembers = new Set(candidatePaths.map(memberOf).filter(Boolean));
+	const intersecting = candidatePaths.filter((path) => advancePaths.has(path));
+	if (intersecting.length)
+		return {
+			ok: false,
+			preview,
+			detail: `main changed reviewed paths: ${intersecting.slice(0, 8).join(", ")}`,
+		};
+	const sharedVeto = [...advancePaths].find((path) =>
+		isSharedReviewInput(path, candidateMembers),
+	);
+	if (!candidatePaths.length || sharedVeto)
+		return {
+			ok: false,
+			preview,
+			detail: sharedVeto
+				? `main changed a shared input surface: ${sharedVeto}`
+				: "candidate diff window is empty",
+		};
 	const unchanged =
 		git(repo, [
 			"diff",
@@ -156,7 +181,7 @@ const unchangedReviewedEffect = (
 			"--",
 			...candidatePaths,
 		]);
-	return { ok: unchanged, preview };
+	return { ok: unchanged, preview, detail: unchanged ? "" : "merged effect of reviewed paths differs after base move" };
 };
 
 // W1243.1.1.1: a B-ID on a non-RESOLVED line is a *mention*, not
@@ -346,6 +371,7 @@ export function checkReviewReceipt(
 		)
 			return { ok: false, why: "reviewer session unavailable" };
 		let bindingValid = false;
+		let staleDetail = "";
 		try {
 			if (r.base === context.base) {
 				bindingValid =
@@ -362,6 +388,7 @@ export function checkReviewReceipt(
 					context.base,
 					context.commit,
 				);
+				staleDetail = proof.detail;
 				if (proof.ok) {
 					let instructionBytes = 0;
 					bindingValid = Object.keys(context.instructions).every((path) =>
@@ -376,6 +403,7 @@ export function checkReviewReceipt(
 						instructionBytes += current.size;
 						if (instructionBytes > 524_288 || current.digest !== digest) {
 							bindingValid = false;
+							staleDetail = "applicable instructions changed";
 							break;
 						}
 					}
@@ -387,7 +415,9 @@ export function checkReviewReceipt(
 		if (!bindingValid)
 			return {
 				ok: false,
-				why: "review is stale: base or applicable instructions changed",
+				why: staleDetail
+					? `review is stale: ${staleDetail}`
+					: "review is stale: base or applicable instructions changed",
 			};
 		// W1302.6 (O3): a PASS whose served wire model belongs to another
 		// model class never authorizes a merge — the W1278.1 receipt was
