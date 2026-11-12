@@ -7,6 +7,7 @@
 // parking mints a repair item, and a stuck DONE branch raises NEED_DECISION.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { providerPressureOf } from "../gates/review-scheduler.ts";
 import {
 	type GovernorStore,
 	openStore,
@@ -74,7 +75,12 @@ export type StuckOptions = {
 	db?: GovernorStore;
 };
 
-type StuckRow = { since: number; why: string; raised?: boolean };
+type StuckRow = {
+	since: number;
+	first?: number;
+	why: string;
+	raised?: boolean;
+};
 
 const readStuck = (file: string): Record<string, StuckRow> => {
 	try {
@@ -89,8 +95,19 @@ export const stuckMaxAgeMs = (): number => {
 	return (Number.isFinite(hours) && hours > 0 ? hours : 6) * 3_600_000;
 };
 
+/** W2978: transport-stalled defers slide the 6h window, so the backstop is
+ * measured from FIRST deferral (immutable), not the sliding edge — a stall
+ * that never heals still escalates after 48h total. Not a knob: two days of
+ * silent no-progress is a defect in any transport state. */
+const STUCK_BACKSTOP_MS = 48 * 3_600_000;
+
 /** Record a DONE branch's deferral; raise NEED_DECISION once when it has been
- * deferred longer than the max age. Returns true on the cycle that raised. */
+ * deferred longer than the max age. W2978: a due raise consults the review
+ * transport's provider-pressure state first — a transport stall (pressure
+ * pause or canary probe in flight) is self-healing, so the branch's window
+ * slides (since = now) instead of paging the owner; the absolute
+ * STUCK_BACKSTOP_MS (from the immutable first-seen) still escalates a stall
+ * that never heals. Returns true on the cycle that raised. */
 export function noteStuckDefer(
 	repo: string,
 	branch: string,
@@ -100,26 +117,46 @@ export function noteStuckDefer(
 ): boolean {
 	const now = options.now ?? Date.now();
 	const rows = readStuck(options.file);
-	const row = rows[branch] ?? { since: now, why };
+	const row = rows[branch] ?? { since: now, first: now, why };
+	row.first ??= row.since;
 	row.why = why;
 	rows[branch] = row;
+	const maxAge = options.maxAgeMs ?? stuckMaxAgeMs();
+	const totalAge = now - (row.first ?? row.since);
 	const due =
-		!row.raised && now - row.since >= (options.maxAgeMs ?? stuckMaxAgeMs());
+		(!row.raised && now - row.since >= maxAge) ||
+		(!row.raised && totalAge >= STUCK_BACKSTOP_MS);
+	let raised = false;
 	if (due) {
 		const db = options.db ?? openStore();
 		try {
-			db.query(
-				"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'NEED_DECISION', ?, ?, NULL)",
-			).run(
-				now,
-				branch,
-				JSON.stringify({
-					project: projectIdentity(repo),
-					item,
-					note: `${item} is DONE but ${branch} has not merged for ${Math.round((now - row.since) / 3_600_000)}h: ${why}`,
-				}),
-			);
-			row.raised = true;
+			// W2978: a review-transport stall (provider-pressure pause or canary
+			// probe in flight) is self-healing — the loop re-probes and the
+			// review completes once pressure clears; paging the owner mid-stall
+			// is noise (W2949 paged exactly this). Slide the window instead of
+			// raising; STUCK_BACKSTOP_MS bounds the silence for a stall that
+			// never heals.
+			const pressure = providerPressureOf(db);
+			const stalled =
+				pressure.openUntil > now ||
+				(pressure.probe !== undefined && pressure.probe.until > now);
+			if (stalled && now - (row.first ?? row.since) < STUCK_BACKSTOP_MS) {
+				row.since = now;
+			} else {
+				db.query(
+					"INSERT INTO events (ts, source, kind, scope, payload, target) VALUES (?, 'fleet-loop', 'NEED_DECISION', ?, ?, NULL)",
+				).run(
+					now,
+					branch,
+					JSON.stringify({
+						project: projectIdentity(repo),
+						item,
+						note: `${item} is DONE but ${branch} has not merged for ${Math.round(totalAge / 3_600_000)}h: ${why}`,
+					}),
+				);
+				row.raised = true;
+				raised = true;
+			}
 		} finally {
 			if (!options.db) db.close();
 		}
@@ -127,7 +164,7 @@ export function noteStuckDefer(
 	try {
 		writeFileSync(options.file, JSON.stringify(rows));
 	} catch {}
-	return due;
+	return raised;
 }
 
 /** Forget a branch once it merged, retired or was parked. */
