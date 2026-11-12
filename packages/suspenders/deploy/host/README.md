@@ -9,18 +9,23 @@ The initial source `bbe638a4aa2f6c864bf98f3cc4f496da11cb52f9` has continuity
 unwired. Its first two diagnostic builds stopped before creating an image:
 the input audit refused public SDK evaluation clients, then the notice audit
 refused missing upstream license files. Both checks were retained and corrected.
-The next candidate source is `6bf6ca17b25c3bcb9e1608cdff29cd21993852e3`.
+The first notice-corrected diagnostic used source `6bf6ca17b25c3bcb9e1608cdff29cd21993852e3`.
+Local version `0.1.1-experimental.w2990.3` uses source
+`7ba526c1dab00e543cdbcfb63d550631156568ea` and recipe
+`dd942694436137a43845c723d20a134af47a89e2`.
+Its [local basic verification receipt](receipts/local-basic-0.1.1-experimental.w2990.3.json)
+records two actual Docker tests, a scripted model and checked owned cleanup.
 Packaged continuity is **unverified** until its full positive and negative
 controls pass. Publication remains blocked. No model weights, Pi CLI, BLAM,
 judges, checkout, keys, profiles, or journals belong in the final image.
 
 Build from separate immutable source and recipe commits, using the committed
-helper. Substitute the reviewed recipe commit; no runtime package installation
+helper. Preserve existing diagnostic tags and use a new unused version for a new build; no runtime package installation
 is performed. `--plan` emits a local-only plan; removing it builds and loads one
 architecture. The helper has no publication mode.
 
 ```sh
-bun packages/suspenders/deploy/host/build.ts --source 6bf6ca17b25c3bcb9e1608cdff29cd21993852e3 --recipe RECIPE_COMMIT --version 0.1.0-experimental.w2990.3 --platform linux/arm64 --plan
+bun packages/suspenders/deploy/host/build.ts --source 7ba526c1dab00e543cdbcfb63d550631156568ea --recipe dd942694436137a43845c723d20a134af47a89e2 --version 0.1.1-experimental.w2990.3 --platform linux/arm64 --plan
 ```
 
 The helper archives committed source, stages regular recipe blobs independently,

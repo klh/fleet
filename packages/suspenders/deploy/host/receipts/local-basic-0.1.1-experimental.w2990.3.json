@@ -1,0 +1,65 @@
+{
+	"schemaVersion": 1,
+	"kind": "local-supervisor-verification",
+	"family": "supervisor",
+	"role": "host",
+	"version": "0.1.1-experimental.w2990.3",
+	"published": false,
+	"sourceCommit": "7ba526c1dab00e543cdbcfb63d550631156568ea",
+	"recipeCommit": "dd942694436137a43845c723d20a134af47a89e2",
+	"platform": "linux/arm64",
+	"localImage": {
+		"tag": "fleet-supervisor-seed:0.1.1-experimental.w2990.3-arm64",
+		"index": "sha256:d7b58797c4b62692329d7138595f1adfa3b5fa9fb03a5a107d416e892c4ceb3a",
+		"platformManifest": "sha256:8a4f3ea50e788ba3d99f15a9d42272a29e21a384c34f292a31545336656c8768",
+		"config": "sha256:befbd0e8042c1cc2d6fa0a05a8f14cda3b379a9ba370d4c08790283df7c13131"
+	},
+	"verificationSource": {
+		"baseCommit": "dd942694436137a43845c723d20a134af47a89e2",
+		"method": "sorted filename, NUL, bytes, NUL",
+		"aggregateSha256": "1dd1dea9d7b675806d43a43572a0d2b45a2fbe568766978c59f9e1715ed43066",
+		"files": [
+			"authority.fixture.ts",
+			"configuration.fixture.ts",
+			"host-process@unit.e2e.ts",
+			"runtime.fixture.ts",
+			"runtime@container.e2e.ts"
+		]
+	},
+	"basicDocker": {
+		"passed": 2,
+		"failed": 0,
+		"skipped": 0,
+		"seconds": 14.0,
+		"command": "FLEET_SUPERVISOR_TEST_IMAGE=sha256:d7b58797c4b62692329d7138595f1adfa3b5fa9fb03a5a107d416e892c4ceb3a bun run node_modules/@playwright/test/cli.js test --config packages/suspenders/deploy/playwright.config.ts packages/suspenders/deploy/host/runtime@container.e2e.ts --project=unit",
+		"checks": [
+			"actual entrypoint preflight and exact operator-pinned catalog",
+			"zero mint/model work before admission and after denied401",
+			"separate READ-key-only protected health",
+			"actual sandbox seed read through two scripted model requests",
+			"guest read-only seed only, declared tmpfs, no network or HOST credentials/URLs/storage",
+			"abort revocation and exact guest CID disappearance",
+			"all owned captured containers and labeled volume checked absent",
+			"intentional setup exit99 and checked cleanup"
+		]
+	},
+	"hostHarnessDeadline": {
+		"passed": 1,
+		"seconds": 2.2,
+		"checks": [
+			"trusted HOST child acknowledged SIGTERM and remained alive",
+			"deadline SIGKILL joined and PID absent",
+			"self-exit fallback"
+		]
+	},
+	"environment": "local Docker Desktop; arm64; scripted model, no live provider",
+	"continuity": "not-verified",
+	"publication": "blocked pending packaged continuity and final metadata review",
+	"attestations": "requested by local BuildKit; not independently verified here; signatures unverified",
+	"limits": [
+		"not a Flock upstream descriptor",
+		"no real-model quality or performance evidence",
+		"no H100/Azure activation",
+		"inherited Bun OCI title/description/url/created must be corrected before publication"
+	]
+}
