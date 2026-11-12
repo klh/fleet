@@ -20,7 +20,7 @@
 // MUST chain is owner intent and is never rerouted.
 import { existsSync, readFileSync } from "node:fs";
 import type { GovernorStore } from "../govdb/govdb.ts";
-import { adapterForExact } from "../executors/registry.ts";
+import { adapterForExact } from "../executors/executor-registry.ts";
 
 export type ProviderPenalty = Map<string, string>; // provider → demotion reason
 

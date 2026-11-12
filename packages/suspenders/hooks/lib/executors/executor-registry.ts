@@ -1,4 +1,4 @@
-// hooks/lib/executors/registry.ts — the executor-adapter registry (W422
+// hooks/lib/executors/executor-registry.ts — the executor-adapter registry (W422
 // surface consolidation law). Core dispatch code (dispatch-next, exec-chain,
 // launch-preflight, lane-starter, lane-liveness) carries ZERO executor
 // branches: every agent's specifics live in its adapter file, and a new
