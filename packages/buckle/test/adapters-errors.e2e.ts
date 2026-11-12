@@ -179,7 +179,7 @@ test.describe("@unit", () => {
 				["connect_unreachable", "network"],
 				["timeout", "timeout"],
 			] as const) {
-				const headers = new Headers({ "x-klh-refusal": code });
+				const headers = new Headers({ "x-buckle-refusal": code });
 				expect(normalizeUpstreamError(family, 502, {}, headers).kind).toBe(
 					kind,
 				);
@@ -196,7 +196,7 @@ test.describe("@unit", () => {
 				"anthropic",
 				502,
 				{},
-				new Headers({ "x-klh-refusal": "made_up" }),
+				new Headers({ "x-buckle-refusal": "made_up" }),
 			).kind,
 		).toBe("server");
 	});

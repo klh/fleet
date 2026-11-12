@@ -218,7 +218,7 @@ export function normalizeUpstreamError(
 		STATUS_KINDS[family]?.[status] ?? TIER2_STATUS[family]?.[status];
 	// A peer gateway can report a transport failure as an HTTP error. Preserve
 	// its bounded typed refusal, without overriding real auth/rate-limit status.
-	const refusal = safeRefusalCode(headers?.get("x-klh-refusal"));
+	const refusal = safeRefusalCode(headers?.get("x-buckle-refusal"));
 	const peerTransport: ErrorKind | undefined =
 		status >= 500 && status <= 599
 			? refusal === "network" || refusal === "connect_unreachable"

@@ -62,9 +62,9 @@ export interface RequestRow {
 	ms: number;
 	status: number | null;
 	class: OutcomeClass;
-	/** x-belt-error code the gateway stamped, when any */
+	/** x-buckle-error code the gateway stamped, when any */
 	code: string | null;
-	/** x-belt-route refusal origin: buckle|upstream|bridged-upstream|network|cooldown */
+	/** x-buckle-route refusal origin: buckle|upstream|bridged-upstream|network|cooldown */
 	refusal: string | null;
 	retryAfterS: number | null;
 	toolCalled: boolean;

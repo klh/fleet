@@ -85,9 +85,9 @@ describe("wire contract", () => {
 			messages: [{ role: "user", content: SIMPLE }],
 		});
 		expect(res.status).toBe(200);
-		expect(res.headers.get("x-belt-rid")).toBeTruthy();
+		expect(res.headers.get("x-buckle-rid")).toBeTruthy();
 		const route = JSON.parse(
-			res.headers.get("x-belt-route") ?? "{}",
+			res.headers.get("x-buckle-route") ?? "{}",
 		) as RouteHeader;
 		expect(route.decision).toBe("policy");
 		expect(route.target?.kind).toBe("local");
@@ -95,7 +95,7 @@ describe("wire contract", () => {
 		// the mock is quick, so the first call is already proven fast
 		expect(route.latency_class).toBe("fast");
 		expect(route.tier).toBe("SIMPLE");
-		expect(res.headers.get("x-belt-error")).toBeNull();
+		expect(res.headers.get("x-buckle-error")).toBeNull();
 		const rows = deps.ledger.auditRows();
 		expect(rows.length).toBe(1);
 		const r = rows[0] ?? {};
@@ -119,7 +119,7 @@ describe("must laws (§4.2, §7.5)", () => {
 			"must speed",
 		);
 		expect(res.status).toBe(503);
-		expect(res.headers.get("x-belt-error")).toBe("no_healthy_fit");
+		expect(res.headers.get("x-buckle-error")).toBe("no_healthy_fit");
 		expect(upstream.calls.length).toBe(0); // nothing was sent upstream
 		const row = deps.ledger.auditRows()[0] ?? {};
 		expect(row.decision).toBe("errored");
@@ -142,7 +142,7 @@ describe("must laws (§4.2, §7.5)", () => {
 			"must cloud",
 		);
 		expect(res.status).toBe(503);
-		expect(res.headers.get("x-belt-error")).toBe("cloud_forbidden");
+		expect(res.headers.get("x-buckle-error")).toBe("cloud_forbidden");
 		upstream.close();
 	});
 });
@@ -160,7 +160,7 @@ describe("prefer degrade + refusal (§4.1, §7.7)", () => {
 		);
 		expect(res.status).toBe(200); // served, not refused
 		const route = JSON.parse(
-			res.headers.get("x-belt-route") ?? "{}",
+			res.headers.get("x-buckle-route") ?? "{}",
 		) as RouteHeader;
 		expect(route.decision).toBe("degraded");
 		const row = deps.ledger.auditRows()[0] ?? {};
@@ -180,7 +180,7 @@ describe("prefer degrade + refusal (§4.1, §7.7)", () => {
 			"maybe cloud i guess",
 		);
 		expect(res.status).toBe(400);
-		expect(res.headers.get("x-belt-error")).toBe("bad_hint");
+		expect(res.headers.get("x-buckle-error")).toBe("bad_hint");
 		const row = deps.ledger.auditRows()[0] ?? {};
 		expect(row.decision).toBe("denied");
 		expect(row.error_code).toBe("bad_hint");

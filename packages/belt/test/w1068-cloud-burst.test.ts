@@ -106,7 +106,7 @@ const post = (traceId: string) =>
 			"content-type": "application/json",
 			"x-api-key": "bksk_test-scoped-fake", // W1117 ingress credential
 			traceparent: `00-${traceId}-aaaaaaaaaaaaaaaa-01`,
-			"x-klh-request-id": `w1068-${traceId.slice(0, 8)}`,
+			"x-buckle-request-id": `w1068-${traceId.slice(0, 8)}`,
 		},
 		body: JSON.stringify({
 			model: "claude-sonnet-4",
@@ -180,7 +180,7 @@ test("rate-limited upstream: every refusal carries the genuine z.ai Retry-After 
 		const r = await p;
 		if (r.status !== 429) continue;
 		expect(r.headers.get("retry-after")).toBe("3");
-		expect(r.headers.get("x-klh-refusal")).toBe("upstream_rate_limit");
+		expect(r.headers.get("x-buckle-refusal")).toBe("upstream_rate_limit");
 		const body = (await r.json()) as { error: { message: string } };
 		expect(body.error.message).toContain("z.ai request rate limit reached");
 		expect(body.error.message).not.toContain("at max in-flight");

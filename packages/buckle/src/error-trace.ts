@@ -103,7 +103,7 @@ function object(value: unknown): JsonObject | null {
 }
 
 function traceId(req: Request, resp: Response): string {
-	const stamped = resp.headers.get("x-klh-trace-id");
+	const stamped = resp.headers.get("x-buckle-trace-id");
 	if (stamped && TRACE_ID.test(stamped)) return stamped;
 	return (
 		traceIdOf(req.headers.get("traceparent")) ?? randomBytes(16).toString("hex")
@@ -111,17 +111,17 @@ function traceId(req: Request, resp: Response): string {
 }
 
 function currentHop(resp: Response, hub: string, code: string | null) {
-	const rid = safeCorrelationId(resp.headers.get("x-belt-rid"));
+	const rid = safeCorrelationId(resp.headers.get("x-buckle-rid"));
 	const upstreamRequestId = safeCorrelationId(
-		resp.headers.get("x-klh-upstream-request-id"),
+		resp.headers.get("x-buckle-upstream-request-id"),
 	);
 	const callId = safeCorrelationId(resp.headers.get("x-litellm-call-id"));
-	const status = Number(resp.headers.get("x-klh-upstream-status"));
+	const status = Number(resp.headers.get("x-buckle-upstream-status"));
 	let target: string | undefined;
 	let providerTarget: string | undefined;
 	let providerSource: "provider_response" | "litellm_translation" | undefined;
 	try {
-		const route = object(JSON.parse(resp.headers.get("x-belt-route") ?? ""));
+		const route = object(JSON.parse(resp.headers.get("x-buckle-route") ?? ""));
 		const row = object(route?.target);
 		const host = safeHost(row?.host);
 		const port = row?.port;
@@ -176,8 +176,8 @@ export function peerErrorTrace(
 ): string | null {
 	if (
 		!trustedPeer ||
-		resp.headers.get("x-klh-service") !== "buckle" ||
-		resp.headers.get("x-klh-trace-id") !== expectedId
+		resp.headers.get("x-buckle-service") !== "buckle" ||
+		resp.headers.get("x-buckle-trace-id") !== expectedId
 	)
 		return null;
 	const parsed = FleetErrorTraceSchema.safeParse(object(wire)?.fleet_trace);
@@ -213,8 +213,8 @@ export function traceStreamErrorPayload(
 	const target = safeProviderErrorToken(targetId) ?? undefined;
 	const peer =
 		trustedPeer &&
-		upstream.headers.get("x-klh-service") === "buckle" &&
-		upstream.headers.get("x-klh-trace-id") === id
+		upstream.headers.get("x-buckle-service") === "buckle" &&
+		upstream.headers.get("x-buckle-trace-id") === id
 			? FleetErrorTraceSchema.safeParse(body.fleet_trace)
 			: null;
 	const hops =
@@ -322,8 +322,8 @@ export async function traceErrorResponse(
 	const id = traceId(req, resp);
 	const hub = HUB_LABEL.test(hubLabel) ? hubLabel : "local";
 	const headers = new Headers(resp.headers);
-	headers.set("x-klh-trace-id", id);
-	headers.set("x-klh-error-origin", hub);
+	headers.set("x-buckle-trace-id", id);
+	headers.set("x-buckle-error-origin", hub);
 	const parsed = await smallJson(resp);
 	const fallback = parsed ? null : fallbackBody(req, resp);
 	const body = parsed ?? fallback?.body;
@@ -337,7 +337,7 @@ export async function traceErrorResponse(
 	const code = safeProviderErrorToken(
 		body.code ?? object(body.error)?.code ?? object(body.error)?.type ?? null,
 	);
-	const peerHeader = resp.headers.get("x-klh-peer-error-trace");
+	const peerHeader = resp.headers.get("x-buckle-peer-error-trace");
 	let prior: z.infer<typeof FleetErrorTraceSchema> | null = null;
 	try {
 		if (peerHeader && peerHeader.length > 4096)
@@ -398,8 +398,8 @@ export async function traceErrorResponse(
 			body.message = present(body.message);
 		}
 	}
-	headers.delete("x-klh-peer-error-trace");
-	headers.set("x-klh-error-origin", origin);
+	headers.delete("x-buckle-peer-error-trace");
+	headers.set("x-buckle-error-origin", origin);
 	headers.delete("content-length");
 	headers.delete("content-encoding");
 	return new Response(JSON.stringify(body), {

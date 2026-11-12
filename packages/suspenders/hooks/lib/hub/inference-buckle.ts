@@ -15,7 +15,7 @@ export const BUCKLE_MESSAGES_PATH = "/v1/messages";
 export const BUCKLE_CHAT_PATH = "/v1/chat/completions";
 /** buckle's response-identity header (telemetry/src/http-trace.ts
  *  OWNED_HEADERS — a 32-hex trace id, not a W3C traceparent). */
-export const TRACE_ID_HEADER = "x-klh-trace-id";
+export const TRACE_ID_HEADER = "x-buckle-trace-id";
 // W136 hint grammar lives in buckle (src/hints.ts) — ≤512 bytes on the wire,
 // exactly one header; buckle rejects malformed hints server-side, so the
 // client only bounds the byte length.
@@ -79,7 +79,7 @@ export interface BuckleChatResult {
 	text: string;
 	model: string;
 	ms: number;
-	/** buckle's response identity (x-klh-trace-id), null when absent */
+	/** buckle's response identity (x-buckle-trace-id), null when absent */
 	traceId: string | null;
 	/** prompt/completion token usage, when the wire reports it */
 	pt: number;

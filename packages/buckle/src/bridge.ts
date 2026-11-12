@@ -265,7 +265,7 @@ function trustedStreamTrace(
 	const trace = peerErrorTrace(
 		peer,
 		wire,
-		peer.headers.get("x-klh-trace-id") ?? "",
+		peer.headers.get("x-buckle-trace-id") ?? "",
 		true,
 	);
 	return trace ? JSON.parse(trace) : null;

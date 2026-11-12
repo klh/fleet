@@ -37,7 +37,7 @@ export function createApp(deps: AppDeps): App {
 		}
 		// W1 lane attribution (caveman adopt 1): /w/<slug> prefixes the LLM
 		// ingress + /v1/models only. The slug lands in the audit row + the
-		// x-belt-route header; the upstream sees the bare path. Other
+		// x-buckle-route header; the upstream sees the bare path. Other
 		// surfaces (federation/admin/aids) stay unprefixed — a lane prefix
 		// never widens surface.
 		// W1265 named bases (/anthropic, /openai, /zai/*) — guard answers first

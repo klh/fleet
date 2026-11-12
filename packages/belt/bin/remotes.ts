@@ -365,7 +365,7 @@ export async function catalogEvidenceFor(
 			.filter((id) => validModel(id));
 		return {
 			models: [...new Set(ids)],
-			servedBy: r.headers.get("x-klh-hop") === "belt" ? "belt" : undefined,
+			servedBy: r.headers.get("x-buckle-hop") === "belt" ? "belt" : undefined,
 		};
 	} catch {
 		return { models: [] };

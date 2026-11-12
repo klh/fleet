@@ -347,7 +347,7 @@ describe("wire e2e: condense-in through createApp", () => {
 		);
 		expect(res.status).toBe(200);
 		expect(await res.text()).toBe(UPSTREAM_BODY); // byte identity held
-		const rid = res.headers.get("x-belt-rid") ?? "";
+		const rid = res.headers.get("x-buckle-rid") ?? "";
 		expect(rid.length).toBeGreaterThan(0);
 		const raw = await app.fetch(
 			new Request(`${upstream.url}/pipeline/in/${rid}`),

@@ -104,7 +104,7 @@ describe("buckleChat", () => {
 						calls++;
 						return new Response("secret-prompt-echo", {
 							status: 503,
-							headers: { "x-klh-trace-id": "a".repeat(32) },
+							headers: { "x-buckle-trace-id": "a".repeat(32) },
 						});
 					}) as unknown as typeof fetch,
 				},
@@ -137,7 +137,7 @@ describe("buckleChat", () => {
 		expect(seenUrl).toBe("http://127.0.0.1:4101/v1/chat/completions");
 	});
 
-	test("result carries buckle's x-klh-trace-id response identity", async () => {
+	test("result carries buckle's x-buckle-trace-id response identity", async () => {
 		const result = await buckleChat(
 			{
 				model: "m",
@@ -147,7 +147,7 @@ describe("buckleChat", () => {
 						JSON.stringify({ content: [{ type: "text", text: "x" }] }),
 						{
 							status: 200,
-							headers: { "x-klh-trace-id": "b".repeat(32) },
+							headers: { "x-buckle-trace-id": "b".repeat(32) },
 						},
 					)) as unknown as typeof fetch,
 			},

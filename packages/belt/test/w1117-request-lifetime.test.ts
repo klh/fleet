@@ -72,7 +72,7 @@ test("model proxy terminates pending upstream fetch on caller cancellation", asy
 	setTimeout(() => controller.abort(), 25);
 	const response = await call;
 	expect(response.status).toBe(499);
-	expect(response.headers.get("x-klh-refusal")).toBe("client_cancelled");
+	expect(response.headers.get("x-buckle-refusal")).toBe("client_cancelled");
 	expect(Date.now() - started).toBeLessThan(400);
 });
 

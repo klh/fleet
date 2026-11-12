@@ -128,7 +128,7 @@ test("plain hangup with no upstream boundary stays a plain cancel", async () => 
 });
 
 /** The far leg: a provider-shaped 429 — litellm envelope, provider call id,
- *  and the hop refusal header upstream_refusal_code rides (x-klh-refusal). */
+ *  and the hop refusal header upstream_refusal_code rides (x-buckle-refusal). */
 function refusingUpstream(): { port: number; stop(): void } {
 	const inner = JSON.stringify({
 		type: "error",
@@ -155,7 +155,7 @@ function refusingUpstream(): { port: number; stop(): void } {
 					status: 429,
 					headers: {
 						"x-litellm-call-id": "provider-call-fixture",
-						"x-klh-refusal": "rate_limit_error",
+						"x-buckle-refusal": "rate_limit_error",
 					},
 				},
 			),

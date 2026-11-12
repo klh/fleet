@@ -16,7 +16,7 @@ const emptyUsage = (): Usage => ({
 	out: 0,
 });
 
-/** buckle stamps x-belt-route as single-line JSON; `refusal` names who
+/** buckle stamps x-buckle-route as single-line JSON; `refusal` names who
  *  refused (buckle | upstream | bridged-upstream | network | cooldown). */
 export function refusalOf(routeHeader: string | null): string | null {
 	if (routeHeader === null) return null;

@@ -104,7 +104,7 @@ Unknown or custom transports remain `null`. Boundaries update the same attempt
 row; chunks do not create a new log or metric series. These are wire byte counts,
 not prompt tokens or model prefill timing.
 
-`x-klh-transport-timeout-phase` carries a bounded local timeout phase on failure;
+`x-buckle-transport-timeout-phase` carries a bounded local timeout phase on failure;
 only explicitly configured Buckle peers may relay it. Stream-close evidence is
 available in the trace after headers, never retroactively promised in headers.
 `local_settled` means the local fetch/reader cancellation promise settled. It
