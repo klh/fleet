@@ -1,6 +1,6 @@
 {
 	"name": "@klh/design-ui",
-	"version": "2.3.1",
+	"version": "2.3.2",
 	"description": "Shared UI foundations: design tokens (build face + typed module), typed event kit, SCSS→Lit styles plugin, register pattern, catalog harness",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",

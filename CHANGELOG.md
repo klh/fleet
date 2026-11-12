@@ -6,6 +6,10 @@ machine-level `~/.config/klh/stack.json` names the same ref and `hubctl` renders
 it as what every hub pulls. Details for a release live in the work graph and
 package docs, not here — this file records the release line only.
 
+## 2.3.2 — 2026-11-12
+
+- W3057
+
 ## 2.3.1 — 2026-11-12
 
 - W2732
