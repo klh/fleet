@@ -10,6 +10,10 @@ import { validateDeploymentEgress } from "./adapters/egress.ts";
 import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
 import { deriveAdapter } from "./adapters/types.ts";
+import {
+	ModelCapabilitiesSchema,
+	type ModelCapabilities,
+} from "./wire-schemas.ts";
 
 export type Dialect = "openai" | "anthropic";
 
@@ -43,6 +47,10 @@ export interface Deployment {
 	// Lower number wins among healthy deployments for the same request fit.
 	// Omitted preserves measured latency ordering.
 	priority?: number;
+	// W2979: operator-pinned serving capabilities (machine conf — the repo
+	// placeholder NEVER carries numbers). Validated in poolFrom; published on
+	// /v1/models rows only when every bound deployment agrees.
+	capabilities?: ModelCapabilities;
 	group: string;
 }
 
@@ -68,6 +76,7 @@ interface DeploymentSpec {
 	visibility?: string;
 	buckle?: boolean;
 	priority?: number;
+	capabilities?: ModelCapabilities;
 }
 
 export interface UpstreamPool {
@@ -127,6 +136,16 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 					throw new Error(
 						`upstreams: group "${group}": priority must be a non-negative integer`,
 					);
+				// W2979 (schema law): conf-pinned capabilities safeParse through the
+				// named wire schema — malformed metadata is startup fatal, never a
+				// silently malformed catalog row.
+				if (dep.capabilities !== undefined) {
+					const caps = ModelCapabilitiesSchema.safeParse(dep.capabilities);
+					if (!caps.success)
+						throw new Error(
+							`upstreams: group "${group}": capabilities: ${caps.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+						);
+				}
 				// startup fatal (W134 §4.2): unknown adapter names — and known
 				// tier-2 families with no adapter yet — fail closed here,
 				// naming the offending group, never a silent passthrough.

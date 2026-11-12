@@ -46,3 +46,67 @@ Run `bun <prefix>/bin/runner-control.ts --check` on the desktop host before
 activation. It validates the private inputs, checks mint authority through
 Buckle identity, and inspects the pinned image in the local Docker Desktop
 cache. It uses read-only probes.
+
+## Serving capabilities
+
+The production runner discovers selected profile models through the configured
+Buckle's authenticated `/v1/models` face. The separate mint credential needs
+`buckle:admin:WRITE_` for per-run keys and `buckle:proxy:READ_` for catalog access.
+Neither the user control credential nor a guest receives that mint authority.
+
+Every selected model must advertise `context_length`, `max_output_tokens`,
+`reasoning` and `capability_source`. Missing, incomplete, duplicate or malformed
+selected rows refuse startup and preflight; unrelated catalog rows may omit
+capabilities. Values come from the serving configuration, including its fallback
+routes. The runner does not substitute guessed limits or add a total token cap.
+Preflight reports the selected metadata and its provenance. An operator pin
+does not prove a provider's maximum model context.
+
+Catalog discovery is bounded and refuses redirects. Permission errors refuse
+startup rather than retrying with another credential or exposing response bodies.
+Preflight validates discovery without submitting model work or starting a guest.
+It still does not prove a completed model/tool turn or workspace recovery.
+
+## Workspace recovery status
+
+The executor records an absolute `deadlineAt` when a guest starts. A later host
+configuration change does not renew that guest's lifetime. Legacy records with
+no original deadline refuse execution and require explicit migration; do not
+fill the missing value with a new deadline.
+
+Before sending a tool command, the executor persists that the workspace may
+have changed. Losing that guest without a verified checkpoint refuses recovery
+rather than launching an empty workspace. Failed commands may have changed
+files too, so the marker precedes the command's execution.
+
+Graceful workspace checkpoint and authorized restore are wired in the reviewed
+`7ba526c1` runtime imported here. A Durable journal alone is not a workspace
+backup: recovery requires the verified workspace and existing journal together.
+
+The checkpoint storage foundation streams opaque archive bytes into a private
+directory and publishes its manifest last, with file and directory fsync. The
+caller must durably provision its private storage root first. Size and digest
+checks share the same nofollow file descriptor later used for replay. The
+manifest binds the original job, image, deadline, lease epoch and conversation.
+The lifecycle validates the bounded USTAR stream, checks daemon-backed
+quiescence, authorizes resume and verifies the existing journal before effects.
+
+The separate Docker process transport has tested per-command cancellation and
+bounded cleanup. Guest exit frames are not authenticated: a same-UID command
+can forge success and kill its guardian. Before checkpoint or reuse, close
+intake, join tracked commands and require the daemon-backed PID-only quiescence
+check; residue or uncertain cleanup requires destroying the guest. The executor
+now initializes this transport before opening the model job, forwards the
+Durable tool abort signal and keeps intake closed after stop or quiescence.
+Startup refuses a guest missing its baked Bun/setsid tools; it installs nothing.
+Service probes and command execution use the same configured Docker daemon.
+Stop joins pending guest creation and persists terminal intent so reopening a
+stopped run cannot silently recreate it. A newly created guest remains tracked
+in memory before its first record write; persistence failure triggers checked
+destruction, retaining its identity for a later cleanup retry if necessary.
+Graceful close captures and commits a verified checkpoint before removing its
+guest. Restore preserves the original deadline and history, revokes old
+authority before minting a fresh epoch, and refuses missing or corrupt state.
+Same-HOST Docker continuity and refusal tests cover this source; landing and
+installed activation require their own readbacks. Existing experimental HOST
+image receipts remain bound to their original source and configuration.

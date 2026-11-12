@@ -29,14 +29,28 @@ if (process.argv.length === 2) {
 	try {
 		const config = settings({ mode: "service" }).runner;
 		const host = runnerHostConfig(config);
-		readRunnerProfiles(host.profilesFile);
+		const profiles = readRunnerProfiles(host.profilesFile);
 		const desktop = await loadDesktopRuntimeConfig(config);
 		const [imageId] = await Promise.all([
 			checkDesktopImage(desktop.image),
 			checkDesktopMintAuthority(desktop.baseUrl, desktop.adminKey),
 			checkRunnerDockerLimits(),
 		]);
-		console.log(JSON.stringify({ preflight: "passed", imageId }));
+		const { discoverRunnerModels } = await import(
+			"../lib/runners/service/model-capabilities.ts"
+		);
+		const catalog = await discoverRunnerModels({
+			baseUrl: desktop.baseUrl,
+			adminKey: desktop.adminKey,
+			profiles,
+		});
+		console.log(
+			JSON.stringify({
+				preflight: "passed",
+				imageId,
+				modelCapabilities: catalog.capabilities,
+			}),
+		);
 	} catch (error) {
 		const code =
 			error instanceof Error && /^runner\.[a-z_]+$/.test(error.message)

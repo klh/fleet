@@ -77,7 +77,7 @@ export interface DurableAdapter {
 		meta?: { requestId?: string },
 	): Promise<void>;
 	resume(runId: string): Promise<void>;
-	stop(runId: string): Promise<void>;
+	stop(runId: string, ownership?: { epoch: number }): Promise<void>;
 }
 
 export type ActionResult =
@@ -144,6 +144,8 @@ export const openRunnerController = (deps: {
 	 *  strand the revocation ladder. */
 	cleanupTimeoutMs?: number;
 	executorStopTimeoutMs?: number;
+	/** A live handoff owns cleanup; its bounded heartbeat keeps the lease live. */
+	operationActive?: (runId: string) => boolean;
 }): RunnerController => {
 	const now = deps.now ?? (() => Date.now());
 	const ttlMs = deps.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
@@ -580,7 +582,8 @@ export const openRunnerController = (deps: {
 				getLease(deps.store, runId)?.epoch === fenced?.epoch
 			) {
 				const err = await bounded(
-					async () => deps.durable?.stop(runId),
+					async () =>
+						deps.durable?.stop(runId, { epoch: leaseRow?.epoch ?? 0 }),
 					"executor stop",
 					deps.executorStopTimeoutMs,
 				);
@@ -650,7 +653,7 @@ export const openRunnerController = (deps: {
 					getLease(deps.store, runId)?.epoch === fencedEpoch
 				) {
 					const err = await bounded(
-						async () => deps.durable?.stop(runId),
+						async () => deps.durable?.stop(runId, { epoch: captured.epoch }),
 						"executor stop",
 						deps.executorStopTimeoutMs,
 					);
@@ -675,7 +678,7 @@ export const openRunnerController = (deps: {
 					lease.state === "active" &&
 					lease.epoch === captured.epoch &&
 					lease.updated_at > now() - ttlMs;
-				if (live) return;
+				if (live || deps.operationActive?.(runId)) return;
 				void halt();
 			}, intervalMs);
 			return {
