@@ -12,6 +12,7 @@
 	"module": "src/index.ts",
 	"exports": {
 		".": "./src/index.ts",
+		"./connections": "./src/settings.connection-resolver.ts",
 		"./settings.schema.json": "./settings.schema.json",
 		"./package.json": "./package.json"
 	},

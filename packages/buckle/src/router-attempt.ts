@@ -298,6 +298,38 @@ export async function tryOnce(
 		}
 		timeoutMs = Math.min(timeoutMs, remainingMs);
 	}
+	const transport = host.connectionLimits?.get(dep.providerProfile ?? dep.url);
+	if (transport) {
+		let connection: ProviderLease | null;
+		try {
+			connection = transport.acquire(req.signal);
+		} catch (error) {
+			lease?.release();
+			host.cooldowns.cold.releaseProbe(dep);
+			throw error;
+		}
+		if (!connection) {
+			lease?.release();
+			host.cooldowns.cold.releaseProbe(dep);
+			return {
+				ok: false,
+				localAdmission: true,
+				localCause: "full",
+				providerPool: null,
+				status: 503,
+				error: "Relay connection limit reached",
+				retryAfterS: 0,
+			};
+		}
+		const account = lease;
+		lease = {
+			release: () => {
+				connection.release();
+				account?.release();
+			},
+			...(account?.feedback ? { feedback: account.feedback } : {}),
+		};
+	}
 	try {
 		const raw = await host.fetchImpl(
 			dep,

@@ -46,6 +46,19 @@ test("renderProviderEnv binds each profile's key to its declared env name", () =
 	expect(renderProviderEnv([])).toBe("");
 });
 
+test("generated env refuses newline injection and interpolation-sensitive credentials", () => {
+	for (const key of [
+		"value\nOTHER=value",
+		"value$OTHER",
+		'value"quoted',
+		"value'quoted",
+		"value\\escaped",
+	])
+		expect(() => renderProviderEnv([{ ...resolved(), key }])).toThrow(
+			"Invalid provider output binding",
+		);
+});
+
 test("requiredProviders resolves declared profiles through the shared resolver", () => {
 	const rows = requiredProviders(
 		{ provider_requirements: ["zai-coding"] },
@@ -97,47 +110,54 @@ test("no requirements resolves to [] WITHOUT reading provider config", () => {
 
 test("tryLoadProviderConfig degrades to null on missing, wrong-mode, or malformed stacks", () => {
 	const dir = mkdtempSync(join(tmpdir(), "hub-providers-"));
+	const previousSettings = process.env.KLH_SETTINGS;
+	process.env.KLH_SETTINGS = join(dir, "absent-settings.json");
 	try {
-		const good = join(dir, "good.json");
-		writeFileSync(
-			good,
-			JSON.stringify({
-				providers: {
-					"zai-coding": {
-						provider: "zai",
-						key: "zk-live-0123456789abcdef", // scrub:allow
-						env: "Z_AI_API_KEY",
-					},
-				},
-			}),
-			{ mode: 0o600 },
-		);
-		const lax = join(dir, "lax.json");
-		writeFileSync(lax, `{"providers": {}}\n`);
-		chmodSync(lax, 0o644);
-		const bad = join(dir, "bad.json");
-		writeFileSync(bad, `{"providers": ["not", "a", "map"]}\n`, {
-			mode: 0o600,
-		});
-
-		const prev = process.env.KLH_STACK;
 		try {
-			process.env.KLH_STACK = good;
-			expect(Object.keys(tryLoadProviderConfig() ?? {})).toEqual([
-				"zai-coding",
-			]);
-			process.env.KLH_STACK = lax;
-			expect(tryLoadProviderConfig()).toBeNull(); // mode 600 enforced
-			process.env.KLH_STACK = bad;
-			expect(tryLoadProviderConfig()).toBeNull();
-			process.env.KLH_STACK = join(dir, "absent.yaml");
-			expect(tryLoadProviderConfig()).toBeNull();
+			const good = join(dir, "good.json");
+			writeFileSync(
+				good,
+				JSON.stringify({
+					providers: {
+						"zai-coding": {
+							provider: "zai",
+							key: "fixture-only",
+							env: "Z_AI_API_KEY",
+						},
+					},
+				}),
+				{ mode: 0o600 },
+			);
+			const lax = join(dir, "lax.json");
+			writeFileSync(lax, `{"providers": {}}\n`);
+			chmodSync(lax, 0o644);
+			const bad = join(dir, "bad.json");
+			writeFileSync(bad, `{"providers": ["not", "a", "map"]}\n`, {
+				mode: 0o600,
+			});
+
+			const prev = process.env.KLH_STACK;
+			try {
+				process.env.KLH_STACK = good;
+				expect(Object.keys(tryLoadProviderConfig() ?? {})).toEqual([
+					"zai-coding",
+				]);
+				process.env.KLH_STACK = lax;
+				expect(tryLoadProviderConfig()).toBeNull(); // mode 600 enforced
+				process.env.KLH_STACK = bad;
+				expect(tryLoadProviderConfig()).toBeNull();
+				process.env.KLH_STACK = join(dir, "absent.yaml");
+				expect(tryLoadProviderConfig()).toBeNull();
+			} finally {
+				if (prev === undefined) delete process.env.KLH_STACK;
+				else process.env.KLH_STACK = prev;
+			}
 		} finally {
-			if (prev === undefined) delete process.env.KLH_STACK;
-			else process.env.KLH_STACK = prev;
+			rmSync(dir, { recursive: true, force: true });
 		}
 	} finally {
-		rmSync(dir, { recursive: true, force: true });
+		if (previousSettings === undefined) delete process.env.KLH_SETTINGS;
+		else process.env.KLH_SETTINGS = previousSettings;
 	}
 });
 
@@ -220,11 +240,15 @@ test("hubctl push materializes provider.env ON the target — 0600, env names, n
 			{
 				stdout: "pipe",
 				stderr: "pipe",
-				env: { ...process.env, KLH_STACK: stackPath },
+				env: {
+					...process.env,
+					KLH_STACK: stackPath,
+					KLH_SETTINGS: join(dir, "absent-settings.json"),
+				},
 			},
 		);
 		const out = r.stdout.toString() + r.stderr.toString();
-		expect(r.exitCode).toBe(0);
+		expect(r.exitCode, r.stderr.toString()).toBe(0);
 		const envPath = join(deployDir, PROVIDER_ENV_FILENAME);
 		expect(readFileSync(envPath, "utf8")).toBe(
 			"Z_AI_API_KEY=zk-live-0123456789abcdef\n", // scrub:allow
@@ -267,10 +291,14 @@ test("a hub with no provider_requirements still pushes — empty provider.env ke
 			{
 				stdout: "pipe",
 				stderr: "pipe",
-				env: { ...process.env, KLH_STACK: stackPath },
+				env: {
+					...process.env,
+					KLH_STACK: stackPath,
+					KLH_SETTINGS: join(dir, "absent-settings.json"),
+				},
 			},
 		);
-		expect(r.exitCode).toBe(0);
+		expect(r.exitCode, r.stderr.toString()).toBe(0);
 		expect(readFileSync(join(deployDir, PROVIDER_ENV_FILENAME), "utf8")).toBe(
 			"",
 		);
