@@ -1,0 +1,151 @@
+{
+	"schemaVersion": 1,
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
+	"recordedAt": "2026-11-12T09:24:00Z",
+	"sourceCommit": "184aed2b7122d3d98aae225960b0498a194067d6",
+	"recipeCommit": "184aed2b7122d3d98aae225960b0498a194067d6",
+	"verificationCommit": "184aed2b7122d3d98aae225960b0498a194067d6",
+	"registry": {
+		"name": "fleet/buckle-seed",
+		"repository": "klh/fleet",
+		"visibility": "private"
+	},
+	"evidence": [
+		{
+			"platform": "linux/amd64",
+			"manifest": "sha256:04f8fd707103c63d878e7c779ad3341c78650ffc82b3e9eb58ee63fae9943242",
+			"config": "sha256:7a536883b9c1c14dd57048cb75e4e62e35414890b0efc3ba9bbecb3d8cce32f1",
+			"attestationManifest": "sha256:5eac29ec87fa8a605aceb5de04d83b8f4037c205b757c5d7bdb0da948b2b12a3",
+			"attestationSubjectMatches": true,
+			"attestationArtifactType": "application/vnd.docker.attestation.manifest.v1+json",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"predicatesNote": "both attestation manifests present in the immutable index and subject-linked; in-toto payload statements not re-parsed over the raw registry API in this recording",
+			"packages": null,
+			"packagesNote": "SBOM package count not re-derived in this recording; attestations linked but statement layers not fetched via registry blob API (404 on inner hop)",
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"rootFSLayers": [
+				"sha256:f2be67225471500c788ce88c597eb5ea8336e912ad1ca4815650e0281afe2034",
+				"sha256:da0d9fed99843ee19a8aa92e3f28c0adb4b4e946455007d72a63f79b3288464d",
+				"sha256:2b1095350c84b7a8c37fcf7b37fbeb86bc99ab210b63439ddb37c1a9198ee368",
+				"sha256:16ad01fcb899fc71c504e8903f205fe33dbc44d187e12658dc7ef83375f5e9cb",
+				"sha256:f270dfd7b6674bc5d165c622f741a9185bc028e014a4fa1589b55911416f58cc",
+				"sha256:c05930390c11f48c5ec313d1e28a56b9b993ea62a25f8ab9bd7632fde3ab4615",
+				"sha256:096f285058139f86aafad97efac9c9a1b5c55724a0208218d885d0deff3839c1",
+				"sha256:0b70e911992dccef71b8db9df16a8329467da72451f521cc5a222a8be4bcfd3b",
+				"sha256:725cddb6332babc555a7d47b1f6354b2e55ea7bfaa1d5698f61a22ba0c9cea0c",
+				"sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1"
+			],
+			"labels": {
+				"source": "184aed2b7122d3d98aae225960b0498a194067d6",
+				"recipe": "184aed2b7122d3d98aae225960b0498a194067d6",
+				"version": "2.3.0-experimental.w3030"
+			},
+			"runtimeSmoke": {
+				"platform": "linux/amd64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
+				"api": {
+					"ids": ["seed-model"],
+					"catalog": [
+						{
+							"id": "seed-model",
+							"object": "model",
+							"owned_by": "buckle",
+							"context_length": 131072,
+							"max_output_tokens": 16384,
+							"reasoning": false,
+							"capability_source": "operator-pinned"
+						}
+					],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": { "uid": 1000, "arch": "x64", "db": true },
+					"probeExitCode": 0
+				},
+				"neutral": { "advertisedModels": [], "completionStatus": 503, "upstreamCalls": 0 },
+				"unkeyed": { "status": 401, "inferenceCalls": 0 },
+				"mismatchedFallbackOmission": true,
+				"source": "bun --bun playwright test --config packages/buckle/deploy/playwright.config.ts --project=container with BUCKLE_SEED_TEST_IMAGE digest-pinned (seed@container.e2e.ts)"
+			}
+		},
+		{
+			"platform": "linux/arm64",
+			"manifest": "sha256:c7555e51aac39a7d9cea74482eceb78762750ef4dba57f704c434a2846a05499",
+			"config": "sha256:79d7f0947c2ae6043322c63bcb79bd523df6606565020ccdc83a5cde1f826ef9",
+			"attestationManifest": "sha256:425e51dc09a3b8c6944d02d3feb969ae02a9db522a589648a6ed2618c28f0878",
+			"attestationSubjectMatches": true,
+			"attestationArtifactType": "application/vnd.docker.attestation.manifest.v1+json",
+			"predicates": [
+				"https://spdx.dev/Document",
+				"https://slsa.dev/provenance/v1"
+			],
+			"predicatesNote": "both attestation manifests present in the immutable index and subject-linked; in-toto payload statements not re-parsed over the raw registry API in this recording",
+			"packages": null,
+			"packagesNote": "SBOM package count not re-derived in this recording; attestations linked but statement layers not fetched via registry blob API (404 on inner hop)",
+			"subjectAndBlobDigestsVerified": true,
+			"sourceRecipeVersionBaseBindingsVerified": true,
+			"signaturesVerified": false,
+			"rootFSLayers": [
+				"sha256:ddc0c1e36a6793411b6c8d48e1ddad2987405d377da92bcf532ed3181c2e4d62",
+				"sha256:079b8ddbaddd236fa1e8a2a73d3b961f860ca4fcae8d48634cc4a74129af397e",
+				"sha256:d8628bfd00051d98f97707d3aa81928c7f791f58c6bd0cde1c8a7cdba035ebb2",
+				"sha256:ce8704fe4b3abf770994cc03302f17864ec1735bdea4accd505b5a84fec237c4",
+				"sha256:3390dcb5c8db4d91479213b5fcd5ac86b3a97bb6b7040f7a70f3964fe046fe22",
+				"sha256:e0cd266e0be172a1047a38d7c359385fb67b93ec9b47a7cbb7db0bfc3aac9649",
+				"sha256:0372d75a8613b3d293b09b73c590d07d2bebb079293aa4e470a3bf6da6026f0e",
+				"sha256:4ccfb31534823a38a3691e7a25f418d561f79c582fa18694e919caa9ed59a30b",
+				"sha256:adbe0bb8bb2d1c8995c278dfd4e66855fb845e5cd4ef3700700c1e58c74151d1",
+				"sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1"
+			],
+			"labels": {
+				"source": "184aed2b7122d3d98aae225960b0498a194067d6",
+				"recipe": "184aed2b7122d3d98aae225960b0498a194067d6",
+				"version": "2.3.0-experimental.w3030"
+			},
+			"runtimeSmoke": {
+				"platform": "linux/arm64",
+				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
+				"api": {
+					"ids": ["seed-model"],
+					"catalog": [
+						{
+							"id": "seed-model",
+							"object": "model",
+							"owned_by": "buckle",
+							"context_length": 131072,
+							"max_output_tokens": 16384,
+							"reasoning": false,
+							"capability_source": "operator-pinned"
+						}
+					],
+					"deniedStatus": 401,
+					"deniedUpstreamCalls": 0,
+					"streamReads": 3,
+					"terminalUsage": true
+				},
+				"runtime": {
+					"state": { "uid": 1000, "arch": "arm64", "db": true },
+					"probeExitCode": 0
+				},
+				"neutral": { "advertisedModels": [], "completionStatus": 503, "upstreamCalls": 0 },
+				"unkeyed": { "status": 401, "inferenceCalls": 0 },
+				"mismatchedFallbackOmission": true,
+				"source": "bun --bun playwright test --config packages/buckle/deploy/playwright.config.ts --project=container with BUCKLE_SEED_TEST_IMAGE digest-pinned (seed@container.e2e.ts)"
+			}
+		}
+	],
+	"context": {
+		"verifiedBy": "pi-01a1ca6f-8542-712b-90c3-c3b835bcf5c0",
+		"unitTests": "5 passed (packages/buckle/deploy --project=unit)",
+		"containerTests": "8 passed (both platforms, digest-pinned published index)",
+		"notes": "Index inspected via docker buildx imagetools and raw registry API: 4 manifests (2 platform images + 2 subject-linked attestation manifests). Labels verified on both platform configs (org.opencontainers.image.revision/version/title/source + io.klh.seed.recipe.revision = 184aed2b). Runtime smoke from the deploy container e2e suite against the digest-pinned published image with isolated synthetic upstreams, minted temporary secrets and tmpfs SQLite; Docker Desktop emulation context, not native amd64 hardware or full production feature acceptance. Recording this receipt does not rebuild the image or move its published tag. Recipe base-image pin (bun:1.4.4-slim@1846adf2…) matched SeedVersionSchema and BASE_IMAGE constant at the source commit."
+	}
+}

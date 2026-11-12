@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"family": "service",
+	"service": "buckle",
+	"version": "2.3.0-experimental.w3030",
+	"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
+	"tag": "2.3.0-experimental.w3030",
+	"sourceCommit": "184aed2b7122d3d98aae225960b0498a194067d6",
+	"recipeCommit": "184aed2b7122d3d98aae225960b0498a194067d6",
+	"architectures": ["linux/amd64", "linux/arm64"],
+	"baseImage": "docker.io/library/bun:1.4.4-slim@sha256:1846adf2ac6d017ce9605475b48f8985b0fc743ae499dd30c0fe51a5dc2a4c88",
+	"producer": "buildx",
+	"build": {
+		"requester": "pi-01a1ca6f-8542-712b-90c3-c3b835bcf5c0",
+		"date": "2026-11-12T09:24:00Z",
+		"host": "macOS arm64 Docker Desktop 29.9.2 (buildx)",
+		"command": "bun packages/buckle/deploy/build.ts --source 184aed2b7122d3d98aae225960b0498a194067d6 --version 2.3.0-experimental.w3030 --mode build ; --mode publish",
+		"context": "detached worktree at tag v2.3.0 (peeled 184aed2b)"
+	}
+}
