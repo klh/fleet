@@ -22,9 +22,9 @@
 				"https://spdx.dev/Document",
 				"https://slsa.dev/provenance/v1"
 			],
-			"predicatesNote": "both attestation manifests present in the immutable index and subject-linked; in-toto payload statements not re-parsed over the raw registry API in this recording",
-			"packages": null,
-			"packagesNote": "SBOM package count not re-derived in this recording; attestations linked but statement layers not fetched via registry blob API (404 on inner hop)",
+			"predicatesNote": "both statements fetched from ghcr.io by descriptor digest with sha256 recomputed per blob; predicate payloads re-parsed in full",
+			"packages": 92,
+			"packagesNote": "SPDX Document package count re-derived from the hash-verified statement blob",
 			"subjectAndBlobDigestsVerified": true,
 			"sourceRecipeVersionBaseBindingsVerified": true,
 			"signaturesVerified": false,
@@ -49,7 +49,9 @@
 				"platform": "linux/amd64",
 				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
 				"api": {
-					"ids": ["seed-model"],
+					"ids": [
+						"seed-model"
+					],
 					"catalog": [
 						{
 							"id": "seed-model",
@@ -67,11 +69,22 @@
 					"terminalUsage": true
 				},
 				"runtime": {
-					"state": { "uid": 1000, "arch": "x64", "db": true },
+					"state": {
+						"uid": 1000,
+						"arch": "x64",
+						"db": true
+					},
 					"probeExitCode": 0
 				},
-				"neutral": { "advertisedModels": [], "completionStatus": 503, "upstreamCalls": 0 },
-				"unkeyed": { "status": 401, "inferenceCalls": 0 },
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				},
 				"mismatchedFallbackOmission": true,
 				"source": "bun --bun playwright test --config packages/buckle/deploy/playwright.config.ts --project=container with BUCKLE_SEED_TEST_IMAGE digest-pinned (seed@container.e2e.ts)"
 			}
@@ -87,9 +100,9 @@
 				"https://spdx.dev/Document",
 				"https://slsa.dev/provenance/v1"
 			],
-			"predicatesNote": "both attestation manifests present in the immutable index and subject-linked; in-toto payload statements not re-parsed over the raw registry API in this recording",
-			"packages": null,
-			"packagesNote": "SBOM package count not re-derived in this recording; attestations linked but statement layers not fetched via registry blob API (404 on inner hop)",
+			"predicatesNote": "both statements fetched from ghcr.io by descriptor digest with sha256 recomputed per blob; predicate payloads re-parsed in full",
+			"packages": 92,
+			"packagesNote": "SPDX Document package count re-derived from the hash-verified statement blob",
 			"subjectAndBlobDigestsVerified": true,
 			"sourceRecipeVersionBaseBindingsVerified": true,
 			"signaturesVerified": false,
@@ -114,7 +127,9 @@
 				"platform": "linux/arm64",
 				"image": "ghcr.io/klh/fleet/buckle-seed@sha256:8202d4f0e9d31b21f6e687a37ed88694d92fe5a5e47d8defc70a72a2a7758a45",
 				"api": {
-					"ids": ["seed-model"],
+					"ids": [
+						"seed-model"
+					],
 					"catalog": [
 						{
 							"id": "seed-model",
@@ -132,11 +147,22 @@
 					"terminalUsage": true
 				},
 				"runtime": {
-					"state": { "uid": 1000, "arch": "arm64", "db": true },
+					"state": {
+						"uid": 1000,
+						"arch": "arm64",
+						"db": true
+					},
 					"probeExitCode": 0
 				},
-				"neutral": { "advertisedModels": [], "completionStatus": 503, "upstreamCalls": 0 },
-				"unkeyed": { "status": 401, "inferenceCalls": 0 },
+				"neutral": {
+					"advertisedModels": [],
+					"completionStatus": 503,
+					"upstreamCalls": 0
+				},
+				"unkeyed": {
+					"status": 401,
+					"inferenceCalls": 0
+				},
 				"mismatchedFallbackOmission": true,
 				"source": "bun --bun playwright test --config packages/buckle/deploy/playwright.config.ts --project=container with BUCKLE_SEED_TEST_IMAGE digest-pinned (seed@container.e2e.ts)"
 			}
@@ -146,6 +172,6 @@
 		"verifiedBy": "pi-01a1ca6f-8542-712b-90c3-c3b835bcf5c0",
 		"unitTests": "5 passed (packages/buckle/deploy --project=unit)",
 		"containerTests": "8 passed (both platforms, digest-pinned published index)",
-		"notes": "Index inspected via docker buildx imagetools and raw registry API: 4 manifests (2 platform images + 2 subject-linked attestation manifests). Labels verified on both platform configs (org.opencontainers.image.revision/version/title/source + io.klh.seed.recipe.revision = 184aed2b). Runtime smoke from the deploy container e2e suite against the digest-pinned published image with isolated synthetic upstreams, minted temporary secrets and tmpfs SQLite; Docker Desktop emulation context, not native amd64 hardware or full production feature acceptance. Recording this receipt does not rebuild the image or move its published tag. Recipe base-image pin (bun:1.4.4-slim@1846adf2…) matched SeedVersionSchema and BASE_IMAGE constant at the source commit."
+		"notes": "Index inspected via docker buildx imagetools and raw registry API: 4 manifests (2 platform images + 2 subject-linked attestation manifests). Labels verified on both platform configs (org.opencontainers.image.revision/version/title/source + io.klh.seed.recipe.revision = 184aed2b). Runtime smoke from the deploy container e2e suite against the digest-pinned published image with isolated synthetic upstreams, minted temporary secrets and tmpfs SQLite; Docker Desktop emulation context, not native amd64 hardware or full production feature acceptance. Recording this receipt does not rebuild the image or move its published tag. Recipe base-image pin (bun:1.4.4-slim@1846adf2\u2026) matched SeedVersionSchema and BASE_IMAGE constant at the source commit. Attestation statement blobs later fetched via the registry blob API (descriptor digest, sha256 recomputed per blob): SPDX Document SBOM (92 packages) and SLSA provenance v1 with resolvedDependencies binding the pinned base oven/bun@1.4.4-slim digest; signatures remain unverified (cosign absent)."
 	}
 }
