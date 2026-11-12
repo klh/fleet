@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { summarize, validate, renderSummary } from "./benchmark-log.ts";
+import { summarize, validate, renderSummary } from "../tools/benchmark-log.ts";
 const run = (id: string, outcome = "pass", runType = "attempt") => ({
 	kind: "run",
 	id,
