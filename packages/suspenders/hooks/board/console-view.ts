@@ -15,6 +15,7 @@ import type {
 	PolicyGatewayParsed,
 	PolicyPatch,
 } from "../lib/board/board-config.ts";
+import { readMappedEnv } from "@klh/settings";
 import {
 	ConfigError,
 	parsePolicy,
@@ -64,12 +65,15 @@ export const consoleMe = (): ConsoleMe => {
 // group is DORMANT — in the ladder but resolving to zero deployments.
 const upstreamSnapshot = () =>
 	readEffectiveUpstreams({
-		overrideRequired: !!process.env.BUCKLE_UPSTREAMS,
+		// W3057 follow-up: the mapped knob reads ride readMappedEnv (the one
+		// designated home in @klh/settings) — direct process.env.<KNOB> reads
+		// drift the env-ratchet pin (this pair did: 63 → 64).
+		overrideRequired: !!readMappedEnv("BUCKLE_UPSTREAMS"),
 		basePath: process.env.BUCKLE_REPO
 			? `${process.env.BUCKLE_REPO}/upstreams.json`
 			: new URL("../../../buckle/upstreams.json", import.meta.url).pathname,
 		overridePath:
-			process.env.BUCKLE_UPSTREAMS ??
+			readMappedEnv("BUCKLE_UPSTREAMS") ??
 			`${process.env.HOME}/.claude/local-llm/upstreams.json`,
 	});
 export const readUpstreams = (): UpstreamGroup[] | null =>
