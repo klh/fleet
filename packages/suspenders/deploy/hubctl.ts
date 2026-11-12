@@ -48,7 +48,6 @@ import {
 import { join } from "node:path";
 import {
 	PROVIDER_ENV_FILENAME,
-	providerIdentityByEnv,
 	renderProviderEnv,
 	requiredProviders,
 } from "../hooks/lib/hub-providers.ts";
@@ -73,6 +72,10 @@ import {
 } from "./hub-parity.ts";
 import { probeHubMessages } from "./hub-parity-probe.ts";
 import { renderHubPolicy } from "./hub-policy.ts";
+import {
+	projectConnectionGroups,
+	projectConnectionPolicy,
+} from "./hub-connections.ts";
 import {
 	assertDeployRefsExist,
 	resolveHubOrigin,
@@ -198,11 +201,18 @@ function redactedRender(envText: string): string {
  *  groups = an empty pool, not a silent inheritance. The local Mac spoke
  *  keeps merge-over-base through its own UNFLAGGED override file. Always
  *  rendered: compose mounts it. */
-export function renderUpstreams(hub: HubProfile): string {
+export function renderUpstreams(
+	hub: HubProfile,
+	required = requiredProviders(hub),
+): string {
 	// W1124.8.2.1 / C74: stamp non-secret central-provider identity onto
 	// deployment rows whose key env matches a required profile's binding
 	// (soft — unknown/unbound profiles leave rows untouched, never keys).
-	const identity = providerIdentityByEnv(hub);
+	const identity = Object.fromEntries(
+		required
+			.filter((r) => r.env)
+			.map((r) => [r.env, { provider: r.provider, providerProfile: r.name }]),
+	);
 	const groups = Object.fromEntries(
 		Object.entries(mergeZaiHubUpstreams(hub, mergedHubUpstreams(hub))).map(
 			([group, rows]) => [
@@ -210,7 +220,13 @@ export function renderUpstreams(hub: HubProfile): string {
 				rows.map((row) => {
 					const env =
 						typeof row.api_key_env === "string" ? row.api_key_env : null;
-					const id = env ? identity[env] : undefined;
+					const canonical = required.some(
+						(profile) =>
+							profile.connection &&
+							(profile.name === row.providerProfile ||
+								(profile.env && profile.env === env)),
+					);
+					const id = !canonical && env ? identity[env] : undefined;
 					return id
 						? {
 								...row,
@@ -223,7 +239,11 @@ export function renderUpstreams(hub: HubProfile): string {
 		),
 	);
 	return `${JSON.stringify(
-		{ version: 1, inherit_defaults: false, groups },
+		{
+			version: 1,
+			inherit_defaults: false,
+			groups: projectConnectionGroups(groups, required),
+		},
 		null,
 		"\t",
 	)}\n`;
@@ -416,8 +436,11 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
  *  env_file) from the profile's required CENTRAL provider profiles. The
  *  rendered body rides stdin over the ssh path (values never enter argv,
  *  never print); no requirements = an empty file (env_file stays valid). */
-function pushProviderEnv(hub: HubProfile, dir: string): void {
-	const required = requiredProviders(hub);
+function pushProviderEnv(
+	hub: HubProfile,
+	dir: string,
+	required = requiredProviders(hub),
+): void {
 	const destination = `${dir}/${PROVIDER_ENV_FILENAME}`;
 	const body = renderProviderEnv(required);
 	if (hub.deploy?.ssh) {
@@ -441,14 +464,18 @@ function pushProviderEnv(hub: HubProfile, dir: string): void {
 }
 
 /** Write the required policy before either fresh activation or reload. */
-function pushGatewayPolicy(hub: HubProfile, dir: string): void {
+function pushGatewayPolicy(
+	hub: HubProfile,
+	dir: string,
+	required = requiredProviders(hub),
+): void {
 	// Materialize policy beside the ladder: defaults preserved, overrides validated.
 	const policyText = renderHubPolicy(
 		readFileSync(
 			join(import.meta.dir, "../../buckle/routing-policy.json"),
 			"utf8",
 		),
-		hub.buckle_gateway,
+		projectConnectionPolicy(hub.buckle_gateway, required),
 	);
 	if (hub.deploy?.ssh) {
 		runOnHub(
@@ -514,15 +541,18 @@ function reloadUpstreams(
 	name: string,
 	version?: string,
 ): void {
+	const required = requiredProviders(hub);
 	const dir = requireDir(hub);
+	renderProviderEnv(required);
 	const ref = hubEnvRef(hub, dir);
 	if (!ref || !version || ref !== resolveHubOrigin(hub, version).ref)
 		throw new Error(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
-	const rendered = renderUpstreams(hub);
-	pushGatewayPolicy(hub, dir);
+	const rendered = renderUpstreams(hub, required);
+	pushGatewayPolicy(hub, dir, required);
 	pushUpstreamEnv(hub, dir);
+	pushProviderEnv(hub, dir, required);
 	const destination = `${dir}/upstreams.hub.json`;
 	if (hub.deploy?.ssh) {
 		execFileSync(
@@ -552,6 +582,10 @@ function pushConfig(
 	auth?: StackConfig["auth"],
 	version?: string,
 ): void {
+	const required = requiredProviders(hub);
+	projectConnectionPolicy(hub.buckle_gateway, required);
+	renderProviderEnv(required);
+	renderUpstreams(hub, required);
 	if (!existsSync(COMPOSE_TEMPLATE)) {
 		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
 	}
@@ -577,20 +611,20 @@ function pushConfig(
 				hub.deploy.ssh,
 				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(`${dir}/upstreams.hub.json`)}'`,
 			],
-			{ input: renderUpstreams(hub) },
+			{ input: renderUpstreams(hub, required) },
 		);
 	} else {
-		writeFileSync(`${dir}/upstreams.hub.json`, renderUpstreams(hub), {
+		writeFileSync(`${dir}/upstreams.hub.json`, renderUpstreams(hub, required), {
 			mode: 0o600,
 		});
 	}
-	pushGatewayPolicy(hub, dir);
+	pushGatewayPolicy(hub, dir, required);
 	pushUpstreamEnv(hub, dir);
 	// W2632: the staged repo→tier account policy (empty placeholder when the
 	// knob is undeclared — the compose bind source must always be a file)
 	pushRepoTierPolicy(hub, dir);
 	// W1124.8.2.1: central provider profiles → the 0600 provider.env
-	pushProviderEnv(hub, dir);
+	pushProviderEnv(hub, dir, required);
 	// W983: the 0600 owner-prefs file (compose binds it at BUCKLE_PREFS)
 	if (hub.deploy?.ssh) {
 		execFileSync(

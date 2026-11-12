@@ -266,6 +266,10 @@ export interface RouterHost {
 	) => Promise<Response>;
 	readonly metrics?: RouterMetrics;
 	readonly pools: Map<string, ProviderAdmissionCore>;
+	readonly connectionLimits?: Map<
+		string,
+		import("./provider-admission-core.ts").ConnectionAdmissionCore
+	>;
 	/** Fleet-wide cap on immediate failover hops (keyed by requested group)
 	 *  — a budget on hops, never on delayed retries (there are none). */
 	readonly failover?: RetryBudget;

@@ -91,6 +91,29 @@ export class ProviderAdmissionFull extends Error {
 	}
 }
 
+/** Transport occupancy only: no account pacing, AIMD or provider feedback. */
+export class ConnectionAdmissionCore {
+	private active = 0;
+	constructor(readonly limit: number) {
+		if (!Number.isSafeInteger(limit) || limit <= 0)
+			throw new Error("Invalid connection limit");
+	}
+	acquire(signal?: AbortSignal): ProviderLease | null {
+		signal?.throwIfAborted();
+		if (this.active >= this.limit) return null;
+		this.active++;
+		let released = false;
+		const release = () => {
+			if (released) return;
+			released = true;
+			this.active--;
+			signal?.removeEventListener("abort", release);
+		};
+		signal?.addEventListener("abort", release, { once: true });
+		return { release };
+	}
+}
+
 /** Fail-fast AIMD knobs (gateway.resilience): multiplicative decrease of
  *  the in-flight window on RATE pressure (Z.ai 1302/1305, plain 429 —
  *  owner correction 2026-10-29: a smaller concurrency, never an outage). 0
