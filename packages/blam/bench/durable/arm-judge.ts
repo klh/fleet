@@ -33,6 +33,15 @@ export interface JudgePhaseResult {
 	seconds: number;
 }
 
+/** The real pytest RC from a phase log: last per-line `RC=<n>` marker.
+ *  Anchored per-line because docker's platform-mismatch WARNING (stderr)
+ *  can land AFTER the echo line. null ⇒ caller falls back to docker's RC. */
+export function rcFromLog(log: string): number | null {
+	const matches = [...log.matchAll(/RC=(\d+)\s*$/gm)];
+	if (matches.length === 0) return null;
+	return Number(matches[matches.length - 1][1]);
+}
+
 /** Apply patch via git-free unified diff (patch(1) inside the container).
  *  SPH-style hidden tests ship WITH the fix commit — every phase copies
  *  the gold test files over the workspace BEFORE pytest, so the base
@@ -112,8 +121,9 @@ export async function judgePhase(
 		log = `${err.stdout ?? ""}\n${err.stderr ?? ""}`;
 		rc = err.code ?? 1;
 	}
-	const tail = log.match(/RC=(\d+)\s*$/);
-	if (tail) rc = Number(tail[1]); // real pytest RC, not docker's
+	// real pytest RC, not docker's — the platform-mismatch WARNING (docker
+	// stderr) can land AFTER the echo, so anchor per-line and take the last
+	rc = rcFromLog(log) ?? rc;
 	const seconds = Math.round((Date.now() - started) / 1000);
 	const logPath = join(receiptsDir, `${label}.log`);
 	writeFileSync(logPath, log, { mode: 0o600 });

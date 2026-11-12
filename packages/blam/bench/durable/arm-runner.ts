@@ -244,36 +244,70 @@ async function main(): Promise<void> {
 		// THIS process owns the durable job — it stays alive through the
 		// whole pipeline; dying here kills the run mid-flight (a5 lesson)
 		const { superviseRun } = await import("./arm-supervise.ts");
-		console.log(
-			`arm-runner: supervising run (deadline ${new Date(receipt.deadline).toISOString()})…`,
-		);
-		const supervised = await superviseRun(
-			join(local.stateDir as string, "durable", receipt.runId),
-			receipt.deadline,
-			() => leaf.stopRun(receipt.runId),
-		);
-		console.log(
-			`arm-runner: run ${supervised.state} in ${Math.round(supervised.wallClockMs / 1000)}s`,
-		);
-
-		// extract BEFORE stop (tmpfs /workspace dies with the container); on
-		// timeout the run is already stopped/fenced by the supervise phase
-		const { extractPatch, extractUsage, goldPatch } = await import(
-			"./arm-extract.ts"
-		);
+		let supervised: Awaited<ReturnType<typeof superviseRun>>;
 		let patch: { patchPath: string | null; patchSha256: string | null } = {
 			patchPath: null,
 			patchSha256: null,
 		};
-		if (supervised.state === "completed") {
-			patch = await extractPatch(
-				receipt.containerName,
-				join(DIR.receipts, `${problemId}-a${attempt}-patch.diff`),
+		let usage: {
+			input: number | null;
+			output: number | null;
+			cacheRead: number | null;
+		};
+		try {
+			console.log(
+				`arm-runner: supervising run (deadline ${new Date(receipt.deadline).toISOString()})…`,
+			);
+			supervised = await superviseRun(
+				join(local.stateDir as string, "durable", receipt.runId),
+				receipt.deadline,
+				() => leaf.stopRun(receipt.runId),
+			);
+			console.log(
+				`arm-runner: run ${supervised.state} in ${Math.round(supervised.wallClockMs / 1000)}s`,
+			);
+
+			// extract BEFORE stop (tmpfs /workspace dies with the container); on
+			// timeout the run is already stopped/fenced by the supervise phase
+			const { extractPatch, extractUsage } = await import("./arm-extract.ts");
+			if (supervised.state === "completed") {
+				patch = await extractPatch(
+					receipt.containerName,
+					join(DIR.receipts, `${problemId}-a${attempt}-patch.diff`),
+				);
+			}
+			usage = extractUsage(
+				join(local.stateDir as string, "durable", receipt.runId),
+			);
+		} catch (error) {
+			// post-admission phase failure: fence the run first, record honestly, die
+			try {
+				await leaf.stopRun(receipt.runId);
+			} catch {
+				/* fence best-effort — the lease TTL lapses anyway */
+			}
+			appendLedgerRow(DIR.ledger, {
+				ts: Date.now(),
+				problemId,
+				repo: problem.repo,
+				attempt,
+				tier: chosen,
+				runId: row.runId,
+				outcome: "refused",
+				tokens: { input: null, output: null, cacheRead: null, total: null },
+				hashes: {
+					archiveSha256: archiveSha,
+					imageDigest: image.slice(-24),
+					judgeLogSha256: null,
+					patchSha256: null,
+				},
+				wallClockMs: 0,
+				notes: `phase-failed: ${(error as Error).message.split("\n")[0].slice(0, 180)}`,
+			});
+			die(
+				`post-admission phase failed (row recorded, run fenced): ${(error as Error).message.split("\n")[0]}`,
 			);
 		}
-		const usage = extractUsage(
-			join(local.stateDir as string, "durable", receipt.runId),
-		);
 		console.log(
 			`arm-runner: patch=${patch.patchSha256 ? patch.patchSha256.slice(0, 12) : "none"} usage in=${usage.input} out=${usage.output}`,
 		);

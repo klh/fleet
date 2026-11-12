@@ -31,6 +31,7 @@ function benchWorld(mintContent = "bksk_test_mint_root_not_a_real_key\n") {
 			identityUrl: "http://127.0.0.1:4599",
 			mintCredentialFile: mintFile,
 			image: "fleet-supervisor-seed:0.1.2-experimental.test",
+			judgeImage: "klh/blam-judge@sha256:" + "b".repeat(64),
 			stateDir,
 		}),
 	);
@@ -58,6 +59,7 @@ test.describe("bench.local.json schema law", () => {
 			identityUrl: "http://127.0.0.1:4599",
 			mintCredentialFile: "/tmp/mint-root.raw",
 			image: "fleet-supervisor-seed:0.1.2",
+			judgeImage: "klh/blam-judge@sha256:" + "a".repeat(64),
 			stateDir: "/tmp/w2971-bench-state",
 		};
 		expect(BenchLocalSchema.safeParse(full).success).toBe(true);

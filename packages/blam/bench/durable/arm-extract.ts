@@ -18,29 +18,63 @@ export interface ExtractResult {
 	patchSha256: string | null;
 }
 
-/** Seal-and-extract the candidate patch from the live run container. */
+/** Seal-and-extract the candidate patch from the live run container.
+ *  Contract ladder: (1) git-sealed workspace diff; (2) an explicit *.patch
+ *  artifact the agent wrote (a legitimate non-git repair style — seen live
+ *  on a10); (3) null = no-patch (honest rejection). */
 export async function extractPatch(
 	containerName: string,
 	outPath: string,
 ): Promise<ExtractResult> {
-	const seal = await run(
-		"docker",
-		[
-			"exec",
-			containerName,
-			"sh",
-			"-lc",
-			"cd /workspace && git add -A && git -c core.quotePath=false diff --cached HEAD --binary",
-		],
-		{ maxBuffer: 32 * 1024 * 1024 },
-	);
-	const patch = seal.stdout;
-	if (!patch.trim()) return { patchPath: null, patchSha256: null };
-	writeFileSync(outPath, patch, { mode: 0o600 });
-	return {
-		patchPath: outPath,
-		patchSha256: createHash("sha256").update(patch).digest("hex"),
-	};
+	const repo = await run("docker", [
+		"exec",
+		containerName,
+		"sh",
+		"-lc",
+		"cd /workspace && git rev-parse --is-inside-work-tree 2>/dev/null || echo NOREPO",
+	]).catch(() => ({ stdout: "NOREPO" }));
+	if (repo.stdout.trim() === "true") {
+		const seal = await run(
+			"docker",
+			[
+				"exec",
+				containerName,
+				"sh",
+				"-lc",
+				"cd /workspace && git add -A && git -c core.quotePath=false diff --cached HEAD --binary",
+			],
+			{ maxBuffer: 32 * 1024 * 1024 },
+		);
+		const patch = seal.stdout;
+		if (patch.trim()) {
+			writeFileSync(outPath, patch, { mode: 0o600 });
+			return {
+				patchPath: outPath,
+				patchSha256: createHash("sha256").update(patch).digest("hex"),
+			};
+		}
+	}
+	const artifacts = await run("docker", [
+		"exec",
+		containerName,
+		"sh",
+		"-lc",
+		"ls -1 /workspace/*.patch 2>/dev/null | head -1",
+	]).catch(() => ({ stdout: "" }));
+	const artifact = artifacts.stdout.trim();
+	if (artifact) {
+		const patch = await run(
+			"docker",
+			["exec", containerName, "cat", artifact],
+			{ maxBuffer: 32 * 1024 * 1024 },
+		);
+		writeFileSync(outPath, patch, { mode: 0o600 });
+		return {
+			patchPath: outPath,
+			patchSha256: createHash("sha256").update(patch).digest("hex"),
+		};
+	}
+	return { patchPath: null, patchSha256: null };
 }
 
 export interface UsageTotals {
