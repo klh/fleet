@@ -1527,3 +1527,26 @@ Docker Desktop ties Alpine vs Bun on both first-ready (W2939/W2940) and HTTP
 admission-to-tool-result (above). A true cross-host A/B needs a real second
 Docker-capable machine; that is an infra gap, not a measurement one — see
 [doesnt_work.md](doesnt_work.md), "W2937 — Runner fixture exclusions".
+
+## W2990.9 — Dotted work-item claim protection (2026-11-12)
+
+This is a correctness regression measurement, with no speed or model-quality
+comparison. Source `9804223c63d664677bc63b0036ba602d431abcf7` preserves
+complete native IDs before applying the existing temporary-name stem mapping.
+The actual test-first baseline had 6 failed and 5 passed tests: four injected
+pruning cases queried parent `W2990` instead of CLAIMED/RUNNING `W2990.7` or
+`W2990.2.1`, and two identity assertions failed. After the fix, 12 focused
+Playwright tests passed, including an unclaimed child still pruning with its
+recovery ref, and the two existing Bun suites passed 32 tests / 81 assertions.
+
+Reproduce the focused suite and existing coverage with:
+
+```text
+bun run node_modules/@playwright/test/cli.js test --config packages/suspenders/test/playwright.config.ts --project=unit rogue-reap-claims@unit.e2e.ts
+bun test packages/suspenders/test/rogue-reap.test.ts packages/suspenders/test/rogue-reap-w973.test.ts
+```
+
+Independent source review reproduced 12 focused and 32 existing passes;
+native review PASS event `125107` binds this source to base `cad788791`.
+Commit/push gates separately passed 100/191 tests. No actual reaper cleanup,
+installation, performance trial or model call was executed for this fix.
