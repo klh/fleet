@@ -83,6 +83,13 @@ export function tagNameOf(raw: string | null | undefined): string | null {
 // owner of record before compare. Exact sid wins first — a full sid must
 // never die on its own prefix family (autow219 vs autow2190… made
 // `work take --as autow219` ambiguous); unknown sids pass through untouched.
+// W3021 (C502): an unknown RAW pi session id whose pi-<raw> plane row exists
+// canonicalizes to that prefixed row — the receiver registers pi-<raw>
+// (pi-extensions/fleet-receiver + the W2875 canonical sid file), so a bare
+// pass-through here would mint a twin row beside the canonical one and split
+// the lane's claim identity across two sessions. Exact rows keep winning
+// first, so an existing bare row stays bound (no live claim mutation); ids
+// with no prefixed row keep passing through untouched.
 const die = dieFor("work");
 export function resolveSidOf(db: Database, as: string): string {
 	const exact = db.query("SELECT sid FROM sessions WHERE sid = ?").get(as) as
@@ -94,6 +101,13 @@ export function resolveSidOf(db: Database, as: string): string {
 		.all(as) as { sid: string }[];
 	if (sm.length === 1) return sm[0].sid;
 	if (sm.length > 1) die(`ambiguous sid prefix: ${as} — use the full sid`);
+	// W3021 (C502): raw→prefixed pi canonicalization, split-brain prevention.
+	// Fires only when NO bare row matched above — an existing bare row keeps
+	// its binding (exact-first, W846), so this never re-points live claims.
+	const pi = db
+		.query("SELECT sid FROM sessions WHERE sid = ?")
+		.get(`pi-${as}`) as { sid: string } | undefined;
+	if (pi) return pi.sid;
 	return as;
 }
 
