@@ -1,4 +1,4 @@
-import{h,r,e,t,n}from"./lit-b59bf30faa0b21f8.js";import{R}from"./lit-2a58fe1efc89d77c.js";import{o,u,M,b,a,i,x,A,s,p}from"./lit-41f576601b74fc5b.js";import{m,I}from"./lit-abee8ae562874fb2.js";import{c}from"./lit-05d02c13d2fb5953.js";var re=new Set,j=(l,d)=>{if(customElements.get(l))throw Error(`defineElement: <${l}> is already defined — ONE register point per workspace`);re.add(l),customElements.define(l,d)};var V=r`${h(`@charset "UTF-8";
+import{_,n,e,t,o}from"./lit-ac8284bbd881cce8.js";import{ue}from"./lit-7b8f9fc495cf0962.js";import{a,k,Se,A,d,u,C,ce,i,x}from"./lit-ea314af12110b1c3.js";import{S,et}from"./lit-0faf10e1680224f0.js";import{v}from"./lit-8a3f11727be01257.js";var Z=new Set,K=(r,s)=>{if(customElements.get(r))throw Error(`defineElement: <${r}> is already defined — ONE register point per workspace`);Z.add(r),customElements.define(r,s)};var D=n`${_(`@charset "UTF-8";
 /* tone → color, self-contained: the page maps data-tone on .kcard/
    .kcol only, so the card owns its own --state-color token map. */
 :host([data-tone=ready]) {
@@ -365,54 +365,54 @@ footer button.seg:focus-visible,
 select.seg:focus-visible {
   outline: 2px solid var(--klh-accent);
   outline-offset: -2px;
-}`)}`;class q extends c{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(l,d,g,v){super(q.eventName);this.action=l,this.id=d,this.project=g,this.executor=v?.executor,this.effort=v?.effort}}class W extends c{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(l,d,g){super(W.eventName);this.id=l,this.project=d,this.executor=g?.executor,this.effort=g?.effort}}class D extends c{static eventName="task-card-open-requested";id;project;constructor(l,d){super(D.eventName);this.id=l,this.project=d}}function U(l){if(l==="CLAIMED"||l==="RUNNING")return"working";if(l==="WAITING"||l==="BLOCKED"||l==="PAUSED")return"blocked";if(l==="SHATTERED")return"split";if(l==="FAILED")return"failed";if(l==="DONE")return"done";if(l==="CANCELLED")return"cancelled";return"ready"}function G(l){if(l==="SHATTERED")return"split";return l.toLowerCase()}function Y(l){return/^\s*BLOCKED\b/i.test(l)?"blocked":"warning"}function J(l){return l.replace(/^\s*BLOCKED\b[\s:]+/i,"")||l}var E=s(p(o())),T=s(p(u())),se=i({value:o(),label:o(),badge:s(o()),reasoningEffort:s(M())}),oe=i({tokens:T,wallMs:T,tokPerMin:T,cachePct:T}),ie=i({mode:A(["spend","attempt"]),windowStartMs:T,windowEndMs:T,binMs:T,elapsedMs:T,scaleMs:T}),Q=i({id:o(),project:E,title:E,state:o(),ageS:T,contextLines:s(a(o())),parentRef:E,model:E,host:E,warn:E,metrics:s(oe),activity:s(ie),nested:s(M()),preferColor:E,executors:s(a(se)),executorPick:E,effortOptions:s(a(o())),effortPick:E,pendingAction:E});function X(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${Math.round(l/1000)}k`;return String(Math.round(l))}function Z(l){if(l==null)return"—";if(l<60000)return`${Math.round(l/1000)}s`;let d=Math.round(l/60000);if(d>=60)return`${Math.floor(d/60)}h${String(d%60).padStart(2,"0")}m`;return`${d}m`}function ee(l){if(l==null)return"—";if(l>=1e6)return`${(l/1e6).toFixed(1)}M`;if(l>=1000)return`${(l/1000).toFixed(1)}k`;return String(Math.round(l))}function te(l){if(l==null)return"—";return`${Math.round(l)}%`}var H="—";class B extends n{static properties={card:{attribute:!1}};static styles=V;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return U(this.card.state)}open(){this.dispatchEvent(new D(this.card.id,this.card.project??null))}act(l,d){this.dispatchEvent(new q(l,this.card.id,this.card.project??null,d))}draft(l){this.dispatchEvent(new W(this.card.id,this.card.project??null,l))}statusWord(){return G(this.card.state)}render(){let l=this.card,d=this.tone(),g=l.metrics??null,v=l.ageS==null?H:I(l.ageS),z=l.ageS==null?"age unknown":`open ${m(l.ageS)}`,k=l.executors??[],w=l.executorPick??"",L=l.effortOptions??[],N=l.effortPick??"",P=l.pendingAction??"",S=(f,F)=>P===f?`${F}…`:F,K=(f)=>P===f,_=(f)=>P===f?"true":"false";return e`
-			${l.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
+}`)}`;class L extends v{static eventName="task-card-action-requested";action;id;project;executor;effort;constructor(r,s,c,f){super(L.eventName);this.action=r,this.id=s,this.project=c,this.executor=f?.executor,this.effort=f?.effort}}class j extends v{static eventName="task-card-draft-changed";id;project;executor;effort;constructor(r,s,c){super(j.eventName);this.id=r,this.project=s,this.executor=c?.executor,this.effort=c?.effort}}class N extends v{static eventName="task-card-open-requested";id;project;constructor(r,s){super(N.eventName);this.id=r,this.project=s}}function H(r){if(r==="CLAIMED"||r==="RUNNING")return"working";if(r==="WAITING"||r==="BLOCKED"||r==="PAUSED")return"blocked";if(r==="SHATTERED")return"split";if(r==="FAILED")return"failed";if(r==="DONE")return"done";if(r==="CANCELLED")return"cancelled";return"ready"}function B(r){if(r==="SHATTERED")return"split";return r.toLowerCase()}function F(r){return/^\s*BLOCKED\b/i.test(r)?"blocked":"warning"}function V(r){return r.replace(/^\s*BLOCKED\b[\s:]+/i,"")||r}var b=i(x(a())),y=i(x(k())),te=u({value:a(),label:a(),badge:i(a()),reasoningEffort:i(Se())}),ne=u({tokens:y,wallMs:y,tokPerMin:y,cachePct:y}),re=u({mode:ce(["spend","attempt"]),windowStartMs:y,windowEndMs:y,binMs:y,elapsedMs:y,scaleMs:y}),U=u({id:a(),project:b,title:b,state:a(),ageS:y,contextLines:i(d(a())),parentRef:b,model:b,host:b,warn:b,metrics:i(ne),activity:i(re),nested:i(Se()),preferColor:b,executors:i(d(te)),executorPick:b,effortOptions:i(d(a())),effortPick:b,pendingAction:b});function G(r){if(r==null)return"—";if(r>=1e6)return`${(r/1e6).toFixed(1)}M`;if(r>=1000)return`${Math.round(r/1000)}k`;return String(Math.round(r))}function Y(r){if(r==null)return"—";if(r<60000)return`${Math.round(r/1000)}s`;let s=Math.round(r/60000);if(s>=60)return`${Math.floor(s/60)}h${String(s%60).padStart(2,"0")}m`;return`${s}m`}function J(r){if(r==null)return"—";if(r>=1e6)return`${(r/1e6).toFixed(1)}M`;if(r>=1000)return`${(r/1000).toFixed(1)}k`;return String(Math.round(r))}function Q(r){if(r==null)return"—";return`${Math.round(r)}%`}var q="—";class W extends o{static properties={card:{attribute:!1}};static styles=D;constructor(){super();this.card={id:"",state:"READY"}}draftId;draftExecutor;draftEffort;tone(){return H(this.card.state)}open(){this.dispatchEvent(new N(this.card.id,this.card.project??null))}act(r,s){this.dispatchEvent(new L(r,this.card.id,this.card.project??null,s))}draft(r){this.dispatchEvent(new j(this.card.id,this.card.project??null,r))}statusWord(){return B(this.card.state)}render(){let r=this.card,s=this.tone(),c=r.metrics??null,f=r.ageS==null?q:et(r.ageS),g=r.ageS==null?"age unknown":`open ${S(r.ageS)}`,p=r.executors??[],m=r.executorPick??"",P=r.effortOptions??[],R=r.effortPick??"",T=r.pendingAction??"",w=(l,I)=>T===l?`${I}…`:I,M=(l)=>T===l,O=(l)=>T===l?"true":"false";return e`
+			${r.nested?e`<span class="elbow" aria-hidden="true">↳</span>`:t}
 			<div class="wrap">
 				<div class="pad">
 				<div class="head">
-					<span class="sq" data-tone=${d}></span>
+					<span class="sq" data-tone=${s}></span>
 					<span class="stw">${this.statusWord()}</span>
-					<span class="age" title=${z}>${v}</span>
+					<span class="age" title=${g}>${f}</span>
 				</div>
 				<button class="tid" type="button" @click=${this.open}>
-					${l.id}
+					${r.id}
 				</button>
-				${l.title?e`<div class="title" title=${l.title}>${l.title}</div>`:t}
-				${(l.contextLines??[]).map((f)=>e`<div class="ctx" title=${f}>${f}</div>`)}
-				${l.parentRef?e`<div class="ctx" title=${`parent ${l.parentRef}`}
-							>↳ ${l.parentRef}</div
+				${r.title?e`<div class="title" title=${r.title}>${r.title}</div>`:t}
+				${(r.contextLines??[]).map((l)=>e`<div class="ctx" title=${l}>${l}</div>`)}
+				${r.parentRef?e`<div class="ctx" title=${`parent ${r.parentRef}`}
+							>↳ ${r.parentRef}</div
 						>`:t}
 				<hr class="rule" />
 				<div class="cols">
 					<div class="col">
 						<span class="lab">model</span>
-						<b title=${l.model??""}>${l.model??H}</b>
+						<b title=${r.model??""}>${r.model??q}</b>
 					</div>
 					<div class="col">
 						<span class="lab">host</span>
-						<b title=${l.host??""}>${l.host??H}</b>
+						<b title=${r.host??""}>${r.host??q}</b>
 					</div>
 				</div>
 				<hr class="rule" />
-				${l.warn?e`<div class="warn" role="note">
-							<span class="wl">${Y(l.warn)}</span>
-							<span class="wt" title=${l.warn}>${J(l.warn)}</span>
+				${r.warn?e`<div class="warn" role="note">
+							<span class="wl">${F(r.warn)}</span>
+							<span class="wt" title=${r.warn}>${V(r.warn)}</span>
 						</div>`:t}
 				<div class="metrics">
 					<div class="m">
-						<span class="mv">${X(g?.tokens)}</span>
+						<span class="mv">${G(c?.tokens)}</span>
 						<span class="ml">tokens</span>
 					</div>
 					<div class="m">
-						<span class="mv">${Z(g?.wallMs)}</span>
+						<span class="mv">${Y(c?.wallMs)}</span>
 						<span class="ml">time</span>
 					</div>
 					<div class="m">
-						<span class="mv">${ee(g?.tokPerMin)}</span>
+						<span class="mv">${J(c?.tokPerMin)}</span>
 						<span class="ml">tok/min</span>
 					</div>
 					<div class="m">
-						<span class="mv">${te(g?.cachePct)}</span>
+						<span class="mv">${Q(c?.cachePct)}</span>
 						<span class="ml">cache</span>
 					</div>
 				</div>
@@ -421,23 +421,23 @@ select.seg:focus-visible {
 				<slot class="activity" name="activity"></slot>
 			</div>
 			<footer>
-				${d==="failed"?e`<button
+				${s==="failed"?e`<button
 							class="seg retry"
 							type="button"
-							?disabled=${K("retry")}
-							aria-busy=${_("retry")}
+							?disabled=${M("retry")}
+							aria-busy=${O("retry")}
 							@click=${()=>this.act("retry")}
 						>
-							${S("retry","Retry")}
+							${w("retry","Retry")}
 						</button>
 						<button
 							class="seg recover"
 							type="button"
-							?disabled=${K("recover")}
-							aria-busy=${_("recover")}
+							?disabled=${M("recover")}
+							aria-busy=${O("recover")}
 							@click=${()=>this.act("recover")}
 						>
-							${S("recover","Recover → Ready")}
+							${w("recover","Recover → Ready")}
 						</button>
 						<button
 							class="seg prompt"
@@ -446,90 +446,90 @@ select.seg:focus-visible {
 						>
 							Prompt ↗
 						</button>`:t}
-				${d==="ready"&&k.length?e`<select
+				${s==="ready"&&p.length?e`<select
 							class="seg"
-							aria-label=${`executor for ${l.id}`}
-							@change=${(f)=>{this.draftExecutor=f.target.value,this.draft({executor:this.draftExecutor})}}
+							aria-label=${`executor for ${r.id}`}
+							@change=${(l)=>{this.draftExecutor=l.target.value,this.draft({executor:this.draftExecutor})}}
 						>
-							${k.map((f)=>e`<option
-									value=${f.value}
-									?selected=${f.value===(this.draftExecutor??w)}
+							${p.map((l)=>e`<option
+									value=${l.value}
+									?selected=${l.value===(this.draftExecutor??m)}
 								>
-									${f.badge??""}${f.label}
+									${l.badge??""}${l.label}
 								</option>`)}
 						</select>
-						${L.length?e`<select
+						${P.length?e`<select
 									class="seg"
-									aria-label=${`reasoning effort for ${l.id}`}
-									@change=${(f)=>{this.draftEffort=f.target.value,this.draft({effort:this.draftEffort})}}
+									aria-label=${`reasoning effort for ${r.id}`}
+									@change=${(l)=>{this.draftEffort=l.target.value,this.draft({effort:this.draftEffort})}}
 								>
-									${L.map((f)=>e`<option
-											value=${f}
-											?selected=${f===(this.draftEffort??N)}
+									${P.map((l)=>e`<option
+											value=${l}
+											?selected=${l===(this.draftEffort??R)}
 										>
-											${f}
+											${l}
 										</option>`)}
 								</select>`:t}
 						<button
 							class="seg start"
 							type="button"
 							title="dispatch on the chosen executor"
-							?disabled=${K("start")}
-							aria-busy=${_("start")}
-							@click=${()=>this.act("start",{executor:this.draftExecutor??w,effort:this.draftEffort??N})}
+							?disabled=${M("start")}
+							aria-busy=${O("start")}
+							@click=${()=>this.act("start",{executor:this.draftExecutor??m,effort:this.draftEffort??R})}
 						>
-							${S("start","Start ▶")}
+							${w("start","Start ▶")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
-				${d==="ready"&&!k.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
-				${d==="working"&&!k.length?e`<button
+				${s==="ready"&&!p.length?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${s==="working"&&!p.length?e`<button
 								class="seg release"
 								type="button"
 								title="release the claim — a live lane banks its capsule and exits"
-								?disabled=${K("release")}
-								aria-busy=${_("release")}
+								?disabled=${M("release")}
+								aria-busy=${O("release")}
 								@click=${()=>this.act("release")}
 							>
-								${S("release","Release ⏏")}
+								${w("release","Release ⏏")}
 							</button>
 							<span class="spacer"></span>
 							${this.promptSeg()}`:t}
-				${d==="working"&&k.length?e`<select
+				${s==="working"&&p.length?e`<select
 							class="seg"
-							aria-label=${`reassign executor for ${l.id}`}
-							@change=${(f)=>{this.draftExecutor=f.target.value,this.draft({executor:this.draftExecutor})}}
+							aria-label=${`reassign executor for ${r.id}`}
+							@change=${(l)=>{this.draftExecutor=l.target.value,this.draft({executor:this.draftExecutor})}}
 						>
-							${k.map((f)=>e`<option
-									value=${f.value}
-									?selected=${f.value===(this.draftExecutor??w)}
+							${p.map((l)=>e`<option
+									value=${l.value}
+									?selected=${l.value===(this.draftExecutor??m)}
 								>
-									${f.badge??""}${f.label}
+									${l.badge??""}${l.label}
 								</option>`)}
 						</select>
 						<button
 							class="seg reassign"
 							type="button"
 							title="release + re-dispatch on the chosen executor"
-							?disabled=${K("reassign")}
-							aria-busy=${_("reassign")}
-							@click=${()=>this.act("reassign",{executor:this.draftExecutor??w})}
+							?disabled=${M("reassign")}
+							aria-busy=${O("reassign")}
+							@click=${()=>this.act("reassign",{executor:this.draftExecutor??m})}
 						>
-							${S("reassign","Reassign ↻")}
+							${w("reassign","Reassign ↻")}
 						</button>
 						<button
 							class="seg release"
 							type="button"
 							title="release the claim — a live lane banks its capsule and exits"
-							?disabled=${K("release")}
-							aria-busy=${_("release")}
+							?disabled=${M("release")}
+							aria-busy=${O("release")}
 							@click=${()=>this.act("release")}
 						>
-							${S("release","Release ⏏")}
+							${w("release","Release ⏏")}
 						</button>
 						<span class="spacer"></span>
 						${this.promptSeg()}`:t}
-				${d==="done"?e`<span class="spacer"></span>
+				${s==="done"?e`<span class="spacer"></span>
 						<button
 							class="seg tail report"
 							type="button"
@@ -539,7 +539,7 @@ select.seg:focus-visible {
 							Report ▸
 						</button>
 						${this.promptSeg()}`:t}
-				${d!=="failed"&&d!=="ready"&&d!=="working"&&d!=="done"?e`<span class="spacer"></span>${this.promptSeg()}`:t}
+				${s!=="failed"&&s!=="ready"&&s!=="working"&&s!=="done"?e`<span class="spacer"></span>${this.promptSeg()}`:t}
 			</footer>
 		`}promptSeg(){return e`<button
 			class="seg tail prompt"
@@ -547,12 +547,12 @@ select.seg:focus-visible {
 			@click=${()=>this.act("prompt")}
 		>
 			Prompt ↗
-		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var y=s(p(o())),C=s(p(u())),le=i({fresh:C,cached:C,out:C,wall_ms:C,model_groups:s(x(o(),b()))}),ce=i({state:o(),observed_at:C,source:y,progress:s(p(i({stage:A(["completed","reviewed","review-blocked","landed"]),ts:C})))}),de=i({text:y}),pe=i({id:o(),project:y,title:y,state:o(),age_s:C,owner_sid:y,owner_label:y,origin:y,model:y,locality:y,parent_id:y,tag_color:y,failure_note:y,wait_kind:y,wait_reason:y,requires:y,blocked_by:s(a(o())),waiting_on:s(a(o())),spend:s(p(le)),execution:s(p(ce)),tail:s(p(de))});class O extends n{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=r``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(l){let d=l.spend?.model_groups,g="",v=-1;if(d)for(let[z,k]of Object.entries(d)){let w=typeof k==="object"&&k!==null?Number(k.requests??0):0;if(Number.isFinite(w)&&w>v)g=z,v=w}return g||l.model||void 0}static hostOf(l){let d=l.owner_label?.trim();if(d&&d!==l.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(d))return d;return l.owner_sid??void 0}static metricsOf(l){let d=l.spend;if(!d)return;let g=d.fresh??void 0,v=d.cached??void 0,z=d.out??void 0,k=d.wall_ms??void 0,w=g===void 0&&v===void 0&&z===void 0?void 0:(g??0)+(v??0)+(z??0),L=k!==void 0&&k>0?k/60000:0,N=L>0&&z!==void 0?z/L:void 0,P=(g??0)+(v??0),S=P>0&&v!==void 0?v/P*100:void 0;return{tokens:w,wallMs:k,tokPerMin:N,cachePct:S}}static parentRefOf(l){return l.parent_id??void 0}contextLinesOf(l){let d=[],g=l.execution;if(g){let w=g.progress?.stage;d.push(w?`${g.state} · ${w}`:`${g.state} · no artifact evidence in snapshot`)}if(l.state==="WAITING"&&l.wait_reason)d.push(`${l.wait_kind??"external"} · ${l.wait_reason}`);let v=l.blocked_by??[];if(v.length)d.push(`waiting on ${v.join(", ")}`);let z=l.waiting_on??[];if(z.length)d.push(`split into ${z.join(", ")}`);let k=l.tail?.text?.trim();if(k&&!d.includes(k))d.push(k);return d}modelOf(l){let d={id:l.id,project:l.project??void 0,title:l.title??void 0,state:l.state,ageS:l.age_s??void 0,contextLines:this.contextLinesOf(l),parentRef:O.parentRefOf(l),model:O.modelOf(l),host:O.hostOf(l),warn:l.failure_note??void 0,metrics:O.metricsOf(l),nested:this.hasAttribute("data-nested"),preferColor:l.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},g=Q.safeParse(d);return g.success?g.data:null}render(){let l=pe.safeParse(this.t);if(!this.t||!l.success)return e`<div class="kcard-invalid dim" role="note">
+		</button>`}willUpdate(){if(this.toggleAttribute("data-nested",!!this.card.nested),this.draftId!==this.card.id)this.draftId=this.card.id,this.draftExecutor=void 0,this.draftEffort=void 0;if(this.setAttribute("data-tone",this.tone()),this.card.preferColor)this.style.setProperty("--prefer",this.card.preferColor);else this.style.removeProperty("--prefer")}}var h=i(x(a())),E=i(x(k())),ae=u({fresh:E,cached:E,out:E,wall_ms:E,model_groups:i(C(a(),A()))}),se=u({state:a(),observed_at:E,source:h,progress:i(x(u({stage:ce(["completed","reviewed","review-blocked","landed"]),ts:E})))}),oe=u({text:h}),ie=u({id:a(),project:h,title:h,state:a(),age_s:E,owner_sid:h,owner_label:h,origin:h,model:h,locality:h,parent_id:h,tag_color:h,failure_note:h,wait_kind:h,wait_reason:h,requires:h,blocked_by:i(d(a())),waiting_on:i(d(a())),spend:i(x(ae)),execution:i(x(se)),tail:i(x(oe))});class z extends o{static properties={t:{attribute:!1},executors:{attribute:!1},executorPick:{attribute:!1},effortOptions:{attribute:!1},series:{attribute:!1},attempt:{attribute:!1},attemptView:{attribute:!1},pendingAction:{attribute:!1},draftPick:{attribute:!1},draftEffort:{attribute:!1}};static styles=n``;constructor(){super();this.t=null,this.executors=[],this.executorPick="",this.effortOptions=[],this.series=null,this.attempt=null,this.attemptView=!1,this.pendingAction="",this.draftPick=void 0,this.draftEffort=void 0}static modelOf(r){let s=r.spend?.model_groups,c="",f=-1;if(s)for(let[g,p]of Object.entries(s)){let m=typeof p==="object"&&p!==null?Number(p.requests??0):0;if(Number.isFinite(m)&&m>f)c=g,f=m}return c||r.model||void 0}static hostOf(r){let s=r.owner_label?.trim();if(s&&s!==r.owner_sid&&!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(s))return s;return r.owner_sid??void 0}static metricsOf(r){let s=r.spend;if(!s)return;let c=s.fresh??void 0,f=s.cached??void 0,g=s.out??void 0,p=s.wall_ms??void 0,m=c===void 0&&f===void 0&&g===void 0?void 0:(c??0)+(f??0)+(g??0),P=p!==void 0&&p>0?p/60000:0,R=P>0&&g!==void 0?g/P:void 0,T=(c??0)+(f??0),w=T>0&&f!==void 0?f/T*100:void 0;return{tokens:m,wallMs:p,tokPerMin:R,cachePct:w}}static parentRefOf(r){return r.parent_id??void 0}contextLinesOf(r){let s=[],c=r.execution;if(c){let m=c.progress?.stage;s.push(m?`${c.state} · ${m}`:`${c.state} · no artifact evidence in snapshot`)}if(r.state==="WAITING"&&r.wait_reason)s.push(`${r.wait_kind??"external"} · ${r.wait_reason}`);let f=r.blocked_by??[];if(f.length)s.push(`waiting on ${f.join(", ")}`);let g=r.waiting_on??[];if(g.length)s.push(`split into ${g.join(", ")}`);let p=r.tail?.text?.trim();if(p&&!s.includes(p))s.push(p);return s}modelOf(r){let s={id:r.id,project:r.project??void 0,title:r.title??void 0,state:r.state,ageS:r.age_s??void 0,contextLines:this.contextLinesOf(r),parentRef:z.parentRefOf(r),model:z.modelOf(r),host:z.hostOf(r),warn:r.failure_note??void 0,metrics:z.metricsOf(r),nested:this.hasAttribute("data-nested"),preferColor:r.tag_color??void 0,executors:this.executors,executorPick:this.draftPick??this.executorPick,effortOptions:this.effortOptions,effortPick:this.draftEffort??"",pendingAction:this.pendingAction||void 0},c=U.safeParse(s);return c.success?c.data:null}render(){let r=ie.safeParse(this.t);if(!this.t||!r.success)return e`<div class="kcard-invalid dim" role="note">
 				card payload invalid
-			</div>`;let d=l.data,g=this.modelOf(d);if(!g)return e``;let v=this.series||this.attempt?e`<klh-card-activity
+			</div>`;let s=r.data,c=this.modelOf(s);if(!c)return e``;let f=this.series||this.attempt?e`<klh-card-activity
 						slot="activity"
 						.points=${this.series??[]}
-						.wallMs=${O.metricsOf(d)?.wallMs??null}
+						.wallMs=${z.metricsOf(s)?.wallMs??null}
 						.attempt=${this.attempt}
 						.mode=${this.attemptView?"attempt":"spend"}
-					></klh-card-activity>`:null;return e`<klh-task-card .card=${g}>${v}</klh-task-card>`}createRenderRoot(){return this}}var fe=()=>{j("klh-task-card-host",O),j("klh-task-card",B),j("klh-card-activity",R)};fe();export{fe as registerBoardElements};
+					></klh-card-activity>`:null;return e`<klh-task-card .card=${c}>${f}</klh-task-card>`}createRenderRoot(){return this}}var le=()=>{K("klh-task-card-host",z),K("klh-task-card",W),K("klh-card-activity",ue)};le();export{le as registerBoardElements};

@@ -75,7 +75,7 @@ export async function buckleReadProxy(
 		const upstream = await fetchRead(target, {
 			method: req.method,
 			cache: "no-store",
-			signal: AbortSignal.timeout(6000),
+			signal: AbortSignal.any([req.signal, AbortSignal.timeout(6000)]),
 		});
 		const headers = new Headers({ "cache-control": "no-store" });
 		const contentType = upstream.headers.get("content-type");

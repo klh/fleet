@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let s=String(a??"").toLowerCase();return g.includes(s)?s:"dim"};class k extends n{static properties={tone:{type:String,reflect:!0}};static styles=r`
+import{n,e,t,o}from"./lit-ac8284bbd881cce8.js";var g=["dim","ok","warn","bad","info","accent"],p=(a)=>{let r=String(a??"").toLowerCase();return g.includes(r)?r:"dim"};class k extends o{static properties={tone:{type:String,reflect:!0}};static styles=n`
 		:host {
 			display: inline-block;
 			font: var(--klh-text-xs, 10px)/1.6 var(--klh-font-mono);
@@ -31,7 +31,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-accent, #d8900f);
 			border-color: var(--klh-accent, #d8900f);
 		}
-	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",k);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),v=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class m extends n{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,s,o]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=s.home!==void 0?{home:s.home,files:s.files??[],keys:s.keys??[]}:null,this.peers=o.peers??null,this.fedme=o.me??null,this.fedidle=o.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let s=new FormData(a);this.busy=!0,this.err=null;try{let o=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:s.get("actor"),label:s.get("label"),team:s.get("team"),token_class:s.get("token_class"),scopes:String(s.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(s.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(s.get("refresh_ttl_days")??0)||null})}),l=await o.json();if(!o.ok||!l.ok)throw Error(l.error??`HTTP ${String(o.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let s=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(s))return;this.busy=!0,this.err=null;try{let o=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await o.json();if(!o.ok||!l.ok)throw Error(l.error??`HTTP ${String(o.status)}`);await this.refresh()}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}}static styles=[r`
+	`;constructor(){super();this.tone="dim"}render(){return e`<slot></slot>`}}customElements.define("klh-tag",k);var u=(a)=>a===null?"forever":new Intl.DateTimeFormat("da-DK",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:!1}).format(new Date(a)),v=(a)=>a===null?"—":a.replace("T"," ").slice(0,19);class m extends o{static properties={tokens:{state:!0},issued:{state:!0},pkeys:{state:!0},peers:{state:!0},fedme:{state:!0},fedidle:{state:!0},busy:{state:!0},err:{state:!0},tokenFilter:{state:!0},tokenSearch:{state:!0},tokenPage:{state:!0}};constructor(){super();this.tokens=null,this.issued=null,this.pkeys=null,this.peers=null,this.fedme=null,this.fedidle=!0,this.busy=!1,this.err=null,this.tokenFilter="active",this.tokenSearch="",this.tokenPage=0}connectedCallback(){super.connectedCallback(),this.refresh()}async refresh(){this.busy=!0,this.err=null;try{let[a,r,s]=await Promise.all([fetch("/api/hub/tokens").then((l)=>l.json()),fetch("/api/hub/provider-keys").then((l)=>l.json()),fetch("/api/hub/federation").then((l)=>l.json())]);this.tokens=a.tokens??[],this.pkeys=r.home!==void 0?{home:r.home,files:r.files??[],keys:r.keys??[]}:null,this.peers=s.peers??null,this.fedme=s.me??null,this.fedidle=s.idle!==!1}catch(a){this.err=a instanceof Error?a.message:String(a)}finally{this.busy=!1}}async issue(a){let r=new FormData(a);this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:r.get("actor"),label:r.get("label"),team:r.get("team"),token_class:r.get("token_class"),scopes:String(r.get("scopes")??"").split(",").map((c)=>c.trim()).filter(Boolean),access_ttl_days:Number(r.get("access_ttl_days")??0)||null,refresh_ttl_days:Number(r.get("refresh_ttl_days")??0)||null})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);this.issued=l.token,a.reset(),await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}async revoke(a){if(a.length===0)return;let r=`Revoke ALL token rows for actor "${a}"? The actor's access dies at once.`;if(!window.confirm(r))return;this.busy=!0,this.err=null;try{let s=await fetch("/api/hub/tokens/revoke",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({actor:a})}),l=await s.json();if(!s.ok||!l.ok)throw Error(l.error??`HTTP ${String(s.status)}`);await this.refresh()}catch(s){this.err=s instanceof Error?s.message:String(s)}finally{this.busy=!1}}static styles=[n`
 		:host {
 			display: block;
 			max-width: 1000px;
@@ -66,7 +66,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 		td {
 			border-bottom: 1px solid var(--klh-edge-faint, rgba(255, 255, 255, 0.06));
 		}
-	`,r`
+	`,n`
 		.mono {
 			font: var(--klh-text-sm)/1.5 var(--klh-font-mono);
 		}
@@ -86,7 +86,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			color: var(--klh-danger-ink, #c96a4f);
 			border-color: var(--klh-danger, #af2f12);
 		}
-	`,r`
+	`,n`
 		button {
 			font: 600 var(--klh-text-sm)/1.6 var(--klh-font-mono);
 			padding: 3px var(--klh-space-4);
@@ -177,7 +177,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 			</p>
 			${this.err===null?t:e`<div class="err" role="alert">${this.err}</div>`}
 			${this.renderTokens()} ${this.renderKeys()} ${this.renderFederation()}
-		`}renderTokens(){let a=this.tokens??[],s=a.filter((i)=>i.state==="active").length,o=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!o||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(o))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
+		`}renderTokens(){let a=this.tokens??[],r=a.filter((i)=>i.state==="active").length,s=this.tokenSearch.trim().toLowerCase(),l=a.filter((i)=>(this.tokenFilter==="all"||i.state===this.tokenFilter)&&(!s||[i.key_id,i.actor,i.team,i.label,...i.scopes].filter(Boolean).join(" ").toLowerCase().includes(s))),c=Math.max(1,Math.ceil(l.length/12)),d=Math.min(this.tokenPage,c-1),h=l.slice(d*12,(d+1)*12);return e`
 			<details>
 				<summary>Issue a token</summary>
 				<form @submit=${this.onIssue}>
@@ -228,7 +228,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				<label>find
 					<input type="search" aria-label="find token" placeholder="actor, team, scope, ID" .value=${this.tokenSearch} @input=${(i)=>{this.tokenSearch=i.target.value,this.tokenPage=0}} />
 				</label>
-				<span class="token-count">${s} active · ${a.length-s} inactive · ${l.length?d*12+1:0}–${d*12+h.length} of ${l.length}</span>
+				<span class="token-count">${r} active · ${a.length-r} inactive · ${l.length?d*12+1:0}–${d*12+h.length} of ${l.length}</span>
 			</div>
 			<table>
 				<thead>
@@ -256,7 +256,7 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				Listing is masked (8-char id, no material). Every issue/revoke lands
 				in the console audit trail (governor.db).
 			</p>
-		`}tokenRow(a){let s=a.state==="active";return e`
+		`}tokenRow(a){let r=a.state==="active";return e`
 			<tr>
 				<td class="mono">${a.key_id}</td>
 				<td>${a.actor??"—"}</td>
@@ -266,12 +266,12 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 				<td class="mono" title=${a.expires_at===null?"":new Date(a.expires_at).toISOString()}>${u(a.expires_at)}</td>
 				<td>
 					<klh-tag
-						tone=${p(s?"ok":a.state==="revoked"?"bad":"dim")}
+						tone=${p(r?"ok":a.state==="revoked"?"bad":"dim")}
 						>${a.state}</klh-tag
 					>
 				</td>
 				<td>
-					${s?e`<button
+					${r?e`<button
 								class="danger"
 								@click=${()=>this.revoke(a.actor??"")}
 							>revoke actor</button>`:t}
@@ -295,10 +295,10 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 								<tr><th>env name</th><th>source</th><th>value</th></tr>
 							</thead>
 							<tbody>
-								${a.keys.length===0?e`<tr><td colspan="3" class="dim">no provider keys found</td></tr>`:a.keys.map((s)=>e`<tr>
-												<td class="mono">${s.name}</td>
-												<td>${s.source}</td>
-												<td class="mono">${s.masked??"—"}</td>
+								${a.keys.length===0?e`<tr><td colspan="3" class="dim">no provider keys found</td></tr>`:a.keys.map((r)=>e`<tr>
+												<td class="mono">${r.name}</td>
+												<td>${r.source}</td>
+												<td class="mono">${r.masked??"—"}</td>
 											</tr>`)}
 							</tbody>
 						</table>
@@ -318,17 +318,17 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var g=["dim","ok","warn","bad","i
 								</tr>
 							</thead>
 							<tbody>
-								${a.map((s)=>e`<tr>
-										<td>${s.label}</td>
+								${a.map((r)=>e`<tr>
+										<td>${r.label}</td>
 										<td>
 											<klh-tag
-												tone=${p(s.state==="live"?"ok":s.state==="stale"?"warn":"bad")}
-												>${s.state}</klh-tag
+												tone=${p(r.state==="live"?"ok":r.state==="stale"?"warn":"bad")}
+												>${r.state}</klh-tag
 											>
 										</td>
-										<td class="mono">${s.version??"—"}</td>
-										<td class="mono">${v(s.pulled_at)}</td>
-										<td class="dim mono">${s.via??"—"}</td>
+										<td class="mono">${r.version??"—"}</td>
+										<td class="mono">${v(r.pulled_at)}</td>
+										<td class="dim mono">${r.via??"—"}</td>
 									</tr>`)}
 							</tbody>
 						</table>
