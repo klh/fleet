@@ -1,0 +1,65 @@
+
+Running 2 tests using 1 worker
+
+  ✘  1 [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:46:1 › containerd index ID remains opaque while exact platform descriptor binds raw manifest/config and rootFS (3ms)
+  ✘  2 [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:55:1 › missing/wrong platform descriptors and wrong raw subjects refuse (6ms)
+
+
+  1) [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:46:1 › containerd index ID remains opaque while exact platform descriptor binds raw manifest/config and rootFS 
+
+    Error: Inspected platform image mismatch
+
+       at test/qualification-subject.ts:80
+
+      78 | 		data.image.Id !== data.container.Image
+      79 | 	)
+    > 80 | 		throw Error("Inspected platform image mismatch");
+         | 		      ^
+      81 | 	if (!isDeepStrictEqual(config.rootfs.diff_ids, data.image.RootFS.Layers))
+      82 | 		throw Error("Inspected rootFS mismatch");
+      83 | 	if (!isDeepStrictEqual(config.config.Labels, data.image.Config.Labels))
+        at verifySubject ([checkout]/packages/buckle/deploy/test/qualification-subject.ts:80:9)
+        at [checkout]/packages/buckle/deploy/qualification-subject@unit.e2e.ts:49:9
+
+    Error Context: packages/buckle/test-results/qualification-subject@unit-74826--manifest-config-and-rootFS-unit/error-context.md
+
+  2) [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:55:1 › missing/wrong platform descriptors and wrong raw subjects refuse 
+
+    Error: expect(received).toThrow(expected)
+
+    Expected substring: "rootFS"
+    Received message:   "Inspected platform image mismatch"
+
+          78 | 		data.image.Id !== data.container.Image
+          79 | 	)
+        > 80 | 		throw Error("Inspected platform image mismatch");
+             | 		      ^
+          81 | 	if (!isDeepStrictEqual(config.rootfs.diff_ids, data.image.RootFS.Layers))
+          82 | 		throw Error("Inspected rootFS mismatch");
+          83 | 	if (!isDeepStrictEqual(config.config.Labels, data.image.Config.Labels))
+
+          at verifySubject (packages/buckle/deploy/test/qualification-subject.ts:80:9)
+          at node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:11834:9
+          at callMatcherAsStep (node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/matchers/expect.js:13347:64)
+          at packages/buckle/deploy/qualification-subject@unit.e2e.ts:85:4
+          at node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/worker/workerProcessEntry.js:1654:15
+          at node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/worker/workerProcessEntry.js:1134:17
+          at withRunnable (node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/worker/workerProcessEntry.js:404:9)
+          at _runWithTimeout (node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/worker/workerProcessEntry.js:1132:34)
+          at node_modules/.bun/playwright@1.64.1/node_modules/playwright/lib/worker/workerProcessEntry.js:1652:22
+
+      83 | 			image: { ...input.image, RootFS: { Type: "layers", Layers: [] } },
+      84 | 		}),
+    > 85 | 	).toThrow("rootFS");
+         | 	  ^
+      86 | 	expect(() =>
+      87 | 		verifySubject({
+      88 | 			...input,
+        at [checkout]/packages/buckle/deploy/qualification-subject@unit.e2e.ts:85:4
+
+    Error Context: packages/buckle/test-results/qualification-subject@unit-b8fab-d-wrong-raw-subjects-refuse-unit/error-context.md
+
+  2 failed
+    [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:46:1 › containerd index ID remains opaque while exact platform descriptor binds raw manifest/config and rootFS 
+    [unit] › packages/buckle/deploy/qualification-subject@unit.e2e.ts:55:1 › missing/wrong platform descriptors and wrong raw subjects refuse 
+error: "playwright" exited with code 1

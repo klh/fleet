@@ -1,0 +1,361 @@
+[
+  {
+    "status": "PASS",
+    "sourceAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+    "source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+    "platform": "linux/amd64",
+    "runId": "bf1d95a2-1d28-45a1-887b-e26cf2cb6dab",
+    "limits": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256
+    },
+    "syntheticUpstreamOnly": true,
+    "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+    "hostArchitecture": "arm64",
+    "execution": "Docker Desktop amd64 emulation",
+    "subjectBinding": {
+      "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+      "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+      "inspectedImageId": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+      "rootFSVerified": true,
+      "rawConfigVerified": true
+    },
+    "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+    "labels": {
+      "io.klh.seed.family": "service",
+      "io.klh.seed.recipe.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "io.klh.seed.service": "buckle",
+      "org.opencontainers.image.created": "2026-10-22T10:15:17.549Z",
+      "org.opencontainers.image.description": "Experimental reusable Buckle service seed; operator configuration required",
+      "org.opencontainers.image.licenses": "LicenseRef-Fleet-Personal-Use-1.0",
+      "org.opencontainers.image.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "org.opencontainers.image.source": "https://github.com/klh/fleet",
+      "org.opencontainers.image.title": "fleet/buckle-seed",
+      "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+      "org.opencontainers.image.version": "0.1.2-experimental.w2990.2"
+    },
+    "mode": "main",
+    "api": {
+      "catalog": [
+        {
+          "id": "seed-model",
+          "object": "model",
+          "owned_by": "buckle",
+          "context_length": 131072,
+          "max_output_tokens": 16384,
+          "reasoning": false,
+          "capability_source": "operator-pinned"
+        }
+      ],
+      "controlScopes": [
+        "buckle:runner:WRITE_",
+        "buckle:proxy:READ_"
+      ],
+      "finiteTtlSeconds": 60,
+      "identityStatus": 200,
+      "controlChatStatus": 403,
+      "controlInferenceDelta": 0,
+      "streamReads": 3,
+      "terminalUsage": true,
+      "revokedKeys": 2
+    },
+    "runtime": {
+      "uid": 1000,
+      "arch": "x64",
+      "db": true
+    },
+    "authenticatedProbeExit": 0,
+    "unauthorizedProbeExit": 1,
+    "containerIds": [
+      "d59de02554f25699090c3cb17e9764ef6d01654743bd6f881b658dec57908098"
+    ],
+    "removedAndAbsent": [
+      "d59de02554f25699090c3cb17e9764ef6d01654743bd6f881b658dec57908098"
+    ],
+    "durationMs": 7749,
+    "guardian": "0247a701b9a9691c123c826bb937235be874a1f4",
+    "guardianHashes": {
+      "process.ts": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3",
+      "process-protocol.ts": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f",
+      "process-guardian.ts": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+    },
+    "guardianZodVersion": "4.6.5",
+    "hostBunVersion": "1.4.4"
+  },
+  {
+    "status": "PASS",
+    "sourceAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+    "source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+    "platform": "linux/arm64",
+    "runId": "6178c2ae-efb1-47c4-bdfc-71f2953f6765",
+    "limits": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256
+    },
+    "syntheticUpstreamOnly": true,
+    "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+    "hostArchitecture": "arm64",
+    "execution": "Docker Desktop platform observation",
+    "subjectBinding": {
+      "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+      "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+      "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+      "inspectedImageId": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+      "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+      "rootFSVerified": true,
+      "rawConfigVerified": true
+    },
+    "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+    "labels": {
+      "io.klh.seed.family": "service",
+      "io.klh.seed.recipe.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "io.klh.seed.service": "buckle",
+      "org.opencontainers.image.created": "2026-10-22T10:15:17.549Z",
+      "org.opencontainers.image.description": "Experimental reusable Buckle service seed; operator configuration required",
+      "org.opencontainers.image.licenses": "LicenseRef-Fleet-Personal-Use-1.0",
+      "org.opencontainers.image.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "org.opencontainers.image.source": "https://github.com/klh/fleet",
+      "org.opencontainers.image.title": "fleet/buckle-seed",
+      "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+      "org.opencontainers.image.version": "0.1.2-experimental.w2990.2"
+    },
+    "mode": "fallback",
+    "api": {
+      "mode": "fallback",
+      "catalogStatus": 200,
+      "upstreamRequestDelta": 0,
+      "requestCounter": "inference-requests-only",
+      "fallbackMismatchOmission": true
+    },
+    "runtime": {
+      "uid": 1000,
+      "arch": "arm64",
+      "db": true
+    },
+    "containerIds": [
+      "260d1532b4e6df6902407885838a957e4bbcf47a931da5bc9055e108196ae5c3"
+    ],
+    "removedAndAbsent": [
+      "260d1532b4e6df6902407885838a957e4bbcf47a931da5bc9055e108196ae5c3"
+    ],
+    "durationMs": 5484,
+    "guardian": "0247a701b9a9691c123c826bb937235be874a1f4",
+    "guardianHashes": {
+      "process.ts": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3",
+      "process-protocol.ts": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f",
+      "process-guardian.ts": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+    },
+    "guardianZodVersion": "4.6.5",
+    "hostBunVersion": "1.4.4"
+  },
+  {
+    "status": "PASS",
+    "sourceAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+    "source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+    "platform": "linux/amd64",
+    "runId": "95e0b361-5c1e-4cd8-8a1b-cfb7cb0b270c",
+    "limits": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256
+    },
+    "syntheticUpstreamOnly": true,
+    "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+    "hostArchitecture": "arm64",
+    "execution": "Docker Desktop amd64 emulation",
+    "subjectBinding": {
+      "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+      "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+      "inspectedImageId": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+      "rootFSVerified": true,
+      "rawConfigVerified": true
+    },
+    "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+    "labels": {
+      "io.klh.seed.family": "service",
+      "io.klh.seed.recipe.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "io.klh.seed.service": "buckle",
+      "org.opencontainers.image.created": "2026-10-22T10:15:17.549Z",
+      "org.opencontainers.image.description": "Experimental reusable Buckle service seed; operator configuration required",
+      "org.opencontainers.image.licenses": "LicenseRef-Fleet-Personal-Use-1.0",
+      "org.opencontainers.image.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "org.opencontainers.image.source": "https://github.com/klh/fleet",
+      "org.opencontainers.image.title": "fleet/buckle-seed",
+      "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+      "org.opencontainers.image.version": "0.1.2-experimental.w2990.2"
+    },
+    "mode": "fallback",
+    "api": {
+      "mode": "fallback",
+      "catalogStatus": 200,
+      "upstreamRequestDelta": 0,
+      "requestCounter": "inference-requests-only",
+      "fallbackMismatchOmission": true
+    },
+    "runtime": {
+      "uid": 1000,
+      "arch": "x64",
+      "db": true
+    },
+    "containerIds": [
+      "b7496e7d45fc68c3e296cf2f2081b307fe3bbd5d8b27168122222fe315489a46"
+    ],
+    "removedAndAbsent": [
+      "b7496e7d45fc68c3e296cf2f2081b307fe3bbd5d8b27168122222fe315489a46"
+    ],
+    "durationMs": 6549,
+    "guardian": "0247a701b9a9691c123c826bb937235be874a1f4",
+    "guardianHashes": {
+      "process.ts": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3",
+      "process-protocol.ts": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f",
+      "process-guardian.ts": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+    },
+    "guardianZodVersion": "4.6.5",
+    "hostBunVersion": "1.4.4"
+  },
+  {
+    "status": "PASS",
+    "sourceAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+    "source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+    "platform": "linux/arm64",
+    "runId": "6f484d64-15e8-4b3a-aef6-d81d0e7cae5b",
+    "limits": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256
+    },
+    "syntheticUpstreamOnly": true,
+    "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+    "hostArchitecture": "arm64",
+    "execution": "Docker Desktop platform observation",
+    "subjectBinding": {
+      "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+      "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+      "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+      "inspectedImageId": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+      "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+      "rootFSVerified": true,
+      "rawConfigVerified": true
+    },
+    "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+    "labels": {
+      "io.klh.seed.family": "service",
+      "io.klh.seed.recipe.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "io.klh.seed.service": "buckle",
+      "org.opencontainers.image.created": "2026-10-22T10:15:17.549Z",
+      "org.opencontainers.image.description": "Experimental reusable Buckle service seed; operator configuration required",
+      "org.opencontainers.image.licenses": "LicenseRef-Fleet-Personal-Use-1.0",
+      "org.opencontainers.image.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "org.opencontainers.image.source": "https://github.com/klh/fleet",
+      "org.opencontainers.image.title": "fleet/buckle-seed",
+      "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+      "org.opencontainers.image.version": "0.1.2-experimental.w2990.2"
+    },
+    "mode": "neutral",
+    "api": {
+      "mode": "neutral",
+      "catalogStatus": 200,
+      "upstreamRequestDelta": 0,
+      "requestCounter": "all-upstream-requests",
+      "fallbackMismatchOmission": false
+    },
+    "runtime": {
+      "uid": 1000,
+      "arch": "arm64",
+      "db": true
+    },
+    "containerIds": [
+      "cab2e9865d146231d2e9929d0a869b40492616bd9163e8198a1dfff5de1ab9e1"
+    ],
+    "removedAndAbsent": [
+      "cab2e9865d146231d2e9929d0a869b40492616bd9163e8198a1dfff5de1ab9e1"
+    ],
+    "durationMs": 5271,
+    "guardian": "0247a701b9a9691c123c826bb937235be874a1f4",
+    "guardianHashes": {
+      "process.ts": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3",
+      "process-protocol.ts": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f",
+      "process-guardian.ts": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+    },
+    "guardianZodVersion": "4.6.5",
+    "hostBunVersion": "1.4.4"
+  },
+  {
+    "status": "PASS",
+    "sourceAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+    "source": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+    "platform": "linux/amd64",
+    "runId": "eebff1ec-ad6f-4bc0-b8d0-665f81eab588",
+    "limits": {
+      "cpus": 2,
+      "memoryBytes": 1610612736,
+      "pids": 256
+    },
+    "syntheticUpstreamOnly": true,
+    "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+    "hostArchitecture": "arm64",
+    "execution": "Docker Desktop amd64 emulation",
+    "subjectBinding": {
+      "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+      "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+      "inspectedImageId": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+      "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+      "rootFSVerified": true,
+      "rawConfigVerified": true
+    },
+    "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+    "labels": {
+      "io.klh.seed.family": "service",
+      "io.klh.seed.recipe.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "io.klh.seed.service": "buckle",
+      "org.opencontainers.image.created": "2026-10-22T10:15:17.549Z",
+      "org.opencontainers.image.description": "Experimental reusable Buckle service seed; operator configuration required",
+      "org.opencontainers.image.licenses": "LicenseRef-Fleet-Personal-Use-1.0",
+      "org.opencontainers.image.revision": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+      "org.opencontainers.image.source": "https://github.com/klh/fleet",
+      "org.opencontainers.image.title": "fleet/buckle-seed",
+      "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+      "org.opencontainers.image.version": "0.1.2-experimental.w2990.2"
+    },
+    "mode": "neutral",
+    "api": {
+      "mode": "neutral",
+      "catalogStatus": 200,
+      "upstreamRequestDelta": 0,
+      "requestCounter": "all-upstream-requests",
+      "fallbackMismatchOmission": false
+    },
+    "runtime": {
+      "uid": 1000,
+      "arch": "x64",
+      "db": true
+    },
+    "containerIds": [
+      "0fd943fbbbe1da5468caf299ca8e66cb63ea8a2476267abba2a90dd7e097302c"
+    ],
+    "removedAndAbsent": [
+      "0fd943fbbbe1da5468caf299ca8e66cb63ea8a2476267abba2a90dd7e097302c"
+    ],
+    "durationMs": 7480,
+    "guardian": "0247a701b9a9691c123c826bb937235be874a1f4",
+    "guardianHashes": {
+      "process.ts": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3",
+      "process-protocol.ts": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f",
+      "process-guardian.ts": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+    },
+    "guardianZodVersion": "4.6.5",
+    "hostBunVersion": "1.4.4"
+  }
+]

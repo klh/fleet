@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+  "records": [
+    {
+      "id": "guardian-dependency-binding",
+      "classification": "qualification tooling setup",
+      "outcome": "failed before Docker import",
+      "cause": "Standalone staged guardian could not resolve declared installed Zod through workspace ancestor lookup.",
+      "correction": "Bound existing installed declared Zod4.6.5 in owned private staging; no install/download."
+    },
+    {
+      "id": "index-vs-config",
+      "classification": "qualification tooling false refusal",
+      "outcome": "FAILED",
+      "evidence": "failure-index-vs-config.log",
+      "cause": "Compared opaque Docker containerd image/index ID to OCI config digest.",
+      "containerIdRetained": false,
+      "perCidAbsenceClaim": false
+    },
+    {
+      "id": "local-id-equality",
+      "classification": "qualification tooling false refusal",
+      "outcome": "FAILED",
+      "evidence": "failure-local-id-equality.log",
+      "cause": "Platform-specific image inspection returned platform manifest ID while container.Image retained index ID.",
+      "containerId": "ebb3995994c4dfcd5f85ff55c202dd73a01b3cb3ae1f0a285f5eb99d46a24de4",
+      "cleanup": "Stopped0, removed and daemon absence checked; service never started."
+    },
+    {
+      "id": "masked-primary-and-forced-stop",
+      "classification": "failed qualification and cleanup",
+      "outcome": "FAILED",
+      "evidence": "failure-masked-primary-and-exit137.log",
+      "containerId": "62558945eaf7d67419f89fe3c8835b9428cc9286643de6e330020bfb077eac38",
+      "exitCode": 137,
+      "oomKilled": false,
+      "originalApiCause": "Unrecoverable: cleanup exception masked primary. No attribution to model metadata or authorization defect.",
+      "correction": "Primary-before-finally status diagnostics; both errors retained; existing planned admin drain before keyed cleanup.",
+      "explicitFailedRunCleanup": "failed-run-cleanup.json"
+    },
+    {
+      "id": "scope-order",
+      "classification": "qualification assertion defect",
+      "evidence": "scope-order-red.log",
+      "cause": "f19 stores scopes sorted, but qualifier expected request order. Fake HTTP fixture incorrectly echoed request order.",
+      "sourceProof": [
+        "f19:packages/buckle/src/gov/keys.ts:89",
+        "f19:packages/buckle/src/gov/scopes.ts:102",
+        "f19:packages/buckle/src/wire-routes.ts:117"
+      ],
+      "correction": "Exact sorted arrays, no deduplication. Issued/identity extra, missing and duplicate authority still refuses.",
+      "priorMaskedPrimaryProven": false
+    },
+    {
+      "id": "drain-failure-aborts-stop",
+      "classification": "qualification cleanup defect found by independent source review",
+      "evidence": "drain-stop-red.log",
+      "cause": "Drain exception could bypass checked stop and leave owned producer running.",
+      "correction": "One finalizer; retain drain error, recheck ownership, attempt bounded stop/join, remove only when safe, preserve errors/files on uncertainty."
+    }
+  ],
+  "sanitizedUnitLogProvenance": {
+    "scope-order-red.log": {
+      "originalSha256": "649437badaef7a6b9c8d180088c7b4243c1ba8e2b677a515c41b68cd99c091fe",
+      "storedSha256": "99cf0cc123de79d7b1867acca4ffb68cdb288929ac5750790051cadfdfeb0038",
+      "redaction": "exact checkout absolute path replaced with [checkout]; no other changes"
+    },
+    "drain-stop-red.log": {
+      "originalSha256": "4d449a0f51b2e6237d1c453273d0587181964acff4d55caf335ec0fe4545fa42",
+      "storedSha256": "149f94902dc256296fea6e995c30efe317c9044a7d242a4f47b7b3f316846473",
+      "redaction": "exact checkout absolute path replaced with [checkout]; no other changes"
+    },
+    "opaque-ids-red.log": {
+      "originalSha256": "55d34f4e91a99b960a4f2b4862d79e734024feb41d8c87b390565237041fd56d",
+      "storedSha256": "582abfc01bc37448d56acc33bc9b94ce0f90b8ef50c76dbd35099984999e1854",
+      "redaction": "exact checkout absolute path replaced with [checkout]; no other changes"
+    }
+  }
+}

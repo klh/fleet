@@ -1,0 +1,146 @@
+{
+  "base": "20a34c14acd4d1c6ddaa783ad4a6bf18879bc957",
+  "aggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+  "algorithm": "SHA256 over lexicographically sorted repo-relative path+NUL+raw bytes+NUL",
+  "committedAtCapture": false,
+  "files": [
+    {
+      "path": "packages/buckle/deploy/Dockerfile",
+      "sha256": "46a399f5302bfa0e6ff95ed2d6d44033b066e45b16a0a85b8eee419b05eb2369"
+    },
+    {
+      "path": "packages/buckle/deploy/QUALIFICATION.md",
+      "sha256": "9ca08515ee0d7cbe4271b22abc7503e1b83ef630f4314f23f69210fd137fddd8"
+    },
+    {
+      "path": "packages/buckle/deploy/README.md",
+      "sha256": "d79ac6e46e9bf2d2c994c3ee4fee4ad1ca1d881b0e2baacef75df9fd96a64441"
+    },
+    {
+      "path": "packages/buckle/deploy/build.ts",
+      "sha256": "2f5528f660ac582fe5a9f6a35433991875ebf9e0f7fe0807732720d8576f165b"
+    },
+    {
+      "path": "packages/buckle/deploy/bundle.ts",
+      "sha256": "8cb57506ddec4bb68513bbce66fae29f3c061cd6400a04c24e660ac1ed745a20"
+    },
+    {
+      "path": "packages/buckle/deploy/health-published@container.e2e.ts",
+      "sha256": "dc3ad58679244baa013a06a47bf5f4e4bc1a794b31bf3b6e12d67670843d76e5"
+    },
+    {
+      "path": "packages/buckle/deploy/negative-history.json",
+      "sha256": "6aa3a230df09d6e60dc13b2b034a4fa7d8006ce9386ab904cccfd4142337e6a5"
+    },
+    {
+      "path": "packages/buckle/deploy/playwright.config.ts",
+      "sha256": "34f7f689130266b143f07a4612d1713386e5b2ffcb5aedfc0fcdffb8743118e6"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-api@unit.e2e.ts",
+      "sha256": "44e8c1aca5e286fcfac59e0b210ce751630d01f38bfd8c9c42dce7bef8389e2e"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-cleanup@unit.e2e.ts",
+      "sha256": "cada0f81323c8cd3001f01ed748f0bf21c113be0ce1f61f1d4224654b2d5b34b"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-config@unit.e2e.ts",
+      "sha256": "6ef090493df777d971d83f32debeada227ab6298f8d6b256056d047036abfe61"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-drain@unit.e2e.ts",
+      "sha256": "19ec225ec3157ec1e2e5a777446f253340d24c5083d6e1d9694dcb12c1b40a8c"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-observer@unit.e2e.ts",
+      "sha256": "ed1309f318a7d132f24dd9060bb057088adfa38c4aece5831947a36d6c901484"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-scopes@unit.e2e.ts",
+      "sha256": "f418ed3778f99b3a499f581d4acdca558274ee769e181d948bd27f75c904f0f8"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification-subject@unit.e2e.ts",
+      "sha256": "101f7ed9fb0370a0566c49ac571b6c0988ec4256cba08ef71583e6ce6501e45f"
+    },
+    {
+      "path": "packages/buckle/deploy/qualification@unit.e2e.ts",
+      "sha256": "9905e285312efb0b4025a4ebd3de8d78dfb5a09280372da61c043c9e6792cc42"
+    },
+    {
+      "path": "packages/buckle/deploy/releases/0.1.0-experimental.w2989.json",
+      "sha256": "be913c84b74a88bc6f8f0d04a8dda7f1f63196763d81882d7001d0767cfd9074"
+    },
+    {
+      "path": "packages/buckle/deploy/releases/0.1.0-experimental.w2989.receipt.json",
+      "sha256": "0d31c41ba40acfa52ea3a9b98d5e7a8df048841463ec3dce0ae25a274386234d"
+    },
+    {
+      "path": "packages/buckle/deploy/releases/0.1.1-experimental.w2990.json",
+      "sha256": "53a0946aa1f021927c1d44e20fb56c23e691632959c626f9de871b15b4906f1f"
+    },
+    {
+      "path": "packages/buckle/deploy/releases/0.1.1-experimental.w2990.receipt.json",
+      "sha256": "7017937f2fe5d3b8385472148bf98861e53230eda2f9986f75883c56dcb9fdd1"
+    },
+    {
+      "path": "packages/buckle/deploy/seed-contract.ts",
+      "sha256": "445145572c0c9304f2a87ac5778088b2944974f76f4a57339ea9544e1a6f500e"
+    },
+    {
+      "path": "packages/buckle/deploy/seed@container.e2e.ts",
+      "sha256": "150bfedb1118240343ab6b0f3f4b8f5f1eb1c1bcd2fe13447baa204aca130b33"
+    },
+    {
+      "path": "packages/buckle/deploy/seed@unit.e2e.ts",
+      "sha256": "775df45c4543c227ba361a3c22771a44f3331f70c507920a4a8f59e5833197b7"
+    },
+    {
+      "path": "packages/buckle/deploy/test/checks.ts",
+      "sha256": "041c55722b669e9e60b31e56bf948d281b22b06df584984238d5f0c6530ae13c"
+    },
+    {
+      "path": "packages/buckle/deploy/test/docker.ts",
+      "sha256": "ec70b7c34ed09a247cd0fd609e6be0e2ee2b1bd8e875ce62a9d13c244d9c51ed"
+    },
+    {
+      "path": "packages/buckle/deploy/test/fixture.ts",
+      "sha256": "b3998577ccb15f4c38116617d3f5b116f7b2de4c6f09a94ce2e3447e0293bc2d"
+    },
+    {
+      "path": "packages/buckle/deploy/test/health-published.ts",
+      "sha256": "577d9565d6740ef90774ef28088f61b821a9de07f0fd590a52f49bf52b83a126"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualification-api.ts",
+      "sha256": "2ff226351cb98bda06bfe3559b805c3fe278df457c3cbb94477629dff85e7623"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualification-config.ts",
+      "sha256": "3d36b372d5ac9dcbb21b2545af707fcd55683d34899491c2c5ca7ad739a795a4"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualification-http.ts",
+      "sha256": "b0feeedce0e7f2084550cd2352cef49ef1836eeb0e4519f73bd3129ca22979b4"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualification-subject.ts",
+      "sha256": "321746ace43b390ed7eebf3554da5712520963031bcbf5553dc20c3229894495"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualification.ts",
+      "sha256": "0c824e8bc423228529ea9e023824498a21fdd09f890272043017dd9081913425"
+    },
+    {
+      "path": "packages/buckle/deploy/test/qualify-existing.ts",
+      "sha256": "6a750c59c12ebca9d95878fd7b49d3b9c82effedffbae153b4fb86d7a6825055"
+    }
+  ],
+  "types": {
+    "current": 17,
+    "baseline": 17,
+    "equal": true,
+    "owned": []
+  }
+}

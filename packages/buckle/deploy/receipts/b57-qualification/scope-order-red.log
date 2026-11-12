@@ -1,0 +1,36 @@
+
+Running 1 test using 1 worker
+
+  ✘  1 [unit] › packages/buckle/deploy/qualification-api@unit.e2e.ts:5:1 › qualification observes finite scoped CRUD, identity, model claims and revoked keys over HTTP (7ms)
+
+
+  1) [unit] › packages/buckle/deploy/qualification-api@unit.e2e.ts:5:1 › qualification observes finite scoped CRUD, identity, model claims and revoked keys over HTTP 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 1
+
+      Array [
+    -   "buckle:runner:WRITE_",
+        "buckle:proxy:READ_",
+    +   "buckle:runner:WRITE_",
+      ]
+
+       at test/qualification-api.ts:105
+
+      103 | 	);
+      104 | 	expect(identity.key_id).toBe(control.key_id);
+    > 105 | 	expect(identity.scopes).toEqual(CONTROL_SCOPES);
+          | 	                        ^
+      106 | 	const before = inferenceCount();
+      107 | 	await request("/v1/admin/keys", control.key, 403);
+      108 | 	await request("/v1/chat/completions", control.key, 403, chat);
+        at qualifyApi ([checkout]/packages/buckle/deploy/test/qualification-api.ts:105:26)
+        at [checkout]/packages/buckle/deploy/qualification-api@unit.e2e.ts:94:23
+
+    Error Context: packages/buckle/test-results/qualification-api@unit.e2e-d336c--and-revoked-keys-over-HTTP-unit/error-context.md
+
+  1 failed
+    [unit] › packages/buckle/deploy/qualification-api@unit.e2e.ts:5:1 › qualification observes finite scoped CRUD, identity, model claims and revoked keys over HTTP 
+error: "playwright" exited with code 1

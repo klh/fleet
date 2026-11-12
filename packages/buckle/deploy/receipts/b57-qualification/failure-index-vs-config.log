@@ -1,0 +1,2 @@
+{"event":"starting","platform":"linux/arm64","mode":"main"}
+{"event":"failed","platform":"linux/arm64","mode":"main","error":"Error: Published qualification refused: Error: Pulled config differs from published platform manifest"}

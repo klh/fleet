@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "subject": "qualification of existing published Buckle seed; no image build or publication",
+  "image": "ghcr.io/klh/fleet/buckle-seed@sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+  "payloadSourceCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+  "recipeCommit": "f19dfe5ebedfeeb4739e675ec1c4b437c796ff03",
+  "verificationSource": {
+    "base": "20a34c14acd4d1c6ddaa783ad4a6bf18879bc957",
+    "uncommittedFrozenAggregate": "c03fd2f71ea729476da1d2e77a1ee9350d77251f32b0cd3f6885914987c98853",
+    "manifest": "source-freeze.json"
+  },
+  "keyedChecks": {
+    "passed": 6,
+    "cases": [
+      {
+        "platform": "linux/arm64",
+        "mode": "main",
+        "durationMs": 5679,
+        "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+        "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+        "containerIds": [
+          "de6c3235c6e2479efacf8fe5f686892e61eb515c2a62774e30ca59e83aaf8231"
+        ],
+        "removedAndAbsent": [
+          "de6c3235c6e2479efacf8fe5f686892e61eb515c2a62774e30ca59e83aaf8231"
+        ],
+        "execution": "Docker Desktop platform observation"
+      },
+      {
+        "platform": "linux/amd64",
+        "mode": "main",
+        "durationMs": 7749,
+        "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+        "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+        "containerIds": [
+          "d59de02554f25699090c3cb17e9764ef6d01654743bd6f881b658dec57908098"
+        ],
+        "removedAndAbsent": [
+          "d59de02554f25699090c3cb17e9764ef6d01654743bd6f881b658dec57908098"
+        ],
+        "execution": "Docker Desktop amd64 emulation"
+      },
+      {
+        "platform": "linux/arm64",
+        "mode": "fallback",
+        "durationMs": 5484,
+        "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+        "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+        "containerIds": [
+          "260d1532b4e6df6902407885838a957e4bbcf47a931da5bc9055e108196ae5c3"
+        ],
+        "removedAndAbsent": [
+          "260d1532b4e6df6902407885838a957e4bbcf47a931da5bc9055e108196ae5c3"
+        ],
+        "execution": "Docker Desktop platform observation"
+      },
+      {
+        "platform": "linux/amd64",
+        "mode": "fallback",
+        "durationMs": 6549,
+        "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+        "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+        "containerIds": [
+          "b7496e7d45fc68c3e296cf2f2081b307fe3bbd5d8b27168122222fe315489a46"
+        ],
+        "removedAndAbsent": [
+          "b7496e7d45fc68c3e296cf2f2081b307fe3bbd5d8b27168122222fe315489a46"
+        ],
+        "execution": "Docker Desktop amd64 emulation"
+      },
+      {
+        "platform": "linux/arm64",
+        "mode": "neutral",
+        "durationMs": 5271,
+        "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+        "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+        "containerIds": [
+          "cab2e9865d146231d2e9929d0a869b40492616bd9163e8198a1dfff5de1ab9e1"
+        ],
+        "removedAndAbsent": [
+          "cab2e9865d146231d2e9929d0a869b40492616bd9163e8198a1dfff5de1ab9e1"
+        ],
+        "execution": "Docker Desktop platform observation"
+      },
+      {
+        "platform": "linux/amd64",
+        "mode": "neutral",
+        "durationMs": 7480,
+        "configDigest": "sha256:3a10b6efe21c16c958a8f033f85aa98ad36754bfa632aa7e6d731126b78fd59c",
+        "platformManifest": "sha256:01c70b2bb7d44b5e2ec940fdb9f05ee7b9a0e923c530ce1718ac682fcaacff7d",
+        "containerIds": [
+          "0fd943fbbbe1da5468caf299ca8e66cb63ea8a2476267abba2a90dd7e097302c"
+        ],
+        "removedAndAbsent": [
+          "0fd943fbbbe1da5468caf299ca8e66cb63ea8a2476267abba2a90dd7e097302c"
+        ],
+        "execution": "Docker Desktop amd64 emulation"
+      }
+    ]
+  },
+  "unkeyed": {
+    "status": "NOT_RUN",
+    "reason": "No admin credential exists for planned drain in this negative boot posture; explicit cleanup disposition pending. Exit137 is not clean qualification."
+  },
+  "claims": {
+    "realModelInference": false,
+    "syntheticOperatorPinsOnly": true,
+    "allEightModesPassed": false,
+    "nativeAmd64": false,
+    "performanceComparison": false,
+    "deploymentReadiness": false,
+    "publication": false,
+    "newSignatureProof": false,
+    "newRegistryPrivacyCheck": false
+  },
+  "historicalPublicationReceipt": "https://github.com/klh/fleet/blob/65af1ddf1aa38aac9bcb914167d13afe927f9c96/packages/buckle/deploy/releases/0.1.2-experimental.w2990.2.receipt.json",
+  "evidenceSha256": [
+    {
+      "sha256": "c5e9a11749417d11b9269d05182b0f7b8c83147963e1e8de87854c2a5d707559",
+      "path": "arm64-main.json"
+    },
+    {
+      "sha256": "b48d2753fcef65e46c0ba648a10a9f1dc44a419892c896e81621c2350b3f72b8",
+      "path": "arm64-main.log"
+    },
+    {
+      "sha256": "aea7b130976a18f83ab56da4dace3d44a5a3c6c40bde9858982cc31ab70dcc1e",
+      "path": "remaining-keyed.json"
+    },
+    {
+      "sha256": "94d5e2212280429a54df96d301f58dcdf9e17ef43d2d1b94dc252fcc9f5fb546",
+      "path": "remaining-keyed.log"
+    },
+    {
+      "sha256": "7b57509b4db1559f73540a7525627ba9df052e76fc789fa02ff1fe7d3602bd0c",
+      "path": "failure-index-vs-config.log"
+    },
+    {
+      "sha256": "411e5bd399086ee8de9922facf9bc999e878a7f3d05575c58e345dbae481fcd2",
+      "path": "failure-local-id-equality.log"
+    },
+    {
+      "sha256": "a30b91f5af5545e1886624c4263db4caf216b3a979ca6978b35e7f03acfeef2a",
+      "path": "failure-masked-primary-and-exit137.log"
+    },
+    {
+      "sha256": "a7e03549f1a67c36dda76cfbaeb008494a48ea570c56eaacce6394076deb2ae3",
+      "path": "failed-run-cleanup.json"
+    },
+    {
+      "sha256": "6d2342a1e4cdd589a07d0c899020d9ed8a6732bf19878f51e2d5d450fd38956b",
+      "path": "actual-subject-replay.json"
+    },
+    {
+      "sha256": "9bfde03931f63d3f3d7ddbe25b295ae6c7488f356f46aebd8ce09bf110fed8f7",
+      "path": "focused-unit.log"
+    },
+    {
+      "sha256": "99cf0cc123de79d7b1867acca4ffb68cdb288929ac5750790051cadfdfeb0038",
+      "path": "scope-order-red.log"
+    },
+    {
+      "sha256": "149f94902dc256296fea6e995c30efe317c9044a7d242a4f47b7b3f316846473",
+      "path": "drain-stop-red.log"
+    },
+    {
+      "sha256": "582abfc01bc37448d56acc33bc9b94ce0f90b8ef50c76dbd35099984999e1854",
+      "path": "opaque-ids-red.log"
+    },
+    {
+      "sha256": "14066945bfe7b9390c4bd9fb5d9f91d399f0307f89751d8c69a7254f6560fcc9",
+      "path": "source-freeze.json"
+    }
+  ],
+  "logCompletedAt": {
+    "arm64Main": "2026-11-12T03:54:50.422Z",
+    "remainingKeyed": "2026-11-12T03:57:22.251Z",
+    "semantics": "original raw stdout log filesystem mtime, not a reconstructed test event timestamp"
+  }
+}

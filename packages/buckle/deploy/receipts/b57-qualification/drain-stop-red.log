@@ -1,0 +1,89 @@
+
+Running 5 tests using 1 worker
+
+  ✘  1 [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain 401 refuses success while attempting only ownership-verified bounded cleanup (3ms)
+  ✘  2 [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain timeout refuses success while attempting only ownership-verified bounded cleanup (3ms)
+  ✘  3 [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain stop refuses success while attempting only ownership-verified bounded cleanup (3ms)
+  ✓  4 [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain foreign refuses success while attempting only ownership-verified bounded cleanup (3ms)
+  ✘  5 [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain exit137 refuses success while attempting only ownership-verified bounded cleanup (1ms)
+
+
+  1) [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain 401 refuses success while attempting only ownership-verified bounded cleanup 
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "stop"
+    Received array: ["inspect", "exec"]
+
+      19 | 	if (failure === "foreign") { expect(operations).not.toContain("stop"); expect(operations).not.toContain("rm"); }
+      20 | 	else {
+    > 21 | 		expect(operations).toContain("stop");
+         | 		                   ^
+      22 | 		expect(calls.find((argv) => argv[1] === "stop")?.at(-1)).toBe("a".repeat(64));
+      23 | 		if (failure === "stop" || failure === "exit137") { expect(operations).not.toContain("rm"); expect(refusal).toBeInstanceOf(AggregateError); }
+      24 | 		else expect(operations.slice(-2)).toEqual(["rm", "container"]);
+        at [checkout]/packages/buckle/deploy/qualification-drain@unit.e2e.ts:21:22
+
+    Error Context: packages/buckle/test-results/qualification-drain@unit.e-9d1c9-ip-verified-bounded-cleanup-unit/error-context.md
+
+  2) [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain timeout refuses success while attempting only ownership-verified bounded cleanup 
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "stop"
+    Received array: ["inspect", "exec"]
+
+      19 | 	if (failure === "foreign") { expect(operations).not.toContain("stop"); expect(operations).not.toContain("rm"); }
+      20 | 	else {
+    > 21 | 		expect(operations).toContain("stop");
+         | 		                   ^
+      22 | 		expect(calls.find((argv) => argv[1] === "stop")?.at(-1)).toBe("a".repeat(64));
+      23 | 		if (failure === "stop" || failure === "exit137") { expect(operations).not.toContain("rm"); expect(refusal).toBeInstanceOf(AggregateError); }
+      24 | 		else expect(operations.slice(-2)).toEqual(["rm", "container"]);
+        at [checkout]/packages/buckle/deploy/qualification-drain@unit.e2e.ts:21:22
+
+    Error Context: packages/buckle/test-results/qualification-drain@unit.e-9d478-ip-verified-bounded-cleanup-unit/error-context.md
+
+  3) [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain stop refuses success while attempting only ownership-verified bounded cleanup 
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "stop"
+    Received array: ["inspect", "exec"]
+
+      19 | 	if (failure === "foreign") { expect(operations).not.toContain("stop"); expect(operations).not.toContain("rm"); }
+      20 | 	else {
+    > 21 | 		expect(operations).toContain("stop");
+         | 		                   ^
+      22 | 		expect(calls.find((argv) => argv[1] === "stop")?.at(-1)).toBe("a".repeat(64));
+      23 | 		if (failure === "stop" || failure === "exit137") { expect(operations).not.toContain("rm"); expect(refusal).toBeInstanceOf(AggregateError); }
+      24 | 		else expect(operations.slice(-2)).toEqual(["rm", "container"]);
+        at [checkout]/packages/buckle/deploy/qualification-drain@unit.e2e.ts:21:22
+
+    Error Context: packages/buckle/test-results/qualification-drain@unit.e-d706c-ip-verified-bounded-cleanup-unit/error-context.md
+
+  4) [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain exit137 refuses success while attempting only ownership-verified bounded cleanup 
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected value: "stop"
+    Received array: ["inspect", "exec"]
+
+      19 | 	if (failure === "foreign") { expect(operations).not.toContain("stop"); expect(operations).not.toContain("rm"); }
+      20 | 	else {
+    > 21 | 		expect(operations).toContain("stop");
+         | 		                   ^
+      22 | 		expect(calls.find((argv) => argv[1] === "stop")?.at(-1)).toBe("a".repeat(64));
+      23 | 		if (failure === "stop" || failure === "exit137") { expect(operations).not.toContain("rm"); expect(refusal).toBeInstanceOf(AggregateError); }
+      24 | 		else expect(operations.slice(-2)).toEqual(["rm", "container"]);
+        at [checkout]/packages/buckle/deploy/qualification-drain@unit.e2e.ts:21:22
+
+    Error Context: packages/buckle/test-results/qualification-drain@unit.e-a4f9c-ip-verified-bounded-cleanup-unit/error-context.md
+
+  4 failed
+    [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain 401 refuses success while attempting only ownership-verified bounded cleanup 
+    [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain timeout refuses success while attempting only ownership-verified bounded cleanup 
+    [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain stop refuses success while attempting only ownership-verified bounded cleanup 
+    [unit] › packages/buckle/deploy/qualification-drain@unit.e2e.ts:4:82 › drain exit137 refuses success while attempting only ownership-verified bounded cleanup 
+  1 passed (602ms)
+error: "playwright" exited with code 1

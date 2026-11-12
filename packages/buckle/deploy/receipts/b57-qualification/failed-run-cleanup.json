@@ -1,0 +1,11 @@
+{
+  "qualification": "FAILED",
+  "id": "62558945eaf7d67419f89fe3c8835b9428cc9286643de6e330020bfb077eac38",
+  "uuid": "995db234-0644-44f4-b9f5-d8c0d6ce8458",
+  "observedExitCode": 137,
+  "oomKilled": false,
+  "running": false,
+  "explicitFailedRunRemoval": true,
+  "absenceProved": true,
+  "privateFixtureRemoved": true
+}

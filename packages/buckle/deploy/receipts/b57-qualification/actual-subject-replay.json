@@ -1,0 +1,21 @@
+{
+  "event": "actual-subject-replay-passed",
+  "retainedCid": "ebb3995994c4dfcd5f85ff55c202dd73a01b3cb3ae1f0a285f5eb99d46a24de4",
+  "retainedDescriptor": {
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "digest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+    "size": 2185,
+    "platform": {
+      "architecture": "arm64",
+      "os": "linux"
+    }
+  },
+  "opaqueContainerImageInput": "prior non-platform diagnostic index ID; not new CID observation",
+  "platformManifest": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+  "configDigest": "sha256:29538db1387dd8cb007c646938df4655ebe86c01a7aecd85f00926cbc5247520",
+  "localImageId": "sha256:b57ec30f3582d298f4b465d3a8cd629ab3447b3b644dd26efde5a4cb0a062189",
+  "inspectedImageId": "sha256:bb78babf2b2e267daafe6cda65dc1510dda6945b7ce125a8113420845a7ca235",
+  "localImageDescriptorMediaType": "application/vnd.oci.image.manifest.v1+json",
+  "rootFSVerified": true,
+  "rawConfigVerified": true
+}
