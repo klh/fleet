@@ -286,14 +286,32 @@ async function main(): Promise<void> {
 			die(
 				"bench.local.json missing judgeImage (bun judge-image.ts --problem … prints it)",
 			);
-		const tests = (problem.judge as { tests: string[] }).tests;
-		const timeoutMs = 180_000;
+		const judge = problem.judge as { tests: string[]; testFiles?: string[] };
+		const tests = judge.tests;
+		// hidden tests ship with the fix commit — extract them once per attempt
+		const testFiles = judge.testFiles ?? [];
+		const goldTestsDir = join(
+			DIR.receipts,
+			`${problemId}-a${attempt}-goldtests`,
+		);
+		mkdirSync(goldTestsDir, { recursive: true });
+		for (const f of testFiles) {
+			const content = execFileSync(
+				"git",
+				["-C", repoRoot, "show", `${problem.fixCommit}:${f}`],
+				{ maxBuffer: 8 * 1024 * 1024 },
+			);
+			writeFileSync(join(goldTestsDir, f), content, { mode: 0o600 });
+		}
+		const timeoutMs = 300_000;
 		const baseRc = (
 			await judgePhase({
 				image: judgeImage,
 				archivePath,
 				patchPath: null,
 				tests,
+				testFiles,
+				goldTestsDir,
 				workdir: "/workspace",
 				receiptsDir: DIR.receipts,
 				label: `${problemId}-a${attempt}-base`,
@@ -308,6 +326,8 @@ async function main(): Promise<void> {
 				archivePath,
 				patchPath: goldDiff,
 				tests,
+				testFiles,
+				goldTestsDir,
 				workdir: "/workspace",
 				receiptsDir: DIR.receipts,
 				label: `${problemId}-a${attempt}-gold`,
@@ -325,6 +345,8 @@ async function main(): Promise<void> {
 					archivePath,
 					patchPath: patch.patchPath,
 					tests,
+					testFiles,
+					goldTestsDir,
 					workdir: "/workspace",
 					receiptsDir: DIR.receipts,
 					label: `${problemId}-a${attempt}-candidate`,

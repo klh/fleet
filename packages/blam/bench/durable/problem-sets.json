@@ -1,45 +1,54 @@
 {
-	"version": 1,
-	"problems": [
-		{
-			"id": "SPH-13926",
-			"repo": "sphinx",
-			"baseCommit": "8dd7a23feceb7d3d0496fa41c99d4f15958c4cdf",
-			"fixCommit": "f578eedb1",
-			"issueText": "Upstream issue #13926: the Python domain treats the ':canonical:' option of the 'py:type' directive incorrectly — it notes the canonical name as an aliased index object, producing wrong index entries; for py:type the canonical option names the true TypeVar and must not create a separate index object. Fix in sphinx/domains/python/ so py:type + canonical stops producing the wrong index object; other python object types keep current handling. Reproduce, fix, verify via a tiny sample.",
-			"judge": {
-				"kind": "pytest-hidden",
-				"tests": ["test_pytype_canonical"],
-				"expectBase": "fail",
-				"expectGold": "pass"
-			}
-		},
-		{
-			"id": "SPH-13328",
-			"repo": "sphinx",
-			"baseCommit": "37b7b5433",
-			"fixCommit": "2364f169a",
-			"issueText": "Upstream issue #13328: PEP 695 type-alias syntax is not handled by the Python domain — new-style `type X = ...` declarations produce missing or wrong py-domain entries and annotations, unlike legacy assignments. Fix sphinx/domains/python/ handling so PEP 695 aliases resolve like comparable alias forms; keep legacy behavior intact. Reproduce, fix, verify via a tiny sample.",
-			"judge": {
-				"kind": "pytest-hidden",
-				"tests": ["test_pytype_canonical"],
-				"expectBase": "fail",
-				"expectGold": "pass"
-			}
-		},
-		{
-			"id": "SPH-13762",
-			"repo": "sphinx",
-			"baseCommit": "8dd7a23feceb7d3d0496fa41c99d4f15958c4cdf",
-			"fixCommit": "f578eedb1",
-			"issueText": "Upstream issue #13762 (RETAINED NEGATIVE — clean re-run produced pytest_exit 2 twice; see lesson.bench-oracle-isolation). This problem is kept in the set as an explicit negative control: the runner must REFUSE admission for retained-negative problems.",
-			"judge": {
-				"kind": "pytest-hidden",
-				"tests": ["test_negative_control"],
-				"expectBase": "fail",
-				"expectGold": "pass"
-			},
-			"retainedNegative": true
-		}
-	]
+  "version": 1,
+  "problems": [
+    {
+      "id": "SPH-13926",
+      "repo": "sphinx",
+      "baseCommit": "8dd7a23feceb7d3d0496fa41c99d4f15958c4cdf",
+      "fixCommit": "f578eedb1",
+      "issueText": "Upstream issue #13926: the Python domain treats the ':canonical:' option of the 'py:type' directive incorrectly — it notes the canonical name as an aliased index object, producing wrong index entries; for py:type the canonical option names the true TypeVar and must not create a separate index object. Fix in sphinx/domains/python/ so py:type + canonical stops producing the wrong index object; other python object types keep current handling. Reproduce, fix, verify via a tiny sample.",
+      "judge": {
+        "kind": "pytest-hidden",
+        "tests": [
+          "test_pytype_canonical"
+        ],
+        "expectBase": "fail",
+        "expectGold": "pass",
+        "testFiles": [
+          "tests/test_domains/test_domain_py.py"
+        ]
+      }
+    },
+    {
+      "id": "SPH-13328",
+      "repo": "sphinx",
+      "baseCommit": "37b7b5433",
+      "fixCommit": "2364f169a",
+      "issueText": "Upstream issue #13328: PEP 695 type-alias syntax is not handled by the Python domain — new-style `type X = ...` declarations produce missing or wrong py-domain entries and annotations, unlike legacy assignments. Fix sphinx/domains/python/ handling so PEP 695 aliases resolve like comparable alias forms; keep legacy behavior intact. Reproduce, fix, verify via a tiny sample.",
+      "judge": {
+        "kind": "pytest-hidden",
+        "tests": [
+          "test_pytype_canonical"
+        ],
+        "expectBase": "fail",
+        "expectGold": "pass"
+      }
+    },
+    {
+      "id": "SPH-13762",
+      "repo": "sphinx",
+      "baseCommit": "8dd7a23feceb7d3d0496fa41c99d4f15958c4cdf",
+      "fixCommit": "f578eedb1",
+      "issueText": "Upstream issue #13762 (RETAINED NEGATIVE — clean re-run produced pytest_exit 2 twice; see lesson.bench-oracle-isolation). This problem is kept in the set as an explicit negative control: the runner must REFUSE admission for retained-negative problems.",
+      "judge": {
+        "kind": "pytest-hidden",
+        "tests": [
+          "test_negative_control"
+        ],
+        "expectBase": "fail",
+        "expectGold": "pass"
+      },
+      "retainedNegative": true
+    }
+  ]
 }

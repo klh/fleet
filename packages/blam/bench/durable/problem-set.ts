@@ -16,6 +16,10 @@ export const ProblemSchema = z.strictObject({
 		kind: z.literal("pytest-hidden"),
 		// hidden test node ids: expect base to FAIL them, gold to PASS them
 		tests: z.array(z.string().min(1)).min(1),
+		// repo-relative test files the fix commit ships — the judge copies
+		// them into EVERY phase (SPH-style hidden tests are gold-borne);
+		// optional — problems whose tests exist at base omit this
+		testFiles: z.array(z.string().min(1)).optional(),
 		expectBase: z.literal("fail"),
 		expectGold: z.literal("pass"),
 	}),

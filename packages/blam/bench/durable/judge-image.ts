@@ -100,11 +100,26 @@ async function main(): Promise<void> {
 		const project = pythonProjectRoot(extracted);
 		const digest = await baseDigest(BASE);
 		const image = `klh/blam-judge:${problem.repo}-${problem.baseCommit.slice(0, 12)}`;
+		// idempotent per repo+base: an existing tagged judge image wins —
+		// pip layers are not byte-reproducible, so rebuilding would mint a
+		// new digest per call; the arm pins ONE judge face per problem repo
+		try {
+			const existing = await run("docker", ["image", "inspect", image], {
+				maxBuffer: 4 * 1024 * 1024,
+			});
+			const info = JSON.parse(existing.stdout) as {
+				RepoDigests: string[];
+			}[];
+			console.log(info[0].RepoDigests[0] ?? image);
+			return;
+		} catch {
+			// not built yet — proceed to build
+		}
 		writeFileSync(
 			join(scratch, "Dockerfile"),
 			[
 				`FROM ${digest}`,
-				`RUN apt-get update && apt-get install -y --no-install-recommends patch && rm -rf /var/lib/apt/lists/*`,
+				`RUN apt-get update && apt-get install -y --no-install-recommends patch git && rm -rf /var/lib/apt/lists/*`,
 				// bake the project (deps + the package itself); pip build-time only
 				`WORKDIR /build`,
 				`COPY tree/ /build/`,
