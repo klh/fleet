@@ -1,4 +1,4 @@
-import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class s extends n{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=r`
+import{n,e,t,o}from"./lit-ac8284bbd881cce8.js";var i=[["decisions","Decisions"],["tasks","Tasks"],["lanes","Lanes"],["activity","Activity"],["report","Report"],["governor","Governor"],["setup","Setup"],["usage","Usage"]];class s extends o{static properties={current:{type:String,reflect:!0},extraTabs:{type:Array,attribute:!1}};static styles=n`
 		:host {
 			display: block;
 		}
@@ -54,27 +54,27 @@ import{r,e,t,n}from"./lit-b59bf30faa0b21f8.js";var i=[["decisions","Decisions"],
 				padding: 7px 9px;
 			}
 		}
-	`;constructor(){super();this.current="decisions",this.extraTabs=[]}select(a){this.dispatchEvent(new CustomEvent("tab-select",{detail:a,bubbles:!0,composed:!0}))}render(){return e`
+	`;constructor(){super();this.current="decisions",this.extraTabs=[]}select(r){this.dispatchEvent(new CustomEvent("tab-select",{detail:r,bubbles:!0,composed:!0}))}render(){return e`
 			<nav aria-label="board sections">
-				${i.map(([a,o])=>e`
+				${i.map(([r,a])=>e`
 						<button
 							type="button"
-							data-tab=${a}
-							aria-current=${this.current===a?"true":t}
-							@click=${()=>this.select(a)}
+							data-tab=${r}
+							aria-current=${this.current===r?"true":t}
+							@click=${()=>this.select(r)}
 						>
-							${o}
+							${a}
 						</button>
 					`)}
-				${this.extraTabs.map(([a,o])=>e`
+				${this.extraTabs.map(([r,a])=>e`
 						<button
 							type="button"
 							class="ent"
-							data-tab=${a}
-							aria-current=${this.current===a?"true":t}
-							@click=${()=>this.select(a)}
+							data-tab=${r}
+							aria-current=${this.current===r?"true":t}
+							@click=${()=>this.select(r)}
 						>
-							${o}
+							${a}
 						</button>
 					`)}
 			</nav>
