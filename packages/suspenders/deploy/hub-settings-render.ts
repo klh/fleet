@@ -3,6 +3,7 @@
 // deepMerge(machine doc minus private overlays, hubs.<label>.settings) and
 // validated through the same SettingsSchema (@klh/settings owns the merge).
 import {
+	redactSettings,
 	readSettingsFile,
 	renderHubSettings,
 	settingsPath,
@@ -17,5 +18,5 @@ export function hubSettingsText(label: string): string {
 		throw new Error(
 			`hubctl: ${label} settings do not render:\n  ${r.issues.join("\n  ")}`,
 		);
-	return JSON.stringify(r.doc, null, 2);
+	return JSON.stringify(redactSettings(r.doc), null, 2);
 }

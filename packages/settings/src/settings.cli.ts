@@ -15,6 +15,8 @@ import { copyFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite0600 } from "@klh/kernel/src/kernel.atomic.module.ts";
+import { redactSettings } from "./settings.redact.ts";
+import { CONNECTION_DOCUMENT_MAX_BYTES } from "./settings.connection-file.ts";
 import { SCHEMA_FILE, settingsJsonSchemaText } from "./settings.jsonschema.ts";
 import { migrate } from "./settings.migrate.ts";
 import { renderHubSettings } from "./settings.overlay.ts";
@@ -51,7 +53,8 @@ const USAGE = [
 	"       | render-hub <label>",
 ].join("\n");
 
-const json = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;
+const json = (v: unknown): string =>
+	`${JSON.stringify(redactSettings(v), null, 2)}\n`;
 
 function flagValues(args: string[], flag: string): string[] {
 	const out: string[] = [];
@@ -81,7 +84,12 @@ function writeDoc(file: string, doc: Doc, io: CliIo): number {
 		);
 		return 1;
 	}
-	atomicWrite0600(file, json(withSchema));
+	const text = `${JSON.stringify(withSchema, null, 2)}\n`;
+	if (Buffer.byteLength(text) > CONNECTION_DOCUMENT_MAX_BYTES) {
+		io.err("settings: refused oversized configuration\n");
+		return 1;
+	}
+	atomicWrite0600(file, text);
 	return 0;
 }
 
@@ -96,8 +104,8 @@ const parseValue = (raw: string): unknown => {
 function loadRaw(file: string, io: CliIo): Doc | null {
 	try {
 		return readSettingsFile(file) ?? {};
-	} catch (e) {
-		io.err(`settings: ${file} is not valid JSON: ${String(e)}\n`);
+	} catch {
+		io.err(`settings: ${file} is not valid JSON\n`);
 		return null;
 	}
 }
@@ -107,7 +115,7 @@ function cmdShow(args: string[], io: CliIo): number {
 	if (args.includes("--origin")) {
 		for (const p of leafPaths(r.settings))
 			io.out(
-				`${p} = ${JSON.stringify(getPath(r.settings, p))}  (${originOf(r, p)})\n`,
+				`${p} = ${JSON.stringify(getPath(redactSettings(r.settings), p))}  (${originOf(r, p)})\n`,
 			);
 		return 0;
 	}
@@ -206,7 +214,7 @@ export function runSettingsCli(argv: string[], io: CliIo = stdio): number {
 			case "get": {
 				if (!pos[0]) break;
 				const r = resolveSettings({ mode: "service", quiet: true });
-				const v = getPath(r.settings, pos[0]);
+				const v = getPath(redactSettings(r.settings), pos[0]);
 				if (v === undefined) {
 					io.err(`settings: no setting at ${pos[0]}\n`);
 					return 1;

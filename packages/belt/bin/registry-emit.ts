@@ -14,7 +14,8 @@
 // byte-identical output, so a diff of emitted config is a real change.
 // No secrets: local rows carry the literal `local` placeholder key; cloud
 // keys are env-ref NAMES only and are not this emitter's business.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { emitPeerFiles } from "./connection-upstreams.ts";
 import { join } from "node:path";
 import {
 	chatEntries,
@@ -215,6 +216,28 @@ const FILES: Record<Kind, string> = {
 
 async function main(argv: string[]): Promise<number> {
 	const kind = argv[0] ?? "";
+	if (
+		["--connection", "--aliases", "--env-out"].some((flag) =>
+			argv.includes(flag),
+		) &&
+		kind !== "buckle"
+	)
+		throw new Error("Peer options require buckle output");
+	if (
+		(argv.includes("--aliases") || argv.includes("--env-out")) &&
+		!argv.includes("--connection")
+	)
+		throw new Error("Peer output options require --connection");
+	for (const flag of ["--connection", "--aliases", "--env-out"]) {
+		const at = argv.indexOf(flag);
+		if (
+			at >= 0 &&
+			(!argv[at + 1] ||
+				argv[at + 1]?.startsWith("--") ||
+				argv.lastIndexOf(flag) !== at)
+		)
+			throw new Error("Invalid peer output option");
+	}
 	const outAt = argv.indexOf("--out");
 	const out = outAt >= 0 ? argv[outAt + 1] : undefined;
 	if (kind === "all") {
@@ -232,13 +255,40 @@ async function main(argv: string[]): Promise<number> {
 	}
 	if (!(kind in EMITTERS)) {
 		console.error(
-			"usage: bun bin/registry-emit.ts <litellm|direct|buckle|json|tier|all> [--out PATH]",
+			"usage: bun bin/registry-emit.ts <litellm|direct|buckle|json|tier|all> [--out PATH] [--connection peer[,peer] --env-out PRIVATE_ENV --aliases UPSTREAMS_JSON]",
 		);
 		return 2;
 	}
-	const text = EMITTERS[kind as Kind]();
-	if (out) await Bun.write(out, text);
-	else await Bun.write(Bun.stdout, text);
+	const connectionsAt = argv.indexOf("--connection");
+	if (connectionsAt >= 0 && kind !== "buckle")
+		throw new Error("Peer connections require buckle output");
+	const names =
+		connectionsAt < 0
+			? null
+			: (argv[connectionsAt + 1] ?? "").split(",").filter(Boolean);
+	const aliasesAt = argv.indexOf("--aliases");
+	let aliases: Record<string, Record<string, unknown>[]> = {};
+	if (aliasesAt >= 0)
+		try {
+			aliases = JSON.parse(
+				readFileSync(argv[aliasesAt + 1] ?? "", "utf8"),
+			).groups;
+			if (!aliases) throw new Error("Missing alias groups");
+		} catch {
+			throw new Error("Invalid peer alias document");
+		}
+	const envAt = argv.indexOf("--env-out");
+	const text = names
+		? await emitPeerFiles(
+				names,
+				JSON.parse(emitBuckleUpstreams()).groups,
+				aliases,
+				envAt < 0 ? undefined : argv[envAt + 1],
+				out,
+			)
+		: EMITTERS[kind as Kind]();
+	if (out && !names) await Bun.write(out, text);
+	else if (!out) await Bun.write(Bun.stdout, text);
 	return 0;
 }
 

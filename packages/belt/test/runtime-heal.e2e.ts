@@ -19,6 +19,60 @@ function mkprefix(): string {
 	return mkdtempSync(join(tmpdir(), "runtime-heal-"));
 }
 
+test("flat runtime executes the bundled canonical resolver without checkout dependencies @unit", async () => {
+	const { bundleProviderResolver } = await import("../bin/runtime-heal.ts");
+	const prefix = mkprefix(),
+		repo = join(import.meta.dir, "../../..");
+	try {
+		writeFileSync(
+			join(prefix, "provider-profiles.ts"),
+			readFileSync(join(repo, "packages/belt/bin/provider-profiles.ts")),
+		);
+		writeFileSync(
+			join(prefix, "settings.json"),
+			JSON.stringify({
+				providers: {
+					audio: {
+						kind: "provider",
+						provider: "elevenlabs",
+						adapter: "elevenlabs",
+						protocol: "native",
+						endpoints: { base: "https://api.elevenlabs.io" },
+						auth: { kind: "inline", key: "fixture-only-value" },
+					},
+				},
+			}),
+			{ mode: 0o600 },
+		);
+		await bundleProviderResolver(repo, prefix);
+		healImports(prefix);
+		expect(probeClosure(prefix, ["provider-profiles.ts"])).toEqual([]);
+		const run = Bun.spawnSync(
+			[
+				process.execPath,
+				"-e",
+				'const m=await import("./provider-profiles.ts"),s=await import("./stack-config.ts");process.stdout.write(String(m.loadProviderProfiles().audio.key==="fixture-only-value"&&s.providerKey("audio")==="fixture-only-value"))',
+			],
+			{
+				cwd: prefix,
+				env: {
+					...process.env,
+					KLH_SETTINGS: join(prefix, "settings.json"),
+					KLH_STACK: join(prefix, "absent-stack.json"),
+				},
+				timeout: 5000,
+				killSignal: "SIGKILL",
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		expect(run.exitCode).toBe(0);
+		expect(run.stdout.toString().trim()).toBe("true");
+	} finally {
+		rmSync(prefix, { recursive: true, force: true });
+	}
+});
+
 test("healImports rewrites mapped cross-package imports to runtime-local @unit", () => {
 	const prefix = mkprefix();
 	try {
