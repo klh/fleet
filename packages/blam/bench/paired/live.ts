@@ -13,41 +13,12 @@ import { join, resolve } from "node:path";
 import { gatePromotion } from "../../src/promotion.ts";
 import { pairedLift, type PairedRep } from "./types.ts";
 
-export interface LiveManifest {
-	repo: string;
-	baseRef: string;
-	task: string;
-	model: string;
-	baseline: string;
-	candidate: string;
-	reps: number;
-	/** Identical argv for both arms; {prompt}, {worktree}, {model} expand. */
-	executor: string[];
-	/** Held outside both worktrees. Exit 0 means the resulting artifact passes. */
-	judge: string[];
-	timeoutMs: number;
-	outputDir: string;
-}
+import { LiveManifestSchema, type LiveManifest } from "./contracts.ts";
+export { LiveManifestSchema, ArmReceiptSchema } from "./contracts.ts";
+export type { LiveManifest } from "./contracts.ts";
 
-export interface ArmReceipt {
-	arm: "baseline" | "candidate";
-	rep: number;
-	laneId: string;
-	baseSha: string;
-	harnessSha256: string;
-	model: string;
-	executorExit: number;
-	judgeExit: number | null;
-	timedOut: boolean;
-	tokens: number | null;
-	cacheReadTokens: number | null;
-	cacheWriteTokens: number | null;
-	quality: number;
-	wallMs: number;
-	judgeMs: number | null;
-	outputSha256: string;
-	patchFile: string;
-}
+import type { ArmReceipt } from "./contracts.ts";
+export type { ArmReceipt } from "./contracts.ts";
 
 export interface LiveReport {
 	manifestSha256: string;
@@ -394,7 +365,9 @@ export async function runLivePaired(
 if (import.meta.main) {
 	const path = process.argv[2];
 	if (!path) throw new Error("usage: bun bench/paired/live.ts <manifest.json>");
-	const manifest = JSON.parse(readFileSync(path, "utf8")) as LiveManifest;
+	const manifest = LiveManifestSchema.parse(
+		JSON.parse(readFileSync(path, "utf8")),
+	);
 	const report = await runLivePaired(manifest);
 	console.log(
 		JSON.stringify(
