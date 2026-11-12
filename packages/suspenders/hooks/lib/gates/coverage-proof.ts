@@ -5,14 +5,66 @@
 // ADDED is the proof itself — the change is what provides the module — so it
 // must not classify as an environmental failure. Only a missing import that
 // does NOT resolve onto a diff-added module is tooling/dependency noise.
-import { existsSync, mkdirSync, symlinkSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	symlinkSync,
+} from "node:fs";
 import { dirname, join, posix } from "node:path";
+import { z } from "zod";
 
 // test paths only: the proof keeps these, reverses everything else
 export const TEST_FILE =
 	/(^|\/)(tests?|__tests__)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_/;
 
 type ProofGit = (args: string[]) => { code: number; out: string };
+
+export type ProofRunnerGroup =
+	| { runner: "bun"; files: string[] }
+	| { runner: "playwright"; config: string; files: string[] };
+
+function proofRunners(
+	testFiles: string[],
+	tip: Set<string>,
+	baseline: Set<string>,
+) {
+	const bunRunnable = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_|_test_/;
+	const playwrightEntry = /\.e2e\.[cm]?[jt]sx?$/;
+	const isBun = (file: string) =>
+		!playwrightEntry.test(file) && bunRunnable.test(file);
+	const provable = testFiles.filter(isBun);
+	const groups: ProofRunnerGroup[] = provable.length
+		? [{ runner: "bun", files: provable }]
+		: [];
+	const playwright = new Map<string, string[]>();
+	const unsupported: string[] = [];
+	for (const file of testFiles) {
+		if (isBun(file)) continue;
+		// Helpers/configs are restored with tests, but are not executable specs.
+		if (!playwrightEntry.test(file)) continue;
+		const member = file.match(/^packages\/([^/]+)\//);
+		const config = member
+			? `packages/${member[1]}/test/playwright.config.ts`
+			: file.startsWith("tests/")
+				? "tests/playwright.config.ts"
+				: null;
+		if (!config || !tip.has(config) || !baseline.has(config)) {
+			unsupported.push(file);
+			continue;
+		}
+		const files = playwright.get(config) ?? [];
+		files.push(file);
+		playwright.set(config, files);
+	}
+	for (const [config, files] of playwright)
+		groups.push({ runner: "playwright", config, files });
+	return { provable, runnerGroups: groups, unsupported };
+}
 
 /** Model-facing review text; keep the same exact objects as the proof. */
 export function reviewedDiff(
@@ -53,23 +105,19 @@ export function coverageProofManifest(
 	const changed = paths("diff", "--name-only", range);
 	const tip = new Set(paths("ls-tree", "-r", "--name-only", commit));
 	const testFiles = changed.filter((f) => TEST_FILE.test(f) && tip.has(f));
-	const bunRunnable = /\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)(test|spec)_|_test_/;
-	const provable = testFiles.filter((f) => bunRunnable.test(f));
-	const skip =
-		testFiles.length === 0
-			? "no test files in diff"
-			: provable.length === 0
-				? "unsupported reverse proof runner: playwright-only (no bun-collectable test files)"
-				: null;
+	const mergeBase = read("merge-base", base, commit);
+	const baseline = new Set(paths("ls-tree", "-r", "--name-only", mergeBase));
+	const runners = proofRunners(testFiles, tip, baseline);
+	const skip = testFiles.length === 0 ? "no test files in diff" : null;
 	return {
 		base,
 		commit,
 		range,
 		changed,
 		testFiles,
-		provable,
+		...runners,
 		skip,
-		mergeBase: read("merge-base", base, commit),
+		mergeBase,
 		addedProd: paths("diff", "--name-only", "--diff-filter=A", range).filter(
 			(f) => !TEST_FILE.test(f),
 		),
@@ -168,11 +216,46 @@ const scratchRelativeImporter = (
 	importer: string,
 	scratchRoot: string | undefined,
 ): string => {
-	if (!scratchRoot || !posix.isAbsolute(importer)) return "";
-	// macOS may print /private/var for a scratch root created under /var.
-	const canonical = (path: string): string =>
-		posix.normalize(path).replace(/^\/private(?=\/var\/)/, "");
-	const relative = posix.relative(canonical(scratchRoot), canonical(importer));
+	if (
+		!scratchRoot ||
+		!posix.isAbsolute(scratchRoot) ||
+		!posix.isAbsolute(importer)
+	)
+		return "";
+	const canonical = (path: string, depth = 0): string | null => {
+		if (depth > 32) return null;
+		let cursor = posix
+			.normalize(path)
+			.replace(/^\/private(?=\/(?:var|tmp)(?:\/|$))/, "");
+		const tail: string[] = [];
+		try {
+			for (;;) {
+				const stat = lstatSync(cursor, { throwIfNoEntry: false });
+				if (stat) {
+					if (stat.isSymbolicLink())
+						return canonical(
+							posix.resolve(
+								posix.dirname(cursor),
+								readlinkSync(cursor),
+								...tail,
+							),
+							depth + 1,
+						);
+					return posix.join(realpathSync(cursor), ...tail);
+				}
+				const parent = posix.dirname(cursor);
+				if (parent === cursor) return null;
+				tail.unshift(posix.basename(cursor));
+				cursor = parent;
+			}
+		} catch {
+			return null;
+		}
+	};
+	const root = canonical(scratchRoot),
+		file = canonical(importer);
+	if (!root || !file) return "";
+	const relative = posix.relative(root, file);
 	return relative &&
 		relative !== ".." &&
 		!relative.startsWith("../") &&
@@ -195,6 +278,36 @@ const explainsMissing = (
 	addedWorkspaceDeps: AddedWorkspaceDependency[],
 	scratchRoot?: string,
 ): boolean => {
+	if (scratchRoot) {
+		const importerPath = scratchRelativeImporter(importer, scratchRoot);
+		if (!importerPath) return false;
+		if (
+			!spec.startsWith(".") &&
+			!posix.isAbsolute(spec) &&
+			addedWorkspaceDeps.some(
+				({ packageDir, name }) =>
+					importerPath.startsWith(`${packageDir}/`) &&
+					(spec === name ||
+						(spec.startsWith(`${name}/`) &&
+							spec
+								.slice(name.length + 1)
+								.split("/")
+								.every((part) => part !== "." && part !== ".."))),
+			)
+		)
+			return true;
+		const absolute = posix.isAbsolute(spec)
+			? spec
+			: /^\.\.?(?:\/|$)/.test(spec)
+				? posix.resolve(scratchRoot, posix.dirname(importerPath), spec)
+				: null;
+		if (!absolute) return false;
+		const target = scratchRelativeImporter(absolute, scratchRoot);
+		return (
+			!!target &&
+			RESOLVE_EXTS.some((extension) => added.has(target + extension))
+		);
+	}
 	for (const p of added) {
 		if (spec.endsWith(`/${p}`)) return true;
 	}
@@ -261,21 +374,84 @@ export const missingImportsExplained = (
  *  packages whose files changed in the diff — tests AND production: a
  *  changed prod file's cross-package import needs the sibling package's
  *  local links too (W2633 trail). See changedPackageManifests(). */
+
+const WorkspaceIdentitySchema = z.object({
+	name: z.string().min(1).optional(),
+});
+
 export function shareNodeModules(
 	repo: string,
 	scratch: string,
 	manifestPaths: readonly string[],
 ): void {
-	const root = join(repo, "node_modules");
-	if (existsSync(root) && !existsSync(join(scratch, "node_modules")))
-		symlinkSync(root, join(scratch, "node_modules"), "dir");
-	for (const manifest of manifestPaths) {
-		const srcDir = join(repo, dirname(manifest), "node_modules");
-		if (!existsSync(srcDir)) continue;
-		const dst = join(scratch, dirname(manifest), "node_modules");
-		if (!existsSync(dst)) {
-			mkdirSync(dirname(dst), { recursive: true });
-			symlinkSync(srcDir, dst, "dir");
+	const names = new Map<string, string>();
+	const targets = new Map<string, string>();
+	// Called before reversal: identities come from the exact candidate scratch,
+	// never mutable package manifests in the dependency-cache checkout.
+	const packages = join(scratch, "packages");
+	if (existsSync(packages)) {
+		for (const entry of readdirSync(packages, { withFileTypes: true })) {
+			const directory = join(packages, entry.name);
+			const manifest = join(directory, "package.json");
+			if (!entry.isDirectory() || !existsSync(manifest)) continue;
+			const identity = WorkspaceIdentitySchema.safeParse(
+				JSON.parse(readFileSync(manifest, "utf8")),
+			);
+			if (!identity.success)
+				throw new Error("Invalid workspace package identity");
+			const destination = join(scratch, "packages", entry.name);
+			const sourceDirectory = join(repo, "packages", entry.name);
+			if (existsSync(sourceDirectory))
+				targets.set(realpathSync(sourceDirectory), destination);
+			if (identity.data.name) {
+				if (names.has(identity.data.name))
+					throw new Error("Ambiguous workspace identity");
+				names.set(identity.data.name, destination);
+			}
 		}
 	}
+	const workspaceTarget = (target: string): string => {
+		for (const [sourceRoot, scratchRoot] of targets) {
+			const suffix = posix.relative(sourceRoot, target);
+			if (
+				suffix !== ".." &&
+				!suffix.startsWith("../") &&
+				!posix.isAbsolute(suffix)
+			)
+				return join(scratchRoot, suffix);
+		}
+		return target;
+	};
+	const share = (source: string, destination: string): void => {
+		if (!existsSync(source)) return;
+		if (lstatSync(destination, { throwIfNoEntry: false }))
+			throw new Error("Proof dependencies already exist");
+		mkdirSync(destination, { recursive: true });
+		const link = (src: string, dst: string, name?: string): void => {
+			// Internal aliases point at this reversed scratch, even if the new
+			// workspace is absent there. They must never borrow the candidate.
+			const named = name ? names.get(name) : undefined;
+			const target = named ?? workspaceTarget(realpathSync(src));
+			symlinkSync(target, dst);
+		};
+		for (const entry of readdirSync(source)) {
+			const src = join(source, entry),
+				dst = join(destination, entry);
+			if (entry.startsWith("@") || entry === ".bin") {
+				mkdirSync(dst);
+				for (const member of readdirSync(src))
+					link(
+						join(src, member),
+						join(dst, member),
+						entry === ".bin" ? undefined : [entry, member].join("/"),
+					);
+			} else link(src, dst, entry);
+		}
+	};
+	share(join(repo, "node_modules"), join(scratch, "node_modules"));
+	for (const manifest of manifestPaths)
+		share(
+			join(repo, dirname(manifest), "node_modules"),
+			join(scratch, dirname(manifest), "node_modules"),
+		);
 }

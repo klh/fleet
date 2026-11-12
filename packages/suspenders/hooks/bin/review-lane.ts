@@ -16,12 +16,12 @@ import {
 	addedWorkspaceDependencies,
 	changedPackageManifests,
 	coverageProofManifest,
-	missingImportsExplained,
 	type Proof,
 	pureTestDiff,
 	reviewedDiff,
 	shareNodeModules,
 } from "../lib/gates/coverage-proof.ts";
+import { runCoverageGroups } from "../lib/gates/coverage-proof-runner.ts";
 import {
 	fingerprintVerdict,
 	workspaceFingerprint,
@@ -411,11 +411,14 @@ async function requestLeg(legIndex: number): Promise<string> {
 // W1262: Proof/TEST_FILE and the missing-module classification live in
 // hooks/lib/gates/coverage-proof.ts (unit face for the classifier).
 
+// Shared TEST-process budget: preparation elapsed is deducted. Existing
+// synchronous Git preparation and finalization are not hard-bounded here.
 const PROOF_TIMEOUT_MS = 5 * 60_000;
 
 async function coverageProof(base: string, commit: string): Promise<Proof> {
+	const started = performance.now();
 	const inputs = coverageProofManifest(base, commit, gitRun);
-	const { changed: diffTests, provable, addedProd, mergeBase } = inputs;
+	const { changed: diffTests, addedProd, mergeBase } = inputs;
 	const purePort = pureTestDiff(diffTests);
 	if (inputs.skip) return { status: "skipped", detail: inputs.skip };
 
@@ -439,6 +442,7 @@ async function coverageProof(base: string, commit: string): Promise<Proof> {
 	});
 
 	const scratch = mkdtempSync(join(tmpdir(), "review-proof-"));
+	const artifacts = mkdtempSync(join(tmpdir(), "review-proof-output-"));
 	let added = false;
 	try {
 		const wt = gitRun([
@@ -474,8 +478,11 @@ async function coverageProof(base: string, commit: string): Promise<Proof> {
 				status: "error",
 				detail: `reverse apply failed: ${rev.out.trim().slice(0, 150)}`,
 			};
-		// …then restore the new tests from the index (still at the branch tip)
-		const back = gitRun(["checkout", "--", ...provable], scratch);
+		// Restore every changed test asset, including fixtures, from the exact tip.
+		const back = gitRun(
+			["--no-replace-objects", "checkout", commit, "--", ...inputs.testFiles],
+			scratch,
+		);
 		if (back.code !== 0)
 			return { status: "error", detail: "test restore failed" };
 		// W2181 (verify.py): the run's output dir is emptied first — the
@@ -485,76 +492,38 @@ async function coverageProof(base: string, commit: string): Promise<Proof> {
 		// banks as unknown, never proved, never no-coverage.
 		rmSync(patch, { force: true });
 		const before = workspaceFingerprint(scratch);
-		// run the new tests without the change
-		const p = Bun.spawn([process.execPath, "test", ...provable], {
-			stdin: "ignore",
-			stdout: "pipe",
-			stderr: "pipe",
+		const proof = await runCoverageGroups({
 			cwd: scratch,
+			outputDir: artifacts,
+			timeoutMs: PROOF_TIMEOUT_MS - (performance.now() - started),
+			groups: inputs.runnerGroups,
+			unsupported: inputs.unsupported,
+			addedProd,
+			testFiles: inputs.testFiles,
+			addedWorkspaceDeps,
+			purePort,
 		});
-		const timer = setTimeout(() => p.kill(), PROOF_TIMEOUT_MS);
-		const [outText, errText] = await Promise.all([
-			new Response(p.stdout).text(),
-			new Response(p.stderr).text(),
-		]);
-		clearTimeout(timer);
-		await p.exited;
-		const output = `${outText}\n${errText}`;
 		const fp = fingerprintVerdict(before, workspaceFingerprint(scratch));
 		if (fp !== "unchanged")
 			return {
 				status: "unknown",
 				detail: `scratch tree ${fp === "changed" ? "changed mid-run" : "could not be fingerprinted"} during the proof run — result banks unknown, never proved`,
 			};
-		if (/Cannot find (package|module)/.test(output)) {
-			// W1262 (W1258 regression): a missing import that names a module the
-			// diff ADDED means the reversed change is what provides the module —
-			// the failure is the proof. Only an unexplained one is environmental.
-			if (
-				!missingImportsExplained(
-					output,
-					addedProd,
-					provable,
-					addedWorkspaceDeps,
-					scratch,
-				)
-			)
-				return {
-					status: "error",
-					detail: "scratch module resolution failed",
-				};
-		}
-		// the trailing bun summary is the machine-readable part
-		const counts = (word: string): number => {
-			const hits = [...output.matchAll(new RegExp(`(\\d+) ${word}\\b`, "g"))];
-			return Number(hits.at(-1)?.[1] ?? -1);
-		};
-		const passed = counts("pass");
-		const failed = counts("fail");
-		if (failed < 0)
+		if (performance.now() - started >= PROOF_TIMEOUT_MS)
 			return {
 				status: "error",
-				detail: `no bun test summary (exit ${p.exitCode})`,
+				detail: "reverse test-process budget exceeded",
 			};
-		return failed > 0
-			? {
-					status: "proved",
-					detail: "new tests fail without the change",
-					failed,
-					passed,
-				}
-			: {
-					status: "no-coverage",
-					detail: purePort
-						? "all new tests pass without the change (pure test port — advisory)"
-						: "all new tests pass without the change",
-					failed: 0,
-					passed,
-					purePort,
-				};
+		return proof;
+	} catch {
+		return {
+			status: "error",
+			detail: "reverse proof preparation or dependencies failed",
+		};
 	} finally {
 		if (added) gitRun(["worktree", "remove", "--force", scratch]);
 		rmSync(scratch, { recursive: true, force: true });
+		rmSync(artifacts, { recursive: true, force: true });
 	}
 }
 

@@ -70,6 +70,10 @@ test("separates unsupported Playwright files from runnable Bun tests and no test
 		const manifest = coverageProofManifest(f.base, mixed, f.git);
 		expect(manifest.provable).toEqual(["legacy.spec.ts"]);
 		expect(manifest.testFiles).toEqual(["legacy.spec.ts", "new@unit.e2e.ts"]);
+		expect(manifest.unsupported).toEqual(["new@unit.e2e.ts"]);
+		expect(manifest.runnerGroups).toEqual([
+			{ runner: "bun", files: ["legacy.spec.ts"] },
+		]);
 		expect(manifest.addedProd).toEqual(["added.ts"]);
 		expect(manifest.skip).toBeNull();
 	} finally {
@@ -120,7 +124,8 @@ test("proof manifest stays bound to reviewed commits when main and branch move",
 		const before = manifest(f.base, f.head, f.git);
 		expect(before.testFiles).toEqual(["new@unit.e2e.ts"]);
 		expect(before.provable).toEqual([]);
-		expect(before.skip).toContain("unsupported");
+		expect(before.skip).toBeNull();
+		expect(before.unsupported).toEqual(["new@unit.e2e.ts"]);
 		f.checked("checkout", "main");
 		const moved = f.commit({ "new@unit.e2e.ts": "main advanced" }, "move main");
 		f.checked("branch", "-f", "candidate", moved);

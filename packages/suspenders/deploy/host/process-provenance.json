@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"sourceCommit": "0247a701b9a9691c123c826bb937235be874a1f4",
+	"files": [
+		{
+			"path": "packages/suspenders/deploy/host/process-guardian.ts",
+			"gitBlob": "6f16bc5d1150b415a41c0f925d79277a22dc3e82",
+			"sha256": "5aa9c3fb7b0c2125013acba1dcc8e8b45bf1654505d8274cea4437ec8a7c9396"
+		},
+		{
+			"path": "packages/suspenders/deploy/host/process-protocol.ts",
+			"gitBlob": "1e59bb9b2be8c213690958d5cff90c55750e28ff",
+			"sha256": "15eb2cb8e51c54f567de86f218b9c65f86c8b44fb1fb814d6a1bd15afd29927f"
+		},
+		{
+			"path": "packages/suspenders/deploy/host/process.ts",
+			"gitBlob": "ec740f3da572d3daf4ca309310dabce3aa8b0659",
+			"sha256": "e719b11d8d70ac07c5e0dd8e4a479b8c7ef8e2b0d8ce47f4b03be7d0a91243e3"
+		}
+	]
+}
