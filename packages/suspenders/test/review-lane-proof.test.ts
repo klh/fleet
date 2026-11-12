@@ -507,35 +507,43 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		});
 	}
 
-	for (const output of ["empty", "length-pass", "interrupted-pass"])
-		test(`W1236: ${output} HTTP200 remains ERROR without trusting truncated verdict`, async () => {
-			const { fact } = await runCase(
-				{
-					name: `w1236-${output}`,
-					files: { "docs.md": "incomplete review output\n" },
-					want: "skipped",
-				},
-				async () =>
-					Response.json({
-						choices: [
-							{
-								finish_reason: output === "interrupted-pass" ? null : "length",
-								message: {
-									content:
-										output === "empty"
-											? ""
-											: "B1-real: incomplete\nVERDICT: PASS",
-								},
+	async function assertIncompleteReview(
+		output: "empty" | "length-pass" | "interrupted-pass",
+	) {
+		const { fact } = await runCase(
+			{
+				name: `w1236-${output}`,
+				files: { "docs.md": "incomplete review output\n" },
+				want: "skipped",
+			},
+			async () =>
+				Response.json({
+					choices: [
+						{
+							finish_reason: output === "interrupted-pass" ? null : "length",
+							message: {
+								content:
+									output === "empty"
+										? ""
+										: "B1-real: incomplete\nVERDICT: PASS",
 							},
-						],
-						usage: { completion_tokens: 1500 },
-					}),
-				2,
-			);
-			expect(fact.verdict).toBe("ERROR");
-			expect(String(fact.headline)).toContain(
-				output === "empty" ? "empty content" : "did not finish normally",
-			);
+						},
+					],
+					usage: { completion_tokens: 1500 },
+				}),
+			2,
+		);
+		expect(fact.verdict).toBe("ERROR");
+		expect(String(fact.headline)).toContain(
+			output === "empty" ? "empty content" : "did not finish normally",
+		);
+	}
+	test("W1236: empty-content 200 is a diagnosed failure, not opaque leg-failed", async () => {
+		await assertIncompleteReview("empty");
+	});
+	for (const output of ["length-pass", "interrupted-pass"] as const)
+		test(`W1236: ${output} HTTP200 remains ERROR without trusting truncated verdict`, async () => {
+			await assertIncompleteReview(output);
 		});
 
 	test("W1263: reasoning-only 200 (content empty) is recovered, not an ERROR", async () => {
