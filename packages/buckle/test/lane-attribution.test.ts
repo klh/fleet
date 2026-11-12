@@ -1,6 +1,6 @@
 // test/lane-attribution.test.ts — W1: /w/<slug> per-lane attribution: the
 // prefix is stripped before the upstream, the slug lands in the audit row +
-// x-belt-route header, bare paths stay unchanged, malformed slugs 404, and
+// x-buckle-route header, bare paths stay unchanged, malformed slugs 404, and
 // pre-lane databases survive the ALTER guard.
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -40,7 +40,7 @@ describe("lane prefix routing", () => {
 		);
 		expect(res.status).toBe(200);
 		expect(upstream.calls[0]?.path).toBe("/v1/chat/completions");
-		const route = JSON.parse(res.headers.get("x-belt-route") ?? "{}") as {
+		const route = JSON.parse(res.headers.get("x-buckle-route") ?? "{}") as {
 			lane?: string;
 		};
 		expect(route.lane).toBe("autow1");

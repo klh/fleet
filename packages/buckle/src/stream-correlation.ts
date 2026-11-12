@@ -61,7 +61,7 @@ export function hopCorrelationOf(headers: Headers): HopCorrelation {
 	return {
 		upstreamRequestId:
 			safeCorrelationId(
-				headers.get("x-klh-upstream-request-id") ?? headers.get("x-request-id"),
+				headers.get("x-buckle-upstream-request-id") ?? headers.get("x-request-id"),
 			) ?? null,
 		litellmCallId: safeCorrelationId(headers.get("x-litellm-call-id")) ?? null,
 	};

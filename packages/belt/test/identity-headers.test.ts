@@ -1,6 +1,6 @@
 // W1081 — chain-walk: every error envelope from the router identifies its
-// emitting layer from headers alone (x-klh-service / x-klh-hop /
-// x-klh-refusal). Spawns the real :4000 shim and walks the early paths —
+// emitting layer from headers alone (x-buckle-service / x-buckle-hop /
+// x-buckle-refusal). Spawns the real :4000 shim and walks the early paths —
 // no upstream needed for 404, health, or bad-json.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -44,16 +44,16 @@ afterAll(() => {
 test("W1081 chain-walk: unknown path → 404 attributed to belt ingress", async () => {
 	const r = await fetch(`${base}/nope`);
 	expect(r.status).toBe(404);
-	expect(r.headers.get("x-klh-service")).toBe("belt");
-	expect(r.headers.get("x-klh-hop")).toBe("ingress");
-	expect(r.headers.get("x-klh-refusal")).toBe("no_route");
+	expect(r.headers.get("x-buckle-service")).toBe("belt");
+	expect(r.headers.get("x-buckle-hop")).toBe("ingress");
+	expect(r.headers.get("x-buckle-refusal")).toBe("no_route");
 });
 
 test("W1081 chain-walk: health envelope names the belt probe face", async () => {
 	const r = await fetch(`${base}/health`);
 	expect(r.status).toBe(200);
-	expect(r.headers.get("x-klh-service")).toBe("belt-router");
-	expect(r.headers.get("x-klh-hop")).toBe("probe");
+	expect(r.headers.get("x-buckle-service")).toBe("belt-router");
+	expect(r.headers.get("x-buckle-hop")).toBe("probe");
 	expect(r.headers.get("x-belt-runtime-revision")).toBe(
 		routerRuntimeRevision(
 			new URL("../bin/router-shim.ts", import.meta.url).pathname,
@@ -71,6 +71,6 @@ test("W1081 chain-walk: bad json → 400 attributed to belt ingress", async () =
 		body: "{not json",
 	});
 	expect(r.status).toBe(400);
-	expect(r.headers.get("x-klh-service")).toBe("belt");
-	expect(r.headers.get("x-klh-refusal")).toBe("bad_json");
+	expect(r.headers.get("x-buckle-service")).toBe("belt");
+	expect(r.headers.get("x-buckle-refusal")).toBe("bad_json");
 });

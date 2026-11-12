@@ -304,7 +304,7 @@ function finishResponse(
 			result.kind === "exhausted"
 				? result.lastFailure?.requestId
 				: result.kind === "client-error"
-					? (result.response.headers.get("x-klh-upstream-request-id") ??
+					? (result.response.headers.get("x-buckle-upstream-request-id") ??
 						undefined)
 					: undefined,
 		callId:
@@ -353,7 +353,7 @@ function handleResult(
 		// SDK honours x-should-retry: false and fails fast.
 		if (result.quota === true) response.headers.set("x-should-retry", "false");
 		if (result.peerTrace)
-			response.headers.set("x-klh-peer-error-trace", result.peerTrace);
+			response.headers.set("x-buckle-peer-error-trace", result.peerTrace);
 		if (deferred)
 			response.headers.set(
 				"retry-after",

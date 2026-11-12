@@ -191,7 +191,7 @@ async function forwardUpstream(
 				"content-type": "application/json",
 				authorization: `Bearer ${arg.key}`,
 				traceparent,
-				"x-klh-request-id": rid,
+				"x-buckle-request-id": rid,
 			},
 			body: JSON.stringify({
 				state: arg.body.state,

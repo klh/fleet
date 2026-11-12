@@ -69,8 +69,8 @@ test("Belt model proxy forwards chat without disclosing Buckle's key @unit", asy
 	);
 	expect(response.status).toBe(200);
 	expect((await response.json()).model).toBe("qwen2.5:0.5b");
-	expect(response.headers.get("x-klh-hop")).toBe("belt");
-	expect(response.headers.get("x-klh-trace-id")).toBe(
+	expect(response.headers.get("x-buckle-hop")).toBe("belt");
+	expect(response.headers.get("x-buckle-trace-id")).toBe(
 		"1234567890abcdef1234567890abcdef",
 	);
 	expect(calls.at(-1)).toEqual({
@@ -87,5 +87,5 @@ test("Belt model proxy refuses unsupported paths and reports unreachable invento
 	);
 	const response = await proxy(new Request("http://belt.local/v1/models"));
 	expect(response.status).toBe(503);
-	expect(response.headers.get("x-klh-refusal")).toBe("network");
+	expect(response.headers.get("x-buckle-refusal")).toBe("network");
 });

@@ -98,7 +98,7 @@ for (const stream of [false, true]) {
 				error_code: "rate_limited",
 				err: "rate_limited",
 			});
-			expect(response.headers.get("x-belt-error")).toBe("rate_limited");
+			expect(response.headers.get("x-buckle-error")).toBe("rate_limited");
 		} finally {
 			upstream.close();
 		}

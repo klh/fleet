@@ -96,10 +96,10 @@ describe("configured Claude to GLM fallback", () => {
 				);
 				const res = await createApp(d).fetch(message(claude.url));
 				expect(res.status).toBe(200);
-				const route = JSON.parse(res.headers.get("x-belt-route") ?? "{}");
+				const route = JSON.parse(res.headers.get("x-buckle-route") ?? "{}");
 				expect(route.decision).toBe("fallback");
 				expect(route.target.model).toBe("zai-glm-5.3-flash");
-				expect(route.rid).toBe(res.headers.get("x-belt-rid"));
+				expect(route.rid).toBe(res.headers.get("x-buckle-rid"));
 				expect(claude.calls).toHaveLength(1);
 				expect(glm.calls).toHaveLength(1);
 				expect(glm.calls[0]?.body?.model).toBe("zai-glm-5.3-flash");
@@ -138,7 +138,7 @@ describe("configured Claude to GLM fallback", () => {
 			);
 			const res = await createApp(d).fetch(message(glm.url));
 			expect(res.status).toBe(200);
-			const route = JSON.parse(res.headers.get("x-belt-route") ?? "{}");
+			const route = JSON.parse(res.headers.get("x-buckle-route") ?? "{}");
 			expect(route.decision).toBe("fallback");
 			expect(route.target.model).toBe("zai-glm-5.3-flash");
 		} finally {

@@ -182,7 +182,7 @@ test.describe("@api", () => {
 			});
 			const res = await createApp(d).fetch(anthropicReq(oai.url, false));
 			expect(res.status).toBe(200);
-			expect(JSON.parse(res.headers.get("x-belt-route") ?? "{}").decision).toBe(
+			expect(JSON.parse(res.headers.get("x-buckle-route") ?? "{}").decision).toBe(
 				"policy",
 			);
 			const msg = (await res.json()) as Record<string, unknown>;
@@ -214,7 +214,7 @@ test.describe("@api", () => {
 			const res = await createApp(d).fetch(anthropicReq(ant.url, true));
 			expect(res.status).toBe(200);
 			expect(res.headers.get("content-type")).toContain("text/event-stream");
-			expect(JSON.parse(res.headers.get("x-belt-route") ?? "{}").decision).toBe(
+			expect(JSON.parse(res.headers.get("x-buckle-route") ?? "{}").decision).toBe(
 				"fallback",
 			);
 			const events = parseSse(await res.text());
