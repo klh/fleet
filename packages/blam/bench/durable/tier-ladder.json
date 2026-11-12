@@ -23,16 +23,16 @@
 			"confirmRuns": 3
 		},
 		"medium": {
-			"tokenBudget": 250000,
-			"wallClockMin": 45,
-			"iterationCap": 500,
+			"tokenBudget": null,
+			"wallClockMin": null,
+			"iterationCap": null,
 			"attemptBudget": 50,
 			"confirmRuns": 3
 		},
 		"high": {
-			"tokenBudget": 1000000,
-			"wallClockMin": 120,
-			"iterationCap": 2000,
+			"tokenBudget": null,
+			"wallClockMin": null,
+			"iterationCap": null,
 			"attemptBudget": 25,
 			"confirmRuns": 3
 		}
