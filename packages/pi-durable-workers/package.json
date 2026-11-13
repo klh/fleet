@@ -1,6 +1,6 @@
 {
 	"name": "@klh/pi-durable-workers",
-	"version": "2.3.2",
+	"version": "2.3.3",
 	"private": true,
 	"description": "pi-durable-workers — durable unattended-run machinery on @klh/pi-durable: wake tasks, budget guards, doom-loop ladder, approvals doc, uniform task tool, announce/heartbeat (W2901; pattern provenance W2888).",
 	"type": "module",
@@ -27,11 +27,11 @@
 		"zod": "4.6.7",
 		"@earendil-works/pi-ai": "1.5.0",
 		"@earendil-works/pi-schema": "1.5.0",
-		"@klh/buckle": "2.3.2",
+		"@klh/buckle": "2.3.3",
 		"@earendil-works/pi-durable": "1.5.0"
 	},
 	"devDependencies": {
-		"@klh/test-kit": "2.3.2",
+		"@klh/test-kit": "2.3.3",
 		"@earendil-works/chord": "1.5.0",
 		"@playwright/test": "1.64.1"
 	},

@@ -1,6 +1,6 @@
 {
 	"name": "@klh/settings",
-	"version": "2.3.2",
+	"version": "2.3.3",
 	"description": "The ONE per-install settings.json (~/.config/klh/settings.json): one zod v4 SettingsSchema, the typed reader every fleet package imports, env-knob deprecation map, migration from stack.json/hubs.json, per-hub overlays",
 	"type": "module",
 	"license": "SEE LICENSE IN LICENSE",
@@ -27,7 +27,7 @@
 		"test": "bun --bun playwright test -c test/playwright.config.ts"
 	},
 	"dependencies": {
-		"@klh/kernel": "2.3.2",
+		"@klh/kernel": "2.3.3",
 		"zod": "4.6.7"
 	},
 	"devDependencies": {
