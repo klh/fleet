@@ -297,8 +297,12 @@ export {
 	probeBuckleFrontVerdict,
 } from "../board/front-probe.ts";
 
-// The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts): the
-// anthropic root gets /w/<slug>; the openai-dialect bases add /v1.
+// The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts).
+// W3036 stage 2: the wire bases ride the W1265 NAMED bases composed under
+// /w/<slug> — anthropic clients append /v1/messages onto .../w/<slug>/anthropic,
+// openai-family bases carry the named base + /v1 (clients append
+// /chat/completions). GOOGLE_GEMINI stays on the legacy lane root (no
+// /gemini named base yet) — still attributed via the prefix.
 export const applyLaneAttribution = (
 	env: Record<string, string>,
 	slug: string,
@@ -306,10 +310,10 @@ export const applyLaneAttribution = (
 	key?: string,
 ): void => {
 	const root = `${front}/w/${slug}`;
-	env.ANTHROPIC_BASE_URL = root;
-	env.OPENAI_BASE_URL = `${root}/v1`;
-	env.OPENAI_API_BASE = `${root}/v1`;
-	env.COPILOT_PROVIDER_BASE_URL = `${root}/v1`;
+	env.ANTHROPIC_BASE_URL = `${root}/anthropic`;
+	env.OPENAI_BASE_URL = `${root}/openai/v1`;
+	env.OPENAI_API_BASE = `${root}/openai/v1`;
+	env.COPILOT_PROVIDER_BASE_URL = `${root}/openai/v1`;
 	env.GOOGLE_GEMINI_BASE_URL = root;
 	// W918.3: the copilot executor rides the same front by BYOK (openai
 	// wire, Bearer lane key) — one attribution, every executor's vars.

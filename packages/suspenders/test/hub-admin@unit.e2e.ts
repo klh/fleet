@@ -21,6 +21,12 @@ process.env.SUSPENDERS_WRITE_TOKEN_FILE = join(HOME, "write-token");
 test.afterAll(() => {
 	process.env.HOME = REAL_HOME;
 	delete process.env.BUCKLE_SECRETS_HOME;
+	// W3036 root cause repair: this module-scope env var leaked into the
+	// serial playwright worker — every LATER boardFixture's board wrote its
+	// write token HERE (a deleted temp path) while the fixture read its own
+	// ${HOME}/.cache/claude-governor/write-token → deterministic ENOENT
+	// abort of the whole unit suite in full runs (standalone passed).
+	delete process.env.SUSPENDERS_WRITE_TOKEN_FILE;
 	rmSync(HOME, { recursive: true, force: true });
 });
 
