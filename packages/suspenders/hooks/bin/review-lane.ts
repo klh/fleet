@@ -9,6 +9,7 @@
 //     (--bin <path> | --belt <machine>:<port>[:<model>] | --llm-url <url> [--llm-model <m>])
 // exits 0 on a landed verdict, 2 on a failed leg (verdict=error recorded).
 
+import { terminalReviewVerdict } from "../lib/gates/review-output.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -606,28 +607,14 @@ const emitCli = (args: string[]): void => {
 const noteFor = (headline: string): string =>
 	`review ${item} by ${executor} — ${headline}`;
 
-// verdict line: the LAST VERDICT: match wins (models restate headers)
-const verdictLineOf = (reply: string | null): string | undefined =>
-	reply
-		? [...reply.matchAll(/VERDICT: (PASS|FAIL[^\n]*)/g)].at(-1)?.[1]
-		: undefined;
-
-// W1236: one leg attempt is not a verdict — 429 waves drain and thinking
-// models sometimes reply without the machine-parseable line. W1313: the
-// flat 2-attempt loop is a walkLegs() run instead — transport failures
-// back off (2s doubling), a sustained wall walks the SECONDARY reviewer
-// models (--fallback-models / SUSPENDERS_REVIEW_FALLBACK_MODELS), and the
-// receipt carries the full retry trail.
-// W1236.1: findings ACCUMULATE across attempts — a retry that produces the
-// verdict line must not silently erase substantive findings from the earlier
-// attempt (FAIL60967: first reply carried a blocker, second was a bare PASS;
-// the blocker vanished). Blocker IDs ride the combined text into the
-// receipt, so a PASS over preserved blockers fails the contract check
-// instead of landing clean.
+// Provider failures may retry/back off or walk the configured model ladder.
+// A served but incomplete report is banked as request-local ERROR immediately:
+// another full-prompt generation cannot repair that report or erase its blockers.
+// W1236.1 still binds every observed blocker across exact-commit receipts.
 const walk = await walkLegs({
 	legLabels: walkModels,
 	request: (legIndex) => requestLeg(legIndex),
-	satisfied: (text) => verdictLineOf(text) !== undefined,
+	satisfied: (text) => terminalReviewVerdict(text) !== undefined,
 	// W2344: near-instant transport failures (context-overflow 503 no_route)
 	// spend the leg after one attempt — no retries, no backoff, step down.
 	// Number("") is 0 = disabled: an explicitly-set empty env disables the
@@ -645,20 +632,24 @@ const walk = await walkLegs({
 const legParts = walk.texts;
 const legFailure = walk.failure ?? "leg failed";
 const reviewTrail = renderTrail(walk);
-if (!verdictLineOf(legParts.join("\n\n")))
+if (!terminalReviewVerdict(legParts.join("\n\n")))
 	console.error(`review-lane ${item}: no verdict line — ${reviewTrail}`);
 const findings = legParts.length ? legParts.join("\n\n") : null;
-const verdictLine = verdictLineOf(findings);
+const verdictLine = terminalReviewVerdict(findings);
 const verdict =
-	findings && verdictLine
-		? verdictLine.startsWith("PASS")
-			? "PASS"
-			: "FAIL"
-		: "ERROR";
+	walk.failure !== null
+		? "ERROR"
+		: findings && verdictLine
+			? verdictLine.startsWith("PASS")
+				? "PASS"
+				: "FAIL"
+			: "ERROR";
 // W1313: the retry trail rides the headline (receipt evidence + review fact)
 // so every ERROR names its exact leg ladder instead of a bare transport line.
 const reviewerHeadline = (
-	verdictLine ?? (findings ? "no verdict line in reply" : legFailure)
+	walk.failure ??
+	verdictLine ??
+	(findings ? "no verdict line in reply" : legFailure)
 ).slice(0, 300);
 const trailHeadline =
 	verdict === "ERROR" || walk.trail.length > 1
@@ -808,6 +799,7 @@ if (requestKey && requestToken)
 			: effective === "ERROR" && verdict === "PASS" && wireMismatch
 				? `${reviewWireParkMarker}: ${headline}`
 				: headline,
+		walk.failureKind ?? "unknown",
 	);
 console.log(
 	`review-lane: ${item} reviewed by ${executor} — ${effective}: ${headline.slice(0, 120)}`,
