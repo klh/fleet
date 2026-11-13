@@ -8,7 +8,7 @@ type Snapshot = {
 	observedAt: string | null;
 	topology: {
 		hubs: Array<{ id: string; name: string; freshnessS: number }>;
-		targets: Array<{ id: string; kind: string; host: string }>;
+		targets: Array<{ id: string; kind: string; host: string; port?: number }>;
 		edges: Array<{
 			from: string;
 			to: string;
@@ -163,7 +163,11 @@ class BuckleConsole extends LitElement {
 					? `${hub.name} · this installation`
 					: hub.name;
 			const target = topology?.targets.find((entry) => entry.id === id);
-			if (target) return target.host || target.kind || id;
+			if (target) {
+				const host = target.host || target.kind || id;
+				if (!target.port) return host;
+				return `${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}:${target.port}`;
+			}
 			return id;
 		};
 		const edges = topology?.edges ?? [];

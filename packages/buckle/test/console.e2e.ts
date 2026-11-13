@@ -15,7 +15,8 @@ const nasSnapshot = () => ({
 			{
 				id: "target:local:127.0.0.1:8914",
 				kind: "local",
-				host: "127.0.0.1:8914",
+				host: "127.0.0.1",
+				port: 8914,
 			},
 		],
 		edges: [
