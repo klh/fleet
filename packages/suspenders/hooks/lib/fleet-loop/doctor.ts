@@ -94,7 +94,7 @@ export const checkBun = (_ctx: DoctorContext): CheckResult => {
 
 // W1812: which CLIs matter is registry data — the spawnable adapters (the
 // catalog-only rows would warn forever on machines without grok/cline).
-import { EXECUTOR_ADAPTERS } from "../executors/registry.ts";
+import { EXECUTOR_ADAPTERS } from "../executors/executor-registry.ts";
 
 /** The CLI vocabulary the doctor probes — the spawnable adapter rows. */
 export const AGENT_CLIS: string[] = EXECUTOR_ADAPTERS.filter(

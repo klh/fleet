@@ -137,11 +137,13 @@ describe("lane prefix contract", () => {
 		expect(lanePrefixOf("/w/au tow/v1/messages").lane).toBe("");
 	});
 
-	test("laneEnv builds the base-URL union with dialect asymmetry", () => {
+	test("laneEnv builds the base-URL union on the W1265 named bases", () => {
 		const env = laneEnv("autow1", "http://127.0.0.1:4101/v1");
-		expect(env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4101/w/autow1");
-		expect(env.OPENAI_BASE_URL).toBe("http://127.0.0.1:4101/w/autow1/v1");
-		expect(env.OPENAI_API_BASE).toBe("http://127.0.0.1:4101/w/autow1/v1");
+		expect(env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4101/w/autow1/anthropic");
+		expect(env.OPENAI_BASE_URL).toBe("http://127.0.0.1:4101/w/autow1/openai/v1");
+		expect(env.OPENAI_API_BASE).toBe("http://127.0.0.1:4101/w/autow1/openai/v1");
+		// no /gemini named base yet — stays on the legacy lane root (still
+		// lane-attributed via the prefix)
 		expect(env.GOOGLE_GEMINI_BASE_URL).toBe("http://127.0.0.1:4101/w/autow1");
 	});
 

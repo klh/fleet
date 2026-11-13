@@ -13,7 +13,11 @@
 // already selected — a wrong pick yields zero runs, so a test-pass claim
 // fails closed rather than passing.
 import { determineAgent } from "@vercel/detect-agent";
-import { adapterFor, adapterForDetected, DEFAULT_ADAPTER } from "./registry.ts";
+import {
+	adapterFor,
+	adapterForDetected,
+	DEFAULT_ADAPTER,
+} from "./executor-registry.ts";
 
 /** The canonical registry id of the client running this process, or null:
  *  unknown/unregistered detector names, missing signals, a credential with

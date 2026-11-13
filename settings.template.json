@@ -1,0 +1,50 @@
+{
+	"providers": {
+		"example-account": {
+			"kind": "provider",
+			"provider": "example",
+			"adapter": "openai-compat",
+			"protocol": "openai",
+			"endpoints": { "openai": "https://provider.example/v1" },
+			"auth": {
+				"kind": "inline",
+				"key": "REPLACE_LOCALLY_WITH_PRIVATE_PROVIDER_KEY"
+			},
+			"env": "EXAMPLE_PROVIDER_API_KEY",
+			"default_model": "operator-selected-model",
+			"allowed_models": ["*"],
+			"discovery": { "enabled": true },
+			"account": {
+				"id": "example-subscription",
+				"concurrency": 2,
+				"queue_limit": 4,
+				"pacing": {
+					"intervalCap": 1,
+					"intervalMs": 1000,
+					"queueWaitMs": 5000,
+					"recovery": { "successWindow": 5, "decreasePercent": 50 }
+				}
+			}
+		},
+		"example-peer": {
+			"kind": "buckle",
+			"adapter": "buckle",
+			"endpoints": { "openai": "http://peer.example/v1" },
+			"transport": { "max_connections": 4 },
+			"allowed_models": ["*"],
+			"discovery": { "enabled": true }
+		},
+		"example-audio": {
+			"kind": "provider",
+			"provider": "elevenlabs",
+			"adapter": "elevenlabs",
+			"protocol": "native",
+			"endpoints": { "base": "https://audio-provider.example" },
+			"auth": {
+				"kind": "inline",
+				"key": "REPLACE_LOCALLY_WITH_PRIVATE_AUDIO_KEY"
+			},
+			"env": "EXAMPLE_AUDIO_API_KEY"
+		}
+	}
+}

@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { claudeAdapter } from "../hooks/lib/executors/claude.ts";
-import { adapterFor } from "../hooks/lib/executors/registry.ts";
+import { adapterFor } from "../hooks/lib/executors/executor-registry.ts";
 
 test.describe("@unit", () => {
 	test("claude managed runtime entrypoint resolves to the real file", () => {

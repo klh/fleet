@@ -5,6 +5,8 @@
 // loadCondenser idiom, no cross-package import edge), so an arena rescore
 // measures exactly what the lane sends: a prompt, model-pin or tooling change
 // reruns the whole sealed set and the ledger records the score delta.
+import { z } from "zod";
+import { ReviewOutputError, terminalReviewVerdict } from "./review-output.ts";
 import { reviewContext } from "./review-receipt.ts";
 
 export interface ReviewPromptInput {
@@ -84,6 +86,34 @@ export interface ReviewLegReply {
 	outTok: number;
 }
 
+const ReviewMessageSchema = z.object({
+	content: z.string().nullable().optional(),
+	reasoning_content: z.string().nullable().optional(),
+	reasoning: z.string().nullable().optional(),
+});
+const ReviewResponseTextSchema = z.object({
+	choices: z
+		.array(z.object({ message: ReviewMessageSchema.optional() }))
+		.optional(),
+});
+const ReviewLegResponseSchema = z.object({
+	model: z.string().optional(),
+	choices: z
+		.array(
+			z.object({
+				finish_reason: z.string().nullable().optional(),
+				message: ReviewMessageSchema.optional(),
+			}),
+		)
+		.optional(),
+	usage: z
+		.object({
+			prompt_tokens: z.number().optional(),
+			completion_tokens: z.number().optional(),
+		})
+		.optional(),
+});
+
 /** One OpenAI-wire review call (the lane's buckle and llm legs). */
 export async function requestReviewLeg(o: {
 	url: string;
@@ -115,18 +145,31 @@ export async function requestReviewLeg(o: {
 		...(o.timeoutMs > 0 ? { signal: AbortSignal.timeout(o.timeoutMs) } : {}),
 	});
 	if (!response.ok) throw new Error(`Review LLM HTTP ${response.status}`);
-	const body = (await response.json()) as {
-		model?: string;
-		choices?: {
-			finish_reason?: string;
-			message?: {
-				content?: string | null;
-				reasoning_content?: string | null;
-				reasoning?: string | null;
-			};
-		}[];
-		usage?: { prompt_tokens?: number; completion_tokens?: number };
-	};
+	let json: unknown;
+	try {
+		json = await response.json();
+	} catch (error) {
+		if (error instanceof SyntaxError)
+			throw new ReviewOutputError("review HTTP-success response is not JSON");
+		throw error;
+	}
+	const wire = ReviewLegResponseSchema.pick({ model: true }).safeParse(json);
+	if (wire.success && wire.data.model) o.onWireModel?.(wire.data.model);
+	const parsed = ReviewLegResponseSchema.safeParse(json);
+	if (!parsed.success) {
+		const partial = ReviewResponseTextSchema.safeParse(json);
+		const message = partial.success
+			? partial.data.choices?.[0]?.message
+			: undefined;
+		throw new ReviewOutputError(
+			"review HTTP-success response has invalid review fields",
+			message?.content ||
+				message?.reasoning_content ||
+				message?.reasoning ||
+				undefined,
+		);
+	}
+	const body = parsed.data;
 	// W1236: an HTTP 200 with empty content is a leg FAILURE — finish_reason
 	// "length" means the thinking budget ate the completion. Returning "" here
 	// is the opaque "leg failed" receipt (verdict ERROR, no diagnostics).
@@ -138,21 +181,36 @@ export async function requestReviewLeg(o: {
 	const msg = choice?.message;
 	const model =
 		typeof body.model === "string" && body.model ? body.model : undefined;
-	if (model) o.onWireModel?.(model);
 	const usage = {
 		inTok: body.usage?.prompt_tokens ?? 0,
 		outTok: body.usage?.completion_tokens ?? 0,
 	};
 	const content = msg?.content ?? "";
 	const reasoning = msg?.reasoning_content ?? msg?.reasoning ?? "";
+	if (
+		(content.trim() || reasoning.trim()) &&
+		choice?.finish_reason !== undefined &&
+		choice.finish_reason !== "stop"
+	)
+		throw new ReviewOutputError(
+			"review HTTP-success output did not finish normally",
+			content || reasoning,
+		);
 	if (content.trim()) return { text: content, model, ...usage };
-	if (reasoning.trim()) return { text: reasoning, model, ...usage };
+	if (reasoning.trim()) {
+		if (terminalReviewVerdict(reasoning))
+			return { text: reasoning, model, ...usage };
+		throw new ReviewOutputError(
+			"review reasoning lacks a complete terminal verdict",
+			reasoning,
+		);
+	}
 	// W1263: BOTH fields empty = upstream empty (not parser loss). The throw
 	// carries the SERVED wire model + full payload shape, so the ERROR receipt
 	// self-describes the exact review-leg route for the operator.
-	const wire = typeof body.model === "string" ? body.model : "unknown";
-	throw new Error(
-		`review leg returned empty content (model=${wire} finish_reason=${
+	const emptyWire = typeof body.model === "string" ? body.model : "unknown";
+	throw new ReviewOutputError(
+		`review leg returned empty content (model=${emptyWire} finish_reason=${
 			choice?.finish_reason ?? "unknown"
 		}${
 			body.usage?.completion_tokens === undefined

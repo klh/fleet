@@ -99,6 +99,7 @@ test.describe("walkLegs", () => {
 				attempt: 1,
 				ok: false,
 				error: "Review LLM HTTP 429",
+				failureKind: "provider",
 				ms: expect.any(Number),
 			},
 			{
@@ -177,40 +178,27 @@ test.describe("walkLegs", () => {
 		expect(walk.trail).toHaveLength(4);
 	});
 
-	test("unsatisfied reply (no verdict line): one same-leg retry, then walk", async () => {
+	test("unsatisfied successful reply stops locally without same-prompt retry or fallback", async () => {
 		const stub = stubSequencer({
-			// W1236 parity: two bounded tries on the leg before walking
 			"0": ["prose without a verdict", "still no verdict"],
-			"1": [`${VERDICT}`],
+			"1": [VERDICT],
 		});
 		const sleeps: number[] = [];
 		const walk = await walkLegs({
 			legLabels: ["a", "b"],
 			request: stub.request,
-			sleep: (ms) => {
+			sleep: async (ms) => {
 				sleeps.push(ms);
-				return Promise.resolve();
 			},
 			satisfied: (text) => text.includes("VERDICT:"),
 		});
-		expect(stub.calls).toEqual([
-			{ leg: 0, attempt: 1 },
-			{ leg: 0, attempt: 2 },
-			{ leg: 1, attempt: 1 },
-		]);
-		expect(sleeps).toEqual([20_000]);
-		expect(walk.texts).toEqual([
-			"prose without a verdict",
-			"still no verdict",
-			VERDICT,
-		]);
-		// satisfied on the next leg — the walk's final state is success
-		expect(walk.failure).toBeNull();
+		expect(stub.calls).toEqual([{ leg: 0, attempt: 1 }]);
+		expect(sleeps).toEqual([]);
+		expect(walk.texts).toEqual(["prose without a verdict"]);
+		expect(walk.failureKind).toBe("review-output");
+		expect(walk.failure).toContain("terminal verdict");
 	});
 
-	// W2344: context-overflow fast-fail — the sql-class 503 no_route at
-	// <400ms is deterministic, not a burst: one attempt, no backoff, step
-	// down to the next rung.
 	test("near-instant 503 spends the leg after one attempt, no backoff", async () => {
 		const stub = stubSequencer({
 			"0": [new Error("Review LLM HTTP 503")],
@@ -237,6 +225,7 @@ test.describe("walkLegs", () => {
 				attempt: 1,
 				ok: false,
 				error: "Review LLM HTTP 503",
+				failureKind: "provider",
 				ms: expect.any(Number),
 			},
 			{ leg: "glm-5.3-flash", attempt: 1, ok: true, ms: expect.any(Number) },
@@ -396,6 +385,7 @@ test.describe("renderTrail", () => {
 						attempt: 1,
 						ok: false,
 						error: "Review LLM HTTP 429",
+						failureKind: "provider",
 						ms: 120,
 					},
 					{

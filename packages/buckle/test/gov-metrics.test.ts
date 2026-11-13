@@ -18,7 +18,10 @@ function gate(metrics: MetricsConnectorOpts) {
 	const cfg = join(dir, `upstreams-${crypto.randomUUID()}.yaml`);
 	writeFileSync(
 		cfg,
-		"groups:\n  fixture:\n    - url: http://127.0.0.1:9\n      dialect: openai\n",
+		// W1253-A: legacy .yaml path honored only while its content is JSON
+		JSON.stringify({
+			groups: { fixture: [{ url: "http://127.0.0.1:9", dialect: "openai" }] },
+		}),
 	);
 	const server = startServer({
 		port: 0,

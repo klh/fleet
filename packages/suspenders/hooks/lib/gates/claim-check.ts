@@ -33,7 +33,7 @@ import { join } from "node:path";
 import {
 	adapterForExact,
 	EVIDENCE_NORMALIZERS,
-} from "../executors/registry.ts";
+} from "../executors/executor-registry.ts";
 import {
 	assemble,
 	type ClaimEvent,

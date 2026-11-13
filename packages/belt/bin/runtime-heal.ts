@@ -149,6 +149,7 @@ const REWRITE: Array<[RegExp, string]> = [
 	// W1475: hubs.ts imports its hub-profile cluster by package name.
 	[/^@klh\/suspenders\/(deploy|hooks\/lib)\/(.+)$/, "./"],
 	[/^(\.\.\/)+speedy\/src\/(.+)$/, "./"],
+	[/^(@klh\/speedy\/src\/)(.+)$/, "./"],
 ];
 
 const mapSpec = (spec: string): string | undefined => {
@@ -278,6 +279,25 @@ export const probeClosure = (
 	return [...errs];
 };
 
+/** One resolver implementation, bundled for the npm-free flat runtime. */
+export async function bundleProviderResolver(
+	repoRoot: string,
+	prefix: string,
+): Promise<void> {
+	const result = await Bun.build({
+		entrypoints: [
+			join(repoRoot, "packages/speedy/src/provider-config.ts"),
+			join(repoRoot, "packages/belt/bin/connection-upstreams.ts"),
+			join(repoRoot, "packages/suspenders/hooks/lib/stack-config.ts"),
+		],
+		outdir: prefix,
+		naming: "[name].ts",
+		target: "bun",
+	});
+	if (!result.success)
+		throw new Error("runtime-heal: shared provider resolver bundle failed");
+}
+
 const main = async (): Promise<number> => {
 	const prefix =
 		process.argv[2] ?? join(process.env.HOME ?? "", ".claude/local-llm");
@@ -313,6 +333,7 @@ const main = async (): Promise<number> => {
 	}
 	writeFileSync(join(prefix, "memory-policy.ts"), readFileSync(memoryPolicy));
 	const copied = copyDeps(repoRoot, prefix);
+	await bundleProviderResolver(repoRoot, prefix);
 	if (copied.length > 0)
 		console.log(`runtime-heal: deps copied ${copied.join(", ")}`);
 	const healed = healImports(prefix);

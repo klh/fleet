@@ -1550,3 +1550,50 @@ Independent source review reproduced 12 focused and 32 existing passes;
 native review PASS event `125107` binds this source to base `cad788791`.
 Commit/push gates separately passed 100/191 tests. No actual reaper cleanup,
 installation, performance trial or model call was executed for this fix.
+
+## W2971.3 pi-durable bench arm: SPH-13926 a10 ACCEPTED (2026-11-12)
+
+First mechanically repeatable judged run end-to-end: admit → supervise →
+extract → judge. SPH-13926 attempt 10, runId `5d75a3b1-c5ee-49cf-ae54-4132db2d0b4d`,
+tier low, supervised agent wall clock 1331 s (≈22 min), agent output token
+streams journaled in the durable NDJSON store. Judge phases are isolated
+networkless docker containers over the digest-pinned clean archive:
+base FAILED by assertion (rc=1, `1 failed, 52 deselected in 0.51s`), gold
+PASSED (rc=0, `1 passed in 0.45s`), candidate PASSED (rc=0, `1 passed in
+0.43s`) → verdict ACCEPTED. The agent's own 3439-byte unified patch
+(`ledger/receipts/SPH-13926-a10-patch.diff`, sha `db98be03a7dd…`) fixed the
+hidden `test_pytype_canonical`. Judge image `klh/blam-judge@sha256:45e8ee62…`
+(git baked, idempotent per repo+base); seed `klh/pi-durable-seed@sha256:d8a9b563…`.
+blam unit suite 47/47 green including 5 new arm-judge specs. Reproduce:
+`bun packages/blam/bench/durable/arm-runner.ts --problem SPH-13926`.
+## W2971.1 second held-out fixture: ledger reconciliation controls (2026-11-12)
+
+`bench/agentic-ledger/` — synthetic multi-module TypeScript fixture in the
+reconciliation failure-class domain (balance refund sign + inclusive
+cutoff; journal sequence dedup/range/order; idempotency window boundary +
+eviction order), deliberately distinct from the relay fixture's
+claim/cache/trace classes. Oracle: 24 deterministic checks outside the
+fixture repo; controls verified twice on clean checkouts: broken sealed
+fixture 9/24 (score 0.375, 15 contract failures), reference 24/24 (score
+1.0). Guards ratcheted in `agentic-ledger@unit.e2e.ts` (prepare refuses an
+existing target; both control numbers pinned). Measurement-row template in
+the fixture README. No scored agent arm has run yet — this lands the
+fixture + controls; live arms ride `bench/paired/live.ts` manifests.
+
+## W3077 — Review-arena incident case inc-w3056 (2026-11-13)
+
+Task-set measurement, no model-quality claim. The arena task set grew
+39 -> 40 sealed tasks (sha16 `e08b6551c1f56f88` over `05578c7b2a3391ed`)
+after adding the settings silent-fallback incident: reverse diff of fix
+`a5ffdac4a8` across 5 paths, 2 anchor-verified defects (silent LKG swap in
+the settings reader; missing conf-dimension watchdog signal). Design and
+seal verified from the fresh worktree; the rescore leg was refused by the
+AC-power gate (battery, discharging) and records its score delta on the
+next AC-powered orchestrator run.
+
+Reproduce the seal:
+
+```text
+bun packages/belt/bench/arena/review-run.ts --design   # sealed 40 tasks @ e08b6551
+```
+>>>>>>> origin/suspenders/W3077

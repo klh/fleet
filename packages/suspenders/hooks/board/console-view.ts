@@ -15,6 +15,7 @@ import type {
 	PolicyGatewayParsed,
 	PolicyPatch,
 } from "../lib/board/board-config.ts";
+import { readMappedEnv } from "@klh/settings";
 import {
 	ConfigError,
 	parsePolicy,
@@ -24,6 +25,12 @@ import {
 	resolvePolicy,
 } from "../lib/board/board-config.ts";
 import { readEffectiveUpstreams } from "./console-upstreams.ts";
+import { buckleReadProxy } from "./buckle-read-proxy.ts";
+import {
+	gatewaySetup,
+	readSetupInventory,
+	type GatewaySetup,
+} from "./console-setup.ts";
 import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
 import { networkPayload } from "./network-overview.ts";
 import { probeAll, withRecovery } from "./service-probe.ts";
@@ -58,15 +65,52 @@ export const consoleMe = (): ConsoleMe => {
 // group is DORMANT — in the ladder but resolving to zero deployments.
 const upstreamSnapshot = () =>
 	readEffectiveUpstreams({
+		// W3057 follow-up: the mapped knob reads ride readMappedEnv (the one
+		// designated home in @klh/settings) — direct process.env.<KNOB> reads
+		// drift the env-ratchet pin (this pair did: 63 → 64).
+		overrideRequired: !!readMappedEnv("BUCKLE_UPSTREAMS"),
 		basePath: process.env.BUCKLE_REPO
 			? `${process.env.BUCKLE_REPO}/upstreams.json`
 			: new URL("../../../buckle/upstreams.json", import.meta.url).pathname,
 		overridePath:
-			process.env.BUCKLE_UPSTREAMS ??
+			readMappedEnv("BUCKLE_UPSTREAMS") ??
 			`${process.env.HOME}/.claude/local-llm/upstreams.json`,
 	});
 export const readUpstreams = (): UpstreamGroup[] | null =>
 	upstreamSnapshot()?.groups ?? null;
+
+// SSR and Check again share cached probes and one bounded inventory read.
+let setupCache: { at: number; value: Promise<GatewaySetup> } | undefined;
+export function gatherGatewaySetup(): Promise<GatewaySetup> {
+	if (setupCache && Date.now() - setupCache.at < 15_000)
+		return setupCache.value;
+	const value = (async () => {
+		const upstreams = upstreamSnapshot();
+		const groups = upstreams?.groups ?? null;
+		const [probes, models] = await Promise.all([
+			cachedProbes(),
+			readSetupInventory(
+				(signal) => {
+					const url = new URL(
+						"http://localhost/api/console/buckle/api/model-inventory",
+					);
+					return buckleReadProxy(new Request(url, { signal }), url);
+				},
+				6000,
+				groups?.map((group) => group.name),
+			),
+		]);
+		const probe = probes.find((row) => row.id === "buckle-4101");
+		return gatewaySetup(
+			groups,
+			!probe ? "unknown" : probe.up ? "up" : "down",
+			models,
+			upstreams?.connections ?? null,
+		);
+	})();
+	setupCache = { at: Date.now(), value };
+	return value;
+}
 
 export const gatherBeltView = async (): Promise<BeltView> => {
 	const pol = resolvePolicy({ beltRepo: BELT_REPO, buckleRepo: BUCKLE_REPO });
@@ -94,6 +138,7 @@ export const gatherBeltView = async (): Promise<BeltView> => {
 		health,
 		groups: upstreams?.groups ?? null,
 		upstreamSource: upstreams?.source,
+		setup: await gatherGatewaySetup(),
 		// W858.10.3: the Network overview payload as the card's SSR seed
 		// (cached probes shared — no extra fan-out)
 		network: await networkPayload(),

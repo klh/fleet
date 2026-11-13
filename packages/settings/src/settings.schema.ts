@@ -19,6 +19,15 @@ import {
 } from "./settings.sections.ts";
 import { StackSections } from "./settings.stack.ts";
 
+/** W2971.3 bench section: tier ladder lives in common settings; the
+ *  harness re-validates with TierLadderSchema — settings only carries it. */
+export const BenchSchema = z
+	.strictObject({
+		tierLadder: z.record(z.string(), z.unknown()).optional(),
+	})
+	.optional()
+	.describe("blam/bench durable-arm options (tier ladder override)");
+
 export const SettingsSchema = z
 	.object({
 		$schema: z
@@ -38,6 +47,7 @@ export const SettingsSchema = z
 		paths: PathsSchema,
 		telemetry: TelemetrySchema,
 		runner: RunnerSettingsSchema,
+		bench: BenchSchema,
 	})
 	.strict()
 	.describe("klh fleet per-install settings (~/.config/klh/settings.json)");
@@ -82,7 +92,9 @@ export type SettingAt<
 
 /** Render a zod error as `path: message` lines (the loud-failure text). */
 export function settingsIssues(err: z.ZodError): string[] {
-	return err.issues.map(
-		(i) => `${i.path.map(String).join(".") || "<root>"}: ${i.message}`,
+	return err.issues.map((i) =>
+		i.path[0] === "providers"
+			? "providers: invalid connection configuration"
+			: `${i.path.map(String).join(".") || "<root>"}: ${i.message}`,
 	);
 }

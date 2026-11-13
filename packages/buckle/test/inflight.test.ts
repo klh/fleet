@@ -48,11 +48,12 @@ function beginServer(upstreamUrl: string): { base: string; stop(): void } {
 	const dir = `/tmp/buckle-w1259-${Date.now()}-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 6)}`;
-	const cfg = `groups:
-  glm-5.3-flash:
-    - url: ${upstreamUrl}
-      dialect: openai
-`;
+	// W1253-A: legacy .yaml path honored only while its content is JSON
+	const cfg = JSON.stringify({
+		groups: {
+			"glm-5.3-flash": [{ url: upstreamUrl, dialect: "openai" }],
+		},
+	});
 	writeFileSync(`${dir}.yaml`, cfg);
 	const server = startServer({
 		port: 0,

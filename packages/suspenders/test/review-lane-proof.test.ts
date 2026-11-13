@@ -433,9 +433,11 @@ describe("W634 review-lane coverage proof (Sinai rule)", () => {
 			},
 			2,
 		);
-		expect(incompleteCalls).toBe(2);
+		expect(incompleteCalls).toBe(1);
 		expect(incomplete.fact.verdict).toBe("ERROR");
-		expect(String(incomplete.fact.headline)).toContain("no verdict line");
+		expect(String(incomplete.fact.headline)).toContain(
+			"did not finish normally",
+		);
 	});
 
 	test("kept child review binds its parent branch with Flash budget and proof", async () => {
@@ -505,60 +507,44 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		});
 	}
 
-	test("W1236: empty-content 200 is a diagnosed failure, not opaque leg-failed", async () => {
-		// the exact glm thinking-budget failure: HTTP 200 with content:"" and
-		// finish_reason=length — every merge-ladder receipt on 2026-10-23
-		const id = addWork("w634 proof empty-content diagnostics");
-		const branch = `suspenders/${id}`;
-		expect(git(["checkout", "-b", branch]).code).toBe(0);
-		await Bun.write(join(REPO, "docs.md"), "w1236 empty-content case\n");
-		expect(git(["add", "-A"]).code).toBe(0);
-		expect(git(["commit", "-m", "w1236 case"]).code).toBe(0);
-		git(["checkout", "main"]);
-		const stub = Bun.serve({
-			port: 0,
-			fetch: async () =>
+	async function assertIncompleteReview(
+		output: "empty" | "length-pass" | "interrupted-pass",
+	) {
+		const { fact } = await runCase(
+			{
+				name: `w1236-${output}`,
+				files: { "docs.md": "incomplete review output\n" },
+				want: "skipped",
+			},
+			async () =>
 				Response.json({
 					choices: [
 						{
-							finish_reason: "length",
-							message: { content: "" },
+							finish_reason: output === "interrupted-pass" ? null : "length",
+							message: {
+								content:
+									output === "empty"
+										? ""
+										: "B1-real: incomplete\nVERDICT: PASS",
+							},
 						},
 					],
 					usage: { completion_tokens: 1500 },
 				}),
-		});
-		const p = Bun.spawn(
-			[
-				"bun",
-				join(BIN, "review-lane.ts"),
-				"--item",
-				id,
-				"--project",
-				MY_PROJ,
-				"--executor",
-				"glm-w634",
-				"--llm-url",
-				`http://127.0.0.1:${stub.port}/v1/chat/completions`,
-				"--llm-model",
-				"glm-w634-model",
-			],
-			{ cwd: REPO, env, stdout: "pipe", stderr: "pipe" },
+			2,
 		);
-		await p.exited;
-		stub.stop(true);
-		expect(p.exitCode).toBe(2);
-		const db = new Database(DB_PATH, { readonly: true });
-		const fact = db
-			.query("SELECT value FROM facts WHERE key = ?")
-			.get(`review.${id}.glm-w634`) as { value: string } | null;
-		db.close();
-		if (!fact) throw new Error(`no review fact for ${id}`);
-		const parsed = JSON.parse(fact.value) as Record<string, unknown>;
-		expect(parsed.verdict).toBe("ERROR");
-		expect(String(parsed.headline)).toContain("empty content");
-		expect(String(parsed.headline)).toContain("finish_reason=length");
+		expect(fact.verdict).toBe("ERROR");
+		expect(String(fact.headline)).toContain(
+			output === "empty" ? "empty content" : "did not finish normally",
+		);
+	}
+	test("W1236: empty-content 200 is a diagnosed failure, not opaque leg-failed", async () => {
+		await assertIncompleteReview("empty");
 	});
+	for (const output of ["length-pass", "interrupted-pass"] as const)
+		test(`W1236: ${output} HTTP200 remains ERROR without trusting truncated verdict`, async () => {
+			await assertIncompleteReview(output);
+		});
 
 	test("W1263: reasoning-only 200 (content empty) is recovered, not an ERROR", async () => {
 		const { id, fact } = await runCase(
@@ -674,9 +660,8 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(receipt.wire_model).toBe("chatgpt/gpt-6-sol");
 	});
 
-	test("W1236.1: a retry PASS cannot erase the first attempt's blocking findings", async () => {
-		// FAIL60967: the first reply carries a blocker without a verdict line;
-		// a retry PASS must not wash the blocker out of the receipt.
+	test("W1236.1: malformed output banks its blocker without another full-prompt request", async () => {
+		// Bank the first substantive blocker; a fresh request must explicitly resolve it.
 		const id = addWork("w634 proof retry erases findings");
 		const branch = `suspenders/${id}`;
 		expect(git(["checkout", "-b", branch]).code).toBe(0);
@@ -685,27 +670,21 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		expect(git(["commit", "-m", "w1236.1 case"]).code).toBe(0);
 		git(["checkout", "main"]);
 		let calls = 0;
-		const replies = [
-			{
-				choices: [
-					{
-						message: {
-							content:
-								"B1-erase-guard: the retry path drops a prior attempt's blocker.\n",
-						},
-					},
-				],
-			},
-			{
-				choices: [
-					{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
-				],
-			},
-		];
 		const stub = Bun.serve({
 			port: 0,
-			fetch: async () =>
-				Response.json(replies[Math.min(calls++, replies.length - 1)]),
+			fetch: async () => {
+				calls++;
+				return Response.json({
+					choices: [
+						{
+							message: {
+								content:
+									"B1-erase-guard: the retry path drops a prior attempt's blocker.\n",
+							},
+						},
+					],
+				});
+			},
 		});
 		const p = Bun.spawn(
 			[
@@ -726,7 +705,8 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		);
 		await p.exited;
 		stub.stop(true);
-		expect(p.exitCode).toBe(0);
+		expect(p.exitCode).toBe(2);
+		expect(calls).toBe(1);
 		const db = new Database(DB_PATH, { readonly: true });
 		const event = db
 			.query(
@@ -738,7 +718,7 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 		const receipt = JSON.parse(
 			JSON.parse(event.payload).receipt as string,
 		) as Record<string, unknown>;
-		expect(receipt.verdict).toBe("PASS");
+		expect(receipt.verdict).toBe("ERROR");
 		expect(receipt.blocking).toEqual(["B1-erase-guard"]);
 		expect(String(receipt.evidence)).toContain("B1-erase-guard");
 	});
@@ -1108,6 +1088,109 @@ test("needs kept branch change", () => expect(double(2)).toBe(4));
 					)
 					.get(item),
 			).toBeNull();
+		} finally {
+			db.close();
+			server.stop(true);
+		}
+	});
+
+	// W3060: the scoped-key cleanup failure must never mask the primary
+	// outcome — a good verdict survives a dead revoke (the scoped key's
+	// TTL bounds the orphan), and a failed leg's error is what propagates.
+	function revokeFixture(
+		title: string,
+		file: string,
+	): {
+		item: string;
+		context: ReviewContext;
+	} {
+		const item = addWork(title);
+		git(["checkout", "-b", `suspenders/${item}`]);
+		Bun.spawnSync(["touch", file], { cwd: REPO });
+		writeFileSync(join(REPO, file), "W3060 fixture change.\n");
+		git(["add", file]);
+		git(["commit", "-m", "w3060 fixture"]);
+		git(["checkout", "main"]);
+		return {
+			item,
+			context: reviewContext(realpathSync(REPO), `suspenders/${item}`),
+		};
+	}
+
+	test("W3060: good verdict survives a failed scoped-key revoke", async () => {
+		const { item, context } = revokeFixture(
+			"revoke fails after good verdict fixture",
+			"w3060-good.md",
+		);
+		const db = new Database(DB_PATH);
+		seedCompletion(db, item, context);
+		const counters = { minted: 0, revoked: 0, legs: 0 };
+		// earlier transport tests bank provider-pressure cooldowns in the
+		// shared fixture db — clear the ledger so admission is open here
+		db.exec("DELETE FROM facts WHERE key LIKE 'review.provider.pressure%'");
+		const server = Bun.serve({
+			port: 0,
+			fetch: async (req) => {
+				const path = new URL(req.url).pathname;
+				if (path === "/v1/admin/keys") {
+					counters.minted += 1;
+					return Response.json({
+						key: "bksk_fixture_review",
+						key_id: "fixture-review-key",
+					});
+				}
+				if (path.endsWith("/revoke")) {
+					counters.revoked += 1;
+					return new Response("revoke down", { status: 500 });
+				}
+				if (/^\/w\/review-[^/]+\/v1\/chat\/completions$/.test(path)) {
+					counters.legs += 1;
+					return Response.json({
+						choices: [
+							{ message: { content: "No blocking findings.\nVERDICT: PASS" } },
+						],
+					});
+				}
+				return new Response("unexpected endpoint", { status: 404 });
+			},
+		});
+		let child: ReturnType<typeof Bun.spawn> | undefined;
+		const scheduled = scheduleReview({
+			db: db as unknown as GovernorStore,
+			project: MY_PROJ,
+			item,
+			repo: realpathSync(REPO),
+			context,
+			env: {
+				...env,
+				GOVERNOR_STORE_URL: "",
+				SUSPENDERS_BUCKLE_FRONT: `http://127.0.0.1:${server.port}`,
+				BUCKLE_ADMIN_KEY: "fixture-admin",
+			},
+			spawn: (args, childEnv) => {
+				child = Bun.spawn(args, {
+					cwd: realpathSync(REPO),
+					env: childEnv,
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+			},
+		});
+		if (!child) throw new Error(`review was not scheduled: ${scheduled}`);
+		const stderrText = await new Response(child.stderr).text();
+		await child.exited;
+		try {
+			expect(child.exitCode).toBe(0);
+			expect(stderrText).toContain("scoped key revoke failed");
+			expect(stderrText).toContain("verify: already revoked");
+			expect(
+				db
+					.query(
+						"SELECT id FROM events WHERE kind='work.review' AND json_extract(payload,'$.work')=?",
+					)
+					.get(item),
+			).toBeTruthy();
+			expect(counters).toEqual({ minted: 1, revoked: 1, legs: 1 });
 		} finally {
 			db.close();
 			server.stop(true);

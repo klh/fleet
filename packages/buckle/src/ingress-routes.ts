@@ -1,12 +1,25 @@
 // src/ingress-routes.ts — W1265 named-base ingress contract. Additive over
 // the legacy bare /v1 paths: wire-named bases /anthropic (Claude Messages)
 // and /openai (OpenAI Chat Completions + Responses), each optionally
-// provider-pinned (/zai/anthropic, /zai/openai — GLM Coding Plan) and
-// composed with the W1 /w/<slug> lane prefix. The guard answers a typed
-// local problem+json on method+wire mismatch BEFORE any outbound call; the
-// provider pin scopes routing to that catalog provider (dep.adapter) only —
-// a pinned route never bridges dialects and never substitutes a foreign
-// provider behind the client's back.
+// provider-pinned (/zai/anthropic, /zai/openai — GLM Coding Plan).
+//
+// W3036 composition truth (header corrected): named bases DO compose with
+// the W1 /w/<slug> lane prefix — /w/<slug>/anthropic/v1/messages parses
+// lane+wire+rest in namedIngressOf and round-trips with the lane landing in
+// route_audit (test/ingress-named-bases.test.ts "right wire"). Two shapes
+// intentionally do NOT compose: (a) the double prefix /w/a/w/b/… — one
+// lane prefix only, by grammar (C529: blanket /w/apim double-prefixes
+// caller rides); (b) a bare named base stays the lane-less operator face
+// (bare /anthropic, /openai — intentional, never retires). Legacy bare
+// /v1/* retirement is evidence-gated keyed on ACTOR scope, not lane=''
+// share alone (C530): runner-scoped and admin-scoped traffic is lane-less
+// by design and excluded from retirement evidence — see
+// scripts/bare-v1-evidence.ts.
+//
+// The guard answers a typed local problem+json on method+wire mismatch
+// BEFORE any outbound call; the provider pin scopes routing to that catalog
+// provider (dep.adapter) only — a pinned route never bridges dialects and
+// never substitutes a foreign provider behind the client's back.
 import type { AppDeps } from "./handlers.ts";
 import type { Dialect } from "./upstreams.ts";
 import { lanePrefixOf } from "./citizenship.ts";

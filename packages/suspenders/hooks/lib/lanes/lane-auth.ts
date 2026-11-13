@@ -153,6 +153,42 @@ export async function revokeLaneKey(
 	return r.ok;
 }
 
+/** W3060: after an AMBIGUOUS revoke (the ack can time out while the gate
+ *  finished the operation — measured: revoked ~2.8s after the error fact),
+ *  verify the EXACT minted raw key, never a global key inventory. True =
+ * the key still authenticates (a genuine orphan the TTL sweep bounds);
+ * false = it is already gone/inactive. */
+export async function verifyLaneKey(
+	rawKey: string,
+	admin: string,
+	fetchFn: typeof fetch = fetch,
+	front: string = BUCKLE_FRONT,
+): Promise<boolean> {
+	let r: Response;
+	try {
+		r = await fetchFn(`${front}/v1/admin/keys/verify`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${admin}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ key: rawKey }),
+			signal: AbortSignal.timeout(laneKeyTimeoutMs()),
+		});
+	} catch {
+		// partition mid-verify: honest false — treat as unverifiable, the
+		// caller logs the ambiguous state and the TTL backstop stands
+		return false;
+	}
+	if (!r.ok) return false;
+	try {
+		const body = (await r.json()) as { valid?: boolean; ok?: boolean };
+		return body.valid !== false && body.ok !== false;
+	} catch {
+		return true;
+	}
+}
+
 export const laneKeyMetaPath = (fleet: string, sid: string): string =>
 	`${fleet}/lane-key-${sid}.json`;
 export const laneSettingsPath = (fleet: string, sid: string): string =>
@@ -327,6 +363,11 @@ export const writeSessionEnrollmentFiles = (
 	front: string,
 ): string => {
 	const root = `${front}/w/${sid}`;
+	// W3036 stage 2: the per-lane settings ride the W1265 named bases
+	// composed under /w/<sid> (wire explicit; legacy bare /v1 inner paths
+	// stop growing lane traffic). GOOGLE_GEMINI stays on the legacy lane
+	// root — no /gemini named base yet. Existing on-disk lane settings with
+	// legacy bases keep working (the legacy routes stay additive).
 	mkdirSync(fleet, { recursive: true });
 	writeFileSync(
 		laneKeyMetaPath(fleet, sid),
@@ -338,9 +379,9 @@ export const writeSessionEnrollmentFiles = (
 		JSON.stringify(
 			{
 				env: {
-					ANTHROPIC_BASE_URL: root,
-					OPENAI_BASE_URL: `${root}/v1`,
-					OPENAI_API_BASE: `${root}/v1`,
+					ANTHROPIC_BASE_URL: `${root}/anthropic`,
+					OPENAI_BASE_URL: `${root}/openai/v1`,
+					OPENAI_API_BASE: `${root}/openai/v1`,
 					GOOGLE_GEMINI_BASE_URL: root,
 					ANTHROPIC_AUTH_TOKEN: minted.key,
 				},

@@ -20,7 +20,7 @@ import { attachSubscribe } from "./subscribe-attach.ts";
 // W422 surface consolidation law: the spawn-args adapter INTERFACE. Core
 // dispatch carries ZERO executor branches — every agent's specifics live in
 // a tiny overlay module (hooks/lib/executors/<agent>.ts) registered in
-// hooks/lib/executors/registry.ts; a new agent = one adapter file + one
+// hooks/lib/executors/executor-registry.ts; a new agent = one adapter file + one
 // registry row. lane.ts itself imports no adapter: callers resolve one via
 // the registry and hand its composed tail to spawnClaude's cliArgs.
 /** Everything a per-agent spawn tail may consume (claude uses all of it;
@@ -297,8 +297,12 @@ export {
 	probeBuckleFrontVerdict,
 } from "../board/front-probe.ts";
 
-// The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts): the
-// anthropic root gets /w/<slug>; the openai-dialect bases add /v1.
+// The base-URL union (buckle laneEnv grammar, buckle/src/agents.ts).
+// W3036 stage 2: the wire bases ride the W1265 NAMED bases composed under
+// /w/<slug> — anthropic clients append /v1/messages onto .../w/<slug>/anthropic,
+// openai-family bases carry the named base + /v1 (clients append
+// /chat/completions). GOOGLE_GEMINI stays on the legacy lane root (no
+// /gemini named base yet) — still attributed via the prefix.
 export const applyLaneAttribution = (
 	env: Record<string, string>,
 	slug: string,
@@ -306,10 +310,10 @@ export const applyLaneAttribution = (
 	key?: string,
 ): void => {
 	const root = `${front}/w/${slug}`;
-	env.ANTHROPIC_BASE_URL = root;
-	env.OPENAI_BASE_URL = `${root}/v1`;
-	env.OPENAI_API_BASE = `${root}/v1`;
-	env.COPILOT_PROVIDER_BASE_URL = `${root}/v1`;
+	env.ANTHROPIC_BASE_URL = `${root}/anthropic`;
+	env.OPENAI_BASE_URL = `${root}/openai/v1`;
+	env.OPENAI_API_BASE = `${root}/openai/v1`;
+	env.COPILOT_PROVIDER_BASE_URL = `${root}/openai/v1`;
 	env.GOOGLE_GEMINI_BASE_URL = root;
 	// W918.3: the copilot executor rides the same front by BYOK (openai
 	// wire, Bearer lane key) — one attribution, every executor's vars.
@@ -338,7 +342,7 @@ export const spawnClaude = (o: {
 	env: Record<string, string>;
 	allowedTools?: string;
 	/** The composed spawn tail — callers take it from the executor adapter
-	 *  (hooks/lib/executors/registry.ts, W422); omitted = the claude recipe. */
+	 *  (hooks/lib/executors/executor-registry.ts, W422); omitted = the claude recipe. */
 	cliArgs?: string[];
 	agent?: string;
 	fleetDir?: string;

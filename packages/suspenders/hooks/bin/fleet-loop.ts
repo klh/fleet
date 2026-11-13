@@ -8,10 +8,10 @@
 //
 // Each cycle:
 //   1. abort leftover merge state
-//   2. merge every branch matching --glob that is ahead of --main, through
+//   2. refill once, then merge every branch matching --glob that is ahead of --main, through
 //      the ladder child (--ladder template with {branch}; default: plain
 //      git merge --no-ff)
-//   --dispatch-cmd <template> runs once per cycle after merges (policy lives there)
+//   --dispatch-cmd <template> runs once per cycle before merges (policy lives there)
 //   3. retire merged branches' worktree + branch (pid-guarded, honest RETIRE-BLOCKED)
 //   4. stall watchdog · 5. wisdom sweep · 6. rogue sweep · 7. reclaim sweep
 //      (W376) — fail-isolated cycle steps after the merge/dispatch core
@@ -28,6 +28,10 @@ import { currentControllerIdentity } from "../../scripts/lib/controller-fence.ts
 import { broadcastNote } from "../coord/bus.ts";
 import { wisdomSweep } from "../coord/wisdom.ts";
 import { flagFns, parseLoopConfig } from "../lib/fleet-loop/config.ts";
+import {
+	runCycleDispatch,
+	runMergePass,
+} from "../lib/fleet-loop/cycle-work.ts";
 import { runDispatch } from "../lib/fleet-loop/dispatch.ts";
 // W2242 config-over-code: watch mode's cadence (and the refill targets the
 // dispatch script resolves) come from the machine stack conf's fleet_loop
@@ -241,31 +245,7 @@ async function cycle(): Promise<void> {
 		else healCrashedMerge();
 	}
 
-	// 2. merge every ahead branch through the ladder (fail-isolated per branch)
-	const branches = sh([
-		"git",
-		"branch",
-		"--list",
-		GLOB,
-		"--format",
-		"%(refname:short)",
-	])
-		.split("\n")
-		.filter(Boolean);
-	for (const b of branches) mergeOne(b);
-
-	// 2.5 runtime sync (W821): merged main reaches the serve surfaces —
-	// fail-isolated (the wisdom-sweep rule): a sync bug can never take down
-	// the merge/dispatch loop.
-	try {
-		if (!config.PROJECT_ONLY) runtimeSync();
-	} catch (e) {
-		log(
-			`RUNTIME-SYNC failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
-		);
-	}
-
-	// 3. refill the fleet — policy lives in the repo's dispatch script.
+	// Refill before potentially long merge/review and runtime-sync work — policy lives in the repo's dispatch script.
 	// W2242: a template without its own --target rides the central
 	// fleet_loop.lane_target (live hot-applied) — never a plist constant.
 	// fork E: a multi-project controller deals this cycle's target
@@ -279,10 +259,37 @@ async function cycle(): Promise<void> {
 			...settings,
 			laneTarget: config.LANE_TARGET ?? settings.laneTarget,
 		});
-		const t = DISPATCH.includes("--target")
-			? DISPATCH
-			: `${DISPATCH} --target ${target}`;
-		runTemplate(t, "", LADDER_TIMEOUT_MS);
+		runCycleDispatch({
+			template: DISPATCH,
+			target,
+			timeoutMs: LADDER_TIMEOUT_MS,
+			run: runTemplate,
+			log,
+		});
+	}
+
+	// 2. merge every ahead branch through the ladder (fail-isolated per branch)
+	const branches = sh([
+		"git",
+		"branch",
+		"--list",
+		GLOB,
+		"--format",
+		"%(refname:short)",
+	])
+		.split("\n")
+		.filter(Boolean);
+	runMergePass({ repo: REPO, branches, merge: mergeOne, log });
+
+	// 2.5 runtime sync (W821): merged main reaches the serve surfaces —
+	// fail-isolated (the wisdom-sweep rule): a sync bug can never take down
+	// the merge/dispatch loop.
+	try {
+		if (!config.PROJECT_ONLY) runtimeSync();
+	} catch (e) {
+		log(
+			`RUNTIME-SYNC failed (fail-isolated): ${e instanceof Error ? e.message : String(e)}`,
+		);
 	}
 
 	// 4. stall watchdog (autow428): warn while the claim is still warm

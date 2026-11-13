@@ -19,7 +19,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { expandHome, readSettingsFile, settingsPath } from "@klh/settings";
+import {
+	expandHome,
+	readMappedEnv,
+	readSettingsFile,
+	settingsPath,
+} from "@klh/settings";
 import { PROBE_TIMEOUT_MS } from "./activation-readiness.ts";
 import {
 	carryGenerationPinned,
@@ -455,7 +460,7 @@ export const suspendersPrefix = (): string => {
 			`machine settings.json unreadable (${settingsPath()}): ${String(error)}`,
 		);
 	}
-	const verdict = readBootstrapPrefix(doc, process.env.SUSPENDERS_PREFIX);
+	const verdict = readBootstrapPrefix(doc, readMappedEnv("SUSPENDERS_PREFIX"));
 	if (verdict.kind === "refuse") throw new Error(verdict.reason);
 	return expandHome(verdict.prefix);
 };

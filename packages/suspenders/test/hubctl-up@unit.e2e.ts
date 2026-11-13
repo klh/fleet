@@ -45,6 +45,22 @@ if (args.at(-1) === "json")
 `,
 );
 chmodSync(docker, 0o755);
+// W1302.3 preflight leg: `up` now consults the origin (git ls-remote) for
+// every pin before touching the hub — stub git like hubctl-deploy does so
+// the preflight sees the fake pin served (the real origin would 3 the
+// fake tag and every case dies in the preflight, not the gate under test).
+const git = join(bin, "git");
+writeFileSync(
+	git,
+	`#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TEST_CALLS, "git " + args.join(" ") + "\\n");
+if (args[0] !== "ls-remote") process.exit(0);
+console.log("89806009791d743bbfdf27c35d372ac1d7e0a3a7\\trefs/tags/" + (args.at(-1) ?? "HEAD"));
+`,
+	{ mode: 0o755 },
+);
 writeFileSync(
 	stack,
 	JSON.stringify({
@@ -119,7 +135,7 @@ test("up refuses an env pinned to a different version than stack.yaml", () => {
 	seedEnv("v0.9.0-stale");
 	const r = hubctl(["up", "w4226"]);
 	expect(r.code).toBe(1);
-	expect(r.out).toContain("pins v0.9.0-stale but stack.yaml pins");
+	expect(r.out).toContain("pins v0.9.0-stale but stack.json pins");
 	expect(upRan()).toBe(false);
 });
 
@@ -159,7 +175,9 @@ test("up refuses an unpinned stack version even with a pinned env", () => {
 	writeFileSync(unpinned, JSON.stringify(config));
 	const r = hubctl(["up", "w4226"], { KLH_STACK: unpinned });
 	expect(r.code).toBe(1);
-	expect(r.out).toContain("no pinned version");
+	// W1302.3: an unpinned stack now dies in the origin gate before the
+	// env-pin comparison ever runs
+	expect(r.out).toContain("requires a pinned stack version");
 	expect(upRan()).toBe(false);
 });
 

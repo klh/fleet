@@ -300,9 +300,9 @@ describe("enrollSessionKey (in-lib, stubbed fetch)", () => {
 		const settings = JSON.parse(readFileSync(setP, "utf8")) as {
 			env: Record<string, string>;
 		};
-		expect(settings.env.ANTHROPIC_BASE_URL).toBe("http://stub/w/enroll-sess-2");
+		expect(settings.env.ANTHROPIC_BASE_URL).toBe("http://stub/w/enroll-sess-2/anthropic");
 		expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe("bksk_m1");
-		expect(settings.env.OPENAI_BASE_URL).toBe("http://stub/w/enroll-sess-2/v1");
+		expect(settings.env.OPENAI_BASE_URL).toBe("http://stub/w/enroll-sess-2/openai/v1");
 		expect(settings.env).not.toHaveProperty("ANTHROPIC_MODEL");
 		// reuse: no second mint, same key back — bootstrap re-fires are cheap
 		const second = await enrollSessionKey(o);

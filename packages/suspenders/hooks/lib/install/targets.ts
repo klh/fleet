@@ -9,7 +9,7 @@
 // future adapters (docs/cli-dialect-pattern.md covers adding one).
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { adapterForExact } from "../executors/registry.ts";
+import { adapterForExact } from "../executors/executor-registry.ts";
 import {
 	agents,
 	detectInstalledAgents,

@@ -40,6 +40,10 @@ export {
 	providerPressureKey,
 } from "./review-provider-pressure.ts";
 import type { ReviewContext } from "./review-receipt.ts";
+import {
+	ReviewFailureKindSchema,
+	type ReviewFailureKind,
+} from "./review-output.ts";
 import { reviewRoundCapRefusal } from "./review-round-cap.ts";
 import { wireModelMatch } from "./wire-model-check.ts";
 
@@ -50,6 +54,7 @@ interface Request {
 	token: string;
 	nextAt: number;
 	error?: string;
+	failureKind?: ReviewFailureKind;
 	/** W1280: detached reviewer pid — lets reconcileReviewLegs tell an active
 	 * leg from a stale one instead of waiting out the 25-minute lease. */
 	pid?: number;
@@ -313,7 +318,9 @@ export function finishReviewRequest(
 	token: string,
 	failed: boolean,
 	reason?: string,
+	failureKind: ReviewFailureKind = "unknown",
 ): void {
+	const kind = ReviewFailureKindSchema.parse(failureKind);
 	db.transaction(() => {
 		const row = db.query("SELECT value FROM facts WHERE key = ?").get(key) as {
 			value: string;
@@ -326,6 +333,7 @@ export function finishReviewRequest(
 		// each other (a DONE flipped to ERROR, a double attempt refund).
 		if (request.state !== "RUNNING") return;
 		request.state = failed ? "ERROR" : "DONE";
+		request.failureKind = failed ? kind : undefined;
 		request.error = failed
 			? (reason ?? "review transport unavailable")
 			: undefined;
@@ -365,7 +373,19 @@ export function finishReviewRequest(
 		// provider serving anything to penalize, so they keep W1243's
 		// refund/backoff but never re-arm AIMD (nor starve a healthy provider
 		// group behind one refusal loop).
-		if (!proofPark && !wirePark && !deterministicRefusal(request.error))
+		if (failed && kind === "review-output") {
+			// Release only this finished request's canary, without clearing genuine
+			// provider failure memory or another request's admission fence.
+			const pressure = providerPressureOf(db, request.model);
+			if (pressure.probe?.key === key)
+				db.query(
+					"UPDATE facts SET value=?, version=version+1, ts=? WHERE key=?",
+				).run(
+					JSON.stringify({ ...pressure, probe: undefined }),
+					Date.now(),
+					providerPressureKeyOf(request.model),
+				);
+		} else if (!proofPark && !wirePark && !deterministicRefusal(request.error))
 			applyPressure(db, failed, request.model);
 		db.query(
 			"UPDATE facts SET value = ?, version = version + 1, ts = ? WHERE key = ?",

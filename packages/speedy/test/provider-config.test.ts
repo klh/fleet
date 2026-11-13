@@ -16,6 +16,7 @@ import {
 
 let home = "";
 let stackPath = "";
+const previousSettings = process.env.KLH_SETTINGS;
 
 const writeStack = (conf: unknown, mode = 0o600): void => {
 	writeFileSync(stackPath, `${JSON.stringify(conf, null, "\t")}\n`);
@@ -27,9 +28,12 @@ beforeAll(() => {
 	mkdirSync(home, { recursive: true });
 	stackPath = join(home, "stack.json");
 	process.env.KLH_STACK = stackPath;
+	process.env.KLH_SETTINGS = join(home, "absent-settings.json");
 });
 
 afterAll(() => {
+	if (previousSettings === undefined) delete process.env.KLH_SETTINGS;
+	else process.env.KLH_SETTINGS = previousSettings;
 	delete process.env.KLH_STACK;
 	rmSync(home, { recursive: true, force: true });
 });
@@ -74,25 +78,31 @@ describe("loadProviderConfig", () => {
 
 	test("missing file throws with the path, never values", () => {
 		expect(() => loadProviderConfig(join(home, "absent.json"))).toThrow(
-			/not readable/,
+			"Invalid private connection configuration",
 		);
 	});
 
 	test("loose file mode refused (posture is part of the schema)", () => {
 		writeStack({ providers: {} }, 0o644);
-		expect(() => loadProviderConfig()).toThrow(/mode 600/);
+		expect(() => loadProviderConfig()).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("non-JSON body throws, path only in the message", () => {
 		writeFileSync(stackPath, "{not json");
 		chmodSync(stackPath, 0o600);
-		expect(() => loadProviderConfig()).toThrow(/not parseable JSON/);
+		expect(() => loadProviderConfig()).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("non-mapping JSON body (bare scalar) throws, never silent {}", () => {
 		writeFileSync(stackPath, '"just-a-string"\n');
 		chmodSync(stackPath, 0o600);
-		expect(() => loadProviderConfig()).toThrow(/must be a JSON mapping/);
+		expect(() => loadProviderConfig()).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("PROVIDER_STACK_PATH honors KLH_STACK", () => {
@@ -107,26 +117,30 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 	});
 
 	test("non-map slice throws", () => {
-		expect(() => validateProviderConfig(["x"])).toThrow(/map of named/);
+		expect(() => validateProviderConfig(["x"])).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("profile must be a mapping with provider + non-empty key", () => {
 		expect(() => validateProviderConfig({ p: "string" })).toThrow(
-			/profile p must be a mapping/,
+			"Invalid private connection configuration",
 		);
 		expect(() => validateProviderConfig({ p: { provider: "zai" } })).toThrow(
-			/profile p: key/,
+			"Invalid private connection configuration",
 		);
 		expect(() =>
 			validateProviderConfig({ p: { provider: "", key: "k" } }),
-		).toThrow(/provider family is required/);
+		).toThrow("Invalid private connection configuration");
 	});
 
 	test("env must be an env-var NAME", () => {
 		const bad: Record<string, unknown> = {
 			p: { provider: "zai", key: "k", env: "not a name" },
 		};
-		expect(() => validateProviderConfig(bad)).toThrow(/env var NAME/);
+		expect(() => validateProviderConfig(bad)).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("endpoints must be http(s) URLs", () => {
@@ -138,7 +152,7 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 			},
 		};
 		expect(() => validateProviderConfig(bad)).toThrow(
-			/endpoints.openai must be an http\(s\) URL/,
+			"Invalid private connection configuration",
 		);
 	});
 
@@ -147,7 +161,9 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 			a: { provider: "zai", key: "k1", env: "ZAI_KEY" },
 			b: { provider: "zai", key: "k2", env: "ZAI_KEY" },
 		};
-		expect(() => validateProviderConfig(dup)).toThrow(/both bind env/);
+		expect(() => validateProviderConfig(dup)).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("legacy key_file/key_name/base_url declarations are rejected", () => {
@@ -158,11 +174,15 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 				key_file: "~/.claude/local-llm/belt.env",
 			},
 		};
-		expect(() => validateProviderConfig(legacy)).toThrow(/legacy key_file/);
+		expect(() => validateProviderConfig(legacy)).toThrow(
+			"Invalid private connection configuration",
+		);
 		const mixed: Record<string, unknown> = {
 			p: { provider: "zai", key: "k", base_url: "https://x" },
 		};
-		expect(() => validateProviderConfig(mixed)).toThrow(/legacy base_url/);
+		expect(() => validateProviderConfig(mixed)).toThrow(
+			"Invalid private connection configuration",
+		);
 	});
 
 	test("malformed endpoint URLs fail real URL parsing", () => {
@@ -192,7 +212,7 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 		];
 		for (const c of cases) {
 			expect(() => validateProviderConfig(c)).toThrow(
-				/must be an http\(s\) URL/,
+				"Invalid private connection configuration",
 			);
 		}
 	});
@@ -206,7 +226,7 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 			},
 		};
 		expect(() => validateProviderConfig(rogue)).toThrow(
-			/endpoints.rogue is not a known endpoint field/,
+			"Invalid private connection configuration",
 		);
 	});
 
@@ -217,7 +237,7 @@ describe("validateProviderConfig (pure, parsed slice)", () => {
 		} catch (e) {
 			const msg = String((e as Error).message);
 			expect(msg).not.toContain("fake");
-			expect(msg).toContain("profile p");
+			expect(msg).toBe("Invalid private connection configuration");
 		}
 	});
 });
@@ -258,7 +278,7 @@ describe("resolveProvider", () => {
 			resolveProvider("broken", {
 				broken: { provider: "zai", key: "" },
 			}),
-		).toThrow(/profile broken: key/);
+		).toThrow("Invalid private connection configuration");
 	});
 });
 
