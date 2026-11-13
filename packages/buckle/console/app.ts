@@ -156,6 +156,13 @@ class BuckleConsole extends LitElement {
 			topology?.edges
 				.filter((edge) => edge.to === id || edge.from === id)
 				.reduce((total, edge) => total + edge.requests, 0) ?? 0;
+		const labelFor = (id: string) =>
+			id === this.snapshot?.hub
+				? `${id} · this installation`
+				: (topology?.hubs.find((hub) => hub.id === id)?.name ??
+					topology?.targets.find((target) => target.id === id)?.kind ??
+					id);
+		const edges = topology?.edges ?? [];
 		return html`
 			<div class="section-title"><h2>Network overview</h2><span>Observed paths · last 15 minutes</span></div>
 			${this.message ? html`<div class="notice" role="status">${this.message}</div>` : ""}
@@ -198,6 +205,19 @@ class BuckleConsole extends LitElement {
 					}
 				</section>
 			</div>
+			<div class="section-title lower"><h2>Observed routes</h2><span>Directed paths seen in this window</span></div>
+			${
+				edges.length
+					? html`<div class="route-list">${edges.map(
+							(
+								edge,
+							) => html`<div class="route-row" data-edge=${`${edge.from}->${edge.to}`}>
+								<span class="route-link"><strong>${labelFor(edge.from)}</strong><span class="route-arrow">→</span><strong>${labelFor(edge.to)}</strong></span>
+								<span class="route-counts">${edge.requests} requests · ${edge.failed} failed</span>
+							</div>`,
+						)}</div>`
+					: html`<p class="muted">No request path observed yet in this window.</p>`
+			}
 			<div class="section-title lower"><h2>Served models</h2><span>From Buckle’s model catalog</span></div>
 			${
 				this.models.length
@@ -283,11 +303,11 @@ class BuckleConsole extends LitElement {
 		main{width:min(100%,1320px);padding:43px clamp(24px,5vw,76px) 100px}.top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:53px}.eyebrow{color:var(--green)}h1{margin:10px 0 4px;font-size:32px;font-weight:580;letter-spacing:-.04em}.top p{margin:0;color:var(--muted)}.refresh,.input-row button{padding:8px 14px;border:1px solid #4a4a4a;border-radius:8px;background:#242424;color:#eee}.refresh:hover,.input-row button:hover{background:#333}.refresh:disabled{opacity:.55;cursor:default}
 		.section-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 17px}.section-title h2{margin:0;font-size:17px;font-weight:590;letter-spacing:-.02em}.section-title span{color:var(--muted);font-size:12px}.lower{margin-top:45px}.notice{margin:0 0 20px;padding:12px 14px;border:1px solid #66512b;border-radius:9px;background:#292216;color:#e6c589}.muted{color:var(--muted)}
 		.map{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.map-column{min-width:0}.map-column h3{margin:0 0 13px}.node,.empty-node{min-height:100px;margin-bottom:11px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.node.local{min-height:162px;border-color:#45614a;background:#1d241e}.node-title{display:flex;align-items:center;gap:9px}.node-title strong{font-size:15px;font-weight:570}.node p{margin:7px 0 0;color:var(--muted);font-size:12px}.node-rule{height:1px;margin:23px 0 12px;background:#405043}.empty-node{display:flex;align-items:center;color:#777;font-size:12px}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-		.model-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.model-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}.model-row span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+		.model-list,.route-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.model-row,.route-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}.model-row span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.route-link{display:flex;align-items:center;gap:7px;min-width:0}.route-link strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.route-arrow{flex:none;color:var(--green)}.route-counts{margin-left:auto;flex:none;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 		.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.stat{display:grid;gap:10px;min-height:104px;padding:17px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}.stat span{color:var(--muted);font-size:12px}.stat strong{font-size:22px;font-weight:560}
 		.settings-card{max-width:650px;padding:24px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}.settings-card h3{margin:0 0 4px;font-size:16px}.settings-card p{margin:0 0 25px;color:var(--muted)}.settings-card code{font-size:12px;color:#ccc}.settings-card label{display:block;margin-bottom:7px;font-size:12px}.input-row{display:flex;gap:8px;margin-bottom:25px}.input-row input{min-width:0;flex:1;padding:10px 12px;border:1px solid #474747;border-radius:8px;background:#151515;color:#fff}.setting-line{display:flex;justify-content:space-between;gap:15px;padding:12px 0;border-top:1px solid var(--line);color:var(--muted)}.setting-line code{overflow-wrap:anywhere;text-align:right}
 		.stub{display:grid;justify-items:start;max-width:520px;margin:60px auto;color:var(--muted)}.stub-icon{display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line);border-radius:10px;color:var(--green)}.stub h2{margin:18px 0 3px;color:var(--text)}.stub p{margin:0}
-		@media(max-width:800px){.shell{grid-template-columns:1fr}.sidebar{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 6px 12px}.nav-caption,.side-foot{display:none}nav{display:flex;overflow:auto}.nav-item{width:auto;white-space:nowrap}main{padding:28px 20px 60px}.top{padding-bottom:34px}.map{grid-template-columns:1fr}.model-list,.status-grid{grid-template-columns:1fr}}
+		@media(max-width:800px){.shell{grid-template-columns:1fr}.sidebar{padding:14px;border-right:0;border-bottom:1px solid var(--line)}.brand{padding:0 6px 12px}.nav-caption,.side-foot{display:none}nav{display:flex;overflow:auto}.nav-item{width:auto;white-space:nowrap}main{padding:28px 20px 60px}.top{padding-bottom:34px}.map{grid-template-columns:1fr}.model-list,.route-list,.status-grid{grid-template-columns:1fr}}
 	`;
 }
 

@@ -69,8 +69,16 @@ test.describe("@unit Buckle installation console", () => {
 		});
 		try {
 			await page.goto(`${server.url}/console`);
-			await expect(page.getByText("Peer hub")).toBeVisible();
+			await expect(
+				page.getByLabel("Gateway network map").getByText("Peer hub"),
+			).toBeVisible();
 			await expect(page.getByText("test-model")).toBeVisible();
+			const route = page.locator('[data-edge="hub:peer->target:cloud"]');
+			await expect(route).toBeVisible();
+			await expect(route).toContainText("Peer hub");
+			await expect(route).toContainText("→");
+			await expect(route).toContainText("cloud");
+			await expect(route).toContainText("3 requests · 0 failed");
 			await page.screenshot({
 				path: testInfo.outputPath("overview.png"),
 				fullPage: true,
@@ -84,6 +92,41 @@ test.describe("@unit Buckle installation console", () => {
 				page.getByText(
 					"This section is reserved for gateway usage and trends.",
 				),
+			).toBeVisible();
+		} finally {
+			server.close();
+		}
+	});
+
+	test("shows an honest empty state when no directed edge is observed", async ({
+		page,
+	}) => {
+		const server = serveStub(async (request) => {
+			const path = new URL(request.url).pathname;
+			if (path === "/status")
+				return Response.json({ service: "buckle", healthy: true, port: 4101 });
+			if (path === "/v1/models") return Response.json({ data: [] });
+			if (path === "/console/data")
+				return Response.json({
+					hub: "This Mac",
+					observedAt: new Date().toISOString(),
+					topology: {
+						hubs: [],
+						targets: [],
+						edges: [],
+						totals: { requests: 0, failed: 0, active: 0 },
+						coverage: { ledgerAvailable: false, projectionAvailable: true },
+					},
+				});
+			return (
+				(await consoleRoute(request, deps)) ??
+				new Response("not found", { status: 404 })
+			);
+		});
+		try {
+			await page.goto(`${server.url}/console`);
+			await expect(
+				page.getByText("No request path observed yet in this window."),
 			).toBeVisible();
 		} finally {
 			server.close();
