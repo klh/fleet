@@ -2,8 +2,8 @@ import {
 	copyFile,
 	existsSync,
 	mkdirSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -18,18 +18,23 @@ const PackageNoticeSchema = z.object({
 const entries = [
 	"packages/buckle/src/server.ts",
 	"packages/suspenders/deploy/healthcheck/probe.ts",
+	"packages/buckle/console/app.ts",
 ];
 const inputs = new Set<string>();
 for (const entry of entries) {
-	const destination = join("/runtime", entry);
+	const browser = entry === "packages/buckle/console/app.ts";
+	const destination = join(
+		"/runtime",
+		browser ? "packages/buckle/console/app.js" : entry,
+	);
 	mkdirSync(dirname(destination), { recursive: true });
-	const metadata = `/tmp/${entry.includes("buckle") ? "buckle" : "probe"}-metafile.json`;
+	const metadata = `/tmp/${browser ? "console" : entry.includes("buckle") ? "buckle" : "probe"}-metafile.json`;
 	const child = Bun.spawnSync(
 		[
 			"bun",
 			"build",
 			entry,
-			"--target=bun",
+			browser ? "--target=browser" : "--target=bun",
 			"--packages=bundle",
 			"--minify-whitespace",
 			`--metafile=${metadata}`,

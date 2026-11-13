@@ -85,6 +85,7 @@
         "@klh/settings": "2.3.2",
         "@klh/speedy": "2.3.2",
         "@klh/telemetry": "2.3.2",
+        "lit": "3.3.3",
         "p-queue": "9.3.5",
         "zod": "4.6.7",
       },

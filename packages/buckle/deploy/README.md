@@ -17,6 +17,7 @@ or operator files are baked. Source mutation after staging cannot change bytes.
 Preserved entry paths:
 
 - `/fleet/packages/buckle/src/server.ts` (default entrypoint)
+- `/fleet/packages/buckle/console/app.js` (browser bundle served at `/console`)
 - `/fleet/packages/suspenders/deploy/healthcheck/probe.ts` (override entrypoint
   to `bun` for one-shot or `--listen` sidecar use)
 

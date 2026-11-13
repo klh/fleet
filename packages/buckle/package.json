@@ -21,6 +21,7 @@
 	"files": [
 		"bin",
 		"src",
+		"console",
 		"README.md",
 		"upstreams.json",
 		"routing-policy.json",
@@ -45,6 +46,7 @@
 		"@klh/settings": "2.3.3",
 		"@klh/speedy": "2.3.3",
 		"@klh/telemetry": "2.3.3",
+		"lit": "3.3.3",
 		"p-queue": "9.3.5",
 		"zod": "4.6.7"
 	},

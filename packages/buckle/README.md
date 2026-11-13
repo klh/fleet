@@ -85,6 +85,17 @@ bun run src/server.ts        # binds the configured port (loopback default)
 bun test                     # adapter, ladder and citizenship suites
 ```
 
+## Installation console
+
+Buckle serves its own minimal console at `/console` on the Buckle origin.
+Overview shows observed hub and upstream paths plus the model catalog; Status
+shows the service's own telemetry; Settings accepts a
+`buckle:proxy:READ_` key for this browser tab. Statistics is a placeholder.
+The page and client bundle are public, while `/console/data` and `/v1/models`
+retain the existing proxy read gate. The console does not depend on the
+Suspenders Board. Missing observation databases render an empty state rather
+than invented routes.
+
 `upstreams.yaml` documents the row format inline. Override at runtime with
 `BUCKLE_UPSTREAMS=/path/to/extra.yaml` (merged by group name; never
 committed).

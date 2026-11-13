@@ -10,6 +10,7 @@ import {
 	options204,
 	problem,
 } from "./citizenship.ts";
+import { consoleRoute } from "./console-route.ts";
 import { dietRoutes } from "./diet.ts";
 import { principalOf } from "./gov/federation.ts";
 import { hasScope } from "./gov/scopes.ts";
@@ -35,6 +36,8 @@ export function createApp(deps: AppDeps): App {
 			const allow = allowOf(path);
 			if (allow !== null) return options204(allow);
 		}
+		const consoleResponse = await consoleRoute(req, deps);
+		if (consoleResponse) return consoleResponse;
 		// W1 lane attribution (caveman adopt 1): /w/<slug> prefixes the LLM
 		// ingress + /v1/models only. The slug lands in the audit row + the
 		// x-buckle-route header; the upstream sees the bare path. Other

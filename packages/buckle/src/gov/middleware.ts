@@ -899,6 +899,8 @@ export function classify(
 ): "public" | "admin" | "proxy" | "federation" {
 	if (path === "/health" || path === "/status" || path === "/metrics")
 		return "public";
+	if (path === "/console" || path === "/console/" || path === "/console/app.js")
+		return "public";
 	if (path === "/.well-known/jwks.json") return "public"; // W193 JWKS: spokes fetch pre-cred
 	if (path === "/federation" || path.startsWith("/federation/"))
 		return "federation";
