@@ -156,12 +156,16 @@ class BuckleConsole extends LitElement {
 			topology?.edges
 				.filter((edge) => edge.to === id || edge.from === id)
 				.reduce((total, edge) => total + edge.requests, 0) ?? 0;
-		const labelFor = (id: string) =>
-			id === this.snapshot?.hub
-				? `${id} · this installation`
-				: (topology?.hubs.find((hub) => hub.id === id)?.name ??
-					topology?.targets.find((target) => target.id === id)?.kind ??
-					id);
+		const labelFor = (id: string) => {
+			const hub = topology?.hubs.find((entry) => entry.id === id);
+			if (hub)
+				return hub.name === this.snapshot?.hub
+					? `${hub.name} · this installation`
+					: hub.name;
+			const target = topology?.targets.find((entry) => entry.id === id);
+			if (target) return target.host || target.kind || id;
+			return id;
+		};
 		const edges = topology?.edges ?? [];
 		return html`
 			<div class="section-title"><h2>Network overview</h2><span>Observed paths · last 15 minutes</span></div>
