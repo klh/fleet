@@ -1550,3 +1550,20 @@ Independent source review reproduced 12 focused and 32 existing passes;
 native review PASS event `125107` binds this source to base `cad788791`.
 Commit/push gates separately passed 100/191 tests. No actual reaper cleanup,
 installation, performance trial or model call was executed for this fix.
+
+## W3077 — Review-arena incident case inc-w3056 (2026-11-13)
+
+Task-set measurement, no model-quality claim. The arena task set grew
+39 -> 40 sealed tasks (sha16 `e08b6551c1f56f88` over `05578c7b2a3391ed`)
+after adding the settings silent-fallback incident: reverse diff of fix
+`a5ffdac4a8` across 5 paths, 2 anchor-verified defects (silent LKG swap in
+the settings reader; missing conf-dimension watchdog signal). Design and
+seal verified from the fresh worktree; the rescore leg was refused by the
+AC-power gate (battery, discharging) and records its score delta on the
+next AC-powered orchestrator run.
+
+Reproduce the seal:
+
+```text
+bun packages/belt/bench/arena/review-run.ts --design   # sealed 40 tasks @ e08b6551
+```

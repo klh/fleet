@@ -508,3 +508,9 @@ The fix preserves full numeric/dotted IDs and legacy temporary-name handling.
 Recovery refs were preserved. No live reaper trial, cleanup disablement,
 worktree restoration, installation or performance/model-quality claim was
 part of that verification.
+
+- **Arena rescore on battery power** (2026-11-13, W3077): `review-run.ts
+  --rescore` refuses while `pmset` reports battery (the `/tmp/bench-ac-ok`
+  marker is absent by design — real LLM rounds burn power). The seal and
+  design legs work anywhere; only the score delta needs AC. Do not create
+  the marker by hand.
