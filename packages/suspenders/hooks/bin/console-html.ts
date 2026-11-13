@@ -102,6 +102,7 @@ export interface UpstreamGroup {
 }
 
 export interface BeltView {
+	setup?: import("../board/console-setup.ts").GatewaySetup;
 	policy: ResolvedPolicy | null;
 	gateway: PolicyGatewayParsed | null;
 	policyError: string | null;
@@ -214,6 +215,7 @@ export const beltPage = (v: BeltView, me?: ConsoleMe): string => {
 	const body =
 		`<style>${PILL_CSS}${PAGE_CSS}${INVENTORY_CSS}</style>` +
 		`<p class="dimpl">Request routing, provider fallback and governed model access.</p>` +
+		`<klh-gateway-setup-card${v.setup ? ` data="${esc(JSON.stringify(v.setup))}"` : ""}></klh-gateway-setup-card>` +
 		// W2673: the live flow view first — who is using the gateway right now
 		`<klh-gateway-flow-card heading="Gateway flow · who is using the gateway right now"></klh-gateway-flow-card>` +
 		`<belt-topology></belt-topology><belt-topology-details></belt-topology-details><belt-topology-hubs></belt-topology-hubs>` +

@@ -19,7 +19,7 @@ import {
 import {
 	adapterFor,
 	EXECUTOR_ADAPTERS,
-} from "../packages/suspenders/hooks/lib/executors/registry.ts";
+} from "../packages/suspenders/hooks/lib/executors/executor-registry.ts";
 import {
 	claimCheckVerdict,
 	transcriptEventsFromText,

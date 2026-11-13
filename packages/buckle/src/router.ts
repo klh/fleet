@@ -8,7 +8,10 @@
 import { Cooldowns } from "./cooldown.ts";
 import { type HopContract, hopContractRoot } from "./hop-deadline.ts";
 import type { GatewayPolicy } from "./policy.ts";
-import { ProviderAdmissionCore } from "./provider-admission-core.ts";
+import {
+	ProviderAdmissionCore,
+	ConnectionAdmissionCore,
+} from "./provider-admission-core.ts";
 import { RetryBudget } from "./resilience.ts";
 import { parseResilience } from "./resilience-config.ts";
 import type { ResilienceConfig } from "./resilience-config.ts";
@@ -54,6 +57,7 @@ export class Router {
 	 *  every deployment bound to the id shares the SAME instance (one
 	 *  configured authority counts each actual provider attempt once). */
 	readonly pools: Map<string, ProviderAdmissionCore>;
+	readonly connectionLimits = new Map<string, ConnectionAdmissionCore>();
 	/** Immediate-failover hop budget (resilience.failover_budget). */
 	readonly failover: RetryBudget;
 	/** The zod-parsed fail-fast resilience block (src/resilience-config.ts). */
@@ -116,6 +120,17 @@ export class Router {
 		);
 		for (const group of deps.pool.groups())
 			for (const dep of deps.pool.deployments(group)) {
+				if (dep.connection_limit !== undefined) {
+					const id = dep.providerProfile ?? dep.url;
+					const existing = this.connectionLimits.get(id);
+					if (existing && existing.limit !== dep.connection_limit)
+						throw new Error("Conflicting connection limits for one profile");
+					if (!existing)
+						this.connectionLimits.set(
+							id,
+							new ConnectionAdmissionCore(dep.connection_limit),
+						);
+				}
 				providerConcurrencyCodesOf(dep, policy);
 				if (dep.adapter_config?.provider_pool === undefined) continue;
 				const id = providerPoolIdOf(dep);

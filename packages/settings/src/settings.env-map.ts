@@ -97,6 +97,14 @@ export const ENV_BY_PATH: ReadonlyMap<string, EnvMapping> = new Map(
 	ENV_MAP.map((e) => [e.path, e]),
 );
 
+/** W2674/W2950 repair: the ONE place outside-tree code may touch a
+ *  mapped knob env var — the direct `process.env.<KNOB>` read in
+ *  post-merge-live.ts drifted the env-ratchet pin back to 64; consumers
+ *  route through here so the env surface keeps a single designated home
+ *  (this package — the scanner exempts it by design). */
+export const readMappedEnv = (name: string): string | undefined =>
+	process.env[name];
+
 /** Secret-shaped names: never settings — they stay env NAMES / 0600 files. */
 export const SECRET_ENV = /(?:TOKEN|_KEY|SECRET|PASSWORD|_PAT)(?:_FILE|_ENV)?$/;
 

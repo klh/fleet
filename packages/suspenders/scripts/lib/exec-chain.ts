@@ -18,7 +18,7 @@ import { readBoardSettings } from "../../hooks/lib/board/board-config.ts";
 import {
 	adapterFor,
 	isSpawnableExecutor,
-} from "../../hooks/lib/executors/registry.ts";
+} from "../../hooks/lib/executors/executor-registry.ts";
 // W813: chain tokens may name HUBS (a stack.json/hubs.json label rides
 // that hub); can= doability probes resolveLaneExecutor + darkHubNow + the
 // cv tally — all sync, so execPick stays sync.

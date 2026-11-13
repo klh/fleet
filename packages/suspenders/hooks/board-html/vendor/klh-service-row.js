@@ -1,4 +1,4 @@
-import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{U}from"./lit-545c35c70481d3d8.js";import{y}from"./lit-312618c448d18529.js";import{w,_}from"./lit-12b46f627c606484.js";var h=(t)=>t.state??(t.up?"up":"down"),c=(t,o=Date.now())=>{let i=h(t),s=!!t.observation&&!y(t.observation,o),a=t.recovery,l=!s&&i!=="up"&&i!=="idle"&&a!==null;return{badge:s?"STALE":i==="idle"?"IDLE":i==="up"?"UP":i==="degraded"?"DEGRADED":"DOWN",tone:s?"dim":i==="idle"?"dim":i==="up"?"ok":i==="degraded"?"warn":"bad",where:a?.probe.kind==="launchd"?"launchd":a?.probe.kind==="http"?`:${a.probe.port}${a.probe.path}`:`:${t.port}`,showRecovery:l,open:!s&&i==="down",saw:s?`Last known ${i}: ${t.detail}. Current state unknown.`:t.detail,what:a?.what??"",causes:l&&a?a.causes:[],steps:l&&a?a.recovery:[]}};class d{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let o=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),i=await o.json();if(!o.ok||!i.ok||!i.service)throw Error(i.error??`HTTP ${o.status}`);this.probe=i.service}catch(o){this.err=o instanceof Error?o.message:String(o)}finally{this.busy=!1}return this.probe}}var u=15000;class p extends n{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=r`
+import{n,e,o}from"./lit-ac8284bbd881cce8.js";import{st}from"./lit-391ba2761ad300cb.js";import{Z}from"./lit-c07b45feded0d2d0.js";import{L,j}from"./lit-0d2d66cf0f7716f4.js";var h=(t)=>t.state??(t.up?"up":"down"),c=(t,r=Date.now())=>{let i=h(t),s=!!t.observation&&!Z(t.observation,r),a=t.recovery,l=!s&&i!=="up"&&i!=="idle"&&a!==null;return{badge:s?"STALE":i==="idle"?"IDLE":i==="up"?"UP":i==="degraded"?"DEGRADED":"DOWN",tone:s?"dim":i==="idle"?"dim":i==="up"?"ok":i==="degraded"?"warn":"bad",where:a?.probe.kind==="launchd"?"launchd":a?.probe.kind==="http"?`:${a.probe.port}${a.probe.path}`:`:${t.port}`,showRecovery:l,open:!s&&i==="down",saw:s?`Last known ${i}: ${t.detail}. Current state unknown.`:t.detail,what:a?.what??"",causes:l&&a?a.causes:[],steps:l&&a?a.recovery:[]}};class d{probe;busy=!1;err=null;constructor(t){this.probe=t}async reprobe(t){if(this.busy)return this.probe;this.busy=!0,this.err=null;try{let r=await t(`/api/services/probe?id=${encodeURIComponent(this.probe.id)}`),i=await r.json();if(!r.ok||!i.ok||!i.service)throw Error(i.error??`HTTP ${r.status}`);this.probe=i.service}catch(r){this.err=r instanceof Error?r.message:String(r)}finally{this.busy=!1}return this.probe}}var u=15000;class p extends o{static properties={probe:{type:Object},busy:{state:!0},err:{state:!0},copied:{state:!0},now:{state:!0}};static styles=n`
 		:host {
 			display: block;
 			background: transparent;
@@ -116,11 +116,11 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{U}from"./lit-545c35c70481d3d
 			margin-top: 4px;
 			color: var(--klh-danger-ink, #c96a4f);
 		}
-	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},u)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new d(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((o)=>fetch(o,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,o){try{await navigator.clipboard.writeText(o)}catch{let i=document.createElement("textarea");i.value=o,i.setAttribute("readonly",""),i.style.position="fixed",i.style.opacity="0",this.renderRoot.appendChild(i),i.select(),document.execCommand("copy"),i.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){return _(t)}fullWhen(t){return w(t)}render(){let t=this.probe;if(!t)return e``;let o=c(t,this.now);return e`
+	`;ctl=null;timer=null;clock=null;constructor(){super();this.probe=null,this.busy=!1,this.err=null,this.copied=-1,this.now=Date.now()}connectedCallback(){super.connectedCallback(),this.clock=setInterval(()=>{this.now=Date.now()},1000),this.timer=setInterval(()=>{if(this.probe&&!document.hidden)this.reprobe()},u)}disconnectedCallback(){if(super.disconnectedCallback(),this.timer)clearInterval(this.timer);if(this.clock)clearInterval(this.clock);this.timer=null}controller(){if(!this.probe)return null;if(!this.ctl||this.ctl.probe.id!==this.probe.id)this.ctl=new d(this.probe);return this.ctl.probe=this.probe,this.ctl}async reprobe(){let t=this.controller();if(!t||this.busy)return;this.busy=!0,this.probe=await t.reprobe((r)=>fetch(r,{cache:"no-store",signal:AbortSignal.timeout(5000)})),this.err=t.err,this.busy=!1}async copy(t,r){try{await navigator.clipboard.writeText(r)}catch{let i=document.createElement("textarea");i.value=r,i.setAttribute("readonly",""),i.style.position="fixed",i.style.opacity="0",this.renderRoot.appendChild(i),i.select(),document.execCommand("copy"),i.remove()}this.copied=t,setTimeout(()=>{if(this.copied===t)this.copied=-1},1500)}when(t){return j(t)}fullWhen(t){return L(t)}render(){let t=this.probe;if(!t)return e``;let r=c(t,this.now);return e`
 			<div class="head">
-				<span class="badge ${o.tone}">${o.badge}</span>
-				<div class="identity"><span class="name">${U(t.name)}</span><span class="dim">${o.where}</span><div class="tags"><span class="tag">${t.id.startsWith("swarm-")||t.id.startsWith("kev-")?"Model":t.id.includes("gateway")||t.id.startsWith("buckle-")||t.id.startsWith("litellm-")?"Gateway":"Service"}</span><span class="tag">${t.observation?.scope??"Local machine"}</span></div></div>
-				<span class="saw dim">${o.saw}</span>
+				<span class="badge ${r.tone}">${r.badge}</span>
+				<div class="identity"><span class="name">${st(t.name)}</span><span class="dim">${r.where}</span><div class="tags"><span class="tag">${t.id.startsWith("swarm-")||t.id.startsWith("kev-")?"Model":t.id.includes("gateway")||t.id.startsWith("buckle-")||t.id.startsWith("litellm-")?"Gateway":"Service"}</span><span class="tag">${t.observation?.scope??"Local machine"}</span></div></div>
+				<span class="saw dim">${r.saw}</span>
 				<div class="actions">
 				<button
 					type="button"
@@ -132,7 +132,7 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{U}from"./lit-545c35c70481d3d
 					${t.observation?e`<details class="evidence"><summary title=${this.fullWhen(t.probed_at)}><time datetime=${t.probed_at}>${this.when(t.probed_at)}</time> · evidence</summary><div class="evidenceBody"><div>Source: ${t.observation.source}</div><div>Method: ${t.observation.kind}</div><div>Scope: ${t.observation.scope}</div><div>Expires: <time datetime=${new Date(t.observation.expiresAt).toISOString()} title=${this.fullWhen(new Date(t.observation.expiresAt).toISOString())}>${this.when(new Date(t.observation.expiresAt).toISOString())}</time></div></div></details>`:e`<time class="dim" datetime=${t.probed_at} title=${this.fullWhen(t.probed_at)}>${this.when(t.probed_at)}</time>`}</div>
 			</div>
 			${this.err?e`<output>re-probe failed: ${this.err}</output>`:""}
-			${o.showRecovery?this.recovery(o):""}
+			${r.showRecovery?this.recovery(r):""}
 		`}recovery(t){return e`
 			<details ?open=${t.open}>
 				<summary>how to recover</summary>
@@ -141,18 +141,18 @@ import{r,e,n}from"./lit-b59bf30faa0b21f8.js";import{U}from"./lit-545c35c70481d3d
 				<div>${t.saw}</div>
 				<h4>likely cause</h4>
 				<ul>
-					${t.causes.map((o)=>e`<li>${o}</li>`)}
+					${t.causes.map((r)=>e`<li>${r}</li>`)}
 				</ul>
 				<h4>recover — run in order, then re-probe</h4>
 				<ol>
-					${t.steps.map((o,i)=>e`<li>
-							<div class="dim">${o.label}</div>
+					${t.steps.map((r,i)=>e`<li>
+							<div class="dim">${r.label}</div>
 							<div class="step">
-								<code>${o.cmd}</code>
+								<code>${r.cmd}</code>
 								<button
 									type="button"
-									aria-label="copy: ${o.cmd}"
-									@click=${()=>this.copy(i,o.cmd)}
+									aria-label="copy: ${r.cmd}"
+									@click=${()=>this.copy(i,r.cmd)}
 								>
 									${this.copied===i?"copied":"copy"}
 								</button>

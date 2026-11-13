@@ -6,6 +6,11 @@
 // request time.
 
 import { existsSync, readFileSync } from "node:fs";
+import { z } from "zod";
+export const DeploymentConnectionSchema = z.strictObject({
+	connection_limit: z.number().int().positive().optional(),
+	discover: z.boolean().optional(),
+});
 import { validateDeploymentEgress } from "./adapters/egress.ts";
 import { validateOutboundGuardConfig } from "./outbound-guard.ts";
 import { resolveAdapter } from "./adapters/index.ts";
@@ -21,7 +26,9 @@ export interface Deployment {
 	/** Canonical non-secret identity materialized from the central provider profile. */
 	provider?: string;
 	providerProfile?: string;
+	connection_limit?: number;
 	url: string;
+	discover?: boolean;
 	dialect: Dialect;
 	// upstream's real model id when the group alias differs — the request
 	// body's model field is patched toward this deployment; absent = forward
@@ -67,6 +74,8 @@ interface UpstreamsDoc {
 interface DeploymentSpec {
 	provider?: string;
 	providerProfile?: string;
+	connection_limit?: number;
+	discover?: boolean;
 	url: string;
 	dialect: Dialect;
 	model?: string;
@@ -119,6 +128,13 @@ function poolFrom(doc: UpstreamsDoc): UpstreamPool {
 			group,
 			(specs ?? []).map((s) => {
 				const dep = { ...s, group };
+				if (
+					!DeploymentConnectionSchema.safeParse({
+						connection_limit: dep.connection_limit,
+						discover: dep.discover,
+					}).success
+				)
+					throw new Error("Invalid deployment connection controls");
 				for (const field of ["provider", "providerProfile"] as const) {
 					const value = dep[field];
 					if (

@@ -24,6 +24,7 @@ import {
 	cachedProbes,
 	consoleMe,
 	gatherBeltView,
+	gatherGatewaySetup,
 	gatherLocalView,
 } from "./console-view.ts";
 import { BELT_REPO, BUCKLE_REPO, db } from "./context.ts";
@@ -86,6 +87,13 @@ export async function handleConsole(
 		// W858.10.3: the Network overview payload — read model + local spoke
 		// probe (cached probes; the browser never fetches :4101 itself)
 		return json(await networkPayload());
+	if (url.pathname === "/api/console/gateway-setup")
+		return req.method === "GET"
+			? json(await gatherGatewaySetup())
+			: new Response("method not allowed", {
+					status: 405,
+					headers: { Allow: "GET" },
+				});
 	if (url.pathname === "/api/console/flow" && req.method === "GET")
 		// W2673.1: the gateway flow feed — windowed senders/targets/attention
 		// (window = seconds: 60|300|600; anything else normalizes to 300)

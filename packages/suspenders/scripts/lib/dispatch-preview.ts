@@ -4,7 +4,7 @@
 // entrypoint owns (sh/run/workCli/coordCli, brief extras, capsule getters)
 // arrive as a deps bag; bodies moved from dispatch-next.ts.
 import { existsSync } from "node:fs";
-import { adapterFor } from "../../hooks/lib/executors/registry.ts";
+import { adapterFor } from "../../hooks/lib/executors/executor-registry.ts";
 import { projectIdentity } from "../../hooks/lib/govdb/govdb.ts";
 import { briefIntel } from "../../hooks/lib/lanes/brief-intel.ts";
 import { recordPhase } from "../../hooks/lib/lanes/dispatch-phase-timing.ts";

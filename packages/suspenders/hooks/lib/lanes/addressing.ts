@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 // W1812: the client vocabulary is adapter data — the scan helper lives in
 // the executor registry beside the rows it reads.
-import { toolTokenForText } from "../executors/registry.ts";
+import { toolTokenForText } from "../executors/executor-registry.ts";
 
 export interface SessionLabelInput {
 	sid: string;

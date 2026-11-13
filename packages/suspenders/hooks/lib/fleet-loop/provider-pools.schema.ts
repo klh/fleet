@@ -2,7 +2,8 @@
 // W2263 provider_pools conf block, split from provider-pools.ts so the
 // config layer (stack-config.ts) depends on schemas ONLY. The flat-home
 // closure law (W2343: one basename per flat home) made the monolith's
-// transitive admission machinery (executors/registry.ts) collide with
+// transitive admission machinery (executors/registry.ts, since renamed
+// executor-registry.ts by W2459) collide with
 // belt's own registry.ts member — posture.zod.ts is the precedent: conf
 // schemas live beside their domain, dependency-free of the runtime.
 import { z } from "zod";

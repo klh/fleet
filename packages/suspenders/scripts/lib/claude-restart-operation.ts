@@ -25,7 +25,7 @@ import {
 	retiredRestartSnapshot,
 	validateRestartBoundary,
 } from "../../hooks/lib/executors/claude-restart.ts";
-import { adapterForExact } from "../../hooks/lib/executors/registry.ts";
+import { adapterForExact } from "../../hooks/lib/executors/executor-registry.ts";
 import { openStore } from "../../hooks/lib/govdb/govdb.ts";
 import { projectIdentity } from "../../hooks/lib/govdb/govdb-project.ts";
 import { adminKey, BUCKLE_FRONT } from "../../hooks/lib/lanes/lane-auth.ts";

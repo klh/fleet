@@ -19,7 +19,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { ProviderPenalty } from "../usage/exec-quota.ts";
 import { quotaProviderPenalty } from "../usage/exec-quota.ts";
-import { adapterFor } from "../executors/registry.ts";
+import { adapterFor } from "../executors/executor-registry.ts";
 import type { GovernorStore } from "../govdb/govdb.ts";
 import { readBoardSettings } from "../board/board-config.ts";
 import {

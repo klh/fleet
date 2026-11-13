@@ -521,6 +521,7 @@ export const createDesktopRunnerLeaf = (deps: DesktopLeafDeps): DesktopLeaf => {
 			admit: (input) =>
 				admitAndStart({ ...input, seedRoot: deps.container.seedRoot }),
 		},
+		durable: adapter,
 		executor,
 		credentials,
 		policyDigest: () => resolvedPolicyDigest(deps.container),

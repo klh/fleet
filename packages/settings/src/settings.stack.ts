@@ -1,9 +1,11 @@
 // settings.stack.ts — the stack.json documents settings.json absorbs beside
 // hubs: version pin, release updates, auth posture, providers, executors,
-// per-repo policies, postures. Same rules: strict objects, secrets only as
-// env NAMES or 0600 file PATHS (an inline provider `key` is refused).
+// per-repo policies, postures. Connection credentials may be inline only
+// in the private operator document; diagnostics always redact their values.
 import { z } from "zod";
 import { list, opt } from "./settings.leaf.ts";
+import { ConnectionSchema } from "./settings.connections.ts";
+import { LegacyProviderSchema } from "./settings.connection-legacy.ts";
 
 export const UpdatesSchema = z
 	.object({
@@ -37,14 +39,7 @@ export const AuthSchema = z
 	.optional()
 	.describe("Auth posture");
 
-export const ProviderSchema = z
-	.object({
-		env: opt("Env NAME carrying the key"),
-		key_file: opt("0600 dotenv file PATH holding the key"),
-		key_name: opt("Variable name inside key_file"),
-		base_url: opt("Provider base URL"),
-	})
-	.strict();
+export const ProviderSchema = z.union([ConnectionSchema, LegacyProviderSchema]);
 
 export const ExecutorSchema = z
 	.object({
@@ -91,7 +86,7 @@ export const StackSections = {
 	providers: z
 		.record(z.string(), ProviderSchema)
 		.default({})
-		.describe("Where upstream keys live (names/paths only)"),
+		.describe("Private provider accounts and peer Buckle connections"),
 	executors: z
 		.record(z.string(), ExecutorSchema)
 		.default({})
