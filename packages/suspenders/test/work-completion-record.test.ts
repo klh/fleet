@@ -337,6 +337,40 @@ test("done refuses a bench-shaped item without its ledgers (W951)", () => {
 	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
 });
 
+test("done accepts the W2990.12 canonical pair for a bench-shaped item", () => {
+	const f = fixture({ title: "bench: A/B retrieval verdict" });
+	const git = (...args: string[]) => {
+		const p = Bun.spawnSync(["git", "-C", f.repo, ...args], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(p.exitCode).toBe(0);
+		return p.stdout.toString().trim();
+	};
+	writeFileSync(join(f.repo, "bench-run.ts"), "export const verdict = true;\n");
+	mkdirSync(join(f.repo, "benchmarks"), { recursive: true });
+	writeFileSync(
+		join(f.repo, "benchmarks/benchmark.md"),
+		"# Benchmark\n\n- A/B: canonical pair accepted natively.\n",
+	);
+	writeFileSync(
+		join(f.repo, "benchmarks/benchmarks.json5"),
+		"// canonical ledger\n{ results: [] }\n",
+	);
+	git("add", "-A");
+	git("commit", "-m", "bench: land the canonical pair");
+	const ok = f.work(
+		"done",
+		f.id,
+		"--sha",
+		git("rev-parse", "HEAD"),
+		"--summary",
+		summary,
+	);
+	expect(ok.code).toBe(0);
+	expect(JSON.parse(f.work("show", f.id, "--json").out).state).toBe("DONE");
+});
+
 test("final capsule paragraph can supply the durable summary", () => {
 	const f = fixture();
 	const coord = join(import.meta.dir, "..", "hooks", "bin", "coord.ts");
