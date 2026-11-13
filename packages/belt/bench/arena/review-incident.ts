@@ -63,6 +63,34 @@ const INCIDENTS: IncidentDef[] = [
 		],
 	},
 	{
+		id: "inc-w3056",
+		sha: "a5ffdac4a8",
+		title: "Settings silent fallback (W3056)",
+		mission:
+			"Land this settings validation change — an invalid ~/.config/klh/settings.json must refuse loudly with its path and never silently fall back to last-known-good.",
+		paths: [
+			"packages/settings/src/settings.reader.ts",
+			"packages/settings/src/settings.writer.ts",
+			"packages/settings/src/index.ts",
+			"packages/suspenders/scripts/dispatch-watchdog.ts",
+			"packages/suspenders/scripts/lib/watchdog-verdict.ts",
+		],
+		defects: [
+			{
+				cls: "silent-fallback",
+				file: "packages/settings/src/settings.reader.ts",
+				anchor: "validateDoc(lkg).ok ? lkg : {}",
+				desc: "invalid file doc silently swaps to last-known-good or {} — no issues surfaced, callers cannot tell fallback happened (the fleet_loop.review_model stall class)",
+			},
+			{
+				cls: "missing-health-signal",
+				file: "packages/suspenders/scripts/dispatch-watchdog.ts",
+				anchor: "readActivation(join(HOME, \".config/klh/service-activation.json\"))",
+				desc: "watchdog health inputs carry no settings-conf dimension — an invalid conf falls back silently with no NEED_DECISION (stdout-only posture)",
+			},
+		],
+	},
+	{
 		id: "inc-w602",
 		sha: "fd7025d",
 		title: "Caddy loopback bind (W602)",

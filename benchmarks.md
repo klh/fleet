@@ -1579,3 +1579,21 @@ fixture 9/24 (score 0.375, 15 contract failures), reference 24/24 (score
 existing target; both control numbers pinned). Measurement-row template in
 the fixture README. No scored agent arm has run yet — this lands the
 fixture + controls; live arms ride `bench/paired/live.ts` manifests.
+
+## W3077 — Review-arena incident case inc-w3056 (2026-11-13)
+
+Task-set measurement, no model-quality claim. The arena task set grew
+39 -> 40 sealed tasks (sha16 `e08b6551c1f56f88` over `05578c7b2a3391ed`)
+after adding the settings silent-fallback incident: reverse diff of fix
+`a5ffdac4a8` across 5 paths, 2 anchor-verified defects (silent LKG swap in
+the settings reader; missing conf-dimension watchdog signal). Design and
+seal verified from the fresh worktree; the rescore leg was refused by the
+AC-power gate (battery, discharging) and records its score delta on the
+next AC-powered orchestrator run.
+
+Reproduce the seal:
+
+```text
+bun packages/belt/bench/arena/review-run.ts --design   # sealed 40 tasks @ e08b6551
+```
+>>>>>>> origin/suspenders/W3077

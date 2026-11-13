@@ -538,3 +538,10 @@ worktree and judges each exactly once — different paths, no cache to
 bust. Also caught pre-commit: the reference balance module initially
 inherited the fixture's refund-sign bug (written once, copied to both) —
 the controls spec now fails loudly on any such drift.
+=======
+
+- **Arena rescore on battery power** (2026-11-13, W3077): `review-run.ts
+  --rescore` refuses while `pmset` reports battery (the `/tmp/bench-ac-ok`
+  marker is absent by design — real LLM rounds burn power). The seal and
+  design legs work anywhere; only the score delta needs AC. Do not create
+  the marker by hand.
