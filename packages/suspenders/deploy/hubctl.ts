@@ -39,6 +39,11 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+	materializeEngineGroups,
+	ENGINE_DEFAULT_PORT,
+	type EngineGroups,
+} from "@klh/buckle/src/litellm-engine.ts";
+import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
@@ -50,6 +55,7 @@ import {
 	PROVIDER_ENV_FILENAME,
 	renderProviderEnv,
 	requiredProviders,
+	type ResolvedProvider,
 } from "../hooks/lib/hub-providers.ts";
 // stack.json is parsed by the ONE reader (W356) — hubctl renders deploys
 // from it, coord hubs projects the topology from it
@@ -212,16 +218,54 @@ export function renderUpstreams(
 	required = requiredProviders(hub),
 	catalogs?: ConnectionCatalogs,
 ): string {
-	// W1124.8.2.1 / C74: stamp non-secret central-provider identity onto
-	// deployment rows whose key env matches a required profile's binding
-	// (soft — unknown/unbound profiles leave rows untouched, never keys).
+	const groups = identityStampedGroups(hub, required);
+	const projected = catalogs
+		? projectCatalogGroups(groups, required, catalogs)
+		: {
+				groups: projectConnectionGroups(groups, required),
+				catalog_status: undefined,
+			};
+	// W3081: buckle is a FRONT for litellm (owner law) — the projected
+	// ladder never hands buckle a provider URL; every provider row rides
+	// the local engine leg, catalog rendered from the same walk. The
+	// projection's catalog_status survives untouched (observability only).
+	const engine = materializeEngineGroups(
+		projected.groups as EngineGroups,
+		enginePortOf(hub),
+	);
+	return `${JSON.stringify(
+		{
+			version: 1,
+			inherit_defaults: false,
+			groups: engine.groups,
+			...(projected.catalog_status
+				? { catalog_status: projected.catalog_status }
+				: {}),
+		},
+		null,
+		"\t",
+	)}\n`;
+}
+
+/** W3081: the engine port for this hub (litellm: block override, else the
+ *  compose default). */
+export function enginePortOf(hub: HubProfile): number {
+	return hub.litellm?.port ?? ENGINE_DEFAULT_PORT;
+}
+
+/** The identity stamp (W1124.8.2.1 / C74) shared by the ladder and the
+ *  engine catalog walk — one helper, both consumers. */
+function identityStampedGroups(
+	hub: HubProfile,
+	required: readonly ResolvedProvider[],
+): EngineGroups {
 	const identity = Object.fromEntries(
 		required
 			.filter((r) => r.env)
 			.map((r) => [r.env, { provider: r.provider, providerProfile: r.name }]),
 	);
 	const catalogHub = canonicalCatalogHub(hub, required);
-	const groups = Object.fromEntries(
+	return Object.fromEntries(
 		Object.entries(
 			mergeZaiHubUpstreams(catalogHub, mergedHubUpstreams(catalogHub)),
 		).map(([group, rows]) => [
@@ -246,17 +290,26 @@ export function renderUpstreams(
 			}),
 		]),
 	);
-	return `${JSON.stringify(
-		{
-			version: 1,
-			inherit_defaults: false,
-			...(catalogs
-				? projectCatalogGroups(groups, required, catalogs)
-				: { groups: projectConnectionGroups(groups, required) }),
-		},
-		null,
-		"\t",
-	)}\n`;
+}
+
+/** W3081: the per-hub engine catalog (litellm.yaml) + copilot flag from
+ *  the SAME walk renderUpstreams performs (pure, same input ⇒ same rows)
+ * — push materializes it beside the compose dir for the engine's
+ * read-only mount. */
+export function renderEngineCatalog(
+	hub: HubProfile,
+	required = requiredProviders(hub),
+	catalogs?: ConnectionCatalogs,
+): { catalog: string; copilot: boolean } {
+	const groups = identityStampedGroups(hub, required);
+	const projected = catalogs
+		? projectCatalogGroups(groups, required, catalogs)
+		: { groups: projectConnectionGroups(groups, required) };
+	const engine = materializeEngineGroups(
+		projected.groups as EngineGroups,
+		enginePortOf(hub),
+	);
+	return { catalog: engine.catalog, copilot: engine.copilot };
 }
 
 /** W983: the hub's Buckle owner prefs in loadPrefs' exact shape (buckle
@@ -442,6 +495,66 @@ function pushUpstreamEnv(hub: HubProfile, dir: string): void {
 	runOnHub(hub, `/bin/sh -c ${quote(UPSTREAM_ENV_SCRIPT)} sh ${args}`);
 }
 
+/** W3081: write a rendered text file to the hub deploy dir — 0600 both
+ * paths (local writeFileSync; ssh stdin under umask 077, values never in
+ * argv). The generic sibling of copyToHub. */
+function writeToHub(
+	hub: HubProfile,
+	dir: string,
+	file: string,
+	content: string,
+): void {
+	const destination = `${dir}/${file}`;
+	if (hub.deploy?.ssh) {
+		const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; cat > ${JSON.stringify(destination)}'`,
+			],
+			{ input: content, timeout: 30_000 },
+		);
+	} else {
+		writeFileSync(destination, content, { mode: 0o600 });
+	}
+}
+
+/** W3081: seed the engine's github_copilot token cache (the litellm
+ *  authenticator reads access-token + api-key.json FIRST — device flow
+ *  is fallback-only and never fires with a seeded cache). Source is the
+ *  0600 PAT file the stack secrets name (read on the OWNING device,
+ *  same as every other secret resolution; contents never print). */
+function pushCopilotTokenCache(hub: HubProfile, dir: string): void {
+	const patPath = hub.secrets?.upstream_keys?.GITHUB_COPILOT_PAT;
+	if (!patPath)
+		throw new Error(
+			"copilot rows require secrets.upstream_keys.GITHUB_COPILOT_PAT (0600 PAT file path)",
+		);
+	const pat = readFileSync(patPath, "utf8").trim();
+	if (!pat) throw new Error(`empty copilot PAT file: ${patPath}`);
+	const apiKey = JSON.stringify({
+		token: pat,
+		expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365,
+		endpoints: { api: "https://api.githubcopilot.com" },
+	});
+	if (hub.deploy?.ssh) {
+		const quote = (a: string): string => `'${a.replace(/'/g, `'\\''`)}'`;
+		execFileSync(
+			"ssh",
+			[
+				...sshOpts(hub),
+				hub.deploy.ssh,
+				`/bin/sh -c 'umask 077; mkdir -p ${JSON.stringify(`${dir}/copilot-tokens`)}'`,
+			],
+			{ timeout: 30_000 },
+		);
+	} else mkdirSync(`${dir}/copilot-tokens`, { recursive: true });
+	writeToHub(hub, `${dir}/copilot-tokens`, "access-token", `${pat}\n`);
+	writeToHub(hub, `${dir}/copilot-tokens`, "api-key.json", `${apiKey}\n`);
+}
+
 /** W1124.8.2.1: materialize `<dir>/provider.env` ON the hub (0600 compose
  *  env_file) from the profile's required CENTRAL provider profiles. The
  *  rendered body rides stdin over the ssh path (values never enter argv,
@@ -560,15 +673,18 @@ async function reloadUpstreams(
 			`hubctl reload-upstreams refused: ${name} has stale or unpinned deploy ref; run hubctl push ${name} first`,
 		);
 	renderUpstreams(hub, required);
-	const rendered = renderUpstreams(
-		hub,
+	const catalogs = await discoverConnectionCatalogs(
 		required,
-		await discoverConnectionCatalogs(
-			required,
-			undefined,
-			hub.upstreams?.groups,
-		),
+		undefined,
+		hub.upstreams?.groups,
 	);
+	const rendered = renderUpstreams(hub, required, catalogs);
+	// W3081: the engine catalog refreshes with the ladder — one walk, both
+	// artifacts, no drift (the running engine re-reads its mounted yaml on
+	// recreate; the gate recreate below carries it).
+	const engine = renderEngineCatalog(hub, required, catalogs);
+	writeToHub(hub, dir, "litellm.yaml", engine.catalog);
+	if (engine.copilot) pushCopilotTokenCache(hub, dir);
 	pushGatewayPolicy(hub, dir, required);
 	pushUpstreamEnv(hub, dir);
 	pushProviderEnv(hub, dir, required);
@@ -605,15 +721,12 @@ async function pushConfig(
 	projectConnectionPolicy(hub.buckle_gateway, required);
 	renderProviderEnv(required);
 	renderUpstreams(hub, required);
-	const renderedUpstreams = renderUpstreams(
-		hub,
+	const catalogsOfPush = await discoverConnectionCatalogs(
 		required,
-		await discoverConnectionCatalogs(
-			required,
-			undefined,
-			hub.upstreams?.groups,
-		),
+		undefined,
+		hub.upstreams?.groups,
 	);
+	const renderedUpstreams = renderUpstreams(hub, required, catalogsOfPush);
 	if (!existsSync(COMPOSE_TEMPLATE)) {
 		throw new Error(`compose template missing: ${COMPOSE_TEMPLATE}`);
 	}
@@ -646,6 +759,12 @@ async function pushConfig(
 			mode: 0o600,
 		});
 	}
+	// W3081: the engine side of the same walk — the per-hub litellm.yaml
+	// catalog (read-only mount) + the seeded copilot token cache. No
+	// hand-maintained files: render IS the source. 0600 both paths.
+	const engine = renderEngineCatalog(hub, required, catalogsOfPush);
+	writeToHub(hub, dir, "litellm.yaml", engine.catalog);
+	if (engine.copilot) pushCopilotTokenCache(hub, dir);
 	pushGatewayPolicy(hub, dir, required);
 	pushUpstreamEnv(hub, dir);
 	// W2632: the staged repo→tier account policy (empty placeholder when the

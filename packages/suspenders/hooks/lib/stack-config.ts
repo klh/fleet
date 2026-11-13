@@ -297,6 +297,22 @@ export const HubProfileSchema = z
 			})
 			.loose()
 			.optional(),
+		/** W3081 owner law: a hub is buckle + litellm + GUI. `shape: minimal`
+		 *  composes ONLY that (engine implied when serving, GUI when
+		 *  declared); the default `full` shape keeps the historical container
+		 *  set (board/store/belt/model-store profiles all on). */
+		shape: z.enum(["full", "minimal"]).optional(),
+		/** W3081: the hub GUI (third leg). Declaring `gui:` enables the
+		 *  profile; `image` is the ChatGPT-built face's ref (machine conf,
+		 *  never a committed placeholder). */
+		gui: z
+			.object({
+				image: z.string().min(1),
+				port: z.number().optional(),
+				health_port: z.number().optional(),
+			})
+			.loose()
+			.optional(),
 		/** W2329: the hub dataplane face (work-graph resource API, own port —
 		 *  NOT the LLM gateway front door; docs/design/dataplane-api.md).
 		 *  Declaring it enables the `dataplane` compose profile (api container

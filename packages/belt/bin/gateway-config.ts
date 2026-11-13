@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import { chatGptSubscriptionRows } from "./chatgpt-subscription-rows.ts";
 import { copilotSeatRows } from "./copilot-seat-rows.ts";
+import { copilotModelsFromGroups } from "@klh/buckle/src/litellm-engine.ts";
 import {
 	groupBasesFromModelList,
 	probeDeploymentHealth,
@@ -160,6 +161,27 @@ if (existsSync(copilotModelsPath)) {
 		readFileSync(copilotModelsPath, "utf8"),
 	) as unknown;
 	entries.push(...copilotSeatRows(seatModels));
+} else {
+	// W3081: one home — when the hand opt-in is absent, the machine
+	// stack.json copilot groups ARE the catalog (the ladder already
+	// names them; a second hand-made list is how the engine went empty).
+	const stackPath = `${HOME}/.config/klh/stack.json`;
+	if (existsSync(stackPath)) {
+		const stack = JSON.parse(readFileSync(stackPath, "utf8")) as {
+			hubs?: Record<
+				string,
+				{ upstreams?: { groups?: Record<string, unknown> } }
+			>;
+		};
+		const groups: Record<string, Record<string, unknown>[]> = {};
+		for (const [label, hub] of Object.entries(stack.hubs ?? {}))
+			for (const [g, rows] of Object.entries(hub.upstreams?.groups ?? {}))
+				groups[`${label}/${g}`] = Array.isArray(rows)
+					? (rows as Record<string, unknown>[])
+					: [];
+		const seatModels = copilotModelsFromGroups(groups);
+		if (seatModels.length) entries.push(...copilotSeatRows(seatModels));
+	}
 }
 
 // (openai-dialect draft above is superseded by fullYaml — kept variables

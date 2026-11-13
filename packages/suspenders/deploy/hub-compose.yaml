@@ -370,7 +370,12 @@ services:
     volumes:
       - fleet-repo:/src/fleet:ro
 
+  # W3081 shape profiles: board/store/belt/model-store ride profiles so a
+  # minimal hub (owner law: a hub is buckle + litellm + GUI) composes WITHOUT
+  # them; the default full shape enables every profile — same container set
+  # as before the law landed.
   board-hub:
+    profiles: [board]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-hub
     logging: *default-logging
@@ -406,6 +411,7 @@ services:
         condition: service_healthy
 
   board-health:
+    profiles: [board]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-board-health
     logging: *default-logging
@@ -437,6 +443,7 @@ services:
       start_period: 15s
 
   store-hub:
+    profiles: [store]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME}-store-hub
     logging: *default-logging
@@ -464,6 +471,7 @@ services:
       - hub-state:/state/hub-home
 
   store-health:
+    profiles: [store]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-store-health
     logging: *default-logging
@@ -495,6 +503,7 @@ services:
       start_period: 15s
 
   belt-hub:
+    profiles: [belt]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-hub
     logging: *default-logging
@@ -523,6 +532,7 @@ services:
       - belt-state:/state/belt-home
 
   belt-health:
+    profiles: [belt]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-belt-health
     logging: *default-logging
@@ -556,14 +566,14 @@ services:
   # W2595 owner ruling: litellm rides behind EVERY buckle. The engine fronts
   # every provider row the hub's ladder names (zai/glm, copilot seat, local
   # legs) so drop_params + the router ladders apply uniformly across hubs.
-  # Profile-gated (`litellm` compose profile, declared via the stack profile
-  # `litellm:` block — config-over-code); the per-hub litellm.yaml +
-  # token cache are operator-maintained 0600 files beside the compose dir
-  # (rendered/mounted read-only; secrets ride env, never the image). The
+  # W3081 owner law: NOT profile-gated — buckle is the front FOR litellm;
+  # the engine is as core as the gate and runs behind EVERY buckle. The
+  # per-hub litellm.yaml + token cache are RENDERED beside the compose dir
+  # (render IS the source; mounted read-only; secrets ride env, never the
+  # image). The stack `litellm:` block tunes ports only. The
   # official image is version-pinned to the same 1.103.0 the Mac engine
   # runs (github_copilot provider native since this version).
   litellm-hub:
-    profiles: [litellm]
     image: ghcr.io/berriai/litellm:v1.103.0@sha256:bd089afdcd35b894b14a93f9743cdc8b591f82da1a38dd43a010a7b0c9de5fd7
     container_name: ${HUB_NAME:-desktop}-litellm-hub
     logging: *default-logging
@@ -602,11 +612,60 @@ services:
       - ./litellm.yaml:/etc/litellm/litellm.yaml:ro
       - ./copilot-tokens:/etc/litellm/copilot-tokens:ro
 
+  # W3081: the hub GUI — the third leg of the owner-law hub (buckle +
+  # litellm + GUI). The image is the ChatGPT-built hub face (W3082): served
+  # models + key mint through the buckle front. Image ref is machine conf
+  # (stack `gui.image`); declaring `gui:` enables the profile — the hub
+  # never ships a placeholder image.
+  hub-gui:
+    profiles: [gui]
+    image: ${HUB_GUI_IMAGE:-} # empty unless gui profile on — pushProfileEnv fails loud when gui.image is missing
+    container_name: ${HUB_NAME:-desktop}-hub-gui
+    logging: *default-logging
+    init: true
+    pids_limit: 128
+    stop_grace_period: 10s
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      hub-init:
+        condition: service_completed_successfully
+
+  # W3081: outside-process health verdict for the GUI (owner law: compose
+  # health hits the SIDECAR). Plain GET / probe.
+  gui-health:
+    profiles: [gui]
+    image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+    container_name: ${HUB_NAME:-desktop}-gui-health
+    logging: *default-logging
+    <<: *runtime-hardening
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          pids: 256
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      hub-gui:
+        condition: service_started
+    command:
+      - bun
+      - ${HUB_FLEET_SRC:-/src/fleet/packages}/suspenders/deploy/healthcheck/probe.ts
+      - --target
+      - http://127.0.0.1:${HUB_GUI_PORT:-7780}/
+      - --listen
+      - ${HUB_GUI_HEALTH_PORT:-7781}
+    environment:
+      HOME: /tmp
+      FLEET_VERSION: ${HUB_FLEET_REF:?pin a reviewed Fleet SHA or release tag}
+    volumes:
+      - fleet-repo:/src/fleet:ro
+
   # W2595: outside-process health verdict for the litellm engine (owner law:
   # compose health hits the SIDECAR, never the served process). Authenticated
   # /v1/models probe — 200 = serving + authorized; 401 still proves alive.
   litellm-health:
-    profiles: [litellm]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232b1630f0546895
     container_name: ${HUB_NAME:-desktop}-litellm-health
     logging: *default-logging
@@ -701,6 +760,7 @@ services:
   # then the public origin. Peer URL/token are operator knobs appended to
   # the hub's 0600 .env by hand (render stays no-secrets).
   model-store-hub:
+    profiles: [model-store]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-model-store-hub
     logging: *default-logging
@@ -735,6 +795,7 @@ services:
       - buckle-state:/state/buckle
 
   model-store-health:
+    profiles: [model-store]
     image: oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
     container_name: ${HUB_NAME:-desktop}-model-store-health
     logging: *default-logging

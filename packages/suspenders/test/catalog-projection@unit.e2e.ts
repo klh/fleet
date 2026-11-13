@@ -12,6 +12,8 @@ test("published Copilot wire and limits constrain generated routes; unknown reas
 			kind: "provider",
 			provider: "github-copilot",
 			adapter: "openai",
+			auth: { kind: "inline", key: "fixture-key" },
+			env: "TEST_COPILOT_KEY",
 			endpoints: {
 				openai: "https://copilot.example",
 				anthropic: "https://copilot.example",
@@ -50,9 +52,13 @@ test("published Copilot wire and limits constrain generated routes; unknown reas
 			new Map([["selected", listing]]),
 		),
 	);
+	// W3081: the ladder row is now the ENGINE leg (buckle fronts litellm —
+	// owner law): hop fields overridden, projection metadata preserved.
 	expect(doc.groups["exact-model"][0]).toMatchObject({
-		adapter: "anthropic",
-		dialect: "anthropic",
+		adapter: "openai-compat",
+		dialect: "openai",
+		url: "http://127.0.0.1:4100",
+		api_key_env: "LITELLM_KEY",
 		provider: "github-copilot",
 		capabilities: {
 			context_length: 131072,
