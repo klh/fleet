@@ -1,12 +1,15 @@
 // bin/audio.ts — belt's audio tier (W440): TTS/STT behind the router.
 // Catalog rows live in bin/registry.ts (AUDIO_SERVICES); the vendor key is
-// machine config ONLY (ELEVENLABS_API_KEY via ~/.claude/local-llm/belt.env,
-// 0600) — never committed, never logged, never printed. ELEVENLABS_BASE
+// machine config ONLY (ELEVENLABS_API_KEY via the 0600 stack.json provider
+// profiles — env override first; single central key file) — never
+// committed, never logged, never printed. ELEVENLABS_BASE
 // overrides the vendor base (tests/staging). CLI:
 //   bun bin/audio.ts speak <text...> --out FILE [--voice ID] [--model ID]
 //   bun bin/audio.ts transcribe FILE [--model ID] [--language CODE]
 //   bun bin/audio.ts status
 import { AUDIO_SERVICES, type AudioService, audioService } from "./registry.ts";
+import { homedir } from "node:os";
+import { loadProviderProfiles, profileForEnv } from "./provider-profiles.ts";
 
 const VENDOR_BASE = "https://api.elevenlabs.io/v1";
 const TIMEOUT_MS = 120_000;
@@ -19,8 +22,22 @@ export const audioBase = (): string =>
 /** Vendor auth: the key rides the xi-api-key header. Read at call time from
  *  the env NAME on the catalog row — undefined = not set. Never logged. */
 export function audioKey(svc: AudioService): string | undefined {
+	// Vendor keys centralize in the 0600 stack.json provider profiles:
+	// env first (spawn override), then the profile whose OUTPUT binding
+	// names this env var — same flow as the litellm/speedy legs
+	// (W1124.8.4). KLH_STACK overrides like the speedy loader. Never
+	// logged, never printed.
 	const v = process.env[svc.keyEnv];
-	return v ? v : undefined;
+	if (v) return v;
+	try {
+		const stack =
+			process.env.KLH_STACK ?? `${homedir()}/.config/klh/stack.json`;
+		return (
+			profileForEnv(svc.keyEnv, loadProviderProfiles(stack))?.key ?? undefined
+		);
+	} catch {
+		return undefined;
+	}
 }
 
 export interface SpeakOptions {

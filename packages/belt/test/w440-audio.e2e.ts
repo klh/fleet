@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 
 import { join } from "node:path";
 import { freePort, scratchWorld } from "@klh/test-kit";
-import { audioBase, speak } from "../bin/audio.ts";
+import { audioBase, audioKey, speak } from "../bin/audio.ts";
 import {
 	AUDIO_SERVICES,
 	audioService,
@@ -147,15 +147,74 @@ test.describe("helpers (wire level, in-process)", () => {
 	});
 
 	test("missing key names the env var, never a value @unit", async () => {
+		// KLH_STACK + KLH_SETTINGS both pinned to nonexistent fixtures:
+		// the loader prefers the canonical settings.json (KLH_SETTINGS) over
+		// the legacy stack file — on a dev machine a real canonical/stack
+		// would otherwise supply the elevenlabs profile and the env-missing
+		// throw would never fire (profile fallback, W1124.8.4 flow extended
+		// to the audio tier).
+		const savedStack = process.env.KLH_STACK;
+		const savedSettings = process.env.KLH_SETTINGS;
+		process.env.KLH_STACK = join(scratchWorld().home, "no-stack.json");
+		process.env.KLH_SETTINGS = join(scratchWorld().home, "no-settings.json");
 		delete process.env.ELEVENLABS_API_KEY;
-		expect(audioBase()).toBe(`http://127.0.0.1:${VENDOR.port}`);
 		try {
-			await speak("x");
-			throw new Error("expected throw");
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
-			expect(msg).toContain("ELEVENLABS_API_KEY");
-			expect(msg).not.toContain("w440-test-key");
+			expect(audioBase()).toBe(`http://127.0.0.1:${VENDOR.port}`);
+			try {
+				await speak("x");
+				throw new Error("expected throw");
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				expect(msg).toContain("ELEVENLABS_API_KEY");
+				expect(msg).not.toContain("w440-test-key");
+			}
+		} finally {
+			if (savedStack === undefined) delete process.env.KLH_STACK;
+			else process.env.KLH_STACK = savedStack;
+			if (savedSettings === undefined) delete process.env.KLH_SETTINGS;
+			else process.env.KLH_SETTINGS = savedSettings;
+		}
+	});
+
+	test("stack profile supplies the key when env absent @unit", () => {
+		// Central-file law: the 0600 stack.json provider profile (OUTPUT env
+		// binding) is the key carrier; env still wins when set.
+		const dir = scratchWorld().home;
+		const stackPath = join(dir, "stack.json");
+		Bun.write(
+			stackPath,
+			JSON.stringify({
+				providers: {
+					elevenlabs: {
+						provider: "elevenlabs",
+						key: "fixture-profile-key",
+						env: "ELEVENLABS_API_KEY",
+					},
+				},
+			}),
+		);
+		Bun.spawnSync(["chmod", "600", stackPath]);
+		const savedStack = process.env.KLH_STACK;
+		const savedSettings = process.env.KLH_SETTINGS;
+		const savedKey = process.env.ELEVENLABS_API_KEY;
+		process.env.KLH_STACK = stackPath;
+		// canonical settings.json would win over the legacy stack fixture —
+		// pin it away so the fixture is the ONLY profile source
+		process.env.KLH_SETTINGS = join(dir, "no-settings.json");
+		delete process.env.ELEVENLABS_API_KEY;
+		try {
+			const svc = audioService("tts");
+			if (!svc) throw new Error("no tts service");
+			expect(audioKey(svc)).toBe("fixture-profile-key");
+			process.env.ELEVENLABS_API_KEY = "env-wins";
+			expect(audioKey(svc)).toBe("env-wins");
+		} finally {
+			if (savedStack === undefined) delete process.env.KLH_STACK;
+			else process.env.KLH_STACK = savedStack;
+			if (savedSettings === undefined) delete process.env.KLH_SETTINGS;
+			else process.env.KLH_SETTINGS = savedSettings;
+			if (savedKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+			else process.env.ELEVENLABS_API_KEY = savedKey;
 		}
 	});
 });
