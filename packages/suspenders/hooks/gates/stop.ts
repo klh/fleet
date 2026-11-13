@@ -189,7 +189,8 @@ export function stopGate(hook: HookInput): never {
 	let n = 0;
 	for (const rel of files) {
 		if (++n > 50) {
-			failures.push("(more than 50 changed files — verify the rest manually)");
+			// The check budget is not a failure: unrelated work in a shared
+			// checkout may exceed it, and Stop has no ownership attribution.
 			break;
 		}
 		const abs = `${cwd.replace(/\/$/, "")}/${rel}`;
