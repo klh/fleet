@@ -5,7 +5,7 @@
 // start/done/release transitions validate state and caller ownership.
 // Isolated temp HOME (governor.db) + temp repo (project identity).
 import { expect, test } from "@playwright/test";
-import { rmSync, mkdirSync } from "node:fs";
+import { rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpDir } from "./helpers/fixture-kit.ts";
 
 import { join } from "node:path";
@@ -14,7 +14,23 @@ test.describe("@unit", () => {
 
 const HOME = tmpDir("suspenders-work-");
 const REPO = tmpDir("suspenders-wrepo-");
+// The completion record verifies the --sha commit exists in the project repo
+// ("Cannot verify completion evidence") — the fixture needs a REAL git repo,
+// not an empty .git dir. One empty root commit; finish() mints fresh commits.
+function git(...args: string[]): { out: string; code: number } {
+	const p = Bun.spawnSync(["git", ...args], {
+		cwd: REPO,
+		env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	return { out: p.stdout.toString(), code: p.exitCode };
+}
 mkdirSync(join(REPO, ".git"), { recursive: true });
+git("init", "-q");
+git("config", "user.email", "fixture@work-integrity.test");
+git("config", "user.name", "work-integrity fixture");
+git("commit", "--allow-empty", "-m", "fixture root", "-q");
 const env = { ...process.env, HOME };
 const BIN = join(import.meta.dir, "..", "hooks", "bin");
 const DB = join(HOME, ".cache", "claude-governor", "governor.db");
@@ -52,13 +68,24 @@ function finish(
 	const s = work("start", id, "--as", sid);
 	if (s.code !== 0) return s;
 	const tok = /claim token: ([0-9a-f]{48})/.exec(t.out)?.[1];
+	// A real PRODUCT commit per completion — the completion record verifies
+	// the sha resolves in the project repo AND carries evidence bytes (an
+	// empty commit is refused as "no product commit evidence").
+	writeFileSync(join(REPO, `${id}.done.md`), `product evidence for ${id}\n`);
+	const c = git("add", `${id}.done.md`) .code === 0
+		? git("commit", "-m", `fixture: close ${id}`, "-q")
+		: { out: "", code: 1 };
+	if (c.code !== 0) return { code: c.code, out: c.out, err: "git fixture commit failed" };
+	const sha = git("rev-parse", "HEAD").out.trim();
 	return work(
 		"done",
 		id,
 		"--as",
 		sid,
 		"--sha",
-		`sha-${sid}`,
+		sha,
+		"--summary",
+		`disciplined completion path for ${id}: taken, started, and closed with evidence by ${sid} in the work-integrity fixture.`,
 		...(tok ? ["--token", tok] : []),
 	);
 }
@@ -176,6 +203,10 @@ test.describe("transition + ownership validation (finding 12)", () => {
 		);
 		// the owner can
 		expect(work("start", w5, "--as", "w5-owner").code).toBe(0);
+		writeFileSync(join(REPO, `${w5}.done.md`), `product evidence for ${w5}\n`);
+		git("add", `${w5}.done.md`);
+		git("commit", "-m", `fixture: close ${w5}`, "-q");
+		const w5sha = git("rev-parse", "HEAD").out.trim();
 		expect(
 			work(
 				"done",
@@ -183,7 +214,9 @@ test.describe("transition + ownership validation (finding 12)", () => {
 				"--as",
 				"w5-owner",
 				"--sha",
-				"abc1234",
+				w5sha,
+				"--summary",
+				"ownership validation case: w5-owner closes the claimed item with evidence after a clean start. ",
 				...(tok ? ["--token", tok] : []),
 			).code,
 		).toBe(0);

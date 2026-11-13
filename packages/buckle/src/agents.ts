@@ -69,16 +69,24 @@ export const expandPath = (p: string): string =>
  *  openai-family bases include /v1 (clients append /chat/completions);
  *  anthropic/gemini roots don't (clients append /v1/messages). The dispatch
  *  side calls this with the buckle front, e.g.
- *  `laneEnv(sid, "http://127.0.0.1:4101/v1")`. Slugs: [A-Za-z0-9][A-Za-z0-9._-]*. */
+ *  `laneEnv(sid, "http://127.0.0.1:4101/v1")`. Slugs: [A-Za-z0-9][A-Za-z0-9._-]*.
+ *
+ *  W3036 stage 2: lanes ride the W1265 NAMED bases (/anthropic, /openai)
+ *  composed under /w/<slug> — the wire segment is explicit in every recipe
+ *  and bare legacy /v1 inner paths stop growing new lane traffic (C530
+ *  retirement evidence keys on ACTOR scope). GOOGLE_GEMINI stays on the
+ *  legacy lane root: no /gemini named base exists yet (open question,
+ *  rides the anthropic-format front); still lane-attributed via the
+ *  prefix. */
 export const laneEnv = (
 	slug: string,
 	baseUrl: string = DEFAULT_BASE_URL,
 ): Record<string, string> => {
 	const laneRoot = `${anthropicRoot(baseUrl)}/w/${slug}`;
 	return {
-		ANTHROPIC_BASE_URL: laneRoot,
-		OPENAI_BASE_URL: `${laneRoot}/v1`,
-		OPENAI_API_BASE: `${laneRoot}/v1`,
+		ANTHROPIC_BASE_URL: `${laneRoot}/anthropic`,
+		OPENAI_BASE_URL: `${laneRoot}/openai/v1`,
+		OPENAI_API_BASE: `${laneRoot}/openai/v1`,
 		GOOGLE_GEMINI_BASE_URL: laneRoot,
 	};
 };

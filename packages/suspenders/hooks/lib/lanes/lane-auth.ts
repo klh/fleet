@@ -363,6 +363,11 @@ export const writeSessionEnrollmentFiles = (
 	front: string,
 ): string => {
 	const root = `${front}/w/${sid}`;
+	// W3036 stage 2: the per-lane settings ride the W1265 named bases
+	// composed under /w/<sid> (wire explicit; legacy bare /v1 inner paths
+	// stop growing lane traffic). GOOGLE_GEMINI stays on the legacy lane
+	// root — no /gemini named base yet. Existing on-disk lane settings with
+	// legacy bases keep working (the legacy routes stay additive).
 	mkdirSync(fleet, { recursive: true });
 	writeFileSync(
 		laneKeyMetaPath(fleet, sid),
@@ -374,9 +379,9 @@ export const writeSessionEnrollmentFiles = (
 		JSON.stringify(
 			{
 				env: {
-					ANTHROPIC_BASE_URL: root,
-					OPENAI_BASE_URL: `${root}/v1`,
-					OPENAI_API_BASE: `${root}/v1`,
+					ANTHROPIC_BASE_URL: `${root}/anthropic`,
+					OPENAI_BASE_URL: `${root}/openai/v1`,
+					OPENAI_API_BASE: `${root}/openai/v1`,
 					GOOGLE_GEMINI_BASE_URL: root,
 					ANTHROPIC_AUTH_TOKEN: minted.key,
 				},

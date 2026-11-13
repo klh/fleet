@@ -25,22 +25,20 @@ const ROOT = "buckle-test-root";
 
 async function startFed(): Promise<{ base: string; stop: () => void }> {
 	const dir = `/tmp/w352-work-cr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-	const policy = [
-		"version: 1",
-		"gateway:",
-		"  num_retries: 1",
-		"  allowed_fails: 3",
-		"  cooldown_time: 30",
-		"",
-	].join("\n");
-	const upstreams = [
-		"version: 1",
-		"groups:",
-		"  glm-5.3-flash:",
-		"    - url: http://127.0.0.1:8501",
-		"      dialect: openai",
-		"",
-	].join("\n");
+	// W1253 law (W3036 repair): fleet config is JSON — a legacy .yaml path is
+	// parsed only when its CONTENT is already JSON. This fixture still wrote
+	// YAML bytes and broke the whole suite on JSON.parse. Keep the .yaml file
+	// NAME (the reader honors both during the transition) but JSON bytes.
+	const policy = JSON.stringify({
+		version: 1,
+		gateway: { num_retries: 1, allowed_fails: 3, cooldown_time: 30 },
+	});
+	const upstreams = JSON.stringify({
+		version: 1,
+		groups: {
+			"glm-5.3-flash": [{ url: "http://127.0.0.1:8501", dialect: "openai" }],
+		},
+	});
 	await Bun.write(`${dir}.policy.yaml`, policy);
 	await Bun.write(`${dir}.upstreams.yaml`, upstreams);
 	const srv = startServer({

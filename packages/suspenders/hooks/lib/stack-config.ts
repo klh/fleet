@@ -560,8 +560,13 @@ export function stackSource(): "settings" | "stack.json" {
 export function loadStack(): StackConfig {
 	// settings.json is THE per-install config: when it exists (and KLH_STACK
 	// does not pin a legacy file explicitly) the stack view projects from it;
-	// stack.json stays the read-compat fallback for one release.
-	const projected = stackFromSettings();
+	// stack.json stays the read-compat fallback for one release. An explicit
+	// KLH_STACK pin ALWAYS answers (tests + hubs pin it; the W3039 settings
+	// unify dropped the pin check and loadStack silently answered the
+	// operator's real settings.json on any machine with one — machine-
+	// dependent test red and live-path leakage through the pin).
+	const pinned = process.env.KLH_STACK !== undefined;
+	const projected = pinned ? null : stackFromSettings();
 	if (projected) {
 		lastStackSource = "settings";
 		return projected;

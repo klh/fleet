@@ -105,6 +105,11 @@ export async function boardFixture(
 	};
 	delete env.SUSPENDERS_SID;
 	delete env.SUSPENDERS_SESSION_IDENTITY_PROTOCOL;
+	// W3036 fixture hygiene: an inherited SUSPENDERS_WRITE_TOKEN_FILE
+	// (leaked by any earlier suite in the serial worker) would redirect the
+	// spawned board's token mint away from this fixture's temp HOME — the
+	// fixture reads the temp-HOME path and the whole suite aborts ENOENT.
+	delete env.SUSPENDERS_WRITE_TOKEN_FILE;
 	if (PORT === 0) PORT = unusedPort();
 	const bin = join(import.meta.dir, "..", "..", "hooks", "bin");
 	const BASE = `http://127.0.0.1:${PORT}`;
