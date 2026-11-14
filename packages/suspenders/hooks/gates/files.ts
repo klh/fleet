@@ -134,11 +134,18 @@ export function filesCheck(hook: HookInput): FilesExit {
 		}
 	}
 
+	// W3086: `_skip_qlty` runs every non-Qlty file law (UI law, promoted lint
+	// classes, govdb-import, settings JSON, the line-count laws) WITHOUT the
+	// per-file `qlty check` spawn — Stop re-verifies each changed file through
+	// this gate and then checks the whole changed set in ONE batch invocation.
+	const skipQlty =
+		(hook as HookInput & { _skip_qlty?: boolean })._skip_qlty === true;
+
 	// ---- code: qlty fmt ON SAVE, then the syntax gate ----
 	if (isCode && existsSync(F)) {
 		const fmtNote = deferFmt ? null : qltyFmt(F);
 		if (fmtNote) recordGateWrite(F); // W58: the gate's rewrite, declared BEFORE any verdict
-		const issues = qltyGate(F, deferFmt);
+		const issues = skipQlty ? null : qltyGate(F, deferFmt);
 		if (issues) {
 			// W58: bless fmt's rewrite + the sanctioned write BEFORE blocking —
 			// returning with a stale lease hash denies the agent's next edit
@@ -367,29 +374,42 @@ function qltyFmt(F: string): string | null {
 		: null;
 }
 
-/** `qlty check` — returns the issues text, or null when clean/skipped. */
-function qltyGate(F: string, deferFmt: boolean): string | null {
+/** `qlty check` over paths relative to `cwd` — the ONE invocation shape. Batch
+ * callers (W3086: Stop checks the whole changed set in a single spawn; 205
+ * dirty files took >150s one-spawn-per-file) pass many paths at once. Returns
+ * the issues text, or null when clean / qlty is absent / the repo has no qlty
+ * setup (exit 99). */
+export function qltyCheckPaths(
+	cwd: string,
+	paths: string[],
+	opts: { noFormatters?: boolean } = {},
+): string | null {
+	if (paths.length === 0) return null;
 	if (!have("qlty")) return null; // Bun.spawnSync THROWS on a missing binary — the old
 	// process-level fail-open swallowed this; in-process filesCheck must skip instead
-	const stillThere = () => existsSync(F);
 	const proc = Bun.spawnSync(
 		[
 			"qlty",
 			"check",
 			"--no-upgrade-check",
-			...(deferFmt ? ["--no-formatters"] : []),
-			basename(F),
+			...(opts.noFormatters ? ["--no-formatters"] : []),
+			...paths,
 		],
-		{
-			cwd: dirname(F),
-			stdout: "pipe",
-			stderr: "pipe",
-		},
+		{ cwd, stdout: "pipe", stderr: "pipe" },
 	);
 	const out = `${proc.stdout}${proc.stderr}`.trim();
 	// exit 99 = "Qlty must be set up in this repository" — skip silently
 	if (proc.exitCode === 99 || /must be set up/i.test(out)) return null;
-	return proc.exitCode !== 0 && stillThere() ? out : null;
+	return proc.exitCode !== 0 ? out : null;
+}
+
+/** `qlty check` for ONE file — returns the issues text, or null when
+ * clean/skipped/gone mid-check (TOCTOU). */
+function qltyGate(F: string, deferFmt: boolean): string | null {
+	const issues = qltyCheckPaths(dirname(F), [basename(F)], {
+		noFormatters: deferFmt,
+	});
+	return issues && existsSync(F) ? issues : null;
 }
 
 // Count edits per file per session; every 3rd edit nudges to verify
