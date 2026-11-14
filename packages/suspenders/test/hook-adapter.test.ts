@@ -256,7 +256,7 @@ describe("resolveCodexSid", () => {
 describe("gate-wire-codex emitter", () => {
 	const WIREPATH = join(HOME, "hooks.json");
 
-	test("merges five events, preserves user entries, idempotent", () => {
+	test("merges four events, removes managed Stop, preserves user entries", () => {
 		writeFileSync(
 			WIREPATH,
 			JSON.stringify({
@@ -264,6 +264,15 @@ describe("gate-wire-codex emitter", () => {
 				hooks: {
 					PreToolUse: [
 						{ hooks: [{ type: "command", command: "user-own-tool" }] },
+					],
+					Stop: [
+						{
+							hooks: [
+								{ type: "command", command: "user-stop" },
+								{ type: "command", command: "bun gate.ts codex stop" },
+							],
+						},
+						{ hooks: [{ type: "command", command: "bun gate.ts codex stop" }] },
 					],
 				},
 			}),
@@ -277,6 +286,9 @@ describe("gate-wire-codex emitter", () => {
 		expect(doc1.model).toBe("gpt-5");
 		expect(doc1.hooks.PreToolUse).toHaveLength(2);
 		expect(doc1.hooks.PreToolUse[0].hooks[0].command).toBe("user-own-tool");
+		expect(doc1.hooks.Stop).toHaveLength(1);
+		expect(doc1.hooks.Stop[0].hooks).toHaveLength(1);
+		expect(doc1.hooks.Stop[0].hooks[0].command).toBe("user-stop");
 		expect(Object.keys(doc1.hooks)).toContain("SessionEnd");
 
 		const r2 = run([WIRE], "", { SUSPENDERS_CODEX_HOOKS: WIREPATH });

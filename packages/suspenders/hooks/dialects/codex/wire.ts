@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 // hooks/bin/gate-wire-codex.ts — merge-not-clobber codex hook wiring (W73).
-// Merges the five suspenders gate registrations into ~/.codex/hooks.json
+// Merges the active suspenders gate registrations into ~/.codex/hooks.json
 // (or $SUSPENDERS_CODEX_HOOKS), preserving every entry that isn't ours.
 // Managed entries are recognized by their `gate.ts codex ` marker, so
 // re-running upgrades the command lines; user entries are never touched.
+// The managed Codex Stop hook is retired because it repeatedly blocked
+// interactive sessions on unrelated dirty files.
 // Per-lane `-c` overrides were the spec's preference but remain unverified
 // (codex exec was permission-blocked in the implementing session); the
 // hooks.json merge is the proven, working surface on this machine.
@@ -24,7 +26,7 @@ const WIRING: Array<[string, string]> = [
 	["PreToolUse", "codex pre-tool"],
 	["PostToolUse", "codex post-tool"],
 	["SessionStart", "codex session"],
-	["Stop", "codex stop"],
+
 	["SessionEnd", "codex session-end"],
 ];
 
@@ -51,9 +53,9 @@ const run = (): number => {
 	const check = process.argv[2] === "--check";
 	// evaluate against the file AS IT IS — the loop below would add our
 	// entries in memory and make every file look wired
-	const wiredNow = WIRING.every(([event]) =>
-		(hooks[event] ?? []).some(managed),
-	);
+	const wiredNow =
+		WIRING.every(([event]) => (hooks[event] ?? []).some(managed)) &&
+		!(hooks.Stop ?? []).some(managed);
 	let changed = false;
 	for (const [event, mode] of WIRING) {
 		const list = Array.isArray(hooks[event]) ? hooks[event] : [];
@@ -64,6 +66,19 @@ const run = (): number => {
 		// an identical entry is a no-op, not a change)
 		if (JSON.stringify(next) !== JSON.stringify(list)) changed = true;
 		hooks[event] = next;
+	}
+	const stop = Array.isArray(hooks.Stop) ? hooks.Stop : [];
+	const keptStop = stop.flatMap((entry) => {
+		if (!Array.isArray(entry.hooks)) return [entry];
+		const remaining = entry.hooks.filter(
+			(hook) =>
+				!(typeof hook?.command === "string" && hook.command.includes(MARK)),
+		);
+		return remaining.length ? [{ ...entry, hooks: remaining }] : [];
+	});
+	if (JSON.stringify(keptStop) !== JSON.stringify(stop)) {
+		hooks.Stop = keptStop;
+		changed = true;
 	}
 	if (check) {
 		console.log(wiredNow ? `wired: ${FILE}` : `not wired: ${FILE}`);
