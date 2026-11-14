@@ -1,8 +1,10 @@
 // hooks/gates/stop.ts — Stop: the claim-done gate. Re-runs syntax gates over
 // changed files + conflict-marker check before the turn may end. TS fixes
 // from the hooks-review: porcelain -z parsing (spaces/renames safe),
-// JSON.stringify-built payloads (no printf-JSON corruption), bounded loop
-// matching the list cap, files newer than a cap only.
+// JSON.stringify-built payloads (no printf-JSON corruption). W3084: the
+// changed-code re-verification loop is UNBOUNDED — every changed code file
+// re-verifies in-process; the old 50-file cap pushed a "verify the rest
+// manually" failure with no receipt mechanism, so the tail never verified.
 // W14: re-verify runs filesCheck IN-PROCESS — the old loop spawned one
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
 
@@ -185,15 +187,16 @@ export function stopGate(hook: HookInput): never {
 			failures.push(`unmerged: ${f.slice(3)}`);
 	}
 
-	// bounded re-verification via the same files gate (syntax only), in-process
-	let n = 0;
+	// re-verify EVERY changed code file via the same files gate (syntax only),
+	// in-process. W3084: the old 50-file cap silently skipped the tail of a
+	// >50-file change set — its "verify the rest manually" had no receipt
+	// mechanism, so the gate could pass with unverified files. The W14
+	// in-process re-verify costs no extra process per file, so it scales.
 	for (const rel of files) {
-		if (++n > 50) {
-			failures.push("(more than 50 changed files — verify the rest manually)");
-			break;
-		}
 		const abs = `${cwd.replace(/\/$/, "")}/${rel}`;
 		if (!existsSync(abs)) continue;
+		// _deferred_fmt=true is authoritative in filesCheck: verify-only — the
+		// flag skips qlty fmt on any path, so Stop never rewrites a file.
 		const payload = {
 			tool_name: "Write",
 			tool_input: { file_path: abs },
