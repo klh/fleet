@@ -195,6 +195,8 @@ export function stopGate(hook: HookInput): never {
 	for (const rel of files) {
 		const abs = `${cwd.replace(/\/$/, "")}/${rel}`;
 		if (!existsSync(abs)) continue;
+		// _deferred_fmt=true is authoritative in filesCheck: verify-only — the
+		// flag skips qlty fmt on any path, so Stop never rewrites a file.
 		const payload = {
 			tool_name: "Write",
 			tool_input: { file_path: abs },

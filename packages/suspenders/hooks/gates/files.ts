@@ -100,11 +100,14 @@ export function filesCheck(hook: HookInput): FilesExit {
 	// Worktree lanes (multi-agent): SKIP per-save formatting. The fmt mutates
 	// the file after the governor hashed it and every cycle risks a lost-update
 	// deny on the shared registry — 4.8K false "changed on disk" retries in the
-	// gaps session. Formatting happens once at claim-done: stop.ts re-runs this
-	// gate with _deferred_fmt=true (syntax check still runs per-save).
+	// gaps session. W3084 review finding: Stop re-verification is VERIFY-ONLY —
+	// the _deferred_fmt flag is authoritative on ANY path: stop.ts re-runs this
+	// gate to check, never to rewrite, so a Stop over a dirty main checkout
+	// cannot qlty-fmt unrelated dirty files mid-stop (claim-done cosmetics live
+	// with the merge ladder, qltyFixMergedFiles). Syntax check still runs.
 	const deferFmt =
-		/\/(?:\.claude\/worktrees|\.worktrees)\//.test(F) &&
-		(hook as HookInput & { _deferred_fmt?: boolean })._deferred_fmt !== true;
+		(hook as HookInput & { _deferred_fmt?: boolean })._deferred_fmt === true ||
+		/\/(?:\.claude\/worktrees|\.worktrees)\//.test(F);
 
 	// ---- markdown: prettier (GFM, prose preserved) ----
 	if (isMd && !deferFmt && existsSync(F) && have("prettier")) {
