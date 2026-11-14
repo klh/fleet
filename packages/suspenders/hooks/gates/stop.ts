@@ -7,6 +7,9 @@
 // manually" failure with no receipt mechanism, so the tail never verified.
 // W14: re-verify runs filesCheck IN-PROCESS — the old loop spawned one
 // `bun gate.ts post-files` per changed file (up to 50 bun processes per Stop).
+// W3086: Qlty is BATCHED — one `qlty check --no-formatters <all paths>` for
+// the whole changed set instead of one spawn per file (205 dirty files: >150s
+// → one invocation).
 
 import { setting } from "@klh/settings";
 import { spawnSync } from "node:child_process";
@@ -32,7 +35,7 @@ import {
 	turnBoundaryFeedback,
 	turnBoundarySid,
 } from "../lib/gates/turn-boundary.ts";
-import { filesCheck } from "./files.ts";
+import { filesCheck, qltyCheckPaths } from "./files.ts";
 
 const CODE_EXT =
 	/\.(json|py|sh|bash|zsh|dash|ts|tsx|js|jsx|mjs|cjs|mts|cts|yaml|yml|toml)$/i;
@@ -192,20 +195,35 @@ export function stopGate(hook: HookInput): never {
 	// >50-file change set — its "verify the rest manually" had no receipt
 	// mechanism, so the gate could pass with unverified files. The W14
 	// in-process re-verify costs no extra process per file, so it scales.
+	// W3086: the per-file `qlty check` spawn does NOT scale (205 dirty files
+	// took >150s) — the loop runs the non-Qlty file laws with _skip_qlty, and
+	// Qlty rides ONE batch invocation over every existing changed path below.
+	const checkPaths: string[] = [];
 	for (const rel of files) {
 		const abs = `${cwd.replace(/\/$/, "")}/${rel}`;
 		if (!existsSync(abs)) continue;
+		checkPaths.push(rel);
 		// _deferred_fmt=true is authoritative in filesCheck: verify-only — the
 		// flag skips qlty fmt on any path, so Stop never rewrites a file.
 		const payload = {
 			tool_name: "Write",
 			tool_input: { file_path: abs },
 			_deferred_fmt: true,
+			_skip_qlty: true,
 		} as HookInput;
 		const v = filesCheck(payload);
 		if (v.kind === "block" || v.kind === "feedback")
 			failures.push((v.err ?? v.msg).trim());
 	}
+
+	// ONE qlty check over the whole changed set — --no-formatters keeps Stop
+	// verify-only (formatting cosmetics belong to the merge ladder), and a
+	// repo without qlty setup still skips silently (exit 99 inside).
+	const batch = qltyCheckPaths(cwd, checkPaths, { noFormatters: true });
+	if (batch)
+		failures.push(
+			`qlty check found issues across ${checkPaths.length} changed files:\n${batch.slice(0, 4000)}`,
+		);
 
 	if (failures.length)
 		feedback(

@@ -13,10 +13,11 @@ import { scratchWorld, type ScratchWorld } from "@klh/test-kit";
 
 const GATE = new URL("../hooks/gate.ts", import.meta.url).pathname;
 
-/** A stub `qlty` on the child PATH: logs every invocation to $STOPCAP_QLTY_LOG,
- * MUTATES the target on `fmt` (teeth — a Stop that formats fails the byte
- * assertions), exits 99 ("not set up") on both modes so the gate keeps
- * verifying while the real toolchain never loads. */
+/** A stub `qlty` on the child PATH: logs every invocation to $STOPCAP_QLTY_LOG
+ * (mode + every argument after it), MUTATES the target on `fmt` (teeth — a Stop
+ * that formats fails the byte assertions), exits 99 ("not set up") so the gate
+ * keeps verifying while the real toolchain never loads. With $STOPCAP_QLTY_FAIL
+ * a `check` reports issues and exits 1 — the real-failure path. */
 function stubQlty(w: ScratchWorld): { bin: string; log: string } {
 	const stubBin = join(w.home, "stub-bin");
 	mkdirSync(stubBin, { recursive: true });
@@ -28,11 +29,16 @@ function stubQlty(w: ScratchWorld): { bin: string; log: string } {
 			"import { appendFileSync, existsSync } from 'node:fs';",
 			"const log = process.env.STOPCAP_QLTY_LOG;",
 			"const mode = process.argv[2];",
-			"const target = process.argv[4];",
-			"if (log) appendFileSync(log, mode + ' ' + target + ' ' + process.cwd() + '\\n');",
+			"const args = process.argv.slice(3);",
+			"const target = args[args.length - 1];",
+			"if (log) appendFileSync(log, mode + ' ' + args.join(' ') + ' ' + process.cwd() + '\\n');",
 			"if (mode === 'fmt' && target) {",
 			"	const f = process.cwd() + '/' + target;",
 			"	if (existsSync(f)) appendFileSync(f, '// stop-formatted-me\\n');",
+			"}",
+			"if (mode === 'check' && process.env.STOPCAP_QLTY_FAIL) {",
+			"	console.log('stub-lint: fake issue in ' + target);",
+			"	process.exit(1);",
 			"}",
 			"process.exit(99);",
 		].join("\n"),
@@ -54,7 +60,12 @@ function changedCorpus(repo: string): void {
 	writeFileSync(join(repo, "zz-bad.ts"), `const pad = 1;\n`.repeat(1600));
 }
 
-function stop(w: ScratchWorld, sessionId: string, path?: string) {
+function stop(
+	w: ScratchWorld,
+	sessionId: string,
+	path?: string,
+	extraEnv: Record<string, string> = {},
+) {
 	const payload = join(w.home, "stop-input.json");
 	writeFileSync(
 		payload,
@@ -74,6 +85,7 @@ function stop(w: ScratchWorld, sessionId: string, path?: string) {
 			...w.env,
 			PATH: path ?? `${toolBin}:/usr/bin:/bin`,
 			STOPCAP_QLTY_LOG: join(w.home, "qlty.log"),
+			...extraEnv,
 		},
 		stdin: Bun.file(payload),
 		stdout: "pipe",
@@ -148,7 +160,7 @@ test.describe("@unit", () => {
 		}
 	});
 
-	test("Stop never formats — every changed file keeps its bytes (stub qlty has teeth)", () => {
+	test("Stop never formats and checks ONCE — bytes intact (stub qlty has teeth)", () => {
 		const w = scratchWorld({ prefix: "stop-cap-bytes-" });
 		try {
 			const { bin: stubBin, log: qlog } = stubQlty(w);
@@ -165,11 +177,67 @@ test.describe("@unit", () => {
 				`${stubBin}:${dirname(Bun.which("git") ?? "/usr/bin/git")}:/usr/bin:/bin`,
 			);
 			const log = readFileSync(qlog, "utf8").trim().split("\n");
+			const checks = log.filter((l) => l.startsWith("check "));
 			expect(s.code).toBe(2);
 			expect(s.err).toContain("zz-bad.ts"); // real failure still verified
-			expect(log.filter((l) => l.startsWith("check ")).length).toBe(60); // all checked
+			expect(checks.length).toBe(1); // W3086: ONE batch check, not 60
+			expect(checks[0]).toContain("--no-formatters");
+			for (let i = 1; i <= 59; i++) expect(checks[0]).toContain(nm(i)); // all paths
+			expect(checks[0]).toContain("zz-bad.ts");
 			expect(log.filter((l) => l.startsWith("fmt ")).length).toBe(0); // none formatted
 			for (const [n, c] of before) expect(read(n)).toBe(c); // bytes intact
+		} finally {
+			w.clean();
+		}
+	});
+
+	test("a real qlty failure in the batch check still blocks Stop", () => {
+		const w = scratchWorld({ prefix: "stop-cap-qfail-" });
+		try {
+			const { bin: stubBin } = stubQlty(w);
+			changedCorpus(w.repo);
+			const s = stop(
+				w,
+				"stop-cap-qfail-sess",
+				`${stubBin}:${dirname(Bun.which("git") ?? "/usr/bin/git")}:/usr/bin:/bin`,
+				{ STOPCAP_QLTY_FAIL: "1" },
+			);
+			expect(s.code).toBe(2);
+			expect(s.err).toContain("STOP-GATE");
+			expect(s.err).toContain(
+				"qlty check found issues across 60 changed files",
+			);
+			expect(s.err).toContain("stub-lint: fake issue");
+		} finally {
+			w.clean();
+		}
+	});
+
+	test("205 changed files: one qlty spawn, bounded wall time", () => {
+		const w = scratchWorld({ prefix: "stop-cap-large-" });
+		try {
+			const { bin: stubBin, log: qlog } = stubQlty(w);
+			for (let i = 1; i <= 205; i++)
+				writeFileSync(
+					join(w.repo, `g${String(i).padStart(3, "0")}.ts`),
+					"const ok = 1;\n",
+				);
+			const t0 = Date.now();
+			const s = stop(
+				w,
+				"stop-cap-large-sess",
+				`${stubBin}:${dirname(Bun.which("git") ?? "/usr/bin/git")}:/usr/bin:/bin`,
+			);
+			const ms = Date.now() - t0;
+			const log = readFileSync(qlog, "utf8").trim().split("\n");
+			test.info().annotations.push({
+				type: "stop-205-files-ms",
+				description: `${ms}`,
+			});
+			expect(s.code).toBe(0); // clean tree allows
+			expect(log.filter((l) => l.startsWith("check ")).length).toBe(1);
+			expect(log.filter((l) => l.startsWith("fmt ")).length).toBe(0);
+			expect(ms).toBeLessThan(60_000); // per-file spawning measured >150s
 		} finally {
 			w.clean();
 		}
